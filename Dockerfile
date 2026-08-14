@@ -35,7 +35,8 @@ COPY . .
 # Dossiers de sortie (à monter en volume en pratique, créés ici par sécurité)
 RUN mkdir -p experiments/checkpoints sentiment_model_final
 
-# Commande par défaut : entraînement avec les valeurs par défaut de train.py
-CMD ["python", "train.py"]
+# Entrypoint : gère train / api / both
+ENTRYPOINT ["python", "entrypoint.py"]
+CMD ["both"]
 
 EXPOSE 8000
