@@ -37,3 +37,5 @@ RUN mkdir -p experiments/checkpoints sentiment_model_final
 
 # Commande par défaut : entraînement avec les valeurs par défaut de train.py
 CMD ["python", "train.py"]
+
+EXPOSE 8000

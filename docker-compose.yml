@@ -33,6 +33,20 @@ services:
       - hf-cache:/app/.cache
     profiles: ["evaluate"]
 
+  api:
+    build: .
+    image: thinktuning:latest
+    container_name: thinktuning-api
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_PATH=/app/sentiment_model_final
+    volumes:
+      - ./sentiment_model_final:/app/sentiment_model_final
+      - hf-cache:/app/.cache
+    profiles: ["api"]
+
 volumes:
   # Cache Hugging Face (modèle + dataset parquet) et cache NLTK,
   # persistant entre les runs pour éviter de re-télécharger à chaque fois.
