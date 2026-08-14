@@ -43,6 +43,13 @@ STOPWORDS = {
     },
 }
 
+# Mots de négation : ne doivent JAMAIS être supprimés/permutés, sous peine
+# d'inverser silencieusement le sentiment d'une phrase (bruit d'étiquette).
+NEGATION_WORDS = {
+    "fr": {"pas", "ne", "n'", "jamais", "aucun", "aucune", "rien", "sans", "ni"},
+    "en": {"not", "no", "never", "n't", "none", "without", "nor", "cannot", "can't"},
+}
+
 
 # ---------------------------------------------------------------------------
 # Synonym extraction
@@ -67,9 +74,10 @@ def _get_synonyms(word: str, lang: str) -> List[str]:
 # ---------------------------------------------------------------------------
 
 def synonym_replacement(words: List[str], lang: str, n: int = 1) -> List[str]:
-    """Remplace n mots (hors stopwords) par un de leurs synonymes."""
+    """Remplace n mots (hors stopwords et négations) par un de leurs synonymes."""
     new_words = words.copy()
-    candidates = [w for w in words if w.lower() not in STOPWORDS.get(lang, set())]
+    protected = STOPWORDS.get(lang, set()) | NEGATION_WORDS.get(lang, set())
+    candidates = [w for w in words if w.lower() not in protected]
     random.shuffle(candidates)
 
     replaced = 0
@@ -88,10 +96,11 @@ def synonym_replacement(words: List[str], lang: str, n: int = 1) -> List[str]:
 def random_insertion(words: List[str], lang: str, n: int = 1) -> List[str]:
     """Insère n synonymes de mots existants à des positions aléatoires."""
     new_words = words.copy()
+    protected = STOPWORDS.get(lang, set()) | NEGATION_WORDS.get(lang, set())
 
     for _ in range(n):
         candidates = [
-            w for w in new_words if w.lower() not in STOPWORDS.get(lang, set())
+            w for w in new_words if w.lower() not in protected
         ]
         if not candidates:
             continue
@@ -113,27 +122,43 @@ def random_insertion(words: List[str], lang: str, n: int = 1) -> List[str]:
     return new_words
 
 
-def random_swap(words: List[str], n: int = 1) -> List[str]:
-    """Permute n paires de mots aléatoirement."""
+def random_swap(words: List[str], lang: str = "en", n: int = 1) -> List[str]:
+    """
+    Permute n paires de mots aléatoirement, en évitant de déplacer les
+    mots de négation (ex: "pas", "not") pour ne pas casser leur portée
+    syntaxique et inverser le sentiment de la phrase.
+    """
     new_words = words.copy()
     length = len(new_words)
+    protected = NEGATION_WORDS.get(lang, set())
 
     if length < 2:
         return new_words
 
+    swappable_idx = [i for i, w in enumerate(new_words) if w.lower() not in protected]
+    if len(swappable_idx) < 2:
+        return new_words
+
     for _ in range(n):
-        idx1, idx2 = random.sample(range(length), 2)
+        idx1, idx2 = random.sample(swappable_idx, 2)
         new_words[idx1], new_words[idx2] = new_words[idx2], new_words[idx1]
 
     return new_words
 
 
-def random_deletion(words: List[str], p: float = 0.1) -> List[str]:
-    """Supprime chaque mot avec une probabilité p (garde au moins 1 mot)."""
+def random_deletion(words: List[str], lang: str = "en", p: float = 0.1) -> List[str]:
+    """
+    Supprime chaque mot avec une probabilité p (garde au moins 1 mot).
+    Les mots de négation sont protégés pour ne pas inverser le sentiment.
+    """
     if len(words) == 1:
         return words
 
-    new_words = [w for w in words if random.random() > p]
+    protected = NEGATION_WORDS.get(lang, set())
+    new_words = [
+        w for w in words
+        if w.lower() in protected or random.random() > p
+    ]
     if not new_words:
         return [random.choice(words)]
 
@@ -172,8 +197,8 @@ def recompose(
     operations = [
         lambda w: synonym_replacement(w, lang, n),
         lambda w: random_insertion(w, lang, n),
-        lambda w: random_swap(w, n),
-        lambda w: random_deletion(w, alpha),
+        lambda w: random_swap(w, lang, n),
+        lambda w: random_deletion(w, lang, alpha),
     ]
 
     attempts = 0

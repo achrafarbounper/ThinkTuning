@@ -7,7 +7,7 @@ from transformers import AutoTokenizer
 from src.dataset.loader import load_raw_dataset, augment_dataset
 from src.dataset.preprocess import create_dataloaders
 from src.model.distilbert import build_model
-from src.model.trainer import Trainer
+from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
 
 
@@ -37,26 +37,33 @@ def main(args):
     print(f"1. Chargement du dataset multilingue (max {args.max_per_lang}/langue)...")
     raw = load_raw_dataset(max_per_lang=args.max_per_lang)
 
-    print(f"2. Recomposition (augmentation) — fraction={args.augment_fraction}...")
-    augmented = augment_dataset(
-        raw,
+    print("2. Split train/val (avant augmentation, pour éviter la fuite)...")
+    split = raw.train_test_split(test_size=0.1, seed=42)
+    raw_train, raw_val = split["train"], split["test"]
+
+    print(f"3. Recomposition (augmentation) sur le train uniquement — fraction={args.augment_fraction}...")
+    augmented_train = augment_dataset(
+        raw_train,
         variants_per_example=args.variants_per_example,
         augment_fraction=args.augment_fraction,
     )
-    print(f"   -> {len(raw)} exemples originaux -> {len(augmented)} après recomposition")
+    print(f"   -> {len(raw_train)} exemples originaux -> {len(augmented_train)} après recomposition")
 
-    print("3. Création des DataLoaders...")
-    train_loader, val_loader = create_dataloaders(augmented, cfg)
+    print("4. Création des DataLoaders...")
+    train_loader, val_loader = create_dataloaders(augmented_train, raw_val, cfg)
 
-    print(f"4. Chargement du modèle {cfg['model_name']} sur {cfg['device']}...")
+    print("5. Calcul des poids des classes...")
+    class_weights = compute_class_weights(augmented_train['label'])
+
+    print(f"6. Chargement du modèle {cfg['model_name']} sur {cfg['device']}...")
     tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
     model = build_model(cfg)
 
-    print("5. Entraînement...")
-    trainer = Trainer(model, cfg)
+    print("7. Entraînement...")
+    trainer = Trainer(model, cfg, class_weights=class_weights)
     trainer.train(train_loader, val_loader)
 
-    print("6. Sauvegarde du modèle final...")
+    print("7. Sauvegarde du modèle final...")
     tokenizer.save_pretrained("sentiment_model_final")
     trainer.save("sentiment_model_final")
 

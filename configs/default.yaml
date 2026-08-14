@@ -1,12 +1,12 @@
 model_name: distilbert-base-multilingual-cased
 
-max_length: 24 #160
+max_length: 160
 
 learning_rate: 3e-5
 weight_decay: 0.01
 warmup_ratio: 0.1
 
-epochs: 1 #4
+epochs: 4
 batch_size: 8 #16
 
 device: auto

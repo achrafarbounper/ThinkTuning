@@ -89,6 +89,56 @@ plus vite pendant les tests, réduisez encore `--max_per_lang` (ex: 200).
 python predict.py "Ce produit est fantastique, je recommande !"
 ```
 
+Comment l'utiliser
+
+Place api.py à la racine du projet (au même niveau que train.py, configs/, src/), puis :
+
+bash
+pip install fastapi "uvicorn[standard]"
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
+
+La doc interactive s'ouvre sur http://localhost:8000/docs.
+
+Lancer un entraînement
+bash
+curl -X POST http://localhost:8000/train \
+  -H "Content-Type: application/json" \
+  -d '{"max_per_lang": 500, "epochs": 2, "batch_size": 8}'
+
+→ répond immédiatement avec un job_id.
+
+Suivre la progression
+bash
+curl http://localhost:8000/train/status/<job_id>
+
+→ step te dit où en est l'entraînement (loading_dataset, training, saving_model, etc.) et status passe à completed ou failed.
+
+Prédire
+bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["Ce produit est fantastique !", "This is terrible."]}'
+Détails d'implémentation à connaître
+/train ne bloque jamais : l'entraînement tourne dans un thread séparé, l'API répond en millisecondes.
+Le Predictor est mis en cache en mémoire — il n'est chargé qu'une fois, au premier appel à /predict, et automatiquement invalidé/rechargé quand un entraînement se termine (ou manuellement via /predict/reload).
+Le registre des jobs est en mémoire (dict Python) — parfait pour du dev/local, mais si tu déploies en multi-worker (plusieurs process uvicorn) ou que tu redémarres le service, il faudrait passer à un store partagé (Redis, base de données). Dis-moi si c'est ton cas, je peux adapter.
+Un GET /health te donne un statut rapide (modèle dispo ou non, jobs actifs).
+
+## Docker
+docker compose build
+
+# Entraînement (service par défaut)
+docker compose up train
+
+# Prédiction (profil séparé, modèle déjà entraîné requis)
+docker compose --profile predict run --rm predict
+
+# Évaluation
+docker compose --profile evaluate run --rm evaluate
+
+# Override rapide des hyperparamètres sans toucher le compose file
+docker compose run --rm train python train.py --max_per_lang 200 --epochs 1
+
 ## Notes
 
 - Le dataset source (`cardiffnlp/tweet_sentiment_multilingual`) est téléchargé

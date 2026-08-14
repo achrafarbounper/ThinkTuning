@@ -1,0 +1,39 @@
+services:
+  train:
+    build: .
+    image: thinktuning:latest
+    container_name: thinktuning-train
+    command: ["python", "train.py", "--max_per_lang", "500", "--epochs", "2", "--batch_size", "8"]
+    environment:
+      - OMP_NUM_THREADS=4
+      - MKL_NUM_THREADS=4
+    volumes:
+      - ./configs:/app/configs
+      - ./experiments:/app/experiments
+      - ./sentiment_model_final:/app/sentiment_model_final
+      - hf-cache:/app/.cache
+
+  predict:
+    build: .
+    image: thinktuning:latest
+    container_name: thinktuning-predict
+    command: ["python", "predict.py", "Ce produit est fantastique, je recommande !"]
+    volumes:
+      - ./sentiment_model_final:/app/sentiment_model_final
+      - hf-cache:/app/.cache
+    profiles: ["predict"]
+
+  evaluate:
+    build: .
+    image: thinktuning:latest
+    container_name: thinktuning-evaluate
+    command: ["python", "evaluate.py", "--max_per_lang", "500"]
+    volumes:
+      - ./sentiment_model_final:/app/sentiment_model_final
+      - hf-cache:/app/.cache
+    profiles: ["evaluate"]
+
+volumes:
+  # Cache Hugging Face (modèle + dataset parquet) et cache NLTK,
+  # persistant entre les runs pour éviter de re-télécharger à chaque fois.
+  hf-cache:

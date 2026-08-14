@@ -1,0 +1,51 @@
+# Contrôle de version
+.git
+.gitignore
+
+# Environnements virtuels
+venv/
+ENV/
+env/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.cache/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Modèles, checkpoints, résultats (générés à l'exécution, pas à embarquer dans l'image)
+*.pt
+*.pth
+*.safetensors
+checkpoint-*/
+experiments/checkpoints/
+sentiment_model_final/
+results/
+
+# Données (téléchargées automatiquement depuis le Hugging Face Hub)
+data/
+datasets/
+*.csv
+
+# Logs / temporaires
+*.log
+logs/
+*.tmp
+*.temp
+.tmp/
+
+# Docker lui-même
+Dockerfile
+.dockerignore
+docker-compose.yml
