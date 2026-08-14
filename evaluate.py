@@ -13,7 +13,7 @@ from src.dataset.loader import load_raw_dataset
 from src.dataset.preprocess import tokenize_dataset
 from src.utils.config import load_config
 from src.utils.metrics import compute_metrics
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
 
 
 MODEL_PATH = "./sentiment_model_final"
@@ -25,17 +25,20 @@ def evaluate(model, tokenizer, dataset, batch_size=16):
     """
     preds, labels = [], []
     
-    # Convertit les colonnes HF en tensors PyTorch
+    label_key = "labels" if "labels" in dataset.column_names else "label"
     dataset.set_format(
         type="torch",
-        columns=["input_ids", "attention_mask", "label"]
+        columns=["input_ids", "attention_mask", label_key]
     )
 
-    # Conversion HF → PyTorch DataLoader
+    # Convertit les colonnes HF en tensors PyTorch et padde chaque batch
+    # pour éviter les erreurs de stack sur des séquences de longueurs différentes.
+    collator = DataCollatorWithPadding(tokenizer=tokenizer)
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=False,
+        collate_fn=collator,
     )
 
     model.eval()
@@ -43,7 +46,7 @@ def evaluate(model, tokenizer, dataset, batch_size=16):
         for batch in tqdm(loader, desc="Evaluation"):
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"]
-            label = batch["label"]
+            label = batch[label_key]
 
             logits = model(
                 input_ids=input_ids,

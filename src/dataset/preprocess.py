@@ -11,10 +11,17 @@ def tokenize_dataset(dataset, tokenizer, max_length=128):
     if isinstance(tokenizer, str):
         tokenizer = AutoTokenizer.from_pretrained(tokenizer)
 
-    def tokenize(batch):
-        return tokenizer(batch["text"], truncation=True, max_length=max_length)  # pas de padding ici
+    if "label" in dataset.column_names and "labels" not in dataset.column_names:
+        dataset = dataset.rename_column("label", "labels")
 
-    return dataset.map(tokenize, batched=True, num_proc=2)  # (b) tokenisation parallèle
+    def tokenize(batch):
+        tokenized = tokenizer(batch["text"], truncation=True, max_length=max_length)
+        if "labels" in batch:
+            tokenized["labels"] = batch["labels"]
+        return tokenized
+
+    # num_proc=1 avoids Windows multiprocessing issues with dataset.map under spawn.
+    return dataset.map(tokenize, batched=True, num_proc=1)
 
 
 def create_dataloaders(train_ds, val_ds, cfg):
@@ -25,8 +32,9 @@ def create_dataloaders(train_ds, val_ds, cfg):
     train_ds = tokenize_dataset(train_ds, cfg["model_name"], max_length=cfg.get("max_length", 128))
     val_ds = tokenize_dataset(val_ds, cfg["model_name"], max_length=cfg.get("max_length", 128))
 
-    train_ds = train_ds.with_format("torch", columns=["input_ids", "attention_mask", "label"])
-    val_ds = val_ds.with_format("torch", columns=["input_ids", "attention_mask", "label"])
+    label_col = "labels" if "labels" in train_ds.column_names else "label"
+    train_ds = train_ds.with_format("torch", columns=["input_ids", "attention_mask", label_col])
+    val_ds = val_ds.with_format("torch", columns=["input_ids", "attention_mask", label_col])
 
     tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
     collator = DataCollatorWithPadding(tokenizer=tokenizer)
