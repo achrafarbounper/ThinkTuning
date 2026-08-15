@@ -24,7 +24,10 @@ def evaluate(model, tokenizer, dataset, batch_size=16):
     Évalue le modèle sur un dataset HuggingFace tokenisé.
     """
     preds, labels = [], []
-    
+
+    if "label" in dataset.column_names and "labels" not in dataset.column_names:
+        dataset = dataset.rename_column("label", "labels")
+
     label_key = "labels" if "labels" in dataset.column_names else "label"
     dataset.set_format(
         type="torch",
@@ -46,7 +49,7 @@ def evaluate(model, tokenizer, dataset, batch_size=16):
         for batch in tqdm(loader, desc="Evaluation"):
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"]
-            label = batch[label_key]
+            label = batch.get("labels", batch.get(label_key))
 
             logits = model(
                 input_ids=input_ids,
