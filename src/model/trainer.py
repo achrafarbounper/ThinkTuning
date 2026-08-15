@@ -105,12 +105,15 @@ class Trainer:
             with torch.autocast(
                 device_type="cpu", dtype=torch.bfloat16, enabled=self.bf16
             ):
+                # On NE passe PAS labels au modèle : sinon HF calcule en
+                # interne une CrossEntropyLoss non pondérée dans outputs.loss,
+                # et self.criterion (qui porte les poids de classe) n'est
+                # jamais réellement utilisé pour l'optimisation.
                 outputs = self.model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    labels=labels,
                 )
-                loss = outputs.loss / self.grad_accum_steps
+                loss = self.criterion(outputs.logits, labels) / self.grad_accum_steps
 
             loss.backward()
 
