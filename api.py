@@ -28,7 +28,7 @@ from transformers import AutoTokenizer
 from src.dataset.loader import load_raw_dataset, augment_dataset
 from src.dataset.preprocess import create_dataloaders
 from src.model.distilbert import build_model
-from src.model.trainer import Trainer
+from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
 from src.inference.predictor import Predictor
 
@@ -126,12 +126,15 @@ def _run_training(job_id: str, req: TrainRequest):
         job.step = "building_dataloaders"
         train_loader, val_loader = create_dataloaders(augmented_train, raw_val, cfg)
 
+        job.step = "computing_class_weights"
+        class_weights = compute_class_weights(augmented_train["label"])
+
         job.step = "loading_model"
         tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
         model = build_model(cfg)
 
         job.step = "training"
-        trainer = Trainer(model, cfg)
+        trainer = Trainer(model, cfg, class_weights=class_weights)
         trainer.train(train_loader, val_loader)
 
         job.step = "saving_model"
