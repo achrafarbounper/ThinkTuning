@@ -51,6 +51,7 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class TrainRequest(BaseModel):
@@ -80,14 +81,47 @@ class TrainJob(BaseModel):
 # Pour un déploiement multi-process, remplacer par Redis ou une DB.
 _jobs: Dict[str, TrainJob] = {}
 _jobs_lock = threading.Lock()
+_job_cancel_events: Dict[str, threading.Event] = {}
+
+
+def _get_cancel_event(job_id: str) -> threading.Event:
+    return _job_cancel_events.setdefault(job_id, threading.Event())
+
+
+def _is_cancel_requested(job_id: str) -> bool:
+    return _job_cancel_events.get(job_id) is not None and _job_cancel_events[job_id].is_set()
+
+
+def cancel_training(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job_id introuvable")
+
+    cancel_event = _get_cancel_event(job_id)
+    cancel_event.set()
+
+    if job.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}:
+        return job
+
+    job.status = JobStatus.CANCELLED
+    job.step = "cancelled"
+    job.error = "Training cancelled by user"
+    job.finished_at = time.time()
+    return job
 
 
 def _run_training(job_id: str, req: TrainRequest):
     job = _jobs[job_id]
+    cancel_event = _get_cancel_event(job_id)
     job.status = JobStatus.RUNNING
     job.started_at = time.time()
 
     try:
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
+
         cfg = load_config(CONFIG_PATH)
 
         overrides = {
@@ -109,12 +143,27 @@ def _run_training(job_id: str, req: TrainRequest):
             else req.device
         )
 
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
+
         job.step = "loading_dataset"
         raw = load_raw_dataset(max_per_lang=req.max_per_lang)
+
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
 
         job.step = "splitting_dataset"
         split = raw.train_test_split(test_size=0.1, seed=42)
         raw_train, raw_val = split["train"], split["test"]
+
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
 
         job.step = "augmenting_dataset"
         augmented_train = augment_dataset(
@@ -123,8 +172,18 @@ def _run_training(job_id: str, req: TrainRequest):
             augment_fraction=req.augment_fraction,
         )
 
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
+
         job.step = "building_dataloaders"
         train_loader, val_loader = create_dataloaders(augmented_train, raw_val, cfg)
+
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
 
         job.step = "computing_class_weights"
         class_weights = compute_class_weights(augmented_train["label"])
@@ -133,13 +192,28 @@ def _run_training(job_id: str, req: TrainRequest):
         tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
         model = build_model(cfg)
 
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
+
         job.step = "training"
         trainer = Trainer(model, cfg, class_weights=class_weights)
-        trainer.train(train_loader, val_loader)
+        trainer.train(train_loader, val_loader, cancel_event=cancel_event)
+
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
 
         job.step = "saving_model"
         tokenizer.save_pretrained(MODEL_DIR)
         trainer.save(MODEL_DIR)
+
+        if cancel_event.is_set():
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            return
 
         # Le modèle sur disque a changé : on force le rechargement du
         # Predictor utilisé par /predict au prochain appel.
@@ -150,9 +224,22 @@ def _run_training(job_id: str, req: TrainRequest):
         job.status = JobStatus.COMPLETED
         job.step = "done"
 
+    except RuntimeError as exc:
+        if _is_cancel_requested(job_id):
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            job.error = "Training cancelled by user"
+        else:
+            job.status = JobStatus.FAILED
+            job.error = f"{exc}\n{traceback.format_exc()}"
     except Exception as exc:  # noqa: BLE001 - on veut capturer toute erreur pour la remonter via /train/status
-        job.status = JobStatus.FAILED
-        job.error = f"{exc}\n{traceback.format_exc()}"
+        if _is_cancel_requested(job_id):
+            job.status = JobStatus.CANCELLED
+            job.step = "cancelled"
+            job.error = "Training cancelled by user"
+        else:
+            job.status = JobStatus.FAILED
+            job.error = f"{exc}\n{traceback.format_exc()}"
 
     finally:
         job.finished_at = time.time()
@@ -169,11 +256,18 @@ def start_training(req: TrainRequest):
 
     with _jobs_lock:
         _jobs[job_id] = job
+        _job_cancel_events.setdefault(job_id, threading.Event())
 
     thread = threading.Thread(target=_run_training, args=(job_id, req), daemon=True)
     thread.start()
 
     return job
+
+
+@app.post("/train/cancel/{job_id}", response_model=TrainJob)
+def cancel_training_endpoint(job_id: str):
+    """Demande une annulation coopérative d'un job d'entraînement."""
+    return cancel_training(job_id)
 
 
 @app.get("/train/status/{job_id}", response_model=TrainJob)

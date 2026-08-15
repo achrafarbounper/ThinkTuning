@@ -14,17 +14,26 @@ import random
 import re
 from typing import List
 
-import nltk
-from nltk.corpus import wordnet
 
-# --- Setup NLTK (une seule fois) ---
-for pkg in ["wordnet", "omw-1.4", "punkt", "punkt_tab"]:
+def _ensure_nltk_data():
+    """Download NLTK resources only when augmentation is actually used."""
     try:
-        nltk.data.find(
-            f"corpora/{pkg}" if "punkt" not in pkg else f"tokenizers/{pkg}"
-        )
-    except LookupError:
-        nltk.download(pkg, quiet=True)
+        import nltk
+        from nltk.corpus import wordnet
+    except ImportError as exc:  # pragma: no cover - dependency check is user-facing
+        raise ImportError(
+            "NLTK is required for EDA augmentation. Install it with `pip install nltk`."
+        ) from exc
+
+    for pkg in ["wordnet", "omw-1.4", "punkt", "punkt_tab"]:
+        try:
+            nltk.data.find(
+                f"corpora/{pkg}" if "punkt" not in pkg else f"tokenizers/{pkg}"
+            )
+        except LookupError:
+            nltk.download(pkg, quiet=True)
+
+    return nltk, wordnet
 
 # Codes langue WordNet Open Multilingual (OMW)
 LANG_MAP = {
@@ -57,6 +66,7 @@ NEGATION_WORDS = {
 
 def _get_synonyms(word: str, lang: str) -> List[str]:
     """Récupère des synonymes via WordNet dans la langue donnée."""
+    _, wordnet = _ensure_nltk_data()
     wn_lang = LANG_MAP.get(lang, "eng")
     synonyms = set()
 

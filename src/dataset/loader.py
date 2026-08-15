@@ -12,8 +12,6 @@ from typing import Optional, Iterable
 import pandas as pd
 from datasets import load_dataset, Dataset, concatenate_datasets
 
-from src.augmentation.eda import recompose
-
 LABEL_NAMES = {0: "negative", 1: "neutral", 2: "positive"}
 
 _PARQUET_BASE = (
@@ -75,6 +73,8 @@ def augment_dataset(
     Returns:
         Dataset augmenté
     """
+    from src.augmentation.eda import recompose
+
     random.seed(seed)
     df = dataset.to_pandas()
 
