@@ -32,6 +32,11 @@ def compute_class_weights(labels, num_classes=3):
 
     return torch.tensor(weights, dtype=torch.float32)
 
+
+class TrainingCancelledError(RuntimeError):
+    pass
+
+
 class Trainer:
     def __init__(self, model, cfg, class_weights=None):
         self.device = cfg.get("device", "cpu")
@@ -64,7 +69,7 @@ class Trainer:
             class_weights = class_weights.to(self.device)
         self.criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    def train(self, train_loader, val_loader):
+    def train(self, train_loader, val_loader, cancel_event=None):
         # Le nombre de "vrais" pas d'optimisation tient compte de l'accumulation
         steps_per_epoch = -(-len(train_loader) // self.grad_accum_steps)  # ceil division
         total_steps = steps_per_epoch * self.cfg["epochs"]
@@ -80,20 +85,29 @@ class Trainer:
         best_f1 = 0.0
 
         for epoch in range(self.cfg["epochs"]):
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Training cancelled by user")
             print(f"\n=== Epoch {epoch+1}/{self.cfg['epochs']} ===")
-            self._train_epoch(train_loader)
-            f1 = self._eval_epoch(val_loader)
+            self._train_epoch(train_loader, cancel_event=cancel_event)
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Training cancelled by user")
+            f1 = self._eval_epoch(val_loader, cancel_event=cancel_event)
+
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Training cancelled by user")
 
             if f1 > best_f1:
                 best_f1 = f1
                 self.save("experiments/checkpoints/best_model.pt")
                 print(f"✔ Nouveau meilleur modèle (F1={f1:.4f}) sauvegardé.")
 
-    def _train_epoch(self, loader):
+    def _train_epoch(self, loader, cancel_event=None):
         self.model.train()
         self.optimizer.zero_grad(set_to_none=True)
 
         for step, batch in enumerate(tqdm(loader, desc="Train")):
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Training cancelled by user")
             batch = {
                 k: (v.to(self.device) if isinstance(v, torch.Tensor) else v)
                 for k, v in batch.items()
@@ -119,6 +133,8 @@ class Trainer:
 
             is_last_batch = (step + 1) == len(loader)
             if (step + 1) % self.grad_accum_steps == 0 or is_last_batch:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise TrainingCancelledError("Training cancelled by user")
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(),
                     max_norm=self.cfg.get("gradient_clip", 1.0),
@@ -127,12 +143,14 @@ class Trainer:
                 self.scheduler.step()
                 self.optimizer.zero_grad(set_to_none=True)
 
-    def _eval_epoch(self, loader):
+    def _eval_epoch(self, loader, cancel_event=None):
         self.model.eval()
         preds, labels = [], []
 
         with torch.no_grad():
             for batch in tqdm(loader, desc="Eval"):
+                if cancel_event is not None and cancel_event.is_set():
+                    raise TrainingCancelledError("Training cancelled by user")
                 batch = {
                     k: (v.to(self.device) if isinstance(v, torch.Tensor) else v)
                     for k, v in batch.items()

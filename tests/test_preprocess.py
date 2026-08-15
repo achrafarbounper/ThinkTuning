@@ -1,3 +1,4 @@
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock, patch
@@ -6,7 +7,7 @@ import torch
 from datasets import Dataset
 from transformers import AutoTokenizer
 
-from api import JobStatus, TrainJob, TrainRequest, _jobs, _run_training
+from api import JobStatus, TrainJob, TrainRequest, _jobs, _job_cancel_events, _run_training, cancel_training
 from evaluate import evaluate
 from src.dataset.preprocess import tokenize_dataset, create_dataloaders
 
@@ -79,6 +80,16 @@ class TestPreprocess(unittest.TestCase):
         self.assertEqual(mock_create_dataloaders.call_args.args[2]["device"], "cpu")
         mock_trainer.train.assert_called_once()
         mock_trainer.save.assert_called_once_with("./sentiment_model_final")
+
+    def test_cancel_training_marks_job_cancelled_and_sets_event(self):
+        job_id = "job-cancel"
+        _jobs[job_id] = TrainJob(job_id=job_id, status=JobStatus.RUNNING)
+        _job_cancel_events[job_id] = threading.Event()
+
+        job = cancel_training(job_id)
+
+        self.assertEqual(job.status, JobStatus.CANCELLED)
+        self.assertTrue(_job_cancel_events[job_id].is_set())
 
     def test_evaluate_pads_variable_length_sequences(self):
         class DummyModel(torch.nn.Module):
