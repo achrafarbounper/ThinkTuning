@@ -131,7 +131,14 @@ def main():
     parser.add_argument("--output", required=True, help="Target JSONL file for Alpaca records.")
     parser.add_argument("--model_path", default="./sentiment_model_final", help="Path to fine-tuned model directory.")
     parser.add_argument("--text_column", default="text", help="Column name containing the text in structured files.")
-    parser.add_argument("--threshold", type=float, default=0.7, help="Minimum confidence threshold to keep predictions.")
+    parser.add_argument(
+        "--min_confidence",
+        "--threshold",
+        dest="min_confidence",
+        type=float,
+        default=0.7,
+        help="Minimum confidence threshold to keep predictions.",
+    )
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size used for DistilBERT inference.")
     args = parser.parse_args()
 
@@ -140,7 +147,7 @@ def main():
         output_path=args.output,
         model_path=args.model_path,
         text_column=args.text_column,
-        min_confidence=args.threshold,
+        min_confidence=args.min_confidence,
         batch_size=args.batch_size,
     )
 
