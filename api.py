@@ -112,15 +112,19 @@ def _run_training(job_id: str, req: TrainRequest):
         job.step = "loading_dataset"
         raw = load_raw_dataset(max_per_lang=req.max_per_lang)
 
+        job.step = "splitting_dataset"
+        split = raw.train_test_split(test_size=0.1, seed=42)
+        raw_train, raw_val = split["train"], split["test"]
+
         job.step = "augmenting_dataset"
-        augmented = augment_dataset(
-            raw,
+        augmented_train = augment_dataset(
+            raw_train,
             variants_per_example=req.variants_per_example,
             augment_fraction=req.augment_fraction,
         )
 
         job.step = "building_dataloaders"
-        train_loader, val_loader = create_dataloaders(augmented, cfg)
+        train_loader, val_loader = create_dataloaders(augmented_train, raw_val, cfg)
 
         job.step = "loading_model"
         tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
