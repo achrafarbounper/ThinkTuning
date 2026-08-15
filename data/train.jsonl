@@ -1,0 +1,43 @@
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Ce produit est vraiment nul, je suis très déçu.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le service client est catastrophique et le produit est en panne.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Je n'ai pas aimé du tout, c'est une mauvaise expérience.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le produit est moyen et manque de qualité.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Je suis déçu, ça ne correspond pas à la description.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le site est lent et l'achat a été compliqué.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"J'ai reçu un article abîmé, c'est inadmissible.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Pas convaincu, la qualité est très moyenne.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"C'est un produit passable mais sans plus.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le service est correct, mais j'attendais mieux.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le produit fait son job, sans être exceptionnel.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"J'ai eu un achat correct, ni bon ni mauvais.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"La livraison est correcte, mais le packaging reste simple.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"C'est acceptable, même si le design n'est pas exceptionnel.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le produit est satisfaisant sans être remarquable.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le rapport qualité/prix est honnête, sans être bluffant.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Excellent produit, très satisfait de mon achat.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"J'adore ce produit, il dépasse toutes mes attentes.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Très bon achat, la qualité est au rendez-vous.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le service est impeccable et le produit est génial.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Je recommande fortement, c'est fantastique.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Super expérience, je suis très content du résultat.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le design est bluffant et la finition est excellente.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Je suis ravi, ce produit m'a vraiment aidé.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le produit est fiable et très pratique au quotidien.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"C'est un excellent rapport qualité/prix, je le recommande.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Je suis très satisfait, le service et la qualité sont top.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le produit est simple à utiliser et vraiment agréable.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Très déçu, ça ne fonctionne pas comme prévu.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le packaging est pauvre et le produit est fragile.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Je n'ai pas trouvé ça intéressant, c'est ennuyeux.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le produit est souvent en rupture et le service est lent.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"C'est assez banal, sans originalité ni qualité.","output":"negative"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Je suis partagé, mais globalement ce n'est pas convaincant.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le produit est honnête, mais pas exceptionnel.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"J'ai l'impression que c'est juste correct, sans plus.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"La commande est arrivée, mais le produit n'est pas si génial.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"C'est agréable mais ne me fait pas envie à l'achat.","output":"neutral"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Très content, j'aime beaucoup la simplicité et la qualité.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Bravo, c'est exactement ce que je cherchais.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Le produit est solide et très bien fini.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"Je suis enchanté, tout est parfait et fluide.","output":"positive"}
+{"instruction":"Classify the sentiment of the following text as negative, neutral, or positive.","input":"J'ai eu une expérience vraiment agréable depuis le début.","output":"positive"}

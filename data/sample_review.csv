@@ -1,0 +1,26 @@
+text,predicted_label,manual_label,status
+Le produit est solide et très bien fini.,positive,positive,correct
+"Pas convaincu, la qualité est très moyenne.",negative,negative,correct
+Le service client est catastrophique et le produit est en panne.,negative,negative,correct
+"J'adore ce produit, il dépasse toutes mes attentes.",positive,positive,correct
+"Le rapport qualité/prix est honnête, sans être bluffant.",neutral,neutral,correct
+Le produit est satisfaisant sans être remarquable.,neutral,neutral,correct
+C'est un produit passable mais sans plus.,neutral,neutral,correct
+"J'ai reçu un article abîmé, c'est inadmissible.",negative,negative,correct
+"Le produit est honnête, mais pas exceptionnel.",neutral,neutral,correct
+Le site est lent et l'achat a été compliqué.,negative,negative,correct
+Le produit est simple à utiliser et vraiment agréable.,positive,positive,correct
+"Je n'ai pas aimé du tout, c'est une mauvaise expérience.",negative,negative,correct
+"Ce produit est vraiment nul, je suis très déçu.",negative,negative,correct
+Le produit est souvent en rupture et le service est lent.,negative,negative,correct
+"J'ai l'impression que c'est juste correct, sans plus.",neutral,neutral,correct
+"Je suis enchanté, tout est parfait et fluide.",positive,positive,correct
+"Excellent produit, très satisfait de mon achat.",positive,positive,correct
+Le service est impeccable et le produit est génial.,positive,positive,correct
+"Je n'ai pas trouvé ça intéressant, c'est ennuyeux.",negative,negative,correct
+"Bravo, c'est exactement ce que je cherchais.",positive,positive,correct
+"Très déçu, ça ne fonctionne pas comme prévu.",negative,negative,correct
+"Je recommande fortement, c'est fantastique.",positive,positive,correct
+"Je suis ravi, ce produit m'a vraiment aidé.",positive,positive,correct
+"C'est acceptable, même si le design n'est pas exceptionnel.",neutral,neutral,correct
+"C'est assez banal, sans originalité ni qualité.",negative,negative,correct

@@ -73,10 +73,10 @@ sentiment_model_final/
 results/
 
 # Data files
-*.csv
-*.json
-data/
-datasets/
+#*.csv
+#*.json
+#data/
+#datasets/
 
 # Logs
 *.log
