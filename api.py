@@ -14,7 +14,9 @@ Documentation interactive une fois lancé : http://localhost:8000/docs
 
 import csv
 import io
+import json
 import os
+import sqlite3
 import threading
 import time
 import traceback
@@ -101,11 +103,122 @@ class TrainJob(BaseModel):
     model_path: Optional[str] = None
 
 
-# Registre des jobs en mémoire (suffisant pour un usage local / dev).
-# Pour un déploiement multi-process, remplacer par Redis ou une DB.
-_jobs: Dict[str, TrainJob] = {}
+JOB_STORE_PATH = os.getenv("JOB_STORE_PATH", os.path.join("experiments", "jobs.db"))
+
+
+class PersistentJobStore(dict):
+    """Dict-like job registry backed by SQLite so jobs survive process restarts."""
+
+    def __init__(self, path: str = JOB_STORE_PATH):
+        super().__init__()
+        self.path = path
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self._ensure_db()
+        self._refresh_from_db()
+
+    def _ensure_db(self):
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS jobs (
+                    job_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+                """
+            )
+
+    def _serialize_job(self, job: TrainJob) -> str:
+        payload = job.model_dump() if hasattr(job, "model_dump") else job.dict()
+        if isinstance(payload.get("status"), Enum):
+            payload["status"] = payload["status"].value
+        return json.dumps(payload, default=str)
+
+    def _refresh_from_db(self):
+        with sqlite3.connect(self.path) as conn:
+            rows = conn.execute("SELECT job_id, payload FROM jobs ORDER BY updated_at DESC").fetchall()
+        jobs = {}
+        for job_id, payload in rows:
+            data = json.loads(payload)
+            jobs[job_id] = TrainJob(**data)
+        super().clear()
+        super().update(jobs)
+
+    def __setitem__(self, key, value):
+        if not isinstance(value, TrainJob):
+            raise TypeError("PersistentJobStore accepts only TrainJob instances.")
+        payload = self._serialize_job(value)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (job_id, payload, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (key, payload, time.time()),
+            )
+        super().__setitem__(key, value)
+
+    def __getitem__(self, key):
+        if key not in self:
+            with sqlite3.connect(self.path) as conn:
+                row = conn.execute("SELECT payload FROM jobs WHERE job_id = ?", (key,)).fetchone()
+            if row is None:
+                raise KeyError(key)
+            data = json.loads(row[0])
+            value = TrainJob(**data)
+            super().__setitem__(key, value)
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __contains__(self, key):
+        if super().__contains__(key):
+            return True
+        with sqlite3.connect(self.path) as conn:
+            return conn.execute("SELECT 1 FROM jobs WHERE job_id = ?", (key,)).fetchone() is not None
+
+    def values(self):
+        self._refresh_from_db()
+        return super().values()
+
+    def items(self):
+        self._refresh_from_db()
+        return super().items()
+
+    def __iter__(self):
+        self._refresh_from_db()
+        return super().__iter__()
+
+
+_jobs: Dict[str, TrainJob] = PersistentJobStore(path=JOB_STORE_PATH)
 _jobs_lock = threading.Lock()
 _job_cancel_events: Dict[str, threading.Event] = {}
+
+
+def _get_job_store() -> PersistentJobStore:
+    global _jobs
+    if getattr(_jobs, "path", None) != JOB_STORE_PATH:
+        _jobs = PersistentJobStore(path=JOB_STORE_PATH)
+    return _jobs
+
+
+def _persist_job(job: TrainJob):
+    store = _get_job_store()
+    with _jobs_lock:
+        if not job.job_id:
+            return
+        store[job.job_id] = job
+
+
+def _load_jobs() -> Dict[str, TrainJob]:
+    return dict(PersistentJobStore(path=JOB_STORE_PATH))
 
 
 def _get_cancel_event(job_id: str) -> threading.Event:
@@ -161,7 +274,7 @@ def _save_model_version(tokenizer, trainer) -> str:
 
 
 def cancel_training(job_id: str):
-    job = _jobs.get(job_id)
+    job = _get_job_store().get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job_id introuvable")
 
@@ -175,11 +288,12 @@ def cancel_training(job_id: str):
     job.step = "cancelled"
     job.error = "Training cancelled by user"
     job.finished_at = time.time()
+    _persist_job(job)
     return job
 
 
 def _run_training(job_id: str, req: TrainRequest):
-    job = _jobs[job_id]
+    job = _get_job_store()[job_id]
     cancel_event = _get_cancel_event(job_id)
     job.status = JobStatus.RUNNING
     job.started_at = time.time()
@@ -188,6 +302,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         cfg = load_config(CONFIG_PATH)
@@ -214,6 +329,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         job.step = "loading_dataset"
@@ -222,6 +338,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         job.step = "splitting_dataset"
@@ -231,6 +348,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         job.step = "augmenting_dataset"
@@ -243,6 +361,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         job.step = "building_dataloaders"
@@ -251,6 +370,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         job.step = "computing_class_weights"
@@ -263,6 +383,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         job.step = "training"
@@ -272,6 +393,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         job.step = "saving_model"
@@ -281,6 +403,7 @@ def _run_training(job_id: str, req: TrainRequest):
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
             job.step = "cancelled"
+            _persist_job(job)
             return
 
         # Le modèle sur disque a changé : on force le rechargement du
@@ -291,6 +414,7 @@ def _run_training(job_id: str, req: TrainRequest):
 
         job.status = JobStatus.COMPLETED
         job.step = "done"
+        _persist_job(job)
 
     except RuntimeError as exc:
         if _is_cancel_requested(job_id):
@@ -300,6 +424,7 @@ def _run_training(job_id: str, req: TrainRequest):
         else:
             job.status = JobStatus.FAILED
             job.error = f"{exc}\n{traceback.format_exc()}"
+        _persist_job(job)
     except Exception as exc:  # noqa: BLE001 - on veut capturer toute erreur pour la remonter via /train/status
         if _is_cancel_requested(job_id):
             job.status = JobStatus.CANCELLED
@@ -308,9 +433,11 @@ def _run_training(job_id: str, req: TrainRequest):
         else:
             job.status = JobStatus.FAILED
             job.error = f"{exc}\n{traceback.format_exc()}"
+        _persist_job(job)
 
     finally:
         job.finished_at = time.time()
+        _persist_job(job)
 
 
 @app.post("/train", response_model=TrainJob, status_code=202)
@@ -323,7 +450,7 @@ def start_training(req: TrainRequest, _: bool = Depends(require_api_key)):
     job = TrainJob(job_id=job_id, status=JobStatus.PENDING)
 
     with _jobs_lock:
-        _jobs[job_id] = job
+        _get_job_store()[job_id] = job
         _job_cancel_events.setdefault(job_id, threading.Event())
 
     thread = threading.Thread(target=_run_training, args=(job_id, req), daemon=True)
@@ -340,7 +467,7 @@ def cancel_training_endpoint(job_id: str, _: bool = Depends(require_api_key)):
 
 @app.get("/train/status/{job_id}", response_model=TrainJob)
 def get_training_status(job_id: str, _: bool = Depends(require_api_key)):
-    job = _jobs.get(job_id)
+    job = _get_job_store().get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job_id introuvable")
     return job
@@ -348,7 +475,7 @@ def get_training_status(job_id: str, _: bool = Depends(require_api_key)):
 
 @app.get("/train/jobs", response_model=List[TrainJob])
 def list_training_jobs(_: bool = Depends(require_api_key)):
-    return list(_jobs.values())
+    return list(_get_job_store().values())
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +627,6 @@ def health():
     return {
         "status": "ok",
         "model_available": os.path.isdir(active_model_dir),
-        "active_jobs": sum(1 for j in _jobs.values() if j.status == JobStatus.RUNNING),
+        "active_jobs": sum(1 for j in _get_job_store().values() if j.status == JobStatus.RUNNING),
         "model_dir": active_model_dir,
     }

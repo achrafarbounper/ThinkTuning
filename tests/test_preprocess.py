@@ -91,6 +91,26 @@ class TestPreprocess(unittest.TestCase):
         self.assertEqual(job.status, JobStatus.CANCELLED)
         self.assertTrue(_job_cancel_events[job_id].is_set())
 
+    def test_job_store_persists_and_loads_jobs(self):
+        import os
+        import tempfile
+
+        import api
+
+        job_id = "job-persisted"
+        job = TrainJob(job_id=job_id, status=JobStatus.PENDING, step="queued")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "jobs.db")
+            api._jobs = api.PersistentJobStore(path=db_path)
+            with patch.object(api, "JOB_STORE_PATH", db_path):
+                api._persist_job(job)
+                loaded_jobs = api._load_jobs()
+
+        self.assertIn(job_id, loaded_jobs)
+        self.assertEqual(loaded_jobs[job_id].status, JobStatus.PENDING)
+        self.assertEqual(loaded_jobs[job_id].step, "queued")
+
     def test_evaluate_pads_variable_length_sequences(self):
         class DummyModel(torch.nn.Module):
             def forward(self, input_ids, attention_mask=None, **kwargs):

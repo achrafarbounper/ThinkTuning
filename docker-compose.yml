@@ -43,7 +43,9 @@ services:
     environment:
       - MODEL_PATH=/app/sentiment_model_final
       - API_KEY=${API_KEY:-lo3Ky5-g8GMetDFrF_cnsb5UbDrgPmgazy4s7EIR0ks}
+      - JOB_STORE_PATH=/app/experiments/jobs.db
     volumes:
+      - ./experiments:/app/experiments
       - ./sentiment_model_final:/app/sentiment_model_final
       - hf-cache:/app/.cache
     profiles: ["api"]
