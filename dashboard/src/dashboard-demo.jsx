@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { SentimentApiClient, TRAIN_STEPS } from "./sentimentApiClient";
+import TrainJobTracker from "./components/TrainJobTracker";
 
 /* ------------------------------------------------------------------------
  * ThinkTuning — console d'exploitation
@@ -648,40 +649,11 @@ export default function Dashboard() {
           </form>
           {trainError && <p className="tt-hint tt-hint-error">{trainError}</p>}
 
-          {currentJob && (
-            <div className="tt-job-live">
-              <div className="tt-job-live-head">
-                <span className="tt-mono">{currentJob.job_id}</span>
-                <span className={`tt-tag tt-tag-status-${currentJob.status}`}>{currentJob.status}</span>
-              </div>
-              <ol className="tt-tracker">
-                {TRAIN_STEPS.map((step, idx) => {
-                  const state =
-                    currentJob.status === "failed" && idx === currentStepIndex
-                      ? "error"
-                      : idx < currentStepIndex
-                      ? "done"
-                      : idx === currentStepIndex
-                      ? "active"
-                      : "pending";
-                  return (
-                    <li key={step} className={`tt-tracker-step tt-tracker-${state}`}>
-                      <span className="tt-tracker-dot" />
-                      <span className="tt-tracker-label">{STEP_LABELS[step] || step}</span>
-                    </li>
-                  );
-                })}
-              </ol>
-              {currentJob.error && (
-                <p className="tt-hint tt-hint-error tt-job-error">{currentJob.error.split("\n")[0]}</p>
-              )}
-              {currentJob.model_path && (
-                <p className="tt-hint">
-                  Modèle sauvegardé : <span className="tt-mono">{currentJob.model_path}</span>
-                </p>
-              )}
-            </div>
-          )}
+          <TrainJobTracker
+            job={currentJob}
+            onCancel={handleCancelTraining}
+            cancelLoading={false}
+          />
 
           <table className="tt-table tt-jobs-table">
             <thead>
