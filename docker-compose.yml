@@ -33,22 +33,23 @@ services:
       - hf-cache:/app/.cache
     profiles: ["evaluate"]
 
-  api:
+  app:
     build: .
     image: thinktuning:latest
-    container_name: thinktuning-api
-    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    container_name: thinktuning-app
     ports:
       - "8000:8000"
+      - "8080:80"
     environment:
       - MODEL_PATH=/app/sentiment_model_final
-      - API_KEY=${API_KEY:-lo3Ky5-g8GMetDFrF_cnsb5UbDrgPmgazy4s7EIR0ks}
+      - API_KEY=${API_KEY}
       - JOB_STORE_PATH=/app/experiments/jobs.db
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173,http://localhost:3000}
     volumes:
       - ./experiments:/app/experiments
       - ./sentiment_model_final:/app/sentiment_model_final
       - hf-cache:/app/.cache
-    profiles: ["api"]
+    profiles: ["app"]
 
 volumes:
   # Cache Hugging Face (modèle + dataset parquet) et cache NLTK,
