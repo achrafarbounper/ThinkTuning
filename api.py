@@ -15,6 +15,7 @@ Documentation interactive une fois lancé : http://localhost:8000/docs
 import csv
 import io
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -26,8 +27,9 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 import torch
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
 
@@ -43,6 +45,25 @@ MODEL_DIR = MODEL_ROOT
 LEGACY_MODEL_DIR = "./sentiment_model_final"
 MODELS_ROOT = MODEL_ROOT
 CONFIG_PATH = "configs/default.yaml"
+logger = logging.getLogger("thinktuning.api")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    logger.addHandler(handler)
+logger.propagate = False
+
+REQUEST_COUNTER = Counter(
+    "http_requests_total",
+    "Total number of HTTP requests processed by the API.",
+    labelnames=("method", "path", "status_code"),
+)
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds",
+    "Latency of HTTP requests in seconds.",
+    labelnames=("method", "path", "status_code"),
+)
+
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
     raise RuntimeError("API_KEY environment variable must be set, even in local development.")
@@ -65,6 +86,45 @@ app = FastAPI(
     description="Entraînement et prédiction pour l'analyse de sentiments FR/EN",
     version="1.0.0",
 )
+
+
+@app.middleware("http")
+async def request_metrics_middleware(request: Request, call_next):
+    start_time = time.perf_counter()
+    route = request.scope.get("route")
+    request_path = getattr(route, "path", request.url.path)
+    client_ip = request.client.host if request.client else "unknown"
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration = time.perf_counter() - start_time
+        status_code = 500
+        REQUEST_COUNTER.labels(method=request.method, path=request_path, status_code=str(status_code)).inc()
+        REQUEST_LATENCY.labels(method=request.method, path=request_path, status_code=str(status_code)).observe(duration)
+        logger.exception(
+            "http_request method=%s path=%s status=%s duration_ms=%.3f client_ip=%s",
+            request.method,
+            request_path,
+            status_code,
+            duration * 1000,
+            client_ip,
+        )
+        raise
+
+    duration = time.perf_counter() - start_time
+    status_code = response.status_code
+    REQUEST_COUNTER.labels(method=request.method, path=request_path, status_code=str(status_code)).inc()
+    REQUEST_LATENCY.labels(method=request.method, path=request_path, status_code=str(status_code)).observe(duration)
+    logger.info(
+        "http_request method=%s path=%s status=%s duration_ms=%.3f client_ip=%s",
+        request.method,
+        request_path,
+        status_code,
+        duration * 1000,
+        client_ip,
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -630,3 +690,8 @@ def health():
         "active_jobs": sum(1 for j in _get_job_store().values() if j.status == JobStatus.RUNNING),
         "model_dir": active_model_dir,
     }
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
