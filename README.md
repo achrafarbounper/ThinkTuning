@@ -95,9 +95,17 @@ Place api.py à la racine du projet (au même niveau que train.py, configs/, src
 
 bash
 pip install fastapi "uvicorn[standard]"
+# Linux/macOS
+export API_KEY="change-me-super-secret"
+# Windows PowerShell
+# $env:API_KEY="change-me-super-secret"
 uvicorn api:app --reload --host 0.0.0.0 --port 8000
 
 La doc interactive s'ouvre sur http://localhost:8000/docs.
+
+API_KEY est obligatoire même en local. Les routes sensibles exigent l'en-tête X-API-Key. Exemple :
+bash
+curl -H "X-API-Key: change-me-super-secret" http://localhost:8000/models
 
 Lancer un entraînement
 bash

@@ -42,6 +42,7 @@ services:
       - "8000:8000"
     environment:
       - MODEL_PATH=/app/sentiment_model_final
+      - API_KEY=${API_KEY:-lo3Ky5-g8GMetDFrF_cnsb5UbDrgPmgazy4s7EIR0ks}
     volumes:
       - ./sentiment_model_final:/app/sentiment_model_final
       - hf-cache:/app/.cache

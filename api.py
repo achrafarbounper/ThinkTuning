@@ -24,7 +24,7 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 import torch
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
@@ -41,6 +41,15 @@ MODEL_DIR = MODEL_ROOT
 LEGACY_MODEL_DIR = "./sentiment_model_final"
 MODELS_ROOT = MODEL_ROOT
 CONFIG_PATH = "configs/default.yaml"
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    raise RuntimeError("API_KEY environment variable must be set, even in local development.")
+
+
+def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key header.")
+    return True
 
 
 class ModelVersion(BaseModel):
@@ -305,7 +314,7 @@ def _run_training(job_id: str, req: TrainRequest):
 
 
 @app.post("/train", response_model=TrainJob, status_code=202)
-def start_training(req: TrainRequest):
+def start_training(req: TrainRequest, _: bool = Depends(require_api_key)):
     """
     Démarre un entraînement en arrière-plan et renvoie immédiatement un job_id.
     Utiliser GET /train/status/{job_id} pour suivre la progression.
@@ -324,13 +333,13 @@ def start_training(req: TrainRequest):
 
 
 @app.post("/train/cancel/{job_id}", response_model=TrainJob)
-def cancel_training_endpoint(job_id: str):
+def cancel_training_endpoint(job_id: str, _: bool = Depends(require_api_key)):
     """Demande une annulation coopérative d'un job d'entraînement."""
     return cancel_training(job_id)
 
 
 @app.get("/train/status/{job_id}", response_model=TrainJob)
-def get_training_status(job_id: str):
+def get_training_status(job_id: str, _: bool = Depends(require_api_key)):
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job_id introuvable")
@@ -338,7 +347,7 @@ def get_training_status(job_id: str):
 
 
 @app.get("/train/jobs", response_model=List[TrainJob])
-def list_training_jobs():
+def list_training_jobs(_: bool = Depends(require_api_key)):
     return list(_jobs.values())
 
 
@@ -386,7 +395,7 @@ def _get_predictor(model_name: Optional[str] = None) -> Predictor:
 
 
 @app.get("/models", response_model=List[ModelVersion])
-def list_models():
+def list_models(_: bool = Depends(require_api_key)):
     """Renvoie la liste des modèles enregistrés, du plus récent au plus ancien."""
     active_model_dir = _get_latest_model_dir()
     active_model_path = os.path.abspath(active_model_dir)
@@ -406,7 +415,7 @@ def list_models():
 
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest, model: Optional[str] = None):
+def predict(req: PredictRequest, model: Optional[str] = None, _: bool = Depends(require_api_key)):
     predictor = _get_predictor(model)
     results = predictor.predict(req.texts)
     return {"results": results}
@@ -417,6 +426,7 @@ async def predict_batch(
     file: UploadFile = File(..., description="CSV file containing one text column."),
     text_column: str = Form("text", description="Name of the column containing the text to predict."),
     response_format: str = Form("json", description="Response format: json or csv."),
+    _: bool = Depends(require_api_key),
 ):
     """Upload a CSV file and return predictions row by row in JSON or CSV."""
     if response_format not in {"json", "csv"}:
@@ -473,7 +483,7 @@ async def predict_batch(
 
 
 @app.post("/predict/reload", status_code=204)
-def reload_model(model: Optional[str] = None):
+def reload_model(model: Optional[str] = None, _: bool = Depends(require_api_key)):
     """Force le rechargement du modèle depuis le disque au prochain appel à /predict."""
     global _predictor
     with _predictor_lock:

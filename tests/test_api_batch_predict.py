@@ -1,5 +1,8 @@
 import csv
 import io
+import os
+
+os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient
 
@@ -64,3 +67,14 @@ def test_list_models_route(monkeypatch, tmp_path):
     payload = response.json()
     assert [item["name"] for item in payload] == ["20240102T120000Z", "20240101T120000Z"]
     assert payload[0]["path"].endswith("20240102T120000Z")
+
+
+def test_models_route_requires_api_key(monkeypatch):
+    monkeypatch.setattr(api, "API_KEY", "test-key")
+
+    response = client.get("/models")
+    assert response.status_code == 401, response.text
+    assert response.json()["detail"] == "Invalid or missing X-API-Key header."
+
+    response = client.get("/models", headers={"X-API-Key": "test-key"})
+    assert response.status_code == 200, response.text
