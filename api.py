@@ -28,6 +28,7 @@ from typing import Dict, List, Optional
 
 import torch
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
@@ -68,6 +69,20 @@ API_KEY = os.getenv("API_KEY")
 if not API_KEY:
     raise RuntimeError("API_KEY environment variable must be set, even in local development.")
 
+# Origines autorisées pour le dashboard React (dashboard-demo.jsx tourne sur
+# un port différent de l'API en dev : Vite=5173, CRA=3000). Sans ce
+# middleware, le navigateur bloque les requêtes fetch() cross-origin même
+# si le X-API-Key est correct. Configurable via la variable d'environnement
+# CORS_ALLOWED_ORIGINS (liste séparée par des virgules) pour la prod.
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+
 
 def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     if x_api_key != API_KEY:
@@ -85,6 +100,14 @@ app = FastAPI(
     title="Sentiment Analysis API",
     description="Entraînement et prédiction pour l'analyse de sentiments FR/EN",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
