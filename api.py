@@ -19,6 +19,7 @@ import threading
 import time
 import traceback
 import uuid
+from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -35,8 +36,18 @@ from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
 from src.inference.predictor import Predictor
 
-MODEL_DIR = "./sentiment_model_final"
+MODEL_ROOT = os.path.join("experiments", "models")
+MODEL_DIR = MODEL_ROOT
+LEGACY_MODEL_DIR = "./sentiment_model_final"
+MODELS_ROOT = MODEL_ROOT
 CONFIG_PATH = "configs/default.yaml"
+
+
+class ModelVersion(BaseModel):
+    name: str
+    path: str
+    created_at: Optional[float] = None
+    active: bool = False
 
 app = FastAPI(
     title="Sentiment Analysis API",
@@ -78,6 +89,7 @@ class TrainJob(BaseModel):
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     error: Optional[str] = None
+    model_path: Optional[str] = None
 
 
 # Registre des jobs en mémoire (suffisant pour un usage local / dev).
@@ -93,6 +105,50 @@ def _get_cancel_event(job_id: str) -> threading.Event:
 
 def _is_cancel_requested(job_id: str) -> bool:
     return _job_cancel_events.get(job_id) is not None and _job_cancel_events[job_id].is_set()
+
+
+def _list_model_versions() -> List[str]:
+    os.makedirs(MODEL_ROOT, exist_ok=True)
+    if not os.path.isdir(MODEL_ROOT):
+        return []
+
+    versions = []
+    for entry in sorted(os.listdir(MODEL_ROOT), reverse=True):
+        full_path = os.path.join(MODEL_ROOT, entry)
+        if os.path.isdir(full_path):
+            versions.append(entry)
+    return versions
+
+
+def _resolve_model_dir(model_name: Optional[str] = None) -> str:
+    if model_name is not None:
+        model_name = model_name.strip()
+        if not model_name:
+            return _get_latest_model_dir()
+        candidate = os.path.join(MODEL_ROOT, model_name)
+        if not os.path.isdir(candidate):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model version '{model_name}' not found in '{MODEL_ROOT}'.",
+            )
+        return candidate
+
+    versions = _list_model_versions()
+    return os.path.join(MODEL_ROOT, versions[0]) if versions else MODEL_ROOT
+
+
+def _get_latest_model_dir() -> str:
+    return _resolve_model_dir()
+
+
+def _save_model_version(tokenizer, trainer) -> str:
+    os.makedirs(MODEL_ROOT, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    model_dir = os.path.join(MODEL_ROOT, timestamp)
+    os.makedirs(model_dir, exist_ok=True)
+    tokenizer.save_pretrained(model_dir)
+    trainer.save(model_dir)
+    return model_dir
 
 
 def cancel_training(job_id: str):
@@ -210,8 +266,8 @@ def _run_training(job_id: str, req: TrainRequest):
             return
 
         job.step = "saving_model"
-        tokenizer.save_pretrained(MODEL_DIR)
-        trainer.save(MODEL_DIR)
+        model_dir = _save_model_version(tokenizer, trainer)
+        job.model_path = model_dir
 
         if cancel_event.is_set():
             job.status = JobStatus.CANCELLED
@@ -308,25 +364,50 @@ _predictor: Optional[Predictor] = None
 _predictor_lock = threading.Lock()
 
 
-def _get_predictor() -> Predictor:
+def _get_predictor(model_name: Optional[str] = None) -> Predictor:
     global _predictor
     with _predictor_lock:
-        if _predictor is None:
-            if not os.path.isdir(MODEL_DIR):
-                raise HTTPException(
-                    status_code=503,
-                    detail=(
-                        f"Aucun modèle entraîné trouvé dans '{MODEL_DIR}'. "
-                        "Lancez d'abord un entraînement via POST /train."
-                    ),
-                )
-            _predictor = Predictor(MODEL_DIR)
+        target_dir = _resolve_model_dir(model_name)
+        if not os.path.isdir(target_dir):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Aucun modèle entraîné trouvé dans '{target_dir}'. "
+                    "Lancez d'abord un entraînement via POST /train."
+                ),
+            )
+
+        current_dir = getattr(_predictor, "model_path", None)
+        if _predictor is None or (
+            model_name is not None and os.path.abspath(current_dir) != os.path.abspath(target_dir)
+        ):
+            _predictor = Predictor(target_dir)
         return _predictor
 
 
+@app.get("/models", response_model=List[ModelVersion])
+def list_models():
+    """Renvoie la liste des modèles enregistrés, du plus récent au plus ancien."""
+    active_model_dir = _get_latest_model_dir()
+    active_model_path = os.path.abspath(active_model_dir)
+
+    model_versions = []
+    for name in _list_model_versions():
+        path = os.path.abspath(os.path.join(MODEL_ROOT, name))
+        model_versions.append(
+            ModelVersion(
+                name=name,
+                path=path,
+                created_at=os.path.getmtime(path),
+                active=(path == active_model_path),
+            )
+        )
+    return model_versions
+
+
 @app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest):
-    predictor = _get_predictor()
+def predict(req: PredictRequest, model: Optional[str] = None):
+    predictor = _get_predictor(model)
     results = predictor.predict(req.texts)
     return {"results": results}
 
@@ -392,7 +473,7 @@ async def predict_batch(
 
 
 @app.post("/predict/reload", status_code=204)
-def reload_model():
+def reload_model(model: Optional[str] = None):
     """Force le rechargement du modèle depuis le disque au prochain appel à /predict."""
     global _predictor
     with _predictor_lock:
@@ -405,8 +486,10 @@ def reload_model():
 
 @app.get("/health")
 def health():
+    active_model_dir = _get_latest_model_dir()
     return {
         "status": "ok",
-        "model_available": os.path.isdir(MODEL_DIR),
+        "model_available": os.path.isdir(active_model_dir),
         "active_jobs": sum(1 for j in _jobs.values() if j.status == JobStatus.RUNNING),
+        "model_dir": active_model_dir,
     }
