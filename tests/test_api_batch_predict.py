@@ -3,6 +3,7 @@ import io
 
 from fastapi.testclient import TestClient
 
+import api
 from api import app
 
 
@@ -46,3 +47,20 @@ def test_predict_batch_csv_route():
     body = response.text.strip().splitlines()
     assert body[0].startswith("row_index,text,sentiment,confidence")
     assert len(body) == 2
+
+
+def test_list_models_route(monkeypatch, tmp_path):
+    version_dir = tmp_path / "20240102T120000Z"
+    version_dir.mkdir()
+    older_dir = tmp_path / "20240101T120000Z"
+    older_dir.mkdir()
+
+    monkeypatch.setattr(api, "MODEL_ROOT", str(tmp_path))
+    monkeypatch.setattr(api, "MODELS_ROOT", str(tmp_path))
+
+    response = client.get("/models")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert [item["name"] for item in payload] == ["20240102T120000Z", "20240101T120000Z"]
+    assert payload[0]["path"].endswith("20240102T120000Z")
