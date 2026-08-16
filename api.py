@@ -12,6 +12,8 @@ Usage :
 Documentation interactive une fois lancé : http://localhost:8000/docs
 """
 
+import csv
+import io
 import os
 import threading
 import time
@@ -21,7 +23,8 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 import torch
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
 
@@ -326,6 +329,66 @@ def predict(req: PredictRequest):
     predictor = _get_predictor()
     results = predictor.predict(req.texts)
     return {"results": results}
+
+
+@app.post("/predict/batch")
+async def predict_batch(
+    file: UploadFile = File(..., description="CSV file containing one text column."),
+    text_column: str = Form("text", description="Name of the column containing the text to predict."),
+    response_format: str = Form("json", description="Response format: json or csv."),
+):
+    """Upload a CSV file and return predictions row by row in JSON or CSV."""
+    if response_format not in {"json", "csv"}:
+        raise HTTPException(status_code=400, detail="response_format must be 'json' or 'csv'")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    try:
+        text_buffer = io.StringIO(raw.decode("utf-8-sig"))
+    except UnicodeDecodeError:
+        try:
+            text_buffer = io.StringIO(raw.decode("latin-1"))
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Unsupported CSV encoding.") from exc
+
+    reader = csv.DictReader(text_buffer)
+    if reader.fieldnames is None:
+        raise HTTPException(status_code=400, detail="CSV file must contain a header row.")
+    if text_column not in reader.fieldnames:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Column '{text_column}' not found. Available columns: {reader.fieldnames}",
+        )
+
+    texts = []
+    for row in reader:
+        value = row.get(text_column)
+        if value is None or str(value).strip() == "":
+            continue
+        texts.append(str(value).strip())
+
+    if not texts:
+        raise HTTPException(status_code=400, detail=f"No non-empty values found in column '{text_column}'.")
+
+    predictor = _get_predictor()
+    results = predictor.predict(texts)
+
+    if response_format == "json":
+        return {"results": results}
+
+    csv_buffer = io.StringIO()
+    writer = csv.writer(csv_buffer)
+    writer.writerow(["row_index", "text", "sentiment", "confidence"])
+    for idx, item in enumerate(results, start=1):
+        writer.writerow([idx, item["text"], item["sentiment"], item["confidence"]])
+
+    return Response(
+        content=csv_buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=predictions.csv"},
+    )
 
 
 @app.post("/predict/reload", status_code=204)
