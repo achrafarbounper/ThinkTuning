@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { SentimentApiClient, TRAIN_STEPS } from "./sentimentApiClient";
 import TrainJobTracker from "./components/TrainJobTracker";
+import ModelVersionSelector from "./components/ModelVersionSelector";
 
 /* ------------------------------------------------------------------------
  * ThinkTuning — console d'exploitation
@@ -539,6 +540,14 @@ export default function Dashboard() {
           <div className="tt-panel-head">
             <h2>Prédiction</h2>
           </div>
+
+          <ModelVersionSelector
+            models={models}
+            activeModel={activeModel}
+            onModelChange={setActiveModel}
+            loading={!models || models.length === 0}
+          />
+
           <form onSubmit={handlePredict} className="tt-form">
             <textarea
               rows={5}
@@ -999,6 +1008,11 @@ textarea { width: 100%; resize: vertical; }
 .tt-history-table { max-height: 400px; overflow-y: auto; }
 .tt-history-time { white-space: nowrap; font-size: 0.75rem; }
 .tt-history-text { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tt-model-selector { margin-bottom: 14px; }
+.tt-model-selector-label { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: var(--tt-text-dim); }
+.tt-model-selector-select { width: 100%; }
+.tt-model-selector-hint { margin: 6px 0 0; font-size: 0.75rem; color: var(--tt-text-dim); padding: 6px 8px; background: rgba(91,141,239,0.08); border-radius: 6px; }
 
 .tt-logs { margin-top: 20px; border-top: 1px solid var(--tt-panel-border); padding-top: 14px; }
 .tt-logs h2 { font-size: 0.9rem; margin: 0 0 8px; color: var(--tt-text-dim); }
