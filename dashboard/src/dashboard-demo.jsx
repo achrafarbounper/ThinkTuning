@@ -10,9 +10,12 @@ import TrainJobTracker from "./components/TrainJobTracker";
  * ------------------------------------------------------------------------ */
 
 const CONFIG_STORAGE_KEY = "thinktuning.apiConfig";
+const PREDICTIONS_HISTORY_KEY = "thinktuning.predictionsHistory";
+const MAX_HISTORY_SIZE_KEY = "thinktuning.maxHistorySize";
 const HEALTH_POLL_MS = 8000;
 const JOBS_POLL_MS = 15000;
 const TRAIN_POLL_MS = 4000;
+const DEFAULT_MAX_HISTORY = 20;
 
 const STEP_LABELS = {
   queued: "En file d'attente",
@@ -41,6 +44,43 @@ function loadStoredConfig() {
     };
   } catch (_) {
     return { baseUrl: "http://localhost:8000", apiKey: "" };
+  }
+}
+
+function loadStoredPredictionsHistory() {
+  try {
+    const raw = window.localStorage.getItem(PREDICTIONS_HISTORY_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch (_) {
+    return [];
+  }
+}
+
+function loadStoredMaxHistorySize() {
+  try {
+    const raw = window.localStorage.getItem(MAX_HISTORY_SIZE_KEY);
+    if (!raw) return DEFAULT_MAX_HISTORY;
+    const size = parseInt(raw, 10);
+    return Number.isNaN(size) ? DEFAULT_MAX_HISTORY : Math.max(1, size);
+  } catch (_) {
+    return DEFAULT_MAX_HISTORY;
+  }
+}
+
+function saveHistoryToStorage(history) {
+  try {
+    window.localStorage.setItem(PREDICTIONS_HISTORY_KEY, JSON.stringify(history));
+  } catch (_) {
+    /* stockage indisponible */
+  }
+}
+
+function saveSizeToStorage(size) {
+  try {
+    window.localStorage.setItem(MAX_HISTORY_SIZE_KEY, String(size));
+  } catch (_) {
+    /* stockage indisponible */
   }
 }
 
@@ -107,6 +147,9 @@ export default function Dashboard() {
   const [logs, setLogs] = useState([]);
   const logIdRef = useRef(0);
   const trainPollRef = useRef(null);
+
+  const [predictionsHistory, setPredictionsHistory] = useState(loadStoredPredictionsHistory);
+  const [maxHistorySize, setMaxHistorySizeState] = useState(loadStoredMaxHistorySize);
 
   const pushLog = useCallback((type, text) => {
     logIdRef.current += 1;
@@ -235,6 +278,7 @@ export default function Dashboard() {
     try {
       const { results } = await clientRef.current.predict(texts, activeModel || undefined);
       setPredictResults(results);
+      addToHistory(results);
     } catch (err) {
       setPredictError(err.message);
     } finally {
@@ -273,6 +317,7 @@ export default function Dashboard() {
           textColumn: batchColumn,
         });
         setBatchResults(results);
+        addToHistory(results);
       }
     } catch (err) {
       setBatchError(err.message);
@@ -337,6 +382,37 @@ export default function Dashboard() {
     setConfig(configDraft);
     pushLog("info", `Configuration mise à jour → ${configDraft.baseUrl}`);
   };
+
+  const addToHistory = useCallback(
+    (newPredictions) => {
+      setPredictionsHistory((prev) => {
+        const updated = [
+          ...newPredictions.map((pred) => ({
+            ...pred,
+            timestamp: Date.now(),
+          })),
+          ...prev,
+        ].slice(0, maxHistorySize);
+        saveHistoryToStorage(updated);
+        return updated;
+      });
+    },
+    [maxHistorySize]
+  );
+
+  const clearHistory = useCallback(() => {
+    setPredictionsHistory([]);
+    saveHistoryToStorage([]);
+    pushLog("info", "Historique des prédictions effacé.");
+  }, [pushLog]);
+
+  const setMaxHistorySize = useCallback((size) => {
+    const newSize = Math.max(1, Math.min(1000, numOrUndef(size) || DEFAULT_MAX_HISTORY));
+    setMaxHistorySizeState(newSize);
+    saveSizeToStorage(newSize);
+    setPredictionsHistory((prev) => prev.slice(0, newSize));
+    saveHistoryToStorage(predictionsHistory.slice(0, newSize));
+  }, [predictionsHistory]);
 
   const currentStepIndex = currentJob
     ? TRAIN_STEPS.indexOf(currentJob.step) === -1
@@ -545,6 +621,68 @@ export default function Dashboard() {
           )}
           {batchResults && batchResults.length > 20 && (
             <p className="tt-hint">{batchResults.length - 20} lignes supplémentaires non affichées.</p>
+          )}
+        </section>
+
+        {/* --- Historique des prédictions ---------------------------------- */}
+        <section className="tt-panel tt-panel-wide">
+          <div className="tt-panel-head">
+            <h2>Historique des prédictions</h2>
+            <div className="tt-history-controls">
+              <input
+                type="number"
+                min="1"
+                max="1000"
+                value={maxHistorySize}
+                onChange={(e) => setMaxHistorySize(e.target.value)}
+                className="tt-input-small"
+                title="Nombre maximum de prédictions à conserver"
+              />
+              <button className="tt-btn tt-btn-ghost" onClick={clearHistory} type="button">
+                Effacer
+              </button>
+            </div>
+          </div>
+          {predictionsHistory.length === 0 ? (
+            <p className="tt-hint">Aucune prédiction pour le moment.</p>
+          ) : (
+            <table className="tt-table tt-history-table">
+              <thead>
+                <tr>
+                  <th>Date/Heure</th>
+                  <th>Texte</th>
+                  <th>Sentiment</th>
+                  <th>Confiance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {predictionsHistory.slice(0, 50).map((pred, idx) => (
+                  <tr key={idx}>
+                    <td className="tt-mono tt-history-time">
+                      {new Date(pred.timestamp).toLocaleString()}
+                    </td>
+                    <td className="tt-history-text">{pred.text}</td>
+                    <td>
+                      <span className={`tt-badge tt-badge-${pred.sentiment}`}>
+                        {SENTIMENT_LABELS[pred.sentiment] || pred.sentiment}
+                      </span>
+                    </td>
+                    <td className="tt-mono">{(pred.confidence * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {predictionsHistory.length > 50 && (
+            <p className="tt-hint">
+              {predictionsHistory.length - 50} prédictions supplémentaires non affichées.
+              (Total dans l'historique: {predictionsHistory.length})
+            </p>
+          )}
+          {predictionsHistory.length > 0 && (
+            <p className="tt-hint" style={{ marginTop: "8px" }}>
+              Affichage des {Math.min(50, predictionsHistory.length)} dernières prédictions sur {predictionsHistory.length} conservées.
+            </p>
           )}
         </section>
 
@@ -856,6 +994,11 @@ textarea { width: 100%; resize: vertical; }
 .tt-tracker-active .tt-tracker-dot { background: var(--tt-accent); box-shadow: 0 0 6px var(--tt-accent); }
 .tt-tracker-error { color: var(--tt-negative); border-color: rgba(242,84,91,0.5); }
 .tt-tracker-error .tt-tracker-dot { background: var(--tt-negative); }
+
+.tt-history-controls { display: flex; gap: 8px; align-items: center; }
+.tt-history-table { max-height: 400px; overflow-y: auto; }
+.tt-history-time { white-space: nowrap; font-size: 0.75rem; }
+.tt-history-text { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .tt-logs { margin-top: 20px; border-top: 1px solid var(--tt-panel-border); padding-top: 14px; }
 .tt-logs h2 { font-size: 0.9rem; margin: 0 0 8px; color: var(--tt-text-dim); }
