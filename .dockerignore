@@ -1,51 +1,122 @@
-# Contrôle de version
+# ===========================
+# Version Control
+# ===========================
 .git
 .gitignore
+.github/
+.gitlab-ci.yml
+.gitmodules
 
-# Environnements virtuels
+# ===========================
+# Virtual Environments
+# ===========================
 venv/
 ENV/
 env/
 .venv/
+.ENV
 
+# ===========================
 # Python
+# ===========================
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 .cache/
+.tox/
+.nox/
 
-# IDE / OS
+# ===========================
+# IDE / Development
+# ===========================
 .vscode/
 .idea/
 *.swp
 *.swo
-.DS_Store
-Thumbs.db
+*~
+*.sublime-project
+.project
+.pydevproject
+.settings/
 
-# Modèles, checkpoints, résultats (générés à l'exécution, pas à embarquer dans l'image)
+# ===========================
+# OS-specific
+# ===========================
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# ===========================
+# Model Checkpoints & Results
+# Note: Generated at runtime, not needed in image
+# ===========================
 *.pt
 *.pth
+*.ckpt
 *.safetensors
 checkpoint-*/
-experiments/checkpoints/
+experiments/
 sentiment_model_final/
 results/
+runs/
 
-# Données (téléchargées automatiquement depuis le Hugging Face Hub)
+# ===========================
+# Data Files
+# Note: Often auto-downloaded from Hugging Face Hub
+# ===========================
 data/
 datasets/
 *.csv
+*.jsonl
 
-# Logs / temporaires
+# ===========================
+# Logs & Temporary Files
+# ===========================
 *.log
+*.log.*
 logs/
 *.tmp
 *.temp
 .tmp/
 
-# Docker lui-même
+# ===========================
+# Node (Dashboard)
+# ===========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+.eslintcache
+
+# ===========================
+# Docker Build Context
+# ===========================
 Dockerfile
 .dockerignore
 docker-compose.yml
+docker-compose.*.yml
+.docker/
+
+# ===========================
+# Build Artifacts
+# ===========================
+dist/
+build/
+*.tar.gz
+*.zip
+.coverage
+.pytest_cache/
+htmlcov/
+
+# ===========================
+# Environment Files
+# ===========================
+.env
+.env.local
+.env.*.local
+.secrets/

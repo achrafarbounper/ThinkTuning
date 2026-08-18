@@ -1,12 +1,12 @@
-# Byte-compiled / optimized / DLL files
+# ===========================
+# Python
+# ===========================
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
 
-# Distribution / packaging
+# Distribution & Packaging
 .Python
 build/
 develop-eggs/
@@ -31,7 +31,7 @@ MANIFEST
 *.manifest
 *.spec
 
-# Unit test / coverage reports
+# Testing & Coverage
 htmlcov/
 .tox/
 .nox/
@@ -44,61 +44,128 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 
-# Virtual environments
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ===========================
+# Virtual Environments
+# ===========================
 venv/
 ENV/
 env/
 .venv/
+.ENV
 
-# IDEs
+# ===========================
+# IDEs & Editors
+# ===========================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
 
+# ===========================
+# OS-specific files
+# ===========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ===========================
 # Jupyter Notebook
-.ipynb_checkpoints
+# ===========================
+.ipynb_checkpoints/
+.jupyter/
 *.ipynb
 
-# Model files and checkpoints
+# ===========================
+# ML/DL Model files & Checkpoints
+# ===========================
 *.pt
 *.pth
+*.ckpt
 *.safetensors
 checkpoint-*/
 experiments/checkpoints/
 sentiment_model_final/
 results/
+runs/
 
-# Data files
-#*.csv
-#*.json
-#data/
-#datasets/
-
-# Logs
+# ===========================
+# Logs & Monitoring
+# ===========================
 *.log
+*.log.*
 logs/
+.logs/
+*.pot
 
-# Environment variables
+# ===========================
+# Environment & Secrets
+# ===========================
 .env
 .env.local
 .env.*.local
+.env.prod
+.env.dev
+.env.test
+.secrets/
+*.key
+*.pem
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# Temporary files
+# ===========================
+# Temporary Files
+# ===========================
 *.tmp
 *.temp
+*.bak
+*.swp~
 .tmp/
+.cache/
+.venv_tmp/
 
-# Node modules (if using any JS tools)
+# ===========================
+# Node (Dashboard & Frontend)
+# ===========================
 node_modules/
+.npm/
+.node_modules/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
 
-# Package manager files
-*.lock
-poetry.lock
+# ===========================
+# Build Artifacts
+# ===========================
+dist/
+build/
+*.tar.gz
+*.zip
+
+# ===========================
+# Data Files (local only)
+# ===========================
+# data/
+# datasets/
+# *.csv
+# *.json
