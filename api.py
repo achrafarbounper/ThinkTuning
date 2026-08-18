@@ -16,6 +16,7 @@ import csv
 import io
 import json
 import logging
+import math
 import os
 import sqlite3
 import threading
@@ -69,6 +70,72 @@ API_KEY = os.getenv("API_KEY")
 if not API_KEY:
     raise RuntimeError("API_KEY environment variable must be set, even in local development.")
 
+try:
+    RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+except ValueError:
+    RATE_LIMIT_PER_MINUTE = 60
+RATE_LIMIT_ENABLED = RATE_LIMIT_PER_MINUTE > 0
+_RATE_LIMIT_LOCK = threading.Lock()
+
+
+def _is_rate_limit_enabled():
+    return RATE_LIMIT_PER_MINUTE > 0
+
+
+class TokenBucket:
+    def __init__(self, rate_per_minute: int):
+        self.capacity = max(1, rate_per_minute)
+        self.refill_rate = self.capacity / 60.0
+        self.tokens = float(self.capacity)
+        self.last_update = time.monotonic()
+
+    def consume(self, amount: float = 1.0):
+        now = time.monotonic()
+        elapsed = now - self.last_update
+        self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
+        self.last_update = now
+
+        if self.tokens >= amount:
+            self.tokens -= amount
+            return True, 0
+
+        wait_seconds = (amount - self.tokens) / self.refill_rate if self.refill_rate > 0 else 0.0
+        return False, max(1, int(math.ceil(wait_seconds)))
+
+
+_RATE_LIMIT_BUCKETS: Dict[str, TokenBucket] = {}
+
+
+def _reset_rate_limit_buckets():
+    with _RATE_LIMIT_LOCK:
+        _RATE_LIMIT_BUCKETS.clear()
+
+
+def _client_identifier(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    if request.client is not None:
+        return request.client.host
+    return "unknown"
+
+
+def _enforce_rate_limit(request: Request):
+    if not _is_rate_limit_enabled() or request.method.upper() != "POST":
+        return None
+
+    if request.url.path not in {"/predict", "/predict/batch"}:
+        return None
+
+    client_id = _client_identifier(request)
+    with _RATE_LIMIT_LOCK:
+        bucket = _RATE_LIMIT_BUCKETS.setdefault(client_id, TokenBucket(RATE_LIMIT_PER_MINUTE))
+        allowed, wait_seconds = bucket.consume(1.0)
+        if allowed:
+            return None
+        return wait_seconds
+
+
 # Origines autorisées pour le dashboard React (dashboard-demo.jsx tourne sur
 # un port différent de l'API en dev : Vite=5173, CRA=3000). Sans ce
 # middleware, le navigateur bloque les requêtes fetch() cross-origin même
@@ -109,6 +176,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    wait_seconds = _enforce_rate_limit(request)
+    if wait_seconds is not None:
+        response = Response(
+            content=json.dumps({"detail": "Rate limit exceeded. Please retry later."}),
+            status_code=429,
+            media_type="application/json",
+            headers={"Retry-After": str(wait_seconds)},
+        )
+        return response
+    return await call_next(request)
 
 
 @app.middleware("http")
