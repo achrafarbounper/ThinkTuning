@@ -77,9 +77,20 @@ except ValueError:
 RATE_LIMIT_ENABLED = RATE_LIMIT_PER_MINUTE > 0
 _RATE_LIMIT_LOCK = threading.Lock()
 
+# Maintenance mode state
+_MAINTENANCE_MODE = False
+_MAINTENANCE_LOCK = threading.Lock()
+_MAINTENANCE_MESSAGE = "Service under maintenance. Please try again later."
+
 
 def _is_rate_limit_enabled():
     return RATE_LIMIT_PER_MINUTE > 0
+
+
+def _is_maintenance_mode():
+    """Check if the service is in maintenance mode."""
+    with _MAINTENANCE_LOCK:
+        return _MAINTENANCE_MODE
 
 
 class TokenBucket:
@@ -163,6 +174,13 @@ class ModelVersion(BaseModel):
     created_at: Optional[float] = None
     active: bool = False
 
+
+class MaintenanceStatus(BaseModel):
+    """Maintenance mode status response."""
+    maintenance_mode: bool
+    message: Optional[str] = None
+    updated_at: float = Field(default_factory=time.time)
+
 app = FastAPI(
     title="Sentiment Analysis API",
     description="Entraînement et prédiction pour l'analyse de sentiments FR/EN",
@@ -176,6 +194,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def maintenance_mode_middleware(request: Request, call_next):
+    """Block requests when service is in maintenance mode.
+    
+    Allows requests to /health, /maintenance endpoints and API key validation endpoint.
+    """
+    # Allow maintenance-related and health endpoints
+    excluded_paths = {
+    "/health",
+    "/maintenance",
+    "/maintenance/enable",
+    "/maintenance/disable",
+    "/metrics"
+    }
+    if request.url.path not in excluded_paths and _is_maintenance_mode():
+        response = Response(
+            content=json.dumps({"detail": _MAINTENANCE_MESSAGE}),
+            status_code=503,
+            media_type="application/json",
+            headers={"Retry-After": "3600"},
+        )
+        return response
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -844,7 +887,65 @@ def health():
         "model_available": os.path.isdir(active_model_dir),
         "active_jobs": sum(1 for j in _get_job_store().values() if j.status == JobStatus.RUNNING),
         "model_dir": active_model_dir,
+        "maintenance_mode": _is_maintenance_mode(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Maintenance Mode
+# ---------------------------------------------------------------------------
+
+@app.get("/maintenance", response_model=MaintenanceStatus)
+def get_maintenance_status():
+    """Get the current maintenance mode status.
+    
+    Public endpoint - no API key required.
+    """
+    with _MAINTENANCE_LOCK:
+        return MaintenanceStatus(
+            maintenance_mode=_MAINTENANCE_MODE,
+            message=_MAINTENANCE_MESSAGE if _MAINTENANCE_MODE else None,
+        )
+
+
+@app.post("/maintenance/enable", response_model=MaintenanceStatus, status_code=200)
+def enable_maintenance(
+    message: Optional[str] = None,
+    _: bool = Depends(require_api_key),
+):
+    """Enable maintenance mode. Blocks all requests except /health and /maintenance endpoints.
+    
+    Requires X-API-Key header.
+    """
+    global _MAINTENANCE_MODE, _MAINTENANCE_MESSAGE
+    with _MAINTENANCE_LOCK:
+        _MAINTENANCE_MODE = True
+        if message:
+            _MAINTENANCE_MESSAGE = message
+        logger.info(
+            "Maintenance mode ENABLED. Message: %s",
+            _MAINTENANCE_MESSAGE,
+        )
+        return MaintenanceStatus(
+            maintenance_mode=_MAINTENANCE_MODE,
+            message=_MAINTENANCE_MESSAGE,
+        )
+
+
+@app.post("/maintenance/disable", response_model=MaintenanceStatus, status_code=200)
+def disable_maintenance(_: bool = Depends(require_api_key)):
+    """Disable maintenance mode. Service returns to normal operation.
+    
+    Requires X-API-Key header.
+    """
+    global _MAINTENANCE_MODE
+    with _MAINTENANCE_LOCK:
+        _MAINTENANCE_MODE = False
+        logger.info("Maintenance mode DISABLED.")
+        return MaintenanceStatus(
+            maintenance_mode=_MAINTENANCE_MODE,
+            message=None,
+        )
 
 
 @app.get("/metrics")
