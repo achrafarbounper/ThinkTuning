@@ -12,7 +12,6 @@ from api import JobStatus, TrainJob, TrainRequest, _jobs, _job_cancel_events, _r
 from evaluate import evaluate
 from src.dataset.preprocess import tokenize_dataset, create_dataloaders
 
-
 class TestPreprocess(unittest.TestCase):
     def test_tokenize_dataset_returns_tokenized_dataset(self):
         data = {"text": ["Bonjour le monde!", "Hello world!"], "label": [0, 2]}
