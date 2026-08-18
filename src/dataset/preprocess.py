@@ -20,8 +20,9 @@ def tokenize_dataset(dataset, tokenizer, max_length=128):
             tokenized["labels"] = batch["labels"]
         return tokenized
 
-    # num_proc=1 avoids Windows multiprocessing issues with dataset.map under spawn.
-    return dataset.map(tokenize, batched=True, num_proc=1)
+    # Windows cannot safely spawn and then import the local Transformers package
+    # in the worker process; running the map in-process avoids the deadlock.
+    return dataset.map(tokenize, batched=True, num_proc=None)
 
 
 def create_dataloaders(train_ds, val_ds, cfg):
