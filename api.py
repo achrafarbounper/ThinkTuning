@@ -148,7 +148,7 @@ def _enforce_rate_limit(request: Request):
     if not _is_rate_limit_enabled() or request.method.upper() != "POST":
         return None
 
-    if request.url.path not in {"/predict", "/predict/batch"}:
+    if request.url.path not in {"/predict", "/predict/batch", "/compare"}:
         return None
 
     client_id = _client_identifier(request)
@@ -919,6 +919,27 @@ class PredictResponse(BaseModel):
     results: List[PredictionItem]
 
 
+class CompareRequest(BaseModel):
+    text_a: str = Field(..., min_length=1, description="Premier texte à comparer")
+    text_b: str = Field(..., min_length=1, description="Deuxième texte à comparer")
+    model: Optional[str] = Field(default=None, description="Nom du modèle à utiliser")
+
+
+class ComparePrediction(BaseModel):
+    text: str
+    sentiment: str
+    confidence: float
+
+
+class CompareResponse(BaseModel):
+    text_a: ComparePrediction
+    text_b: ComparePrediction
+    confidence_diff: float
+    sentiments_identical: bool
+    sentiments_opposed: bool
+    comparison: str
+
+
 _predictor: Optional[Predictor] = None
 _predictor_lock = threading.Lock()
 
@@ -981,6 +1002,43 @@ def predict(req: PredictRequest, model: Optional[str] = None, _: bool = Depends(
     predictor = _get_predictor(model)
     results = predictor.predict(req.texts)
     return {"results": results}
+
+
+@app.post("/compare", response_model=CompareResponse)
+def compare(req: CompareRequest, _: bool = Depends(require_api_key)):
+    predictor = _get_predictor(req.model)
+    predictions = predictor.predict([req.text_a, req.text_b])
+
+    if len(predictions) != 2:
+        raise HTTPException(status_code=500, detail="Comparison requires exactly two predictions.")
+
+    text_a_pred, text_b_pred = predictions
+    confidence_diff = round(abs(text_a_pred["confidence"] - text_b_pred["confidence"]), 3)
+    sentiments_identical = text_a_pred["sentiment"] == text_b_pred["sentiment"]
+    sentiments_opposed = {
+        text_a_pred["sentiment"],
+        text_b_pred["sentiment"],
+    } == {"negative", "positive"}
+    comparison = (
+        "identical" if sentiments_identical else "opposed" if sentiments_opposed else "different"
+    )
+
+    return {
+        "text_a": {
+            "text": text_a_pred["text"],
+            "sentiment": text_a_pred["sentiment"],
+            "confidence": text_a_pred["confidence"],
+        },
+        "text_b": {
+            "text": text_b_pred["text"],
+            "sentiment": text_b_pred["sentiment"],
+            "confidence": text_b_pred["confidence"],
+        },
+        "confidence_diff": confidence_diff,
+        "sentiments_identical": sentiments_identical,
+        "sentiments_opposed": sentiments_opposed,
+        "comparison": comparison,
+    }
 
 
 @app.post("/predict/batch")
