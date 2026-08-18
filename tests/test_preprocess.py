@@ -1,3 +1,4 @@
+import sqlite3
 import threading
 import unittest
 from types import SimpleNamespace
@@ -110,6 +111,34 @@ class TestPreprocess(unittest.TestCase):
         self.assertIn(job_id, loaded_jobs)
         self.assertEqual(loaded_jobs[job_id].status, JobStatus.PENDING)
         self.assertEqual(loaded_jobs[job_id].step, "queued")
+
+    def test_cleanup_old_jobs_removes_expired_completed_jobs(self):
+        import os
+        import tempfile
+        import time
+
+        import api
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "jobs.db")
+            old_job = TrainJob(job_id="old-job", status=JobStatus.COMPLETED, step="completed")
+            fresh_job = TrainJob(job_id="fresh-job", status=JobStatus.RUNNING, step="training")
+            api._jobs = api.PersistentJobStore(path=db_path)
+            with patch.object(api, "JOB_STORE_PATH", db_path):
+                api._jobs[old_job.job_id] = old_job
+                api._jobs[fresh_job.job_id] = fresh_job
+
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        "UPDATE jobs SET updated_at = ? WHERE job_id = ?",
+                        (time.time() - 90 * 86400, old_job.job_id),
+                    )
+
+                result = api.cleanup_old_jobs(max_age_days=30, dry_run=False)
+
+                self.assertEqual(result["deleted"], 1)
+                self.assertNotIn(old_job.job_id, api._get_job_store())
+                self.assertIn(fresh_job.job_id, api._get_job_store())
 
     def test_evaluate_pads_variable_length_sequences(self):
         class DummyModel(torch.nn.Module):
