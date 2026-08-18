@@ -138,3 +138,29 @@ def test_models_route_requires_api_key(monkeypatch):
 
     response = client.get("/models", headers={"X-API-Key": "test-key"})
     assert response.status_code == 200, response.text
+
+
+def test_compare_route(monkeypatch):
+    class FakePredictor:
+        def predict(self, texts):
+            return [
+                {"text": texts[0], "sentiment": "positive", "confidence": 0.91},
+                {"text": texts[1], "sentiment": "negative", "confidence": 0.68},
+            ]
+
+    monkeypatch.setattr(api, "_get_predictor", lambda model=None: FakePredictor())
+
+    response = client.post(
+        "/compare",
+        json={"text_a": "J'aime beaucoup ce produit.", "text_b": "Je déteste ce produit."},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["text_a"]["sentiment"] == "positive"
+    assert payload["text_b"]["sentiment"] == "negative"
+    assert payload["confidence_diff"] == 0.23
+    assert payload["sentiments_identical"] is False
+    assert payload["sentiments_opposed"] is True
+    assert payload["comparison"] == "opposed"
