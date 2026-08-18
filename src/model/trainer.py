@@ -82,6 +82,13 @@ class Trainer:
             num_training_steps=total_steps,
         )
 
+        self.epoch_metrics = []
+        self.final_metrics = {}
+        self.training_duration_seconds = None
+        self.train_examples = len(train_loader.dataset) if hasattr(train_loader, "dataset") else None
+        self.val_examples = len(val_loader.dataset) if hasattr(val_loader, "dataset") else None
+
+        start_time = __import__("time").time()
         best_f1 = 0.0
 
         for epoch in range(self.cfg["epochs"]):
@@ -91,15 +98,31 @@ class Trainer:
             self._train_epoch(train_loader, cancel_event=cancel_event)
             if cancel_event is not None and cancel_event.is_set():
                 raise TrainingCancelledError("Training cancelled by user")
-            f1 = self._eval_epoch(val_loader, cancel_event=cancel_event)
+            metrics = self._eval_epoch(val_loader, cancel_event=cancel_event)
 
             if cancel_event is not None and cancel_event.is_set():
                 raise TrainingCancelledError("Training cancelled by user")
 
+            epoch_record = {
+                "epoch": epoch + 1,
+                "accuracy": float(metrics["accuracy"]),
+                "f1_macro": float(metrics["f1_macro"]),
+            }
+            self.epoch_metrics.append(epoch_record)
+            self.final_metrics = epoch_record.copy()
+
+            f1 = metrics["f1_macro"]
             if f1 > best_f1:
                 best_f1 = f1
                 self.save("experiments/checkpoints/best_model.pt")
                 print(f"✔ Nouveau meilleur modèle (F1={f1:.4f}) sauvegardé.")
+
+        self.training_duration_seconds = __import__("time").time() - start_time
+        return {
+            "epoch_metrics": self.epoch_metrics,
+            "final_metrics": self.final_metrics,
+            "training_duration_seconds": self.training_duration_seconds,
+        }
 
     def _train_epoch(self, loader, cancel_event=None):
         self.model.train()
@@ -168,7 +191,7 @@ class Trainer:
 
         metrics = compute_metrics(preds, labels)
         print(f"Eval — Acc={metrics['accuracy']:.4f}  F1={metrics['f1_macro']:.4f}")
-        return metrics["f1_macro"]
+        return metrics
 
     def save(self, path):
         os.makedirs(path, exist_ok=True)
