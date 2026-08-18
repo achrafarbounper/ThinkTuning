@@ -385,6 +385,57 @@ def _load_jobs() -> Dict[str, TrainJob]:
     return dict(PersistentJobStore(path=JOB_STORE_PATH))
 
 
+def cleanup_old_jobs(max_age_days: int = 30, dry_run: bool = True, db_path: Optional[str] = None):
+    """Supprime les jobs terminés obsolètes plus vieux qu'un seuil donné.
+
+    Par défaut, le mode est dry-run pour éviter toute suppression accidentelle.
+    Les jobs en cours/pending ne sont pas supprimés.
+    """
+    db_path = db_path or JOB_STORE_PATH
+    cutoff_ts = time.time() - max_age_days * 86400
+    terminal_statuses = {JobStatus.COMPLETED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value}
+    expired_job_ids: List[str] = []
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute("SELECT job_id, payload, updated_at FROM jobs").fetchall()
+
+    for job_id, payload, updated_at in rows:
+        try:
+            data = json.loads(payload)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        status = data.get("status")
+        if status in terminal_statuses and float(updated_at) <= cutoff_ts:
+            expired_job_ids.append(job_id)
+
+    if dry_run:
+        return {
+            "deleted": 0,
+            "dry_run": True,
+            "max_age_days": max_age_days,
+            "expires_before": cutoff_ts,
+            "job_ids": expired_job_ids,
+        }
+
+    if expired_job_ids:
+        placeholders = ", ".join("?" for _ in expired_job_ids)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(f"DELETE FROM jobs WHERE job_id IN ({placeholders})", tuple(expired_job_ids))
+
+        with _jobs_lock:
+            for job_id in expired_job_ids:
+                _jobs.pop(job_id, None)
+                _job_cancel_events.pop(job_id, None)
+
+    return {
+        "deleted": len(expired_job_ids),
+        "dry_run": False,
+        "max_age_days": max_age_days,
+        "expires_before": cutoff_ts,
+        "job_ids": expired_job_ids,
+    }
+
+
 def _get_cancel_event(job_id: str) -> threading.Event:
     return _job_cancel_events.setdefault(job_id, threading.Event())
 
