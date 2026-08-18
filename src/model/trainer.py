@@ -195,4 +195,9 @@ class Trainer:
 
     def save(self, path):
         os.makedirs(path, exist_ok=True)
-        self.model.save_pretrained(path)
+        if hasattr(self.model, "save_pretrained"):
+            self.model.save_pretrained(path)
+            return
+
+        state_dict_path = os.path.join(path, "model_state_dict.pt")
+        torch.save(self.model.state_dict(), state_dict_path)

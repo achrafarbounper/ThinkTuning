@@ -113,10 +113,15 @@ def test_predict_batch_route_rate_limit(monkeypatch):
 
 
 def test_list_models_route(monkeypatch, tmp_path):
+    # Crée un dossier de modèle valide
     version_dir = tmp_path / "20240102T120000Z"
     version_dir.mkdir()
+    (version_dir / "model.pt").write_text("{}")  # fichier minimal
+
+    # Crée un dossier de modèle valide plus ancien
     older_dir = tmp_path / "20240101T120000Z"
     older_dir.mkdir()
+    (older_dir / "model.pt").write_text("{}")
 
     monkeypatch.setattr(api, "MODEL_ROOT", str(tmp_path))
     monkeypatch.setattr(api, "MODELS_ROOT", str(tmp_path))
@@ -125,7 +130,11 @@ def test_list_models_route(monkeypatch, tmp_path):
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert [item["name"] for item in payload] == ["20240102T120000Z", "20240101T120000Z"]
+
+    assert [item["name"] for item in payload] == [
+        "20240102T120000Z",
+        "20240101T120000Z",
+    ]
     assert payload[0]["path"].endswith("20240102T120000Z")
 
 
