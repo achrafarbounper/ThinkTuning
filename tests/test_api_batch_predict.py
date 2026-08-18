@@ -24,6 +24,7 @@ def test_predict_batch_json_route():
         "/predict/batch",
         files={"file": ("batch.csv", csv_buffer.getvalue(), "text/csv")},
         data={"text_column": "text", "response_format": "json"},
+        headers={"X-API-Key": "test-key"},
     )
 
     assert response.status_code == 200, response.text
@@ -43,6 +44,7 @@ def test_predict_batch_csv_route():
         "/predict/batch",
         files={"file": ("batch.csv", csv_buffer.getvalue(), "text/csv")},
         data={"text_column": "text", "response_format": "csv"},
+        headers={"X-API-Key": "test-key"},
     )
 
     assert response.status_code == 200, response.text
@@ -50,6 +52,64 @@ def test_predict_batch_csv_route():
     body = response.text.strip().splitlines()
     assert body[0].startswith("row_index,text,sentiment,confidence")
     assert len(body) == 2
+
+
+def test_predict_route_rate_limit(monkeypatch):
+    class FakePredictor:
+        def predict(self, texts):
+            return [
+                {"text": text, "sentiment": "positive", "confidence": 0.95}
+                for text in texts
+            ]
+
+    monkeypatch.setattr(api, "RATE_LIMIT_PER_MINUTE", 1)
+    api._reset_rate_limit_buckets()
+    monkeypatch.setattr(api, "_get_predictor", lambda model=None: FakePredictor())
+
+    first = client.post(
+        "/predict",
+        json={"texts": ["C'est un très bon service."]},
+        headers={"X-API-Key": "test-key"},
+    )
+    second = client.post(
+        "/predict",
+        json={"texts": ["Ce produit est médiocre."]},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 429, second.text
+    assert "Retry-After" in second.headers
+    assert second.headers["Retry-After"].isdigit()
+
+
+def test_predict_batch_route_rate_limit(monkeypatch):
+    class FakePredictor:
+        def predict(self, texts):
+            return [{"text": text, "sentiment": "positive", "confidence": 0.95} for text in texts]
+
+    monkeypatch.setattr(api, "RATE_LIMIT_PER_MINUTE", 1)
+    api._reset_rate_limit_buckets()
+    monkeypatch.setattr(api, "_get_predictor", lambda model=None: FakePredictor())
+
+    csv_payload = "text\nC'est un très bon service.\n"
+    first = client.post(
+        "/predict/batch",
+        files={"file": ("batch.csv", csv_payload, "text/csv")},
+        data={"text_column": "text", "response_format": "json"},
+        headers={"X-API-Key": "test-key"},
+    )
+    second = client.post(
+        "/predict/batch",
+        files={"file": ("batch.csv", csv_payload, "text/csv")},
+        data={"text_column": "text", "response_format": "json"},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 429, second.text
+    assert "Retry-After" in second.headers
+    assert second.headers["Retry-After"].isdigit()
 
 
 def test_list_models_route(monkeypatch, tmp_path):
@@ -61,7 +121,7 @@ def test_list_models_route(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "MODEL_ROOT", str(tmp_path))
     monkeypatch.setattr(api, "MODELS_ROOT", str(tmp_path))
 
-    response = client.get("/models")
+    response = client.get("/models", headers={"X-API-Key": "test-key"})
 
     assert response.status_code == 200, response.text
     payload = response.json()

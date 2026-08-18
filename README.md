@@ -97,8 +97,10 @@ bash
 pip install fastapi "uvicorn[standard]"
 # Linux/macOS
 export API_KEY="change-me-super-secret"
+export RATE_LIMIT_PER_MINUTE="60"
 # Windows PowerShell
 # $env:API_KEY="change-me-super-secret"
+# $env:RATE_LIMIT_PER_MINUTE="60"
 uvicorn api:app --reload --host 0.0.0.0 --port 8000
 
 La doc interactive s'ouvre sur http://localhost:8000/docs.
@@ -106,6 +108,11 @@ La doc interactive s'ouvre sur http://localhost:8000/docs.
 API_KEY est obligatoire même en local. Les routes sensibles exigent l'en-tête X-API-Key. Exemple :
 bash
 curl -H "X-API-Key: change-me-super-secret" http://localhost:8000/models
+
+Protection contre les abus
+- Les endpoints POST /predict et /predict/batch sont protégés par un rate limit configurable via la variable d'environnement RATE_LIMIT_PER_MINUTE (par défaut 60 requêtes/minute par client IP).
+- Si la limite est dépassée, l'API répond avec un 429 Too Many Requests et envoie l'en-tête Retry-After (en secondes).
+- La logique est implémentée en Python avec un token bucket simple, sans dépendance externe.
 
 Lancer un entraînement
 bash
