@@ -84,6 +84,7 @@ env/
 .Trashes
 ehthumbs.db
 Thumbs.db
+jobs.db
 
 # ===========================
 # Jupyter Notebook
@@ -100,7 +101,7 @@ Thumbs.db
 *.ckpt
 *.safetensors
 checkpoint-*/
-experiments/checkpoints/
+experiments/
 sentiment_model_final/
 results/
 runs/

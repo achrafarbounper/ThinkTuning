@@ -1,3 +1,5 @@
+import json
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -5,6 +7,7 @@ from unittest.mock import MagicMock
 import torch
 from torch.utils.data import DataLoader
 
+import api
 from src.model.trainer import Trainer
 
 
@@ -59,3 +62,51 @@ class TestTrainer(unittest.TestCase):
         self.assertEqual(called_logits.shape, expected_logits.shape)
         self.assertTrue(torch.equal(called_labels, batch["labels"]))
         trainer.scheduler.step.assert_called_once()
+
+    def test_save_model_version_writes_training_report(self):
+        model = TinyTextModel()
+        cfg = {
+            "device": "cpu",
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "epochs": 1,
+            "warmup_ratio": 0.0,
+            "gradient_accumulation_steps": 1,
+            "gradient_clip": 1.0,
+            "model_name": "distilbert-base-uncased",
+        }
+        trainer = Trainer(model=model, cfg=cfg)
+        trainer.epoch_metrics = [
+            {"epoch": 1, "accuracy": 0.85, "f1_macro": 0.8},
+        ]
+        trainer.final_metrics = {"accuracy": 0.85, "f1_macro": 0.8}
+        trainer.training_duration_seconds = 12.5
+
+        class DummyTokenizer:
+            def save_pretrained(self, path):
+                os.makedirs(path, exist_ok=True)
+
+        with unittest.mock.patch.object(api, "MODEL_ROOT", os.path.join("tests", "tmp_models")):
+            model_dir = api._save_model_version(
+                DummyTokenizer(),
+                trainer,
+                job_id="job-123",
+                train_examples=42,
+                val_examples=12,
+                started_at=1000.0,
+                finished_at=1012.5,
+            )
+
+            report_path = os.path.join(model_dir, "training_report.json")
+            self.assertTrue(os.path.exists(report_path))
+            with open(report_path, "r", encoding="utf-8") as fp:
+                payload = json.load(fp)
+
+            self.assertEqual(payload["job_id"], "job-123")
+            self.assertEqual(payload["train_examples"], 42)
+            self.assertEqual(payload["val_examples"], 12)
+            self.assertEqual(payload["training_duration_seconds"], 12.5)
+            self.assertIn("hyperparameters", payload)
+            self.assertIn("metrics", payload)
+            self.assertEqual(payload["metrics"]["f1_by_epoch"], [0.8])
+            self.assertEqual(payload["metrics"]["accuracy_by_epoch"], [0.85])

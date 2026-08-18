@@ -521,13 +521,51 @@ def _get_latest_model_dir() -> str:
     return _resolve_model_dir()
 
 
-def _save_model_version(tokenizer, trainer) -> str:
+def _save_model_version(
+    tokenizer,
+    trainer,
+    job_id: Optional[str] = None,
+    train_examples: Optional[int] = None,
+    val_examples: Optional[int] = None,
+    started_at: Optional[float] = None,
+    finished_at: Optional[float] = None,
+) -> str:
     os.makedirs(MODEL_ROOT, exist_ok=True)
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     model_dir = os.path.join(MODEL_ROOT, timestamp)
     os.makedirs(model_dir, exist_ok=True)
     tokenizer.save_pretrained(model_dir)
     trainer.save(model_dir)
+
+    epoch_metrics = getattr(trainer, "epoch_metrics", []) or []
+    final_metrics = getattr(trainer, "final_metrics", {}) or {}
+    hyperparameters = getattr(trainer, "cfg", {}).copy()
+
+    report = {
+        "timestamp": timestamp,
+        "job_id": job_id,
+        "model_dir": model_dir,
+        "hyperparameters": hyperparameters,
+        "metrics": {
+            "accuracy": final_metrics.get("accuracy"),
+            "f1_macro": final_metrics.get("f1_macro"),
+            "accuracy_by_epoch": [entry.get("accuracy") for entry in epoch_metrics],
+            "f1_by_epoch": [entry.get("f1_macro") for entry in epoch_metrics],
+            "epochs": len(epoch_metrics),
+        },
+        "training_duration_seconds": (
+            float(finished_at - started_at)
+            if started_at is not None and finished_at is not None
+            else getattr(trainer, "training_duration_seconds", None)
+        ),
+        "train_examples": train_examples if train_examples is not None else getattr(trainer, "train_examples", None),
+        "val_examples": val_examples if val_examples is not None else getattr(trainer, "val_examples", None),
+    }
+
+    report_path = os.path.join(model_dir, "training_report.json")
+    with open(report_path, "w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
     return model_dir
 
 
@@ -655,7 +693,17 @@ def _run_training(job_id: str, req: TrainRequest):
             return
 
         job.step = "saving_model"
-        model_dir = _save_model_version(tokenizer, trainer)
+        train_examples = len(augmented_train["label"]) if isinstance(augmented_train, dict) and "label" in augmented_train else None
+        val_examples = len(raw_val["label"]) if isinstance(raw_val, dict) and "label" in raw_val else None
+        model_dir = _save_model_version(
+            tokenizer,
+            trainer,
+            job_id=job_id,
+            train_examples=train_examples,
+            val_examples=val_examples,
+            started_at=job.started_at,
+            finished_at=time.time(),
+        )
         job.model_path = model_dir
 
         if cancel_event.is_set():
@@ -797,6 +845,18 @@ def list_models(_: bool = Depends(require_api_key)):
             )
         )
     return model_versions
+
+
+@app.get("/models/{name}/report")
+def get_model_report(name: str, _: bool = Depends(require_api_key)):
+    """Retourne le rapport JSON associé à une version de modèle."""
+    version_dir = os.path.join(MODEL_ROOT, name)
+    report_path = os.path.join(version_dir, "training_report.json")
+    if not os.path.isfile(report_path):
+        raise HTTPException(status_code=404, detail=f"Training report not found for model '{name}'.")
+
+    with open(report_path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 @app.post("/predict", response_model=PredictResponse)
