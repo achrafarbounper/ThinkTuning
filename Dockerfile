@@ -65,4 +65,6 @@ RUN mkdir -p /app/experiments /app/sentiment_model_final \
 EXPOSE 80 8000
 
 # Ensure supervisord runs in foreground
+RUN useradd -U -u 1000 appuser && chown -R 1000:1000 /app && chown -R 1000:1000 /var/log/supervisor && chown -R 1000:1000 /usr/share/nginx/html && chown -R 1000:1000 /var/lib/nginx && chown -R 1000:1000 /var/log/nginx
+USER 1000
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
