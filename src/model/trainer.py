@@ -89,7 +89,20 @@ class Trainer:
         self.val_examples = len(val_loader.dataset) if hasattr(val_loader, "dataset") else None
 
         start_time = __import__("time").time()
-        best_f1 = 0.0
+
+        # Paramètres d'early stopping (désactivé si patience <= 0)
+        patience = int(self.cfg.get("early_stopping_patience", 0))
+        min_delta = float(self.cfg.get("early_stopping_min_delta", 0.0))
+
+        # Suivi du meilleur checkpoint : on garde un cliché des poids pour le
+        # restaurer en fin d'entraînement (équivalent exact du checkpoint sauvé
+        # par self.save dans experiments/checkpoints/best_model.pt).
+        best_f1 = -1.0
+        best_epoch = None
+        best_epoch_record = None
+        best_state = None
+        epochs_without_improvement = 0
+        early_stopped = False
 
         for epoch in range(self.cfg["epochs"]):
             if cancel_event is not None and cancel_event.is_set():
@@ -109,19 +122,59 @@ class Trainer:
                 "f1_macro": float(metrics["f1_macro"]),
             }
             self.epoch_metrics.append(epoch_record)
-            self.final_metrics = epoch_record.copy()
 
             f1 = metrics["f1_macro"]
-            if f1 > best_f1:
+            if f1 > best_f1 + min_delta:
                 best_f1 = f1
+                best_epoch = epoch + 1
+                best_epoch_record = epoch_record.copy()
+                epochs_without_improvement = 0
+                best_state = {
+                    k: v.detach().clone() for k, v in self.model.state_dict().items()
+                }
                 self.save("experiments/checkpoints/best_model.pt")
                 print(f"✔ Nouveau meilleur modèle (F1={f1:.4f}) sauvegardé.")
+            else:
+                epochs_without_improvement += 1
+
+            # Early stopping : on arrête si le F1 de validation n'a pas progressé
+            # pendant `patience` epochs consécutives (patience configurable).
+            if patience > 0 and epochs_without_improvement >= patience:
+                print(
+                    f"⏹ Early stopping : F1 non amélioré pendant {patience} epochs "
+                    f"consécutives — arrêt à l'epoch {epoch + 1} "
+                    f"(meilleur F1={best_f1:.4f} à l'epoch {best_epoch})."
+                )
+                early_stopped = True
+                break
 
         self.training_duration_seconds = __import__("time").time() - start_time
+
+        # Restaurer le meilleur checkpoint à la fin de l'entraînement :
+        # le modèle en mémoire doit correspondre au meilleur modèle sauvé sur
+        # disque (même si la dernière epoch est moins bonne, ou si l'entraînement
+        # a été arrêté tôt par l'early stopping).
+        if best_state is not None:
+            self.model.load_state_dict(best_state)
+            self.final_metrics = best_epoch_record
+            print(
+                f"↩ Meilleur checkpoint restauré (epoch {best_epoch}, F1={best_f1:.4f})."
+            )
+        else:
+            self.final_metrics = (
+                self.epoch_metrics[-1].copy() if self.epoch_metrics else {}
+            )
+
+        # État d'early stopping exposé pour le rapport (API / dashboard)
+        self.early_stopped = early_stopped
+        self.best_epoch = best_epoch
+        self.best_f1 = float(best_f1)
+
         return {
             "epoch_metrics": self.epoch_metrics,
             "final_metrics": self.final_metrics,
             "training_duration_seconds": self.training_duration_seconds,
+            "early_stopped": early_stopped,
         }
 
     def _train_epoch(self, loader, cancel_event=None):

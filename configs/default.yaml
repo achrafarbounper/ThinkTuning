@@ -9,6 +9,11 @@ warmup_ratio: 0.1
 epochs: 4
 batch_size: 8 #16
 
+# Early stopping : arrêt si le F1 de validation ne s'améliore pas pendant
+# `patience` epochs consécutives (patience <= 0 = désactivé).
+early_stopping_patience: 3
+early_stopping_min_delta: 0.0
+
 device: auto
 gradient_clip: 1.0
 
