@@ -9,14 +9,20 @@ Chargé via les fichiers Parquet auto-convertis par Hugging Face.
 import hashlib
 import logging
 import random
-from typing import Optional, Iterable
+from typing import Dict, Iterable, Optional
 
+import numpy as np
 import pandas as pd
 from datasets import load_dataset, Dataset, concatenate_datasets
 
 logger = logging.getLogger(__name__)
 
 LABEL_NAMES = {0: "negative", 1: "neutral", 2: "positive"}
+
+# Pondération par défaut de la sélection des exemples à augmenter. La classe
+# neutral (label 1) est surpondérée car typiquement sous-représentée dans le
+# corpus : des exemples neutral sont donc préférentiellement sur-échantillonnés.
+DEFAULT_CLASS_AUGMENT_WEIGHTS: Dict[int, float] = {0: 1.0, 1: 2.0, 2: 1.0}
 
 _PARQUET_BASE = (
     "https://huggingface.co/datasets/cardiffnlp/tweet_sentiment_multilingual"
@@ -65,9 +71,16 @@ def augment_dataset(
     augment_fraction: float = 0.5,
     seed: int = 42,
     deduplicate: bool = True,
+    class_augment_weights: Optional[Dict[int, float]] = None,
 ) -> Dataset:
     """
     Applique la recomposition EDA sur une fraction du dataset.
+
+    La sélection des exemples à augmenter est pondérée par classe : les poids
+    de `class_augment_weights` (label -> poids) augmentent préférentiellement
+    la probabilité de sélection des exemples de la classe concernée. Par défaut,
+    la classe neutral (label 1) est surpondérée pour compenser sa
+    sous-représentation typique dans le corpus.
 
     Args:
         dataset: dataset HF avec colonnes 'text', 'label', 'lang_code'
@@ -75,6 +88,9 @@ def augment_dataset(
         augment_fraction: proportion du dataset à augmenter
         seed: graine aléatoire
         deduplicate: supprime les doublons de texte normalisé avant sampling
+        class_augment_weights: dict optionnel {label: poids} pour sur-échantillonner
+            préférentiellement certaines classes (ex. {1: 3.0} pour surreprésenter
+            la classe neutral). None => surpoids par défaut sur la classe neutral.
 
     Returns:
         Dataset augmenté
@@ -83,7 +99,6 @@ def augment_dataset(
 
     random.seed(seed)
     df = dataset.to_pandas().copy()
-
     if deduplicate:
         seen_hashes = set()
         keep_mask = []
@@ -110,7 +125,25 @@ def augment_dataset(
     if n_to_augment <= 0:
         return Dataset.from_pandas(df.reset_index(drop=True))
 
-    rows_to_augment = df.sample(n=n_to_augment, random_state=seed)
+    # Normalise les poids (accepte des clés int ou str issues de YAML/JSON) et
+    # bascule sur le surpoids par défaut de la classe neutral si rien n'est fourni.
+    if class_augment_weights:
+        weights = {int(k): float(v) for k, v in class_augment_weights.items()}
+    else:
+        weights = dict(DEFAULT_CLASS_AUGMENT_WEIGHTS)
+
+    row_weights = df["label"].map(lambda lab: weights.get(lab, 1.0)).astype(float)
+    # Échantillonnage pondéré SANS remplacement : pandas refuse de combiner
+    # poids élevés + replace=False sur les petits datasets, on passe donc par
+    # numpy qui renormalise les poids restants à chaque tirage.
+    probs = row_weights.to_numpy(dtype=float)
+    if probs.sum() <= 0:
+        probs = None  # poids nuls partout => retombée sur un échantillonnage uniforme
+    elif probs.sum() != 1.0:
+        probs = probs / probs.sum()
+    rng = np.random.RandomState(seed)
+    selected_idx = rng.choice(len(df), size=n_to_augment, replace=False, p=probs)
+    rows_to_augment = df.iloc[selected_idx]
 
     augmented_rows = []
 
