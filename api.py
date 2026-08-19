@@ -307,6 +307,7 @@ class TrainRequest(BaseModel):
     max_per_lang: int = 500
     augment_fraction: float = 0.4
     variants_per_example: int = 2
+    class_augment_weights: Optional[Dict[str, float]] = None
     epochs: Optional[int] = None
     batch_size: Optional[int] = None
     num_workers: Optional[int] = None
@@ -722,6 +723,7 @@ def _run_training(job_id: str, req: TrainRequest):
             "epochs": req.epochs,
             "batch_size": req.batch_size,
             "num_workers": req.num_workers,
+            "class_augment_weights": req.class_augment_weights,
         }
         for key, value in overrides.items():
             if value is not None:
@@ -763,6 +765,7 @@ def _run_training(job_id: str, req: TrainRequest):
             raw_train,
             variants_per_example=req.variants_per_example,
             augment_fraction=req.augment_fraction,
+            class_augment_weights=cfg.get("class_augment_weights"),
         )
 
         if cancel_event.is_set():

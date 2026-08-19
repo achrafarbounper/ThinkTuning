@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 
 import torch
@@ -32,6 +33,8 @@ def main(args):
         cfg["early_stopping_patience"] = args.early_stopping_patience
     if args.early_stopping_min_delta is not None:
         cfg["early_stopping_min_delta"] = args.early_stopping_min_delta
+    if args.class_augment_weights is not None:
+        cfg["class_augment_weights"] = args.class_augment_weights
 
     if args.device == "auto":
         cfg["device"] = "cuda" if torch.cuda.is_available() else "cpu"
@@ -50,6 +53,7 @@ def main(args):
         raw_train,
         variants_per_example=args.variants_per_example,
         augment_fraction=args.augment_fraction,
+        class_augment_weights=cfg.get("class_augment_weights"),
     )
     print(f"   -> {len(raw_train)} exemples originaux -> {len(augmented_train)} après recomposition")
 
@@ -79,6 +83,10 @@ if __name__ == "__main__":
     parser.add_argument("--max_per_lang", type=int, default=500)
     parser.add_argument("--augment_fraction", type=float, default=0.4)
     parser.add_argument("--variants_per_example", type=int, default=2)
+    parser.add_argument("--class_augment_weights", type=json.loads, default=None,
+                        help="JSON dict {label: poids} pour sur-échantillonner préférentiellement "
+                             "certaines classes à l'augmentation (ex: '{\"1\": 3.0}'). "
+                             "Défaut : surpoids sur la classe neutral défini dans la config.")
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--num_workers", type=int, default=None)

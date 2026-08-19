@@ -18,3 +18,13 @@ device: auto
 gradient_clip: 1.0
 
 num_workers: 0
+
+# Pondération des classes lors de la sélection des exemples à augmenter
+# (label -> poids). Un poids plus élevé rend la classe préférentiellement
+# augmentée. La classe neutral (label 1), typiquement sous-représentée dans le
+# corpus, est surpondérée par défaut pour être surreprésentée après
+# l'augmentation EDA.
+class_augment_weights:
+  0: 1.0
+  1: 2.0
+  2: 1.0
