@@ -41,6 +41,8 @@ def load_config(path: str):
     """
     Charge un fichier YAML de configuration et renvoie un dictionnaire Python.
     """
+    if ".." in path:
+        raise Exception("Invalid file path")
     with open(path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
