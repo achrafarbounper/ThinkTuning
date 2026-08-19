@@ -13,5 +13,8 @@ FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
+RUN adduser -D -u 1000 appuser && chown -R 1000:1000 /usr/share/nginx/html
+USER 1000
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
