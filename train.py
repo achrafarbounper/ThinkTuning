@@ -28,6 +28,10 @@ def main(args):
         cfg["batch_size"] = args.batch_size
     if args.num_workers is not None:
         cfg["num_workers"] = args.num_workers
+    if args.early_stopping_patience is not None:
+        cfg["early_stopping_patience"] = args.early_stopping_patience
+    if args.early_stopping_min_delta is not None:
+        cfg["early_stopping_min_delta"] = args.early_stopping_min_delta
 
     if args.device == "auto":
         cfg["device"] = "cuda" if torch.cuda.is_available() else "cpu"
@@ -78,6 +82,10 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--num_workers", type=int, default=None)
+    parser.add_argument("--early_stopping_patience", type=int, default=None,
+                        help="Epochs consécutives sans amélioration du F1 de validation avant arrêt (0 = désactivé)")
+    parser.add_argument("--early_stopping_min_delta", type=float, default=None,
+                        help="Amélioration minimale de F1 requise pour reset la patience")
     parser.add_argument("--max_length", type=int, default=None)
     parser.add_argument("--learning_rate", type=float, default=None)
     parser.add_argument("--weight_decay", type=float, default=None)

@@ -6,8 +6,19 @@ def _coerce_config(cfg):
     if not isinstance(cfg, dict):
         return cfg
 
-    int_keys = {"max_length", "epochs", "batch_size", "num_workers"}
-    float_keys = {"learning_rate", "weight_decay", "warmup_ratio"}
+    int_keys = {
+        "max_length",
+        "epochs",
+        "batch_size",
+        "num_workers",
+        "early_stopping_patience",
+    }
+    float_keys = {
+        "learning_rate",
+        "weight_decay",
+        "warmup_ratio",
+        "early_stopping_min_delta",
+    }
 
     for key in int_keys:
         if key in cfg and not isinstance(cfg[key], int):
