@@ -6,7 +6,14 @@ Usage :
 """
 
 import argparse
+import os
+
+import matplotlib
+matplotlib.use("Agg")  # backend non interactif : fonctionne même sans affichage graphique
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from tqdm import tqdm
 
 from src.dataset.loader import load_raw_dataset
@@ -18,12 +25,29 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, Data
 
 MODEL_PATH = "./sentiment_model_final"
 
+# Ordre des classes, aligné sur les labels 0, 1, 2 du dataset.
+LABEL_NAMES = ["negative", "neutral", "positive"]
+LANGUAGES = ["fr", "en"]
+LANG_DISPLAY_NAMES = {"fr": "Français (FR)", "en": "Anglais (EN)"}
+OUTPUT_DIR = "outputs"
+
 
 def evaluate(model, tokenizer, dataset, batch_size=16):
     """
     Évalue le modèle sur un dataset HuggingFace tokenisé.
+
+    Retourne un dict contenant :
+        accuracy / f1_macro   : métriques globales (pour rétro-compatibilité)
+        metrics               : dict complet des métriques globales
+        preds / labels        : arrays numpy des prédictions et labels réels
+        langs                 : liste des codes de langue (ou None si indisponible)
     """
     preds, labels = [], []
+
+    # La colonne 'lang_code' est une colonne texte : on la récupère AVANT de
+    # passer le dataset en format torch (qui ne convertit que des tensors).
+    has_lang = "lang_code" in dataset.column_names
+    langs = list(dataset["lang_code"]) if has_lang else None
 
     if "label" in dataset.column_names and "labels" not in dataset.column_names:
         dataset = dataset.rename_column("label", "labels")
@@ -61,7 +85,124 @@ def evaluate(model, tokenizer, dataset, batch_size=16):
             preds.extend(pred.cpu().numpy())
             labels.extend(label.cpu().numpy())
 
-    return compute_metrics(preds, labels)
+    metrics = compute_metrics(preds, labels)
+
+    return {
+        "accuracy": metrics["accuracy"],
+        "f1_macro": metrics["f1_macro"],
+        "metrics": metrics,
+        "preds": np.asarray(preds, dtype=int),
+        "labels": np.asarray(labels, dtype=int),
+        "langs": langs,
+    }
+
+
+def segment_by_language(results):
+    """
+    Découpe les prédictions / labels réels par langue à partir de la colonne
+    lang_code présente dans `results["langs"]`.
+
+    Retourne un dict {lang_code: {"preds": ..., "labels": ...}}.
+    """
+    langs = results.get("langs")
+    if not langs:
+        return {}
+
+    preds = results["preds"]
+    labels = results["labels"]
+    langs_arr = np.asarray(langs)
+
+    per_lang = {}
+    for lang in LANGUAGES:
+        mask = langs_arr == lang
+        if mask.sum() == 0:
+            continue
+        per_lang[lang] = {
+            "preds": preds[mask],
+            "labels": labels[mask],
+        }
+    return per_lang
+
+
+def _print_confusion_matrix(labels, preds, title):
+    """Affiche une matrice de confusion numérique (lignes = vrai, colonnes = prédit)."""
+    cm = confusion_matrix(labels, preds, labels=list(range(len(LABEL_NAMES))))
+    counts = cm.tolist()
+
+    width = max(8, max(len(name) for name in LABEL_NAMES))
+    header = " " * width + "  " + "  ".join(f"{name:>{width}}" for name in LABEL_NAMES)
+    print(f"\n{title}")
+    print(header)
+    for name, row in zip(LABEL_NAMES, counts):
+        print(f"{name:>{width}}  " + "  ".join(f"{v:>{width}}" for v in row))
+    return cm
+
+
+def plot_confusion_matrices(per_lang):
+    """
+    Génère et sauvegarde une figure regroupant une matrice de confusion par
+    langue (FR et EN) via sklearn.metrics.ConfusionMatrixDisplay.
+    """
+    langs = [lang for lang in LANGUAGES if lang in per_lang]
+    if not langs:
+        return
+
+    fig, axes = plt.subplots(1, len(langs), figsize=(6 * len(langs), 5.2), squeeze=False)
+    for ax, lang in zip(axes[0], langs):
+        entry = per_lang[lang]
+        cm = confusion_matrix(
+            entry["labels"],
+            entry["preds"],
+            labels=list(range(len(LABEL_NAMES))),
+        )
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=LABEL_NAMES)
+        disp.plot(ax=ax, cmap="Blues", colorbar=False, values_format="d")
+        ax.set_title(
+            f"{LANG_DISPLAY_NAMES.get(lang, lang)}\n(n={entry['labels'].size})"
+        )
+
+    fig.suptitle("Matrices de confusion par langue")
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    save_path = os.path.join(OUTPUT_DIR, "confusion_matrices_by_lang.png")
+    fig.savefig(save_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\n[Confusion] Figure sauvegardée : {save_path}")
+
+    # Affichage interactif si un backend graphique est disponible (sinon ignoré).
+    try:
+        plt.show()
+    except Exception:
+        pass
+
+
+def report_by_language(results):
+    """
+    Affiche les métriques segmentées par langue ainsi que les matrices de
+    confusion distinctes pour FR et EN.
+    """
+    per_lang = segment_by_language(results)
+
+    if not per_lang:
+        print("\nColonne 'lang_code' absente : pas de segmentation par langue possible.")
+        return
+
+    for lang in LANGUAGES:
+        if lang not in per_lang:
+            continue
+        entry = per_lang[lang]
+        metrics = compute_metrics(entry["preds"], entry["labels"])
+        display = LANG_DISPLAY_NAMES.get(lang, lang)
+        print(f"\n=== Résultats {display} (n={entry['labels'].size}) ===")
+        print(f"Accuracy : {metrics['accuracy']:.4f}")
+        print(f"F1 macro : {metrics['f1_macro']:.4f}")
+        _print_confusion_matrix(
+            entry["labels"], entry["preds"],
+            f"Matrice de confusion — {display}",
+        )
+
+    plot_confusion_matrices(per_lang)
 
 
 def main(args):
@@ -83,11 +224,14 @@ def main(args):
     tokenized = tokenize_dataset(raw, tokenizer, max_length=max_length)
 
     print("4. Évaluation...")
-    metrics = evaluate(model, tokenizer, tokenized, batch_size=args.batch_size)
+    results = evaluate(model, tokenizer, tokenized, batch_size=args.batch_size)
 
-    print("\n=== Résultats ===")
-    print(f"Accuracy : {metrics['accuracy']:.4f}")
-    print(f"F1 macro : {metrics['f1_macro']:.4f}")
+    print("\n=== Résultats globaux ===")
+    print(f"Accuracy : {results['accuracy']:.4f}")
+    print(f"F1 macro : {results['f1_macro']:.4f}")
+
+    # Métriques segmentées par langue + matrices de confusion FR / EN.
+    report_by_language(results)
 
 
 if __name__ == "__main__":

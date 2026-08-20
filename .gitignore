@@ -105,6 +105,7 @@ experiments/
 sentiment_model_final/
 results/
 runs/
+outputs/
 
 # ===========================
 # Logs & Monitoring
