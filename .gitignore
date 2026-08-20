@@ -32,6 +32,7 @@ MANIFEST
 *.spec
 
 # Testing & Coverage
+tests/tmp_models
 htmlcov/
 .tox/
 .nox/
@@ -84,7 +85,7 @@ env/
 .Trashes
 ehthumbs.db
 Thumbs.db
-jobs.db
+experiments/jobs.db
 
 # ===========================
 # Jupyter Notebook
