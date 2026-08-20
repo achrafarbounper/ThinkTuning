@@ -950,7 +950,18 @@ _predictor_lock = threading.Lock()
 def _get_predictor(model_name: Optional[str] = None) -> Predictor:
     global _predictor
     with _predictor_lock:
-        target_dir = _resolve_model_dir(model_name)
+        try:
+            target_dir = _resolve_model_dir(model_name)
+        except RuntimeError as exc:
+            # Aucun modèle entraîné disponible (ni modèle explicite, ni version
+            # valide sous MODEL_ROOT) => le service ne peut pas prédire.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Aucun modèle entraîné trouvé. {exc} "
+                    "Lancez d'abord un entraînement via POST /train."
+                ),
+            ) from exc
         if not os.path.isdir(target_dir):
             raise HTTPException(
                 status_code=503,
