@@ -173,3 +173,93 @@ def test_compare_route(monkeypatch):
     assert payload["sentiments_identical"] is False
     assert payload["sentiments_opposed"] is True
     assert payload["comparison"] == "opposed"
+
+
+def test_batch_json():
+    response = client.post(
+        "/predict/batch",
+        files={"file": ("test.csv", "text\nhello\nworld")},
+        data={"response_format": "json"},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "results" in data
+
+
+def test_batch_csv():
+    response = client.post(
+        "/predict/batch",
+        files={"file": ("test.csv", "text\nhello\nworld")},
+        data={"response_format": "csv"},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert response.status_code == 200
+    content_disposition = response.headers.get("Content-Disposition")
+    assert content_disposition is not None
+
+
+def test_batch_parquet():
+    response = client.post(
+        "/predict/batch",
+        files={"file": ("test.csv", "text\nhello\nworld")},
+        data={"response_format": "parquet"},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    # 1. Statut OK
+    assert response.status_code == 200
+
+    # 2. En-tête présent
+    content_disposition = response.headers.get("Content-Disposition")
+    assert content_disposition is not None
+    assert "predictions.parquet" in content_disposition
+
+    # 3. Le contenu doit être lisible en parquet
+    import pandas as pd
+    import io
+
+    raw = response.content
+    df = pd.read_parquet(io.BytesIO(raw))
+
+    # 4. Vérifier les colonnes attendues
+    expected_columns = {"row_index", "text", "sentiment", "confidence"}
+    assert expected_columns.issubset(df.columns)
+
+    # 5. Vérifier les valeurs
+    assert df.loc[0, "text"] == "hello"
+    assert df.loc[1, "text"] == "world"
+
+    # Les sentiments sont mockés, donc on vérifie juste qu'ils existent
+    assert df.loc[0, "sentiment"] in {"positive", "negative", "neutral"}
+    assert isinstance(df.loc[0, "confidence"], float)
+
+
+def test_batch_invalid_format():
+    response = client.post(
+        "/predict/batch",
+        files={"file": ("test.csv", "text\nhello"),},
+        data={"response_format": "invalid"},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert response.status_code == 400
+
+
+def test_batch_missing_column():
+    response = client.post(
+        "/predict/batch",
+        files={"file": ("test.csv", "other\nhello"),},
+        data={"text_column": "nonexistent", "response_format": "json"},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert response.status_code == 400
+
+
+def test_batch_empty_file():
+    response = client.post(
+        "/predict/batch",
+        files={"file": ("test.csv", "")},
+        data={"response_format": "json"},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert response.status_code == 400
