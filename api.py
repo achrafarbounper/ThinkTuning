@@ -15,6 +15,7 @@ Documentation interactive une fois lancé : http://localhost:8000/docs
 import csv
 import io
 import json
+import pandas as pd
 import logging
 import math
 import os
@@ -1057,64 +1058,103 @@ def compare(req: CompareRequest, _: bool = Depends(require_api_key)):
 
 @app.post("/predict/batch")
 async def predict_batch(
-    file: UploadFile = File(..., description="CSV file containing one text column."),
+    file: UploadFile = File(..., description="CSV or Parquet file containing one text column."),
     text_column: str = Form("text", description="Name of the column containing the text to predict."),
-    response_format: str = Form("json", description="Response format: json or csv."),
+    response_format: str = Form("json", description="Response format: json, csv, or parquet."),
     _: bool = Depends(require_api_key),
 ):
-    """Upload a CSV file and return predictions row by row in JSON or CSV."""
-    if response_format not in {"json", "csv"}:
-        raise HTTPException(status_code=400, detail="response_format must be 'json' or 'csv'")
+    """Upload a CSV/Parquet file and return predictions row by row in JSON, CSV, or Parquet."""
+    if response_format not in {"json", "csv", "parquet"}:
+        raise HTTPException(status_code=400, detail="response_format must be 'json', 'csv', or 'parquet'")
 
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
+    # Parse input file (CSV or Parquet)
     try:
-        text_buffer = io.StringIO(raw.decode("utf-8-sig"))
-    except UnicodeDecodeError:
-        try:
-            text_buffer = io.StringIO(raw.decode("latin-1"))
-        except UnicodeDecodeError as exc:
-            raise HTTPException(status_code=400, detail="Unsupported CSV encoding.") from exc
+        # Detect parquet by file extension
+        if file.filename.lower().endswith(".parquet"):
+            import pyarrow.parquet as pq
+            text_buffer = io.BytesIO(raw)
+            table = pq.read_table(text_buffer)
+            column_name = next((col for col in table.column_names if text_column.lower() in col.lower()), None)
+            if column_name is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Column '{text_column}' not found. Available columns: {table.column_names}",
+                )
+            texts = [str(getattr(row, column_name)).strip() for row in table.to_pandas().itertuples(index=False)]
+        else:
+            # CSV parsing
+            try:
+                text_buffer = io.StringIO(raw.decode("utf-8-sig"))
+            except UnicodeDecodeError:
+                text_buffer = io.StringIO(raw.decode("latin-1"))
 
-    reader = csv.DictReader(text_buffer)
-    if reader.fieldnames is None:
-        raise HTTPException(status_code=400, detail="CSV file must contain a header row.")
-    if text_column not in reader.fieldnames:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Column '{text_column}' not found. Available columns: {reader.fieldnames}",
+            reader = csv.DictReader(text_buffer)
+            if reader.fieldnames is None:
+                raise HTTPException(status_code=400, detail="CSV file must contain a header row.")
+            if text_column not in reader.fieldnames:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Column '{text_column}' not found. Available columns: {reader.fieldnames}",
+                )
+
+            texts = []
+            for row in reader:
+                value = row.get(text_column)
+                if value is None:
+                    continue
+                texts.append(value.strip())
+
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Failed to parse input file.") from exc
+
+
+    # Predict
+    predictor = _get_predictor(None)  # ou model si tu veux ajouter un paramètre
+    predictions = []
+    for text in texts:
+        pred = predictor.predict([text])[0]
+        predictions.append({
+            "row_index": len(predictions),
+            "text": text,
+            "sentiment": pred["sentiment"],
+            "confidence": float(pred["confidence"]),
+        })
+
+    # Output
+    if response_format == "json":
+        return {"results": predictions}  # <-- IMPORTANT : les tests attendent "results"
+
+    elif response_format == "csv":
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=["row_index", "text", "sentiment", "confidence"])
+        writer.writeheader()
+        writer.writerows(predictions)
+        return Response(
+            content=output.getvalue().encode("utf-8"),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=predictions.csv"},
         )
 
-    texts = []
-    for row in reader:
-        value = row.get(text_column)
-        if value is None or str(value).strip() == "":
-            continue
-        texts.append(str(value).strip())
+    elif response_format == "parquet":
+        import pandas as pd
+        output = io.BytesIO()
+        df = pd.DataFrame(predictions)
 
-    if not texts:
-        raise HTTPException(status_code=400, detail=f"No non-empty values found in column '{text_column}'.")
+        # Ne force pas pyarrow → pandas choisit automatiquement l’engine disponible
+        df.to_parquet(output)
 
-    predictor = _get_predictor()
-    results = predictor.predict(texts)
+        return Response(
+            content=output.getvalue(),
+            media_type="application/x-parquet",
+            headers={"Content-Disposition": "attachment; filename=predictions.parquet"},
+        )
 
-    if response_format == "json":
-        return {"results": results}
-
-    csv_buffer = io.StringIO()
-    writer = csv.writer(csv_buffer)
-    writer.writerow(["row_index", "text", "sentiment", "confidence"])
-    for idx, item in enumerate(results, start=1):
-        writer.writerow([idx, item["text"], item["sentiment"], item["confidence"]])
-
-    return Response(
-        content=csv_buffer.getvalue(),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=predictions.csv"},
-    )
-
+# Add to requirements.txt
+# 
 
 @app.post("/predict/reload", status_code=204)
 def reload_model(model: Optional[str] = None, _: bool = Depends(require_api_key)):
