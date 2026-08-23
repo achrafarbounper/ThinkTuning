@@ -69,7 +69,10 @@ def run_training(job_id: str, req):
 
         job.step = "loading_dataset"
         store[job_id] = job
-        raw = load_raw_dataset(max_per_lang=req.max_per_lang)
+        raw = load_raw_dataset(
+            max_per_lang=req.max_per_lang,
+            local_corrections_path=req.local_corrections_path,
+        )
 
         job.step = "splitting_dataset"
         store[job_id] = job

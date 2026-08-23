@@ -9,6 +9,7 @@ Chargé via les fichiers Parquet auto-convertis par Hugging Face.
 import csv
 import hashlib
 import json
+import json
 import logging
 import random
 from pathlib import Path
@@ -16,11 +17,28 @@ from typing import Dict, Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
-from datasets import load_dataset, Dataset, concatenate_datasets
+from datasets import (
+    ClassLabel,
+    Dataset,
+    Value,
+    concatenate_datasets,
+    load_dataset,
+)
 
 logger = logging.getLogger(__name__)
 
 LABEL_NAMES = {0: "negative", 1: "neutral", 2: "positive"}
+
+# Colonnes attendues dans un fichier de corrections locales (CSV ou JSONL).
+# Format stabilisé par SCRUM-56 (merge_reviewed_data.py) :
+#   - text      : str non vide
+#   - label     : entier 0/1/2 ou nom ("negative" / "neutral" / "positive")
+#   - lang_code : code langue supporté par le pipeline ("fr" / "en")
+CORRECTIONS_REQUIRED_COLUMNS = ("text", "label", "lang_code")
+
+# Extensions de fichiers acceptées pour les corrections locales.
+_CORRECTIONS_CSV_EXTENSIONS = {".csv"}
+_CORRECTIONS_JSONL_EXTENSIONS = {".jsonl", ".ndjson"}
 
 # Pondération par défaut de la sélection des exemples à augmenter. La classe
 # neutral (label 1) est surpondérée car typiquement sous-représentée dans le
@@ -35,10 +53,200 @@ _PARQUET_BASE = (
 _LANG_CONFIG = {"fr": "french", "en": "english"}
 
 
+def _is_missing(value) -> bool:
+    """True si la valeur est None ou un NaN pandas/numpy (cellule vide CSV/JSON)."""
+    try:
+        return value is None or bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _invalid_label_error(raw_label, row_index: int) -> ValueError:
+    return ValueError(
+        f"Fichier de corrections locales, ligne {row_index} : label invalide "
+        f"{raw_label!r}. Valeurs acceptées : entiers 0/1/2 ou noms "
+        f"{sorted(set(LABEL_NAMES.values()))} "
+        f"(mapping : {LABEL_NAMES})."
+    )
+
+
+def _normalize_correction_label(raw_label, row_index: int) -> int:
+    """
+    Normalise un label de correction vers l'entier canonique 0/1/2.
+
+    Accepte indifféremment :
+      - un nom de classe : "negative", "neutral", "positive" (insensible à la casse)
+      - un entier (numpy inclus) ou une chaîne numérique : 0, 1, 2 ("1", " 2 ", 2.0)
+
+    Lève une ValueError explicite sinon.
+    """
+    if isinstance(raw_label, bool):
+        raise _invalid_label_error(raw_label, row_index)
+
+    # 1) Noms de classes ("negative" / "neutral" / "positive")
+    name_to_id = {name: idx for idx, name in LABEL_NAMES.items()}
+    normalized = str(raw_label).strip().lower()
+    if normalized in name_to_id:
+        return name_to_id[normalized]
+
+    # 2) Entier direct ou chaîne numérique ("1", " 2 ", 2.0)
+    try:
+        value = float(str(raw_label).strip())
+    except (TypeError, ValueError):
+        raise _invalid_label_error(raw_label, row_index)
+
+    # Garde-fous : 1.5 ne doit pas être tronqué en 1 ; NaN rejeté aussi.
+    if not value.is_integer() or int(value) not in LABEL_NAMES:
+        raise _invalid_label_error(raw_label, row_index)
+    return int(value)
+
+
+def _read_corrections_csv(corrections_path: Path) -> pd.DataFrame:
+    """Lit un CSV de corrections (tolérant au BOM utf-8-sig)."""
+    try:
+        return pd.read_csv(corrections_path, encoding="utf-8-sig")
+    except Exception as exc:
+        raise ValueError(
+            f"Impossible de lire le fichier CSV de corrections "
+            f"{str(corrections_path)!r} : {exc}"
+        ) from exc
+
+
+def _read_corrections_jsonl(corrections_path: Path) -> pd.DataFrame:
+    """Lit un JSONL de corrections, avec erreurs explicites par ligne."""
+    rows = []
+    with corrections_path.open("r", encoding="utf-8-sig") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Ligne JSON invalide dans {str(corrections_path)!r} "
+                    f"(ligne {line_number}) : {exc}"
+                ) from exc
+            if not isinstance(payload, dict):
+                raise ValueError(
+                    f"Ligne JSON invalide dans {str(corrections_path)!r} "
+                    f"(ligne {line_number}) : un objet JSON est attendu, "
+                    f"reçu {type(payload).__name__}."
+                )
+            rows.append(payload)
+
+    if not rows:
+        return pd.DataFrame(columns=list(CORRECTIONS_REQUIRED_COLUMNS))
+    return pd.DataFrame(rows)
+
+
+def _validate_corrections_columns(df: pd.DataFrame, path_display: str) -> None:
+    """Vérifie que les colonnes requises sont présentes dans le DataFrame."""
+    columns = [str(col).strip() for col in df.columns]
+    missing = [col for col in CORRECTIONS_REQUIRED_COLUMNS if col not in columns]
+    if missing:
+        raise ValueError(
+            f"Fichier de corrections locales {path_display!r} invalide : "
+            f"colonne(s) manquante(s) {missing}. Colonnes attendues : "
+            f"{list(CORRECTIONS_REQUIRED_COLUMNS)}. Colonnes trouvées : {columns}."
+        )
+
+
+def load_local_corrections(path: str) -> Dataset:
+    """
+    Charge un fichier local de corrections manuelles (CSV ou JSONL) au format
+    stabilisé par SCRUM-56 : colonnes ``text``, ``label``, ``lang_code``.
+
+    Validation effectuée :
+      - le chemin doit exister (FileNotFoundError explicite sinon) ;
+      - l'extension doit être .csv / .jsonl / .ndjson ;
+      - les trois colonnes attendues doivent être présentes ;
+      - chaque ligne doit avoir un texte non vide, un label valide (0/1/2 ou
+        negative/neutral/positive) et un lang_code supporté (fr/en).
+
+    Args:
+        path: chemin du fichier de corrections (.csv ou .jsonl)
+
+    Returns:
+        Dataset Hugging Face avec colonnes 'text' (str), 'label' (int64)
+        et 'lang_code' (str). Vide si le fichier ne contient aucune ligne.
+    """
+    corrections_path = Path(path)
+
+    if not corrections_path.exists():
+        raise FileNotFoundError(
+            f"Fichier de corrections locales introuvable : {path!r}. "
+            "Vérifiez le chemin fourni via --local_corrections_path "
+            "(CLI) ou local_corrections_path (POST /train)."
+        )
+    if not corrections_path.is_file():
+        raise ValueError(
+            f"Le chemin des corrections locales {path!r} n'est pas un fichier."
+        )
+
+    extension = corrections_path.suffix.lower()
+    if extension in _CORRECTIONS_CSV_EXTENSIONS:
+        df = _read_corrections_csv(corrections_path)
+    elif extension in _CORRECTIONS_JSONL_EXTENSIONS:
+        df = _read_corrections_jsonl(corrections_path)
+    else:
+        raise ValueError(
+            f"Format de fichier de corrections non supporté : {path!r} "
+            f"(extension {extension!r}). Formats acceptés : CSV (.csv) ou "
+            f"JSONL ({sorted(_CORRECTIONS_JSONL_EXTENSIONS)})."
+        )
+
+    _validate_corrections_columns(df, str(corrections_path))
+
+    texts = []
+    labels = []
+    lang_codes = []
+
+    for row_index, row in enumerate(df.to_dict("records"), start=1):
+        raw_text = row.get("text")
+        text = "" if _is_missing(raw_text) else str(raw_text).strip()
+        if not text:
+            raise ValueError(
+                f"Fichier de corrections locales {str(corrections_path)!r}, "
+                f"ligne {row_index} : colonne 'text' vide ou manquante."
+            )
+
+        raw_lang = row.get("lang_code")
+        lang_code = "" if _is_missing(raw_lang) else str(raw_lang).strip().lower()
+        if lang_code not in _LANG_CONFIG:
+            raise ValueError(
+                f"Fichier de corrections locales {str(corrections_path)!r}, "
+                f"ligne {row_index} : lang_code invalide {raw_lang!r}. "
+                f"Langues supportées par le pipeline : {sorted(_LANG_CONFIG)}."
+            )
+
+        raw_label = row.get("label")
+        if _is_missing(raw_label):
+            raise _invalid_label_error(raw_label, row_index)
+
+        texts.append(text)
+        labels.append(int(_normalize_correction_label(raw_label, row_index)))
+        lang_codes.append(lang_code)
+
+    dataset = Dataset.from_dict({
+        "text": texts,
+        "label": labels,
+        "lang_code": lang_codes,
+    })
+
+    logger.info(
+        "load_local_corrections: %s correction(s) chargée(s) depuis %s",
+        len(dataset),
+        corrections_path,
+    )
+    return dataset
+
+
 def load_raw_dataset(
     languages: Iterable[str] = ("fr", "en"),
     max_per_lang: Optional[int] = 3000,
     seed: int = 42,
+    local_corrections_path: Optional[str] = None,
 ) -> Dataset:
     """
     Charge les sous-ensembles de langues demandées depuis les fichiers Parquet HF.
@@ -47,6 +255,13 @@ def load_raw_dataset(
         languages: liste des langues à charger ("fr", "en")
         max_per_lang: limite d'exemples par langue
         seed: graine aléatoire
+        local_corrections_path: chemin optionnel d'un fichier local de
+            corrections manuelles (CSV ou JSONL avec colonnes text, label,
+            lang_code — voir load_local_corrections). Les corrections sont
+            concaténées AU DATASET COMPLET, avant tout split train/val et avant
+            l'augmentation EDA (principe « augmentation après split » pour
+            éviter toute fuite de données). None => comportement historique
+            inchangé (dataset HF seul).
 
     Returns:
         Dataset Hugging Face concaténé
@@ -64,6 +279,36 @@ def load_raw_dataset(
 
         ds = ds.add_column("lang_code", [lang_code] * len(ds))
         subsets.append(ds)
+
+    if local_corrections_path is not None:
+        corrections = load_local_corrections(local_corrections_path)
+        if len(corrections) == 0:
+            logger.warning(
+                "load_raw_dataset: le fichier de corrections %s est vide, "
+                "aucune concaténation effectuée.",
+                local_corrections_path,
+            )
+        else:
+            # Le Parquet HF type la colonne 'label' en ClassLabel alors que les
+            # corrections sont en int64 : on aligne sur int64 pour que la
+            # concaténation soit possible. Appliqué uniquement dans cette branche
+            # => comportement par défaut inchangé.
+            subsets = [
+                subset.cast_column("label", Value("int64"))
+                if isinstance(subset.features.get("label"), ClassLabel)
+                else subset
+                for subset in subsets
+            ]
+            base_size = sum(len(subset) for subset in subsets)
+            merged = concatenate_datasets(subsets + [corrections])
+            logger.info(
+                "load_raw_dataset: %s correction(s) locale(s) concaténée(s) au "
+                "dataset HF (%s exemples -> %s).",
+                len(corrections),
+                base_size,
+                len(merged),
+            )
+            return merged
 
     return concatenate_datasets(subsets)
 

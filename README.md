@@ -66,6 +66,7 @@ python train.py --max_per_lang 500 --epochs 2 --batch_size 8
 
 Options principales :
 - `--max_per_lang` : nombre d'exemples chargés par langue (fr/en) — 500 par défaut, adapté au CPU
+- `--local_corrections_path` : chemin d'un fichier local de corrections manuelles (CSV ou JSONL) à concaténer au dataset HF avant l'entraînement (voir [Boucle d'active learning complète](#boucle-dactive-learning-complète))
 - `--dataset_file` : chemin vers un CSV/JSONL local (`text`, `label`, `lang_code`) — ex. la sortie enrichie de `merge_reviewed_data.py`. Par défaut : dataset Hugging Face.
 - `--augment_fraction` : proportion du dataset recomposée (0.4 = 40%)
 - `--variants_per_example` : nombre de variantes générées par texte augmenté
@@ -83,6 +84,92 @@ très limitée.
 **Temps indicatif en CPU** : avec les valeurs par défaut (500 exemples/langue,
 2 epochs), comptez de l'ordre de 20 à 60 minutes selon votre machine. Pour aller
 plus vite pendant les tests, réduisez encore `--max_per_lang` (ex: 200).
+
+## Boucle d'active learning complète
+
+Le pipeline ferme la boucle « entraîner → détecter les incertitudes → corriger
+manuellement → ré-entraîner » :
+
+```
+active_learning.py → review manuelle → merge_reviewed_data.py → train.py --local_corrections_path ...
+                                                    (ou POST /train avec local_corrections_path)
+```
+
+### 1. Sélectionner les exemples incertains
+
+```bash
+python active_learning.py --input data/train.jsonl --top_n 50 --output data/manual_review_template.csv
+```
+
+Exporte les exemples dont la confidence prédite est la plus proche de 1/3
+(incertitude maximale sur 3 classes) dans un CSV de review.
+
+### 2. Review manuelle
+
+Ouvrez le CSV (`text`, `predicted_label`, `manual_label`, `status`) et remplissez
+`manual_label` (`negative` / `neutral` / `positive`) pour chaque ligne corrigée.
+
+### 3. Fusionner les corrections validées
+
+```bash
+python merge_reviewed_data.py --review data/sample_review.csv \
+    --source data/train.jsonl --output data/corrections.csv
+```
+
+> Script fourni par SCRUM-56. Il produit un fichier **CSV ou JSONL** normalisé
+> avec exactement trois colonnes : `text`, `label`, `lang_code`.
+
+### 4. Ré-entraîner avec les corrections
+
+Via la CLI :
+
+```bash
+python train.py --local_corrections_path data/corrections.csv --max_per_lang 500 --epochs 2
+```
+
+Ou via l'API :
+
+```bash
+curl -X POST http://localhost:8000/train \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"max_per_lang": 500, "epochs": 2, "local_corrections_path": "data/corrections.csv"}'
+```
+
+Les corrections sont **concaténées au dataset Hugging Face** avant toute étape
+suivante : le `train_test_split` puis l'augmentation EDA s'appliquent donc bien
+**après** la fusion (principe « augmentation après split », pour éviter la fuite
+de données). Le split répartit aussi les corrections entre train et validation.
+
+### Format attendu du fichier de corrections
+
+| Colonne    | Valeurs acceptées |
+|------------|-------------------|
+| `text`     | texte non vide |
+| `label`    | `0` / `1` / `2` ou `negative` / `neutral` / `positive` (insensible à la casse) |
+| `lang_code`| `fr` / `en` |
+
+Exemple CSV :
+
+```csv
+text,label,lang_code
+Service client au top !,positive,fr
+Mediocre quality overall.,negative,en
+```
+
+Exemple JSONL équivalent :
+
+```jsonl
+{"text": "Service client au top !", "label": "positive", "lang_code": "fr"}
+{"text": "Mediocre quality overall.", "label": 0, "lang_code": "en"}
+```
+
+Le fichier est validé au chargement : chemin existant, extension `.csv` /
+`.jsonl` / `.ndjson`, colonnes présentes, labels et langues supportés. Toute
+anomalie lève une erreur explicite (message précisant la ligne et la cause), et
+le job d'entraînement passe en `failed` avec ce message via `GET /train/status`.
+Sans `--local_corrections_path` / `local_corrections_path`, le comportement est
+strictement inchangé (dataset HF seul).
 
 ## Boucle d'active learning (review manuelle)
 

@@ -454,7 +454,10 @@ def pipeline_mock(monkeypatch):
     monkeypatch.setattr(_trainer_runner, "save_model_version", _save_model_version_with_weights)
 
 
-def _fake_raw_dataset(max_per_lang=None, languages=None):
+def _fake_raw_dataset(max_per_lang=None, languages=None, local_corrections_path=None):
+    # local_corrections_path : propage depuis SCRUM-57 (corrections locales
+    # concaténées dans load_raw_dataset). Le double reste offline et ignore
+    # simplement le fichier.
     texts = [
         "ce produit est bon",
         "je suis tres decu par ce produit",

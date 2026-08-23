@@ -46,12 +46,13 @@ def main(args):
     if TEST_MODE:
         cfg["device"] = "cpu"
 
-    if args.dataset_file:
-        print(f"1. Chargement du dataset local : {args.dataset_file}...")
-        raw = load_local_dataset(args.dataset_file)
-    else:
-        print(f"1. Chargement du dataset multilingue (max {args.max_per_lang}/langue)...")
-        raw = load_raw_dataset(max_per_lang=args.max_per_lang)
+    print(f"1. Chargement du dataset multilingue (max {args.max_per_lang}/langue)...")
+    if args.local_corrections_path:
+        print(f"   + corrections locales : {args.local_corrections_path}")
+    raw = load_raw_dataset(
+        max_per_lang=args.max_per_lang,
+        local_corrections_path=args.local_corrections_path,
+    )
 
     print("2. Split train/val (avant augmentation, pour éviter la fuite)...")
     split = raw.train_test_split(test_size=0.1, seed=42)
@@ -90,10 +91,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--max_per_lang", type=int, default=500)
-    parser.add_argument("--dataset_file", type=str, default=None,
-                        help="Chemin vers un CSV/JSONL local (colonnes text/label/lang_code, "
-                             "ex: sortie enrichie de merge_reviewed_data.py). "
-                             "Défaut : dataset Hugging Face.")
     parser.add_argument("--augment_fraction", type=float, default=0.4)
     parser.add_argument("--variants_per_example", type=int, default=2)
     parser.add_argument("--class_augment_weights", type=json.loads, default=None,
