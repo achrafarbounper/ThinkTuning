@@ -6,10 +6,13 @@ Dataset : cardiffnlp/tweet_sentiment_multilingual
 Chargé via les fichiers Parquet auto-convertis par Hugging Face.
 """
 
+import csv
 import hashlib
+import json
 import logging
 import random
-from typing import Dict, Iterable, Optional
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -63,6 +66,126 @@ def load_raw_dataset(
         subsets.append(ds)
 
     return concatenate_datasets(subsets)
+
+
+_TEXT_COLUMN_ALIASES = ("text", "input")
+_LABEL_COLUMN_ALIASES = ("label", "output", "sentiment")
+
+
+def coerce_label(value) -> int:
+    """
+    Convertit une valeur de label en entier valide selon LABEL_NAMES.
+
+    Accepte les entiers (0, 1, 2), leurs représentations textuelles ("0",
+    "2.0") ainsi que les noms de classes ("negative" / "neutral" / "positive").
+    """
+    name_to_int = {name: index for index, name in LABEL_NAMES.items()}
+
+    if isinstance(value, bool):
+        raise ValueError(f"Invalid label value: {value!r}")
+    if isinstance(value, (int, np.integer)):
+        label = int(value)
+    else:
+        text = "" if value is None else str(value).strip().lower()
+        if not text:
+            raise ValueError("Missing label value")
+        if text in name_to_int:
+            return name_to_int[text]
+        try:
+            label = int(float(text))
+        except ValueError:
+            raise ValueError(f"Unknown label value: {value!r}") from None
+
+    if label in LABEL_NAMES:
+        return label
+    raise ValueError(f"Label out of range for {LABEL_NAMES}: {value!r}")
+
+
+def _read_records_from_file(path: Path) -> List[dict]:
+    """Lit un fichier CSV, JSON ou JSONL et renvoie une liste de dictionnaires."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".csv":
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            return [dict(row) for row in csv.DictReader(handle)]
+
+    if suffix in {".json", ".jsonl"}:
+        if suffix == ".jsonl":
+            records = []
+            with path.open("r", encoding="utf-8-sig") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if line:
+                        records.append(json.loads(line))
+        else:
+            with path.open("r", encoding="utf-8-sig") as handle:
+                payload = json.load(handle)
+            if isinstance(payload, list):
+                records = payload
+            elif isinstance(payload, dict):
+                if isinstance(payload.get("records"), list):
+                    records = payload["records"]
+                elif isinstance(payload.get("data"), list):
+                    records = payload["data"]
+                else:
+                    records = [payload]
+            else:
+                raise ValueError(
+                    f"Unsupported JSON payload type in {path}: {type(payload).__name__}"
+                )
+        return [record for record in records if isinstance(record, dict)]
+
+    raise ValueError(f"Unsupported input format for {path}: {suffix or 'unknown'}")
+
+
+def load_local_dataset(
+    file_path: str,
+    default_lang_code: str = "fr",
+) -> Dataset:
+    """
+    Charge un jeu de données local (CSV, JSON ou JSONL) en Dataset HF avec les
+    colonnes 'text', 'label' (entier) et 'lang_code'.
+
+    Colonnes reconnues : 'text' ou 'input' pour le texte ; 'label', 'output'
+    ou 'sentiment' pour le label (entier ou nom de classe, cf. coerce_label) ;
+    'lang_code' optionnel (sinon default_lang_code).
+
+    Utilisée notamment par train.py --dataset_file pour consommer le dataset
+    enrichi produit par merge_reviewed_data.py.
+    """
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Input file not found: {file_path}")
+
+    texts: List[str] = []
+    labels: List[int] = []
+    langs: List[str] = []
+
+    for row in _read_records_from_file(path):
+        text_value = next((row[column] for column in _TEXT_COLUMN_ALIASES if row.get(column)), None)
+        if text_value is None:
+            continue
+        text = str(text_value).strip()
+        if not text:
+            continue
+
+        # Attention : 0 est un label valide, on teste donc explicitement None.
+        label_value = next(
+            (row[column] for column in _LABEL_COLUMN_ALIASES if row.get(column) is not None),
+            None,
+        )
+        label = coerce_label(label_value)
+
+        lang = str(row.get("lang_code") or default_lang_code).strip() or default_lang_code
+        texts.append(text)
+        labels.append(label)
+        langs.append(lang)
+
+    if not texts:
+        raise ValueError(f"No usable rows found in {file_path}")
+
+    logger.info("load_local_dataset: loaded %s examples from %s", len(texts), file_path)
+    return Dataset.from_dict({"text": texts, "label": labels, "lang_code": langs})
 
 
 def augment_dataset(

@@ -66,6 +66,7 @@ python train.py --max_per_lang 500 --epochs 2 --batch_size 8
 
 Options principales :
 - `--max_per_lang` : nombre d'exemples chargés par langue (fr/en) — 500 par défaut, adapté au CPU
+- `--dataset_file` : chemin vers un CSV/JSONL local (`text`, `label`, `lang_code`) — ex. la sortie enrichie de `merge_reviewed_data.py`. Par défaut : dataset Hugging Face.
 - `--augment_fraction` : proportion du dataset recomposée (0.4 = 40%)
 - `--variants_per_example` : nombre de variantes générées par texte augmenté
 - `--epochs`, `--batch_size` : hyperparamètres classiques (2 epochs / batch 8 par défaut pour rester raisonnable en CPU)
@@ -82,6 +83,42 @@ très limitée.
 **Temps indicatif en CPU** : avec les valeurs par défaut (500 exemples/langue,
 2 epochs), comptez de l'ordre de 20 à 60 minutes selon votre machine. Pour aller
 plus vite pendant les tests, réduisez encore `--max_per_lang` (ex: 200).
+
+## Boucle d'active learning (review manuelle)
+
+Le pipeline permet de cibler les faiblesses du modèle puis de réinjecter les
+corrections humaines avant un nouveau fine-tuning :
+
+```bash
+# 1. Sélection des exemples les plus incertains (confidence proche de 1/3)
+python active_learning.py --input data/train.jsonl --output data/manual_review_template.csv
+
+# 2. Review manuelle : compléter la colonne manual_label du CSV
+#    (negative / neutral / positive — les lignes vides ou non tranchées
+#    seront ignorées à l'étape suivante)
+
+# 3. Réinjection des corrections dans le jeu d'entraînement.
+#    Par défaut, fusion avec le dataset Hugging Face utilisé par train.py ;
+#    --source accepte aussi un fichier local (CSV/JSON/JSONL).
+python merge_reviewed_data.py --review data/manual_review_template.csv --source data/train.jsonl --output data/train_enriched.jsonl
+
+# 4. Réentraînement sur le dataset enrichi
+python train.py --dataset_file data/train_enriched.jsonl --epochs 2 --batch_size 8
+```
+
+Comportement de `merge_reviewed_data.py` :
+
+- seules les lignes avec un `manual_label` valide (`negative` / `neutral` /
+  `positive`, alias français acceptés) sont conservées ;
+- le label est converti en entier selon `LABEL_NAMES` de `src/dataset/loader.py`
+  ({0: negative, 1: neutral, 2: positive}) ;
+- la déduplication se fait sur le texte normalisé (trim + minuscules) : un
+  texte déjà présent dans la source voit son label **mis à jour** avec la
+  correction manuelle (pas de doublon), un texte nouveau est ajouté avec
+  `lang_code` (`--lang_code`, `fr` par défaut) ;
+- export en JSONL (défaut) ou CSV (`--format csv`) avec les colonnes
+  `text`, `label`, `lang_code`, directement consommable par
+  `train.py --dataset_file`.
 
 ## Prédiction
 
