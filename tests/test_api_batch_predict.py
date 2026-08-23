@@ -263,3 +263,34 @@ def test_batch_empty_file():
         headers={"X-API-Key": "test-key"},
     )
     assert response.status_code == 400
+
+
+def test_batch_predict_forwards_model_param(monkeypatch):
+    """The optional `model` query param must be forwarded to get_predictor()."""
+    from api.routes import predict as predict_module
+
+    captured_model = {"value": None}
+
+    class FakePredictor:
+        def predict(self, texts):
+            return [
+                {"text": t, "sentiment": "positive", "confidence": 0.9}
+                for t in texts
+            ]
+
+    def fake_get_predictor(model_name=None):
+        captured_model["value"] = model_name
+        return FakePredictor()
+
+    monkeypatch.setattr(predict_module, "get_predictor", fake_get_predictor)
+
+    csv_payload = "text\nhello\n"
+    response = client.post(
+        "/predict/batch?model=vintage-2024",
+        files={"file": ("batch.csv", csv_payload, "text/csv")},
+        data={"text_column": "text", "response_format": "json"},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured_model["value"] == "vintage-2024"

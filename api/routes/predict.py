@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
+from typing import Optional
 import pandas as pd
 import io
 
@@ -20,10 +21,24 @@ class PredictRequest(BaseModel):
     texts: list[str]
 
 
-@router.post("/predict")
-def predict_route(payload: PredictRequest, _: bool = Depends(require_api_key)):
-    predictor = get_predictor()
-    results = predictor.predict(payload.texts)
+class Prediction(BaseModel):
+    text: str
+    sentiment: str
+    confidence: float
+
+
+class PredictResponse(BaseModel):
+    results: list[Prediction]
+
+
+@router.post("/predict", response_model=PredictResponse)
+def predict_route(
+    req: PredictRequest,
+    model: Optional[str] = None,
+    _: bool = Depends(require_api_key),
+):
+    predictor = api._get_predictor(model)
+    results = predictor.predict(req.texts)
     return {"results": results}
 
 
@@ -36,6 +51,7 @@ async def predict_batch(
     file: UploadFile = File(...),
     text_column: str = Form("text"),
     response_format: str = Form("json"),
+    model: Optional[str] = None,
     _: bool = Depends(require_api_key),
 ):
     raw = await file.read()
@@ -50,7 +66,7 @@ async def predict_batch(
     if text_column not in df.columns:
         raise HTTPException(status_code=400, detail="Missing text column")
 
-    predictor = get_predictor()
+    predictor = get_predictor(model)
     preds = predictor.predict(df[text_column].tolist())
 
     df["sentiment"] = [p["sentiment"] for p in preds]
