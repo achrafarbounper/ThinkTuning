@@ -47,7 +47,12 @@ def main(args):
         cfg["device"] = "cpu"
 
     print(f"1. Chargement du dataset multilingue (max {args.max_per_lang}/langue)...")
-    raw = load_raw_dataset(max_per_lang=args.max_per_lang)
+    if args.local_corrections_path:
+        print(f"   + corrections locales : {args.local_corrections_path}")
+    raw = load_raw_dataset(
+        max_per_lang=args.max_per_lang,
+        local_corrections_path=args.local_corrections_path,
+    )
 
     print("2. Split train/val (avant augmentation, pour éviter la fuite)...")
     split = raw.train_test_split(test_size=0.1, seed=42)
@@ -86,6 +91,15 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--max_per_lang", type=int, default=500)
+    parser.add_argument(
+        "--local_corrections_path",
+        type=str,
+        default=None,
+        help="Chemin d'un fichier local de corrections manuelles (CSV ou JSONL "
+             "avec colonnes text, label, lang_code — produit par "
+             "merge_reviewed_data.py). Les corrections sont concaténées au "
+             "dataset HF avant le split train/val et l'augmentation EDA.",
+    )
     parser.add_argument("--augment_fraction", type=float, default=0.4)
     parser.add_argument("--variants_per_example", type=int, default=2)
     parser.add_argument("--class_augment_weights", type=json.loads, default=None,

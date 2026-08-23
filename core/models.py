@@ -15,6 +15,11 @@ class JobStatus(str, Enum):
 
 class TrainRequest(BaseModel):
     max_per_lang: int = 500
+    # Chemin optionnel d'un fichier local de corrections manuelles (CSV ou
+    # JSONL avec colonnes text, label, lang_code) produit par le workflow
+    # d'active learning (SCRUM-56 : merge_reviewed_data.py). Concaténé au
+    # dataset HF avant split/augmentation. None => comportement inchangé.
+    local_corrections_path: Optional[str] = None
     augment_fraction: float = 0.4
     variants_per_example: int = 2
     class_augment_weights: Optional[Dict[str, float]] = None
