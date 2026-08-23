@@ -31,6 +31,10 @@ class PersistentJobStore(dict):
                 updated_at REAL NOT NULL
             )
         """)
+        # Index sur updated_at pour accélérer les requêtes de listing/pagination.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at)"
+        )
         conn.commit()
         conn.close()
 
@@ -80,6 +84,64 @@ class PersistentJobStore(dict):
             job = TrainJob(**data)
             super().__setitem__(key, job)
             return job
+
+    def list_jobs(self, status=None, limit=100, offset=0):
+        """Renvoie les jobs paginés, filtrés par *status* et triés par
+        ``started_at DESC`` (les jobs non-démarrés arrivent en dernier).
+
+        La requête SQL exploite l'index ``idx_jobs_updated_at`` et utilise
+        ``json_extract`` pour filtrer / trier directement dans SQLite, évitant
+        de charger l'ensemble des payloads en mémoire.
+
+        Args:
+            status: Valeur texte du status (ex. ``"completed"``) ou ``None``
+                pour désactiver le filtre.
+            limit: Nombre maximum de résultats (``>= 1``).
+            offset: Nombre de résultats à ignorer (``>= 0``).
+
+        Returns:
+            Tuple ``(items, total)`` où *items* est une liste de ``TrainJob``
+            et *total* le nombre total de jobs correspondant au filtre.
+        """
+        limit = max(1, limit)
+        offset = max(0, offset)
+
+        if status:
+            count_sql = (
+                "SELECT COUNT(*) FROM jobs "
+                "WHERE json_extract(payload, '$.status') = ?"
+            )
+            items_sql = (
+                "SELECT job_id, payload FROM jobs "
+                "WHERE json_extract(payload, '$.status') = ? "
+                "ORDER BY json_extract(payload, '$.started_at') DESC "
+                "LIMIT ? OFFSET ?"
+            )
+            count_params = (status,)
+            items_params = (status, limit, offset)
+        else:
+            count_sql = "SELECT COUNT(*) FROM jobs"
+            items_sql = (
+                "SELECT job_id, payload FROM jobs "
+                "ORDER BY json_extract(payload, '$.started_at') DESC "
+                "LIMIT ? OFFSET ?"
+            )
+            count_params = ()
+            items_params = (limit, offset)
+
+        conn = self._connect()
+        try:
+            total = conn.execute(count_sql, count_params).fetchone()[0]
+            rows = conn.execute(items_sql, items_params).fetchall()
+        finally:
+            conn.close()
+
+        items = []
+        for _job_id, payload in rows:
+            data = json.loads(payload)
+            items.append(TrainJob(**data))
+
+        return items, total
 
 
 _store = PersistentJobStore()

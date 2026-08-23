@@ -133,6 +133,99 @@ def test_job_store_persists_and_loads_jobs():
         assert reloaded[job_id].status == JobStatus.PENDING
         assert reloaded[job_id].step == "queued"
 
+# ------------------------------------------------------------------ #
+# Tests pagination / filtrage GET /train/jobs  (SCRUM-49)              #
+# ------------------------------------------------------------------ #
+def test_list_jobs_pagination():
+    """list_jobs respecte limit et offset avec un tri DESC par started_at."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "jobs.db")
+        store = api.PersistentJobStore(path=db_path)
+
+        for i in range(10):
+            store[f"job-{i}"] = TrainJob(
+                job_id=f"job-{i}",
+                status=JobStatus.COMPLETED,
+                started_at=1000.0 + i,
+            )
+
+        # limit=5, offset=0 → 5 premiers (tri DESC → job-9, job-8, job-7, job-6, job-5)
+        items, total = store.list_jobs(limit=5, offset=0)
+        assert total == 10
+        assert len(items) == 5
+        assert [j.job_id for j in items] == ["job-9", "job-8", "job-7", "job-6", "job-5"]
+
+        # offset=5 → page suivante
+        items, total = store.list_jobs(limit=5, offset=5)
+        assert total == 10
+        assert len(items) == 5
+        assert [j.job_id for j in items] == ["job-4", "job-3", "job-2", "job-1", "job-0"]
+
+        # offset au-delà du total → liste vide mais total correct
+        items, total = store.list_jobs(limit=5, offset=100)
+        assert total == 10
+        assert len(items) == 0
+
+
+def test_list_jobs_filter_by_status():
+    """list_jobs filtre correctement par status (tous les status supportés)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "jobs.db")
+        store = api.PersistentJobStore(path=db_path)
+
+        store["j-pending"] = TrainJob(job_id="j-pending", status=JobStatus.PENDING, step="queued")
+        store["j-running"] = TrainJob(job_id="j-running", status=JobStatus.RUNNING, step="training", started_at=1000.0)
+        store["j-completed"] = TrainJob(job_id="j-completed", status=JobStatus.COMPLETED, started_at=1100.0)
+        store["j-failed"] = TrainJob(job_id="j-failed", status=JobStatus.FAILED, started_at=1050.0)
+        store["j-cancelled"] = TrainJob(job_id="j-cancelled", status=JobStatus.CANCELLED, started_at=900.0)
+
+        for st in ("pending", "running", "completed", "failed", "cancelled"):
+            items, total = store.list_jobs(status=st)
+            assert total == 1
+            assert len(items) == 1
+
+        # Aucun filtre → tous les jobs
+        items, total = store.list_jobs()
+        assert total == 5
+        assert len(items) == 5
+
+        # Filtre avec pagination
+        items, total = store.list_jobs(status="completed", limit=1, offset=0)
+        assert total == 1
+        assert len(items) == 1
+
+
+def test_list_jobs_sorted_by_started_at_desc():
+    """list_jobs trie par started_at DESC ; les jobs sans started_at (NULL) arrivent en dernier."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "jobs.db")
+        store = api.PersistentJobStore(path=db_path)
+
+        store["old"] = TrainJob(job_id="old", status=JobStatus.COMPLETED, started_at=1000.0)
+        store["newer"] = TrainJob(job_id="newer", status=JobStatus.COMPLETED, started_at=2000.0)
+        store["newest"] = TrainJob(job_id="newest", status=JobStatus.COMPLETED, started_at=3000.0)
+        store["pending"] = TrainJob(job_id="pending", status=JobStatus.PENDING)  # started_at=None
+
+        items, total = store.list_jobs()
+        assert total == 4
+        assert [j.job_id for j in items] == ["newest", "newer", "old", "pending"]
+
+
+def test_job_store_creates_updated_at_index():
+    """Le store crée l'index idx_jobs_updated_at sur updated_at au moment de l'initialisation."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "jobs.db")
+        api.PersistentJobStore(path=db_path)
+
+        conn = sqlite3.connect(db_path)
+        indexes = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND name='idx_jobs_updated_at'"
+        ).fetchall()
+        conn.close()
+
+        assert len(indexes) == 1
+
 """ def test_cleanup_old_jobs_removes_expired_completed_jobs():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "jobs.db")

@@ -144,6 +144,11 @@ export default function Dashboard() {
   const [trainLoading, setTrainLoading] = useState(false);
   const [trainError, setTrainError] = useState(null);
   const [jobs, setJobs] = useState([]);
+  // Pagination / filtrage GET /train/jobs (?status=&limit=&offset=)
+  const [jobsStatusFilter, setJobsStatusFilter] = useState("");
+  const [jobsLimit, setJobsLimit] = useState(20);
+  const [jobsOffset, setJobsOffset] = useState(0);
+  const [jobsTotal, setJobsTotal] = useState(0);
 
   const [logs, setLogs] = useState([]);
   const logIdRef = useRef(0);
@@ -183,12 +188,24 @@ export default function Dashboard() {
   const refreshJobs = useCallback(async () => {
     if (!config.apiKey) return;
     try {
-      const list = await clientRef.current.listTrainingJobs();
-      setJobs(list.sort((a, b) => (b.started_at || 0) - (a.started_at || 0)));
+      // GET /train/jobs?status=...&limit=N&offset=N
+      // Réponse : { total, items, limit, offset } trié par started_at DESC.
+      const result = await clientRef.current.listTrainingJobs({
+        status: jobsStatusFilter || undefined,
+        limit: jobsLimit,
+        offset: jobsOffset,
+      });
+      setJobs(result.items);
+      setJobsTotal(result.total);
     } catch (err) {
       pushLog("error", `Historique des jobs indisponible : ${err.message}`);
     }
-  }, [config.apiKey, pushLog]);
+  }, [config.apiKey, pushLog, jobsStatusFilter, jobsLimit, jobsOffset]);
+
+  const handleJobsStatusFilterChange = (event) => {
+    setJobsStatusFilter(event.target.value);
+    setJobsOffset(0); // repart à la première page quand le filtre change
+  };
 
   // -- Health : ne nécessite pas de clé API (voir GET /health dans api.py) --
   useEffect(() => {
@@ -802,6 +819,47 @@ export default function Dashboard() {
             cancelLoading={false}
           />
 
+          <div className="tt-jobs-controls">
+            <label className="tt-jobs-filter">
+              Statut
+              <select
+                className="tt-select"
+                value={jobsStatusFilter}
+                onChange={handleJobsStatusFilterChange}
+              >
+                <option value="">Tous</option>
+                <option value="pending">pending</option>
+                <option value="running">running</option>
+                <option value="completed">completed</option>
+                <option value="failed">failed</option>
+                <option value="cancelled">cancelled</option>
+              </select>
+            </label>
+            <div className="tt-jobs-pagination">
+              <span className="tt-jobs-range">
+                {jobsTotal > 0 && jobs.length > 0
+                  ? `Jobs ${jobsOffset + 1}–${jobsOffset + jobs.length} sur ${jobsTotal}`
+                  : `${jobsTotal} job(s)`}
+              </span>
+              <button
+                type="button"
+                className="tt-btn tt-btn-ghost"
+                onClick={() => setJobsOffset(Math.max(0, jobsOffset - jobsLimit))}
+                disabled={jobsOffset === 0}
+              >
+                ← Précédent
+              </button>
+              <button
+                type="button"
+                className="tt-btn tt-btn-ghost"
+                onClick={() => setJobsOffset(jobsOffset + jobsLimit)}
+                disabled={jobsOffset + jobsLimit >= jobsTotal}
+              >
+                Suivant →
+              </button>
+            </div>
+          </div>
+
           <table className="tt-table tt-jobs-table">
             <thead>
               <tr>
@@ -1005,6 +1063,13 @@ textarea { width: 100%; resize: vertical; }
 .tt-tracker-error .tt-tracker-dot { background: var(--tt-negative); }
 
 .tt-history-controls { display: flex; gap: 8px; align-items: center; }
+
+/* Contrôles de pagination / filtrage de GET /train/jobs */
+.tt-jobs-controls { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 18px; }
+.tt-jobs-filter { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--tt-text-dim); }
+.tt-jobs-filter .tt-select { width: auto; min-width: 120px; }
+.tt-jobs-pagination { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.tt-jobs-range { font-size: 0.75rem; color: var(--tt-text-dim); white-space: nowrap; }
 .tt-history-table { max-height: 400px; overflow-y: auto; }
 .tt-history-time { white-space: nowrap; font-size: 0.75rem; }
 .tt-history-text { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

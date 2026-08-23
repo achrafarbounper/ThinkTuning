@@ -136,9 +136,9 @@ GET /train/status/{job_id}
 POST /train/cancel/{job_id}
 → 200 { job_id, status: "cancelled", ... }
 
-# Lister tous les jobs
-GET /train/jobs
-→ 200 [{ job_id, status, ... }, ...]
+# Lister tous les jobs (paginé, filtrable)
+GET /train/jobs?status=completed&limit=20&offset=0
+→ 200 { total, items: [{ job_id, status, ... }, ...], limit, offset }
 ```
 
 ## Fonctionnement du polling

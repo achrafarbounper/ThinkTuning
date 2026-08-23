@@ -2,7 +2,7 @@
 
 from enum import Enum
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import List, Optional, Dict
 
 
 class JobStatus(str, Enum):
@@ -36,6 +36,14 @@ class TrainJob(BaseModel):
     finished_at: Optional[float] = None
     error: Optional[str] = None
     model_path: Optional[str] = None
+
+class JobListResponse(BaseModel):
+    """Réponse paginée pour GET /train/jobs."""
+    total: int
+    items: List[TrainJob]
+    limit: int
+    offset: int
+
 
 class ModelVersion(BaseModel):
     name: str
