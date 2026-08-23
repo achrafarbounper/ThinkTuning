@@ -3,7 +3,10 @@
 import os
 
 # === Global flags expected by tests ===
-TEST_MODE = os.getenv("TEST_MODE", "0") == "1"
+# Définis dans src.utils.flags (source unique) pour éviter les imports
+# circulaires : les modules bas niveau (src.*, core.*) lisent ce module
+# au lieu d'importer le package api.
+from src.utils.flags import TEST_MODE
 API_KEY = os.getenv("API_KEY", "dev-local-api-key")
 
 # === Expose FastAPI app ===
