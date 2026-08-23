@@ -31,6 +31,10 @@ os.environ.setdefault("API_KEY", "test-key")
 import api
 from api import app
 
+from core import trainer_runner as _trainer_runner
+from core import predictor_cache as _predictor_cache
+from core import model_versioning as _model_versioning
+
 HEADERS = {"X-API-Key": "test-key"}
 
 # Défense en profondeur : coupe tout passage réseau HuggingFace.
@@ -84,6 +88,84 @@ class TinyTokenizer:
     def tokenize(self, text: str):
         return _normalized_tokens(text)
 
+
+    # --- Compatibilité HuggingFace minimale ---
+    @property
+    def pad_token_id(self):
+        return self.pad_id
+
+    @property
+    def pad_token(self):
+        return "[PAD]"
+
+    @property
+    def model_max_length(self):
+        return 16
+
+    @property
+    def padding_side(self):
+        return "right"
+
+    def pad(
+    self,
+    encoded_inputs,
+    padding=True,
+    max_length=None,
+    pad_to_multiple_of=None,
+    return_tensors=None,
+    **kwargs
+    ):
+        """
+        Version compatible HuggingFace : accepte tous les arguments possibles
+        et gère input_ids sous forme de list OU de Tensor.
+        """
+        if isinstance(encoded_inputs, dict):
+            encoded_inputs = [encoded_inputs]
+
+        # Déterminer la longueur max
+        if max_length is None:
+            max_length = max(
+                len(item["input_ids"]) if isinstance(item["input_ids"], list)
+                else item["input_ids"].shape[0]
+                for item in encoded_inputs
+            )
+
+        # Alignement optionnel
+        if pad_to_multiple_of is not None:
+            if max_length % pad_to_multiple_of != 0:
+                max_length = ((max_length // pad_to_multiple_of) + 1) * pad_to_multiple_of
+
+        padded_ids = []
+        padded_masks = []
+
+        for item in encoded_inputs:
+            ids = item["input_ids"]
+            mask = item["attention_mask"]
+
+            # Convertir Tensor → list
+            if not isinstance(ids, list):
+                ids = ids.tolist()
+            if not isinstance(mask, list):
+                mask = mask.tolist()
+
+            pad_len = max_length - len(ids)
+
+            padded_ids.append(ids + [self.pad_id] * pad_len)
+            padded_masks.append(mask + [0] * pad_len)
+
+        if return_tensors == "pt":
+            return {
+                "input_ids": torch.tensor(padded_ids, dtype=torch.long),
+                "attention_mask": torch.tensor(padded_masks, dtype=torch.long),
+            }
+
+        return {
+            "input_ids": padded_ids,
+            "attention_mask": padded_masks,
+        }
+
+
+
     def encode(self, texts, max_length: int = 16):
         """Retourne (input_ids, attention_mask) tensors torch."""
         ids, masks = [], []
@@ -98,11 +180,28 @@ class TinyTokenizer:
             masks.append(mask)
         return torch.tensor(ids, dtype=torch.long), torch.tensor(masks, dtype=torch.long)
 
+    def __call__(self, texts, padding=True, truncation=True, max_length=16,
+             return_tensors=None, return_token_type_ids=None, **kwargs):
+        # On ignore padding/truncation/return_token_type_ids comme HF
+        input_ids, attention_mask = self.encode(texts, max_length=max_length)
+
+        if return_tensors == "pt":
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+            }
+
+        # Compatibilité minimale si return_tensors=None
+        return {
+            "input_ids": input_ids.tolist(),
+            "attention_mask": attention_mask.tolist(),
+        }
+
+
     def save_pretrained(self, path):
         os.makedirs(path, exist_ok=True)
         with open(os.path.join(path, "vocab.json"), "w", encoding="utf-8") as fh:
             json.dump(self.vocab, fh)
-
 
 class TinyOutput:
     """Mini wrapper imitant outputs.logits des modèles HF."""
@@ -167,28 +266,42 @@ class TinyDataset:
 
     def __init__(self, texts=None, labels=None, lang_codes=None):
         self.text = texts or []
-        self.label = labels or []
+        self.labels = labels or []
         self.lang_code = lang_codes or ["fr"] * len(self.text)
+
+    @property
+    def label(self):
+        """Alias to match the column name used by the training pipeline."""
+        return self.labels
 
     def __len__(self):
         return len(self.text)
 
     def __getitem__(self, key):
         if isinstance(key, str):
+            # Return the entire attribute (e.g., for iteration)
             return getattr(self, key)
-        return {
-            "text": self.text[key],
-            "label": self.label[key],
-            "lang_code": self.lang_code[key],
-        }
+        elif isinstance(key, slice):
+            return {
+                "text": self.text[key],
+                "labels": self.labels[key],
+                "lang_code": self.lang_code[key],
+            }
+        else:
+            # Integer index
+            return {
+                "text": self.text[key],
+                "labels": self.labels[key],
+                "lang_code": self.lang_code[key],
+            }
 
     def train_test_split(self, test_size=0.1, seed=42):
         n = len(self)
         n_test = max(1, int(n * test_size))
         n_train = n - n_test
         return {
-            "train": TinyDataset(self.text[:n_train], self.label[:n_train], self.lang_code[:n_train]),
-            "test": TinyDataset(self.text[n_train:], self.label[n_train:], self.lang_code[n_train:]),
+            "train": TinyDataset(self.text[:n_train], self.labels[:n_train], self.lang_code[:n_train]),
+            "test": TinyDataset(self.text[n_train:], self.labels[n_train:], self.lang_code[n_train:]),
         }
 
 
@@ -246,26 +359,40 @@ def isolated_api(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "LEGACY_MODEL_DIR", legacy, raising=False)
     monkeypatch.setattr(api, "JOB_STORE_PATH", str(tmp_path / "jobs.db"), raising=False)
 
+    # Isole aussi les modules refactorisés (core.*), qui sont utilisés par le
+    # trainer runner et la résolution de modèles réellement appelés.
+    monkeypatch.setattr(_model_versioning, "MODEL_ROOT", root)
+    monkeypatch.setattr(_model_versioning, "MODELS_ROOT", root)
+
     # Réinitialise le store de jobs et le cache predictor entre chaque test.
     previous_jobs = api._jobs
     previous_events = api._job_cancel_events
     previous_predictor = api._predictor
+    previous_core_predictor = _predictor_cache._predictor
     api._jobs = {}
     api._job_cancel_events = {}
     api._predictor = None
+    _predictor_cache._predictor = None
 
     yield
 
     api._jobs = previous_jobs
     api._job_cancel_events = previous_events
     api._predictor = previous_predictor
+    _predictor_cache._predictor = previous_core_predictor
 
 
 @pytest.fixture()
 def pipeline_mock(monkeypatch):
     """Mocke le pipeline d'entraînement HuggingFace et le remplace par des
-    doubles locaux (dataset, augmentation, tokenizer, modèle, Trainer)."""
-    monkeypatch.setattr(api, "load_config", lambda path=None: {
+    doubles locaux (dataset, augmentation, tokenizer, modèle, Trainer).
+
+    IMPORTANT : POST /train exécute core.trainer_runner.run_training, qui
+    référence ses dépendances par imports directs dans core.trainer_runner
+    (et non via le module api). Les patches doivent donc viser les modules
+    core.* utilisés au runtime pour rester réellement offline.
+    """
+    monkeypatch.setattr(_trainer_runner, "load_config", lambda path=None: {
         "model_name": "tiny-local-model",
         "max_length": 16,
         "learning_rate": 0.2,
@@ -283,35 +410,48 @@ def pipeline_mock(monkeypatch):
         "early_stopping_patience": 0,
         "early_stopping_min_delta": 0.0,
     })
-    monkeypatch.setattr(api, "load_raw_dataset", _fake_raw_dataset)
-    monkeypatch.setattr(api, "augment_dataset", lambda ds, **kwargs: ds)
-    monkeypatch.setattr(api, "create_dataloaders", lambda train, val, cfg: (None, None))
-    monkeypatch.setattr(api, "compute_class_weights", lambda labels, **kwargs: None)
-    monkeypatch.setattr(api.AutoTokenizer, "from_pretrained", staticmethod(lambda *a, **k: TinyTokenizer()))
-    monkeypatch.setattr(api, "build_model", lambda cfg: TinyModel())
-    monkeypatch.setattr(api, "Trainer", FakeTrainer)
+    monkeypatch.setattr(_trainer_runner, "load_raw_dataset", _fake_raw_dataset)
+    monkeypatch.setattr(_trainer_runner, "augment_dataset", lambda ds, **kwargs: ds)
+    monkeypatch.setattr(_trainer_runner, "create_dataloaders", lambda train, val, cfg: (None, None))
+    monkeypatch.setattr(_trainer_runner, "compute_class_weights", lambda labels, **kwargs: None)
+    monkeypatch.setattr(_trainer_runner, "build_model", lambda cfg: TinyModel())
+    monkeypatch.setattr(_trainer_runner, "Trainer", FakeTrainer)
+    # On garde TEST_MODE à False ici : dans ce mode le runner importe des
+    # modules "tiny" (src.inference.tiny_tokenizer / src.model.tiny_model) qui
+    # n'existent pas hors des tests. Avec False, il passe par AutoTokenizer
+    # (patché) et build_model (patché) pour obtenir les doublons Tiny.
+    monkeypatch.setattr(_trainer_runner, "TEST_MODE", False)
+    monkeypatch.setattr(
+        _trainer_runner.AutoTokenizer,
+        "from_pretrained",
+        staticmethod(lambda *a, **k: TinyTokenizer()),
+    )
     # Prédiction offline : remplace la classe Predictor (chargement HF).
-    monkeypatch.setattr(api, "Predictor", TinyPredictor)
+    monkeypatch.setattr(_predictor_cache, "Predictor", TinyPredictor)
+    monkeypatch.setattr(_predictor_cache, "_predictor", None)
 
     # ------------------------------------------------------------------ #
     # SHIM DE SAUVEGARDE DANS LE DOSSIER VERSIONNÉ.
-    # _save_model_version() dans api.py persiste le tokenizer + le rapport
-    # dans experiments/models/<timestamp>/ mais n'écrit PAS les poids du
-    # modèle (ils partent dans sentiment_model_final via trainer.save()).
-    # Or /predict résout le modèle via _list_model_versions() qui exige un
-    # fichier de poids (model.pt) dans ce dossier. Le shim ajoute donc la
-    # persistance des poids dans le dossier versionné, en conservant le
-    # comportement d'origine (le legacy). Le pipeline reste réel.
+    # save_model_version() persiste le tokenizer + le rapport dans
+    # experiments/models/<timestamp>/ mais n'écrit PAS les poids du modèle
+    # (ils partent dans sentiment_model_final via trainer.save()). Or /predict
+    # résout le modèle via resolve_model_dir() qui exige un fichier de poids
+    # (model.pt) dans ce dossier. Le shim ajoute donc la persistance des
+    # poids dans le dossier versionné, en conservant le comportement d'origine.
     # ------------------------------------------------------------------ #
-    _real_save_model_version = api._save_model_version
+    _real_save_model_version = _model_versioning.save_model_version
 
-    def _save_model_version_with_weights(tokenizer, trainer, **kwargs):
-        model_dir = _real_save_model_version(tokenizer, trainer, **kwargs)
+    def _save_model_version_with_weights(
+        tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at
+    ):
+        model_dir = _real_save_model_version(
+            tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at
+        )
         # Persist le TinyModel réel dans experiments/models/<timestamp>/.
         trainer.save(model_dir)
         return model_dir
 
-    monkeypatch.setattr(api, "_save_model_version", _save_model_version_with_weights)
+    monkeypatch.setattr(_trainer_runner, "save_model_version", _save_model_version_with_weights)
 
 
 def _fake_raw_dataset(max_per_lang=None, languages=None):

@@ -1,0 +1,92 @@
+# project/core/model_versioning.py
+
+import os
+import json
+from datetime import datetime
+
+MODEL_ROOT = os.path.join("experiments", "models")
+MODELS_ROOT = MODEL_ROOT
+MODEL_FILES = ["model.pt", "pytorch_model.bin", "model.safetensors"]
+
+
+def list_model_versions() -> list[str]:
+    os.makedirs(MODEL_ROOT, exist_ok=True)
+    versions = []
+
+    for name in os.listdir(MODEL_ROOT):
+        path = os.path.join(MODEL_ROOT, name)
+        if os.path.isdir(path):
+            if any(os.path.exists(os.path.join(path, f)) for f in MODEL_FILES):
+                versions.append(name)
+
+    versions.sort(reverse=True)
+    return versions
+
+
+def resolve_model_dir(model_name: str | None = None) -> str:
+    if model_name:
+        candidate = os.path.join(MODEL_ROOT, model_name)
+        if not os.path.isdir(candidate):
+            raise RuntimeError(f"Model version '{model_name}' not found.")
+        return candidate
+
+    versions = list_model_versions()
+    if not versions:
+        raise RuntimeError("No valid model versions found.")
+
+    return os.path.join(MODEL_ROOT, versions[0])
+
+
+def _json_safe(value):
+    """Convertit des valeurs non sérialisables (tensor, numpy, MagicMock…) en types JSON natifs."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if hasattr(value, "item"):  # torch.Tensor / numpy scalar
+        return _json_safe(value.item())
+    return str(value)
+
+
+def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at):
+    os.makedirs(MODEL_ROOT, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    model_dir = os.path.join(MODEL_ROOT, timestamp)
+    os.makedirs(model_dir, exist_ok=True)
+
+    tokenizer.save_pretrained(model_dir)
+
+    # Configuration d'entraînement (copie json-safe).
+    hyperparameters = _json_safe(dict(getattr(trainer, "cfg", {}) or {}))
+
+    # Métriques finales + séries temporelles par époque.
+    epoch_metrics = getattr(trainer, "epoch_metrics", None) or []
+    final_metrics = dict(getattr(trainer, "final_metrics", None) or {})
+    metrics = _json_safe(
+        {
+            **final_metrics,
+            "accuracy_by_epoch": [
+                entry.get("accuracy") for entry in epoch_metrics
+            ],
+            "f1_by_epoch": [entry.get("f1_macro") for entry in epoch_metrics],
+            "epochs": len(epoch_metrics),
+        }
+    )
+
+    report = {
+        "timestamp": timestamp,
+        "job_id": job_id,
+        "model_dir": model_dir,
+        "hyperparameters": hyperparameters,
+        "metrics": metrics,
+        "training_duration_seconds": float(finished_at - started_at),
+        "train_examples": train_examples,
+        "val_examples": val_examples,
+    }
+
+    with open(os.path.join(model_dir, "training_report.json"), "w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2, default=str)
+
+    return model_dir

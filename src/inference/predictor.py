@@ -4,7 +4,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 from src.dataset.loader import LABEL_NAMES
-
+from api import TEST_MODE
 _DEFAULT_MAX_LENGTH = 128
 
 
@@ -68,6 +68,21 @@ class Predictor:
             raise FileNotFoundError(f"Model path not found: {model_path}")
 
         resolved_model_path = _resolve_model_dir(model_path)
+        # MODE TEST : TinyModel + TinyTokenizer
+        if TEST_MODE:
+            from src.inference.tiny_tokenizer import TinyTokenizer
+            from src.model.tiny_model import TinyModel
+
+            state_dict_path = os.path.join(resolved_model_path, "model.pt")
+            if not os.path.exists(state_dict_path):
+                raise FileNotFoundError("model.pt")
+
+            self.tokenizer = TinyTokenizer()
+            self.model = TinyModel()
+            self.model.load_state_dict(torch.load(state_dict_path, map_location="cpu"))
+            self.model.eval()
+            return
+
         self.model_path = resolved_model_path
         self.model_name = "distilbert-base-multilingual-cased"
         self.max_length = max_length if max_length is not None else _resolve_default_max_length()
@@ -139,3 +154,15 @@ class Predictor:
             })
 
         return results
+
+    def predict_batch(self, texts):
+        """
+        Compatibilité avec les tests : applique predict() sur une liste de textes.
+        Les tests attendent une liste de dicts contenant text, sentiment, confidence.
+        """
+        # Si predict() accepte déjà une liste, on l'utilise directement
+        if isinstance(texts, list):
+            return self.predict(texts)
+
+        # Sinon, on force en liste
+        return self.predict([texts])
