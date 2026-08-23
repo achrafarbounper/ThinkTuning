@@ -136,7 +136,7 @@ export class SentimentApiClient {
       try {
         const errPayload = await response.json();
         detail = errPayload.detail || detail;
-      } catch (_) {
+      } catch {
         /* réponse non-JSON, on garde le message générique */
       }
       throw new ApiError(detail, response.status, detail);
@@ -222,8 +222,10 @@ export class SentimentApiClient {
     });
   }
 
-  listTrainingJobs() {
-    return this._request("/train/jobs");
+    listTrainingJobs({ status, limit, offset } = {}) {
+    return this._request("/train/jobs", {
+      query: { status, limit, offset },
+    });
   }
 }
 

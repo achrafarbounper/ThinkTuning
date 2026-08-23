@@ -1,8 +1,8 @@
 # project/api/routes/train.py
 
-from typing import List
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 import threading
 import uuid
 import time
@@ -10,7 +10,7 @@ import time
 from api.dependencies.auth import require_api_key
 from core.job_store import get_job_store
 from core.trainer_runner import run_training, cancel_training
-from core.models import TrainRequest, TrainJob, JobStatus
+from core.models import TrainRequest, TrainJob, JobStatus, JobListResponse
 
 router = APIRouter(prefix="/train", tags=["Training"])
 
@@ -47,6 +47,28 @@ def get_training_status(job_id: str, _: bool = Depends(require_api_key)):
 def cancel_training_endpoint(job_id: str, _: bool = Depends(require_api_key)):
     return cancel_training(job_id)
 
-@router.get("/jobs", response_model=List[TrainJob])
-def list_training_jobs(_: bool = Depends(require_api_key)):
-    return list(get_job_store().values())
+@router.get("/jobs", response_model=JobListResponse)
+def list_training_jobs(
+    status: Optional[JobStatus] = Query(
+        default=None,
+        description="Filtrer par status : pending, running, completed, failed, cancelled",
+    ),
+    limit: int = Query(default=100, ge=1, le=1000, description="Nombre max de résultats"),
+    offset: int = Query(default=0, ge=0, description="Nombre de résultats à ignorer"),
+    _: bool = Depends(require_api_key),
+):
+    """Liste paginée et filtrée des jobs d'entraînement.
+
+    - Query params : ``?status=completed&limit=20&offset=0``
+    - Tri par ``started_at DESC`` par défaut.
+    - Réponse : ``{ total, items, limit, offset }``.
+    """
+    store = get_job_store()
+    status_value = status.value if status else None
+    items, total = store.list_jobs(status=status_value, limit=limit, offset=offset)
+    return JobListResponse(
+        total=total,
+        items=items,
+        limit=limit,
+        offset=offset,
+    )

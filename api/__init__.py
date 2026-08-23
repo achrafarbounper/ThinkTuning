@@ -10,7 +10,7 @@ API_KEY = os.getenv("API_KEY", "dev-local-api-key")
 from .main import app
 
 # === Expose models ===
-from core.models import JobStatus, TrainJob, TrainRequest, ModelVersion
+from core.models import JobStatus, TrainJob, TrainRequest, ModelVersion, JobListResponse
 
 # === Expose job store ===
 from core.job_store import get_job_store, PersistentJobStore
