@@ -47,6 +47,12 @@ def test_create_dataloaders_returns_valid_loaders():
 
 
 def test_run_training_splits_dataset_before_creating_loaders():
+    # Depuis SCRUM-48, le runner vit dans core.trainer_runner (et non plus dans
+    # api). run_training y référence ses dépendances par imports directs au
+    # niveau du module (create_dataloaders, load_config, ...). Il faut donc
+    # patcher core.trainer_runner.* — patcher api.* est un no-op à l'exécution.
+    from core import trainer_runner as _runner
+
     raw = Dataset.from_dict({
         "text": ["Bonjour", "Hello", "Très bien", "Good"],
         "label": [0, 1, 2, 1],
@@ -67,13 +73,17 @@ def test_run_training_splits_dataset_before_creating_loaders():
         "device": "cpu",
     }
 
-    with patch("api.load_config", return_value=cfg), \
-         patch("api.load_raw_dataset", return_value=raw), \
-         patch("api.augment_dataset", side_effect=lambda ds, **kwargs: ds), \
-         patch("api.create_dataloaders", return_value=(MagicMock(), MagicMock())) as mock_create_dataloaders, \
-         patch("api.AutoTokenizer.from_pretrained", return_value=MagicMock(save_pretrained=MagicMock())), \
-         patch("api.build_model", return_value=MagicMock()), \
-         patch("api.Trainer") as mock_trainer_cls:
+    fake_tokenizer = MagicMock(save_pretrained=MagicMock())
+
+    with patch.object(_runner, "load_config", return_value=cfg), \
+         patch.object(_runner, "load_raw_dataset", return_value=raw), \
+         patch.object(_runner, "augment_dataset", side_effect=lambda ds, **kwargs: ds), \
+         patch.object(_runner, "create_dataloaders", return_value=(MagicMock(), MagicMock())) as mock_create_dataloaders, \
+         patch.object(_runner.AutoTokenizer, "from_pretrained", return_value=fake_tokenizer), \
+         patch.object(_runner, "build_model", return_value=MagicMock()), \
+         patch.object(_runner, "save_model_version", return_value="fake_model_dir") as mock_save_model_version, \
+         patch.object(_runner, "Trainer") as mock_trainer_cls, \
+         patch.object(_runner, "TEST_MODE", False):
         mock_trainer = MagicMock()
         mock_trainer_cls.return_value = mock_trainer
 
@@ -86,43 +96,42 @@ def test_run_training_splits_dataset_before_creating_loaders():
     assert mock_create_dataloaders.call_args.args[1].__class__.__name__ == "Dataset"
     assert mock_create_dataloaders.call_args.args[2]["device"] == "cpu"
     mock_trainer.train.assert_called_once()
-    mock_trainer.save.assert_called_once_with("./sentiment_model_final")
+    # Depuis le refactor, le runner persiste via save_model_version() (dossiers
+    # versionnés dans experiments/models/<timestamp>/) et non plus via
+    # trainer.save("./sentiment_model_final") réservé à train.py.
+    mock_save_model_version.assert_called_once()
 
 
 def test_cancel_training_marks_job_cancelled_and_sets_event():
+    # Depuis SCRUM-48, cancel_training vit dans core.trainer_runner et suit son
+    # propre dict _job_cancel_events (pas celui exposé par api).
+    from core import trainer_runner as _runner
     job_id = "job-cancel"
     _jobs[job_id] = TrainJob(job_id=job_id, status=JobStatus.RUNNING)
-    _job_cancel_events[job_id] = threading.Event()
+    _runner._job_cancel_events[job_id] = threading.Event()
 
     job = cancel_training(job_id)
 
     assert job.status == JobStatus.CANCELLED
-    assert _job_cancel_events[job_id].is_set()
+    assert _runner._job_cancel_events[job_id].is_set()
 
 
 @patch.dict(os.environ, {"API_KEY": "dev"})
 def test_job_store_persists_and_loads_jobs():
     job_id = "job-persisted"
     job = TrainJob(job_id=job_id, status=JobStatus.PENDING, step="queued")
-    previous_jobs = api._jobs
 
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "jobs.db")
-            api._jobs = api.PersistentJobStore(path=db_path)
-            with patch.object(api, "JOB_STORE_PATH", db_path):
-                api._persist_job(job)
-                loaded_jobs = api._load_jobs()
+    # Depuis SCRUM-48, PersistentJobStore persiste lui-même (écriture SQLite dans
+    # __setitem__) : inutile d'appeler d'anciens helpers api._persist_job/_load_jobs.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "jobs.db")
+        api.PersistentJobStore(path=db_path)[job_id] = job
 
-            del api._jobs
-            gc.collect()
-
-        assert job_id in loaded_jobs
-        assert loaded_jobs[job_id].status == JobStatus.PENDING
-        assert loaded_jobs[job_id].step == "queued"
-    finally:
-        api._jobs = previous_jobs
-        gc.collect()
+        # Un second store sur le même fichier doit recharger le job persisté.
+        reloaded = api.PersistentJobStore(path=db_path)
+        assert job_id in reloaded
+        assert reloaded[job_id].status == JobStatus.PENDING
+        assert reloaded[job_id].step == "queued"
 
 """ def test_cleanup_old_jobs_removes_expired_completed_jobs():
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -20,21 +20,27 @@ class TinyTextModel(torch.nn.Module):
         return SimpleNamespace(logits=logits)
 
 
+def _make_cfg(epochs=1, **overrides):
+    """Config d'entraînement minimale pour les tests CPU offline."""
+    cfg = {
+        "device": "cpu",
+        "learning_rate": 1e-3,
+        "weight_decay": 0.0,
+        "epochs": epochs,
+        "warmup_ratio": 0.0,
+        "gradient_accumulation_steps": 1,
+        "gradient_clip": 1.0,
+    }
+    cfg.update(overrides)
+    return cfg
+
+
 def test_train_epoch_uses_criterion_with_logits_and_labels():
     model = TinyTextModel()
     model.proj.weight.data.zero_()
     model.proj.bias.data.zero_()
 
-    cfg = {
-        "device": "cpu",
-        "learning_rate": 1e-3,
-        "weight_decay": 0.0,
-        "epochs": 1,
-        "warmup_ratio": 0.0,
-        "gradient_accumulation_steps": 1,
-        "gradient_clip": 1.0,
-    }
-    trainer = Trainer(model=model, cfg=cfg)
+    trainer = Trainer(model=model, cfg=_make_cfg())
     trainer.scheduler = MagicMock()
 
     sample = {
@@ -62,18 +68,14 @@ def test_train_epoch_uses_criterion_with_logits_and_labels():
     trainer.scheduler.step.assert_called_once()
 
 
+class DummyTokenizer:
+    def save_pretrained(self, path):
+        os.makedirs(path, exist_ok=True)
+
+
 def test_save_model_version_writes_training_report():
     model = TinyTextModel()
-    cfg = {
-        "device": "cpu",
-        "learning_rate": 1e-3,
-        "weight_decay": 0.0,
-        "epochs": 1,
-        "warmup_ratio": 0.0,
-        "gradient_accumulation_steps": 1,
-        "gradient_clip": 1.0,
-        "model_name": "distilbert-base-uncased",
-    }
+    cfg = _make_cfg(model_name="distilbert-base-uncased")
     trainer = Trainer(model=model, cfg=cfg)
     trainer.epoch_metrics = [
         {"epoch": 1, "accuracy": 0.85, "f1_macro": 0.8},
@@ -81,131 +83,111 @@ def test_save_model_version_writes_training_report():
     trainer.final_metrics = {"accuracy": 0.85, "f1_macro": 0.8}
     trainer.training_duration_seconds = 12.5
 
-    class DummyTokenizer:
-        def save_pretrained(self, path):
-            os.makedirs(path, exist_ok=True)
+    model_dir = api.save_model_version(
+        DummyTokenizer(),
+        trainer,
+        job_id="job-123",
+        train_examples=42,
+        val_examples=12,
+        started_at=1000.0,
+        finished_at=1012.5,
+    )
 
-    with patch.object(api, "MODEL_ROOT", os.path.join("tests", "tmp_models")):
-        model_dir = api._save_model_version(
-            DummyTokenizer(),
-            trainer,
-            job_id="job-123",
-            train_examples=42,
-            val_examples=12,
-            started_at=1000.0,
-            finished_at=1012.5,
-        )
+    report_path = os.path.join(model_dir, "training_report.json")
+    assert os.path.exists(report_path)
+    with open(report_path, "r", encoding="utf-8") as fp:
+        payload = json.load(fp)
 
-        report_path = os.path.join(model_dir, "training_report.json")
-        assert os.path.exists(report_path)
-        with open(report_path, "r", encoding="utf-8") as fp:
-            payload = json.load(fp)
+    assert payload["job_id"] == "job-123"
+    assert payload["train_examples"] == 42
+    assert payload["val_examples"] == 12
+    assert payload["training_duration_seconds"] == 12.5
+    assert "hyperparameters" in payload
+    assert "metrics" in payload
+    assert payload["metrics"]["f1_by_epoch"] == [0.8]
+    assert payload["metrics"]["accuracy_by_epoch"] == [0.85]
 
-            self.assertEqual(payload["job_id"], "job-123")
-            self.assertEqual(payload["train_examples"], 42)
-            self.assertEqual(payload["val_examples"], 12)
-            self.assertEqual(payload["training_duration_seconds"], 12.5)
-            self.assertIn("hyperparameters", payload)
-            self.assertIn("metrics", payload)
-            self.assertEqual(payload["metrics"]["f1_by_epoch"], [0.8])
-            self.assertEqual(payload["metrics"]["accuracy_by_epoch"], [0.85])
 
-    def test_early_stopping_stops_and_restores_best_checkpoint(self):
-        model = TinyTextModel()
-        cfg = {
-            "device": "cpu",
-            "learning_rate": 1e-3,
-            "weight_decay": 0.0,
-            "epochs": 6,
-            "warmup_ratio": 0.0,
-            "gradient_accumulation_steps": 1,
-            "gradient_clip": 1.0,
-            "early_stopping_patience": 3,
-            "early_stopping_min_delta": 0.0,
+def test_early_stopping_stops_and_restores_best_checkpoint():
+    model = TinyTextModel()
+    cfg = _make_cfg(
+        epochs=6,
+        early_stopping_patience=3,
+        early_stopping_min_delta=0.0,
+    )
+    trainer = Trainer(model=model, cfg=cfg)
+
+    sample = {
+        "input_ids": torch.tensor([1, 2, 3, 4], dtype=torch.long),
+        "attention_mask": torch.ones(4, dtype=torch.long),
+        "labels": torch.tensor(1, dtype=torch.long),
+    }
+    loader = DataLoader([sample], batch_size=1)
+
+    # F1 de validation en dégradation : seule l'epoch 1 « améliore » (0.5)
+    f1_values = iter([0.5, 0.4, 0.3, 0.2, 0.1, 0.0])
+
+    def fake_eval_epoch(_loader, cancel_event=None):
+        return {"accuracy": 0.5, "f1_macro": next(f1_values)}
+
+    trainer._eval_epoch = fake_eval_epoch
+
+    # L'enregistrement du checkpoint capture un cliché des poids "best"
+    saved_snapshot = {}
+
+    def fake_save(self, path):
+        saved_snapshot["state"] = {
+            k: v.detach().clone() for k, v in self.model.state_dict().items()
         }
-        trainer = Trainer(model=model, cfg=cfg)
+        saved_snapshot["path"] = path
 
-        sample = {
-            "input_ids": torch.tensor([1, 2, 3, 4], dtype=torch.long),
-            "attention_mask": torch.ones(4, dtype=torch.long),
-            "labels": torch.tensor(1, dtype=torch.long),
-        }
-        loader = DataLoader([sample], batch_size=1)
+    with patch.object(Trainer, "save", new=fake_save):
+        result = trainer.train(loader, loader)
 
-        # F1 de validation en dégradation : seule l'epoch 1 « améliore » (0.5)
-        f1_values = iter([0.5, 0.4, 0.3, 0.2, 0.1, 0.0])
+    # 1 amélioration + patience=3 epochs sans progression -> arrêt à l'epoch 4
+    assert trainer.early_stopped
+    assert result["early_stopped"] is True
+    assert len(trainer.epoch_metrics) == 4
+    assert trainer.best_epoch == 1
+    assert abs(trainer.best_f1 - 0.5) < 1e-6
 
-        def fake_eval_epoch(loader, cancel_event=None):
-            return {"accuracy": 0.5, "f1_macro": next(f1_values)}
+    # Le meilleur checkpoint est sauvé sur disque…
+    assert saved_snapshot["path"] == "experiments/checkpoints/best_model.pt"
 
-        trainer._eval_epoch = fake_eval_epoch
+    # …et restauré : final_metrics = l'epoch du meilleur modèle (pas la dernière)
+    assert trainer.final_metrics["f1_macro"] == 0.5
+    assert trainer.final_metrics["epoch"] == 1
 
-        # L'enregistrement du checkpoint capture un cliché des poids "best"
-        saved_snapshot = {}
+    # Le modèle en mémoire contient les poids du meilleur checkpoint
+    for name, tensor in saved_snapshot["state"].items():
+        assert torch.equal(
+            trainer.model.state_dict()[name], tensor
+        ), f"le paramètre '{name}' n'a pas été restauré"
 
-        def fake_save(self, path):
-            saved_snapshot["state"] = {
-                k: v.detach().clone() for k, v in self.model.state_dict().items()
-            }
-            saved_snapshot["path"] = path
 
-        with unittest.mock.patch.object(Trainer, "save", new=fake_save):
-            result = trainer.train(loader, loader)
+def test_early_stopping_disabled_by_default_runs_all_epochs():
+    trainer = Trainer(model=TinyTextModel(), cfg=_make_cfg(epochs=3))
 
-        # 1 amélioration + patience=3 epochs sans progression -> arrêt à l'epoch 4
-        self.assertTrue(trainer.early_stopped)
-        self.assertEqual(result["early_stopped"], True)
-        self.assertEqual(len(trainer.epoch_metrics), 4)
-        self.assertEqual(trainer.best_epoch, 1)
-        self.assertAlmostEqual(trainer.best_f1, 0.5)
+    sample = {
+        "input_ids": torch.tensor([1, 2, 3, 4], dtype=torch.long),
+        "attention_mask": torch.ones(4, dtype=torch.long),
+        "labels": torch.tensor(1, dtype=torch.long),
+    }
+    loader = DataLoader([sample], batch_size=1)
 
-        # Le meilleur checkpoint est sauvé sur disque…
-        self.assertEqual(saved_snapshot["path"], "experiments/checkpoints/best_model.pt")
+    # F1 constant : sans patience configurée, l'entraînement va au bout
+    f1_values = iter([0.5, 0.5, 0.5])
 
-        # …et restauré : final_metrics = epoch du meilleur modèle (pas la dernière)
-        self.assertEqual(trainer.final_metrics["f1_macro"], 0.5)
-        self.assertEqual(trainer.final_metrics["epoch"], 1)
+    def fake_eval_epoch(_loader, cancel_event=None):
+        return {"accuracy": 0.5, "f1_macro": next(f1_values)}
 
-        # Le modèle en mémoire contient les poids du meilleur checkpoint
-        for name, tensor in saved_snapshot["state"].items():
-            self.assertTrue(
-                torch.equal(trainer.model.state_dict()[name], tensor),
-                f"le paramètre '{name}' n'a pas été restauré",
-            )
+    trainer._eval_epoch = fake_eval_epoch
 
-    def test_early_stopping_disabled_by_default_runs_all_epochs(self):
-        model = TinyTextModel()
-        cfg = {
-            "device": "cpu",
-            "learning_rate": 1e-3,
-            "weight_decay": 0.0,
-            "epochs": 3,
-            "warmup_ratio": 0.0,
-            "gradient_accumulation_steps": 1,
-            "gradient_clip": 1.0,
-        }
-        trainer = Trainer(model=model, cfg=cfg)
+    with patch.object(Trainer, "save"):
+        result = trainer.train(loader, loader)
 
-        sample = {
-            "input_ids": torch.tensor([1, 2, 3, 4], dtype=torch.long),
-            "attention_mask": torch.ones(4, dtype=torch.long),
-            "labels": torch.tensor(1, dtype=torch.long),
-        }
-        loader = DataLoader([sample], batch_size=1)
-
-        # F1 constant : sans patience configurée, l'entraînement va au bout
-        f1_values = iter([0.5, 0.5, 0.5])
-
-        def fake_eval_epoch(loader, cancel_event=None):
-            return {"accuracy": 0.5, "f1_macro": next(f1_values)}
-
-        trainer._eval_epoch = fake_eval_epoch
-
-        with unittest.mock.patch.object(Trainer, "save"):
-            result = trainer.train(loader, loader)
-
-        self.assertFalse(trainer.early_stopped)
-        self.assertFalse(result["early_stopped"])
-        self.assertEqual(len(trainer.epoch_metrics), 3)
-        # Malgré tout, le meilleur checkpoint est restauré en fin de training
-        self.assertEqual(trainer.final_metrics["epoch"], 1)
+    assert not trainer.early_stopped
+    assert result["early_stopped"] is False
+    assert len(trainer.epoch_metrics) == 3
+    # Malgré tout, le meilleur checkpoint est restauré en fin de training
+    assert trainer.final_metrics["epoch"] == 1

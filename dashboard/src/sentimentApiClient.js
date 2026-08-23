@@ -163,7 +163,7 @@ export class SentimentApiClient {
   // -- /models --------------------------------------------------------------
 
   listModels() {
-    return this._request("/models");
+    return this._request("/models/details");
   }
 
   // -- /predict ---------------------------------------------------------------
@@ -176,20 +176,27 @@ export class SentimentApiClient {
     });
   }
 
-  predictBatchJson({ file, textColumn = "text" }) {
+  predictBatchJson({ file, textColumn = "text", model } = {}) {
     const form = new FormData();
     form.append("file", file);
     form.append("text_column", textColumn);
     form.append("response_format", "json");
-    return this._requestMultipart("/predict/batch", { formData: form });
+    return this._requestMultipart("/predict/batch", {
+      formData: form,
+      query: model ? { model } : undefined,
+    });
   }
 
-  predictBatchCsv({ file, textColumn = "text" }) {
+  predictBatchCsv({ file, textColumn = "text", model } = {}) {
     const form = new FormData();
     form.append("file", file);
     form.append("text_column", textColumn);
     form.append("response_format", "csv");
-    return this._requestMultipart("/predict/batch", { formData: form, expectBlob: true });
+    return this._requestMultipart("/predict/batch", {
+      formData: form,
+      expectBlob: true,
+      query: model ? { model } : undefined,
+    });
   }
 
   reloadPredictor(model) {

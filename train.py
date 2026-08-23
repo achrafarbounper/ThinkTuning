@@ -10,6 +10,7 @@ from src.dataset.preprocess import create_dataloaders
 from src.model.distilbert import build_model
 from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
+from api import TEST_MODE
 
 
 def main(args):
@@ -40,6 +41,10 @@ def main(args):
         cfg["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     else:
         cfg["device"] = args.device
+
+    # 3) Override en mode test
+    if TEST_MODE:
+        cfg["device"] = "cpu"
 
     print(f"1. Chargement du dataset multilingue (max {args.max_per_lang}/langue)...")
     raw = load_raw_dataset(max_per_lang=args.max_per_lang)

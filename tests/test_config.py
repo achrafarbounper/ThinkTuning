@@ -1,20 +1,26 @@
 import os
-import tempfile
+import uuid
 
 from src.utils.config import load_config
 
 
 def test_load_config_coerces_numeric_strings():
-    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as tmp:
-        tmp.write("max_length: '128'\nlearning_rate: '0.0005'\n")
-        tmp_path = tmp.name
-
+    # Le config loader refuse les chemins hors du projet (anti path traversal) :
+    # on écrit donc le YAML de test dans tests/, sous un nom unique.
+    tmp_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        f"_tmp_numeric_config_{uuid.uuid4().hex}.yaml",
+    )
     try:
+        with open(tmp_path, "w", encoding="utf-8") as tmp:
+            tmp.write("max_length: '128'\nlearning_rate: '0.0005'\n")
+
         cfg = load_config(tmp_path)
         assert cfg["max_length"] == 128
         assert cfg["learning_rate"] == 0.0005
     finally:
-        os.remove(tmp_path)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def test_load_config_parses_class_augment_weights():

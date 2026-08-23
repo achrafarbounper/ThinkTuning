@@ -65,18 +65,26 @@ NEGATION_WORDS = {
 # ---------------------------------------------------------------------------
 
 def _get_synonyms(word: str, lang: str) -> List[str]:
-    """Récupère des synonymes via WordNet dans la langue donnée."""
-    _, wordnet = _ensure_nltk_data()
-    wn_lang = LANG_MAP.get(lang, "eng")
-    synonyms = set()
+    """Récupère des synonymes via WordNet dans la langue donnée.
+    Robuste : ne plante jamais si WordNet est absent ou corrompu.
+    """
+    try:
+        _, wordnet = _ensure_nltk_data()
+        wn_lang = LANG_MAP.get(lang, "eng")
+        synonyms = set()
 
-    for syn in wordnet.synsets(word, lang=wn_lang):
-        for lemma in syn.lemmas(lang=wn_lang):
-            candidate = lemma.name().replace("_", " ")
-            if candidate.lower() != word.lower():
-                synonyms.add(candidate)
+        for syn in wordnet.synsets(word, lang=wn_lang):
+            for lemma in syn.lemmas(lang=wn_lang):
+                candidate = lemma.name().replace("_", " ")
+                if candidate.lower() != word.lower():
+                    synonyms.add(candidate)
 
-    return list(synonyms)
+        return list(synonyms)
+
+    except Exception:
+        # WordNet absent, corrompu, ou NLTK en mode zip cassé → on ne casse pas l'entraînement
+        return []
+
 
 
 # ---------------------------------------------------------------------------
