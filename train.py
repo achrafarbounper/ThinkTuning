@@ -5,7 +5,7 @@ import os
 import torch
 from transformers import AutoTokenizer
 
-from src.dataset.loader import load_raw_dataset, augment_dataset
+from src.dataset.loader import load_raw_dataset, load_local_dataset, augment_dataset
 from src.dataset.preprocess import create_dataloaders
 from src.model.distilbert import build_model
 from src.model.trainer import Trainer, compute_class_weights
@@ -91,15 +91,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--max_per_lang", type=int, default=500)
-    parser.add_argument(
-        "--local_corrections_path",
-        type=str,
-        default=None,
-        help="Chemin d'un fichier local de corrections manuelles (CSV ou JSONL "
-             "avec colonnes text, label, lang_code — produit par "
-             "merge_reviewed_data.py). Les corrections sont concaténées au "
-             "dataset HF avant le split train/val et l'augmentation EDA.",
-    )
     parser.add_argument("--augment_fraction", type=float, default=0.4)
     parser.add_argument("--variants_per_example", type=int, default=2)
     parser.add_argument("--class_augment_weights", type=json.loads, default=None,
