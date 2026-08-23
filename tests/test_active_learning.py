@@ -7,11 +7,18 @@ import types
 import unittest
 from contextlib import redirect_stdout
 
-# Stub src.inference.predictor AVANT d'importer active_learning, exactement
-# comme dans tests/test_label_dataset.py, pour éviter de charger un vrai
-# modèle DistilBERT pendant les tests.
-sys.modules.setdefault("src", types.ModuleType("src"))
-sys.modules.setdefault("src.inference", types.ModuleType("src.inference"))
+# Stub du module feuille src.inference.predictor AVANT d'importer
+# active_learning, exactement comme dans tests/test_label_dataset.py, pour
+# éviter de charger un vrai modèle DistilBERT pendant les tests.
+#
+# IMPORTANT : on n'injecte QUE le nom feuille (« src.inference.predictor »),
+# jamais de faux modules parents (« src », « src.inference »). Un module nu
+# créé via types.ModuleType() n'a pas de __path__ : s'il se retrouve dans
+# sys.modules sous le nom « src », tout import ultérieur d'un sous-module
+# (ex. api/__init__.py -> from src.utils.flags import TEST_MODE) échoue avec
+# « No module named 'src.utils'; 'src' is not a package » pour le reste de
+# la session pytest. setdefault garantit en plus qu'on n'écrase jamais un
+# vrai module déjà importé par un autre test.
 predictor_stub = types.ModuleType("src.inference.predictor")
 
 
@@ -36,7 +43,7 @@ class DummyPredictor:
 
 
 predictor_stub.Predictor = DummyPredictor
-sys.modules["src.inference.predictor"] = predictor_stub
+sys.modules.setdefault("src.inference.predictor", predictor_stub)
 
 from active_learning import (
     compute_uncertainty,
