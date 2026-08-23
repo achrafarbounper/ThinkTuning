@@ -116,12 +116,12 @@ def test_list_models_route(monkeypatch, tmp_path):
     # Crée un dossier de modèle valide
     version_dir = tmp_path / "20240102T120000Z"
     version_dir.mkdir()
-    (version_dir / "model.pt").write_text("{}")  # fichier minimal
+    (version_dir / "training_report.json").write_text("{}")  # rapport minimal
 
     # Crée un dossier de modèle valide plus ancien
     older_dir = tmp_path / "20240101T120000Z"
     older_dir.mkdir()
-    (older_dir / "model.pt").write_text("{}")
+    (older_dir / "training_report.json").write_text("{}")
 
     monkeypatch.setattr(api, "MODEL_ROOT", str(tmp_path))
     monkeypatch.setattr(api, "MODELS_ROOT", str(tmp_path))

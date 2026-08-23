@@ -19,7 +19,7 @@ def list_models(_: bool = Depends(require_api_key)):
     for name in sorted(os.listdir(root), reverse=True):
         path = os.path.join(root, name)
 
-        if os.path.isdir(path) and os.path.isfile(os.path.join(path, "model.pt")):
+        if os.path.isdir(path) and os.path.isfile(os.path.join(path, "training_report.json")):
             items.append({
                 "name": name,
                 "path": os.path.abspath(path)
