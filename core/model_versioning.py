@@ -1,6 +1,7 @@
 # project/core/model_versioning.py
 
 import os
+import sys
 import json
 from datetime import datetime
 
@@ -35,6 +36,40 @@ def resolve_model_dir(model_name: str | None = None) -> str:
         raise RuntimeError("No valid model versions found.")
 
     return os.path.join(MODEL_ROOT, versions[0])
+
+
+def resolve_model_path(model_arg: str | None = None) -> str:
+    """
+    Résout l'argument modèle passé en ligne de commande :
+      - None             -> dernière version valide dans MODEL_ROOT ;
+      - nom de version   -> MODEL_ROOT/<version>  (ex: "20260819T151459Z") ;
+      - dossier existant -> utilisé tel quel (chemin absolu ou relatif).
+
+    Tolérant : si l'argument n'est ni un dossier ni une version connue, il est
+    renvoyé tel quel (avec un avertissement listant les versions disponibles) —
+    Predictor lèvera alors sa propre erreur si le chemin est invalide. Seule
+    l'absence totale de modèle (model_arg=None) lève FileNotFoundError.
+    """
+    if model_arg:
+        # Chemin de dossier explicite (absolu ou relatif) -> tel quel.
+        if os.path.isdir(model_arg):
+            return model_arg
+        try:
+            return resolve_model_dir(model_arg)
+        except RuntimeError:
+            available = ", ".join(list_model_versions()[:5])
+            print(
+                f"[warn] '{model_arg}' n'est ni un dossier existant ni une version "
+                f"de {MODEL_ROOT} (versions disponibles : {available or 'aucune'}). "
+                "Utilisé tel quel.",
+                file=sys.stderr,
+            )
+            return model_arg
+
+    try:
+        return resolve_model_dir()
+    except RuntimeError as exc:
+        raise FileNotFoundError(f"Aucun modèle disponible : {exc}")
 
 
 def _json_safe(value):

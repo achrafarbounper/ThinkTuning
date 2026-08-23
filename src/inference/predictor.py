@@ -4,7 +4,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 from src.dataset.loader import LABEL_NAMES
-from api import TEST_MODE
+from src.utils.flags import TEST_MODE
 _DEFAULT_MAX_LENGTH = 128
 
 

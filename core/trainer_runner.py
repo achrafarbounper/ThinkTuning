@@ -12,7 +12,7 @@ from src.model.distilbert import build_model
 from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
 from transformers import AutoTokenizer
-from api import TEST_MODE
+from src.utils.flags import TEST_MODE
 import torch
 _job_cancel_events = {}
 
