@@ -263,6 +263,98 @@ Le Predictor est mis en cache en mémoire — il n'est chargé qu'une fois, au p
 Le registre des jobs est en mémoire (dict Python) — parfait pour du dev/local, mais si tu déploies en multi-worker (plusieurs process uvicorn) ou que tu redémarres le service, il faudrait passer à un store partagé (Redis, base de données). Dis-moi si c'est ton cas, je peux adapter.
 Un GET /health te donne un statut rapide (modèle dispo ou non, jobs actifs).
 
+## API de l'agent IA (`ia/`)
+
+L'agent LLM (Ollama + 18 outils sandboxés) peut aussi être exposé en HTTP,
+indépendamment de l'API sentiment :
+
+```bash
+uvicorn ia.api_server:app --reload --host 0.0.0.0 --port 8001
+```
+
+Variables d'environnement dédiées :
+
+- `AGENT_OLLAMA_URL` (défaut `http://192.168.1.184:11434/api/chat`)
+- `AGENT_MODEL_NAME` (défaut `llama3.1:8b`)
+- `AGENT_TIMEOUT_SECONDS` (défaut `120`) — timeout des appels vers Ollama
+- `AGENT_API_KEY` : si définie, toutes les routes sauf `/health` exigent l'en-tête `X-API-Key`
+- `AGENT_SANDBOX_ROOT` : racine autorisée pour tous les outils fichiers (défaut : répertoire de lancement)
+- `AGENT_ALLOWED_BINARIES` : allowlist CSV des exécutables autorisés par `run_command`
+- `AGENT_BLOCK_PRIVATE_HOSTS=1` : interdit à http_get/http_post les hôtes privés/loopback (anti-SSRF)
+- `AGENT_PG_DSN` : DSN PostgreSQL de `postgres_query` (`postgresql://user:pwd@host:5432/base`)
+
+Routes :
+
+- `GET /health` — statut, modèle visé, outils disponibles ;
+- `GET /tools` — outils et arguments requis ;
+- `POST /tools/run` — exécution directe d'un outil : `{"tool": "gpu_info", "args": {}}` ;
+- `POST /ask` — prompt libre : `{"prompt": "..."}` — l'agent planifie lui-même
+  les appels d'outils puis renvoie la réponse finale.
+
+### Outils disponibles
+
+| Catégorie | Outil | Signature | Description |
+|---|---|---|---|
+| Math | `add` | `(a, b)` | Addition |
+| Fichiers | `write_file` | `(filename, content)` | Écrit un fichier (parents créés), sandboxé |
+| Fichiers | `list_dir` | `(path=".", recursive=false)` | Liste un répertoire (type, taille, date) |
+| Fichiers | `read_file` | `(path, max_bytes=65536)` | Lit un fichier texte, sortie tronquée |
+| Fichiers | `make_dir` | `(path)` | Crée un répertoire (parents inclus) |
+| Fichiers | `copy_path` | `(src, dst)` | Copie fichier ou arborescence |
+| Fichiers | `move_path` | `(src, dst)` | Déplace / renomme |
+| Fichiers | `remove_path` | `(path, recursive=false)` | Supprime (garde-fous : racine et `.git` interdits) |
+| Exécution | `run_command` | `(command: liste, timeout=60)` | Commande en liste d'arguments, allowlist de binaires, sans shell |
+| Exécution | `run_python` | `(code, timeout=30)` | Code Python dans un sous-processus isolé puis nettoyé |
+| Réseau | `http_get` | `(url, headers?, timeout=30)` | GET http(s), corps tronqué (~8 Ko) |
+| Réseau | `http_post` | `(url, data?/json_payload?, ...)` | POST brut ou JSON |
+| Docker | `docker_ps` | `(all_containers=false)` | Conteneurs au format JSON |
+| Docker | `docker_logs` | `(container, tail=100)` | Dernières lignes de logs |
+| Docker | `docker_exec` | `(container, command)` | Commande via `sh -c` dans le conteneur |
+| GPU | `gpu_info` | `()` | CUDA, VRAM totale/allouée/réservée, utilisation % (torch + nvidia-smi) |
+| Bases | `sqlite_query` | `(db_path, query, readonly=true)` | SQLite confinée à la sandbox, lecture seule par défaut |
+| Bases | `postgres_query` | `(query, readonly=true, timeout_s=30)` | PostgreSQL via psycopg2, statement_timeout appliqué |
+
+### Sécurité (`ia/tools/sandbox.py`)
+
+- **Confinement des chemins** : tout chemin est résolu sous `AGENT_SANDBOX_ROOT` ;
+  `../`, chemins absolus externes et évasions sont refusés.
+- **Pas d'injection shell** : `run_command` exige une LISTE d'arguments exécutée
+  avec `shell=False` ; cmd/powershell/bash/sh sont hors allowlist par défaut.
+- **Timeouts partout** : sous-processus (1–600 s), HTTP, SQL (`statement_timeout`).
+- **Sorties plafonnées** (~8 Ko par outil, ~4 Ko injectés au LLM) pour protéger le contexte.
+- **SQL lecture seule par défaut** : SQLite via `PRAGMA query_only`, PostgreSQL via
+  filtre de mots-clés (INSERT/UPDATE/DROP/… refusés tant que `readonly=true`).
+- **Destructif encadré** : `remove_path` refuse la racine et tout ce qui est sous
+  `.git` ; un dossier non vide impose `recursive=true`.
+
+### Exemples
+
+```bash
+# État GPU (VRAM + utilisation)
+curl -H "X-API-Key: change-me-agent-key" -H "Content-Type: application/json" \
+  -X POST http://localhost:8001/tools/run -d '{"tool": "gpu_info", "args": {}}'
+
+# Conteneurs Docker actifs
+curl -H "X-API-Key: change-me-agent-key" -H "Content-Type: application/json" \
+  -X POST http://localhost:8001/tools/run \
+  -d '{"tool": "docker_ps", "args": {"all_containers": true}}'
+
+# Requête SQLite en lecture seule
+curl -H "X-API-Key: change-me-agent-key" -H "Content-Type: application/json" \
+  -X POST http://localhost:8001/tools/run \
+  -d '{"tool": "sqlite_query", "args": {"db_path": "experiments/jobs.db", "query": "SELECT * FROM jobs LIMIT 5"}}'
+
+# Prompt libre : l'agent choisit lui-même les outils
+curl -H "X-API-Key: change-me-agent-key" -H "Content-Type: application/json" \
+  -X POST http://localhost:8001/ask \
+  -d '{"prompt": "Liste le dossier experiments puis dis-moi combien de modèles il contient."}'
+```
+
+Doc interactive : http://localhost:8001/docs. Notes :
+
+- `psycopg2-binary` (déjà dans requirements.txt) n'est requis que pour `postgres_query`.
+- Tests offline de tous ces outils : `pytest tests/test_agent_tools.py -v`.
+
 ## Docker
 docker compose build
 
