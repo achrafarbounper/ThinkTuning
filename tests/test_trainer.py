@@ -73,6 +73,17 @@ class DummyTokenizer:
         os.makedirs(path, exist_ok=True)
 
 
+class _HFStyleModel:
+    """Imite un PreTrainedModel HF : save_pretrained écrit config.json + model.safetensors."""
+
+    def save_pretrained(self, path):
+        os.makedirs(path, exist_ok=True)
+        with open(os.path.join(path, "config.json"), "w", encoding="utf-8") as fh:
+            fh.write("{}")
+        with open(os.path.join(path, "model.safetensors"), "w", encoding="utf-8") as fh:
+            fh.write("")
+
+
 def test_save_model_version_writes_training_report():
     model = TinyTextModel()
     cfg = _make_cfg(model_name="distilbert-base-uncased")
@@ -106,6 +117,31 @@ def test_save_model_version_writes_training_report():
     assert "metrics" in payload
     assert payload["metrics"]["f1_by_epoch"] == [0.8]
     assert payload["metrics"]["accuracy_by_epoch"] == [0.85]
+
+
+def test_save_model_version_writes_config_and_safetensors_weights():
+    """Le dossier produit par POST /train doit être chargeable par /predict :
+    il doit contenir config.json + model.safetensors pour un modèle HF."""
+    trainer = SimpleNamespace(
+        model=_HFStyleModel(),
+        cfg={"model_name": "distilbert-base-multilingual-cased"},
+        epoch_metrics=[{"epoch": 1, "accuracy": 0.9, "f1_macro": 0.88}],
+        final_metrics={"accuracy": 0.9, "f1_macro": 0.88},
+        training_duration_seconds=1.0,
+    )
+
+    model_dir = api.save_model_version(
+        DummyTokenizer(),
+        trainer,
+        job_id="job-hf",
+        train_examples=10,
+        val_examples=4,
+        started_at=0.0,
+        finished_at=1.0,
+    )
+
+    assert os.path.isfile(os.path.join(model_dir, "config.json"))
+    assert os.path.isfile(os.path.join(model_dir, "model.safetensors"))
 
 
 def test_early_stopping_stops_and_restores_best_checkpoint():

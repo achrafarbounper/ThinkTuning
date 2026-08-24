@@ -431,27 +431,13 @@ def pipeline_mock(monkeypatch):
     monkeypatch.setattr(_predictor_cache, "_predictor", None)
 
     # ------------------------------------------------------------------ #
-    # SHIM DE SAUVEGARDE DANS LE DOSSIER VERSIONNÉ.
-    # save_model_version() persiste le tokenizer + le rapport dans
-    # experiments/models/<timestamp>/ mais n'écrit PAS les poids du modèle
-    # (ils partent dans sentiment_model_final via trainer.save()). Or /predict
-    # résout le modèle via resolve_model_dir() qui exige un fichier de poids
-    # (model.pt) dans ce dossier. Le shim ajoute donc la persistance des
-    # poids dans le dossier versionné, en conservant le comportement d'origine.
+    # SAUVEGARDE DES POIDS DANS LE DOSSIER VERSIONNÉ.
+    # save_model_version() persiste désormais elle-même les poids + la
+    # config du modèle (trainer.save -> model.pt pour FakeTrainer,
+    # config.json + model.safetensors pour un vrai modèle HF) dans
+    # experiments/models/<timestamp>/. C'est ce qui permet à /predict de
+    # résoudre le modèle via resolve_model_dir() et de le charger.
     # ------------------------------------------------------------------ #
-    _real_save_model_version = _model_versioning.save_model_version
-
-    def _save_model_version_with_weights(
-        tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at
-    ):
-        model_dir = _real_save_model_version(
-            tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at
-        )
-        # Persist le TinyModel réel dans experiments/models/<timestamp>/.
-        trainer.save(model_dir)
-        return model_dir
-
-    monkeypatch.setattr(_trainer_runner, "save_model_version", _save_model_version_with_weights)
 
 
 def _fake_raw_dataset(max_per_lang=None, languages=None, local_corrections_path=None):
@@ -512,6 +498,23 @@ def test_train_status_predict_end_to_end(client, pipeline_mock):
 
     assert final_status is not None, "L'entraînement n'a pas abouti à un état terminal"
     assert final_status["status"] == "completed", f"Échec entraînement: {final_status.get('error')}"
+
+    # 3bis) Le dossier versionné doit contenir le rapport ET un artefact
+    # modèle chargeable (config.json / model.safetensors pour un modèle HF,
+    # model.pt / model_state_dict.pt pour un module torch pur). Sans cela,
+    # /predict ne peut ni résoudre ni charger la nouvelle version.
+    model_path = final_status.get("model_path")
+    assert model_path, f"model_path manquant: {final_status}"
+    assert os.path.isdir(model_path), model_path
+    artifacts = set(os.listdir(model_path))
+    assert "training_report.json" in artifacts, artifacts
+    assert artifacts & {
+        "config.json",
+        "model.safetensors",
+        "pytorch_model.bin",
+        "model.pt",
+        "model_state_dict.pt",
+    }, f"Aucun artefact modèle (config/poids) dans {sorted(artifacts)}"
 
     # 4) Prédiction avec le modèle entraîné de bout en bout.
     predict_resp = client.post(
