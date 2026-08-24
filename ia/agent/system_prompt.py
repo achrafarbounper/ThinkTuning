@@ -10,8 +10,20 @@ FORMAT DES APPELS DE TOOLS :
 Tu dois répondre UNIQUEMENT en JSON strict, sans texte autour :
 {"tool": "nom_du_tool", "args": {...}}
 
+Exemple VALIDE (les arguments sont TOUJOURS imbriqués dans "args", jamais
+au niveau du bloc) :
+{"tool": "read_file", "args": {"path": "configs/default.yaml"}}
+
 Un JSON = une action. Pas de texte avant, pas de texte après.
 Si plusieurs actions sont demandées, tu renvoies plusieurs JSON séparés par des retours à la ligne.
+
+ENCHAÎNEMENT DES ACTIONS :
+- Si les arguments d'un appel dépendent du résultat d'un appel précédent
+  (ex : localiser un fichier PUIS le lire), renvoie UN SEUL JSON par réponse :
+  tu recevras le résultat avant de construire l'appel suivant.
+- N'invente JAMAIS la valeur d'un argument : attends le résultat réel de l'étape précédente.
+- Pour les fichiers, utilise toujours des chemins RELATIFS avec des « / »
+  (ex : configs/default.yaml) — jamais de backslash « \ ».
 
 OUTILS DISPONIBLES (signatures EXACTES — n’invente jamais de paramètre) :
 
@@ -22,6 +34,8 @@ Fichiers (bac à sable, chemins relatifs à la racine autorisée) :
 - write_file(filename, content)
 - list_dir(path)                      # path optionnel, défaut "."
 - read_file(path, max_bytes=65536)    # max_bytes optionnel
+- find_file(pattern, path=".", max_results=100)  # regex sur nom/chemin relatif ;
+  # À UTILISER dès qu'un chemin est incertain ou que read_file répond « Introuvable »
 - make_dir(path)
 - copy_path(src, dst)
 - move_path(src, dst)

@@ -1,10 +1,11 @@
-"""Outils système de l'agent : ls, cat, mkdir, cp, mv, rm — tous sandboxés.
+"""Outils système de l'agent : ls, find, cat, mkdir, cp, mv, rm — tous sandboxés.
 
 Tous les chemins passent par `tools.sandbox.safe_resolve` : impossible de
 lire/écrire/supprimer en dehors de la racine autorisée (AGENT_SANDBOX_ROOT,
 défaut : répertoire courant du process).
 """
 
+import re
 import shutil
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from tools.sandbox import iso_from_timestamp, safe_resolve
 
 MAX_LIST_ENTRIES = 500
 DEFAULT_READ_BYTES = 65536  # 64 Ko
+MAX_FIND_RESULTS = 100
 
 
 # --- ls ---------------------------------------------------------------------------
@@ -53,7 +55,15 @@ def list_dir(path: str = ".", recursive: bool = False) -> dict:
 # --- cat ---------------------------------------------------------------------------
 def read_file(path: str, max_bytes: int = DEFAULT_READ_BYTES) -> str:
     """Lit un fichier texte (UTF-8) ; tronque au-delà de max_bytes."""
-    file_path = safe_resolve(path, must_exist=True)
+    try:
+        file_path = safe_resolve(path, must_exist=True)
+    except FileNotFoundError as exc:
+        # Guide l'agent vers la bonne stratégie au lieu de le laisser deviner :
+        # ce message remonte tel quel au LLM via AgentCore.
+        raise FileNotFoundError(
+            f"{exc} — utilisez le tool 'find_file' pour localiser le vrai chemin "
+            '(ex: {"tool": "find_file", "args": {"pattern": "default"}}).'
+        ) from exc
     if not file_path.is_file():
         raise IsADirectoryError(f"Pas un fichier : {file_path}")
 
@@ -66,6 +76,51 @@ def read_file(path: str, max_bytes: int = DEFAULT_READ_BYTES) -> str:
     if real_size > max_bytes:
         text += f"\n… [tronqué : {real_size} octets au total, {max_bytes} affichés]"
     return text
+
+
+# --- find --------------------------------------------------------------------------
+def find_file(pattern: str, path: str = ".", max_results: int = MAX_FIND_RESULTS) -> dict:
+    """Cherche récursivement les fichiers/dossiers dont le chemin relatif ou le
+    nom correspond à `pattern` (regex Python, insensible à la casse).
+
+    Retourne des chemins relatifs à la racine sandbox, directement exploitables
+    par read_file / copy_path / move_path. À utiliser quand read_file répond
+    « Introuvable », au lieu de deviner des chemins.
+    """
+    try:
+        regex = re.compile(str(pattern), re.IGNORECASE)
+    except re.error as exc:
+        raise ValueError(f"Regex invalide '{pattern}' : {exc}") from exc
+
+    max_results = max(1, int(max_results))
+    base = safe_resolve(path, must_exist=True)
+    if not base.is_dir():
+        raise NotADirectoryError(f"Pas un répertoire : {base}")
+
+    root = get_root()
+    matches: list[dict] = []
+    for item in base.rglob("*"):
+        relative = item.relative_to(root).as_posix()
+        # Match sur le chemin complet OU uniquement le nom : un pattern ancré
+        # (^default\.yaml$) retrouve ainsi le fichier quelle que soit sa profondeur.
+        if regex.search(relative) or regex.search(item.name):
+            matches.append(
+                {
+                    "path": relative,
+                    "type": "dir" if item.is_dir() else ("file" if item.is_file() else "other"),
+                }
+            )
+            if len(matches) >= max_results:
+                break
+
+    matches.sort(key=lambda m: m["path"].lower())
+    return {
+        "pattern": str(pattern),
+        "search_path": str(base),
+        "match_count": len(matches),
+        "truncated": len(matches) >= max_results,
+        "matches": matches,
+    }
 
 
 # --- mkdir -------------------------------------------------------------------------

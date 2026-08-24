@@ -13,6 +13,7 @@ from tools.math_tools import add
 from tools.file_tools import write_file
 from tools.system_tools import (
     copy_path,
+    find_file,
     list_dir,
     make_dir,
     move_path,
@@ -32,6 +33,7 @@ TOOLS = {
     "write_file": write_file,
     "list_dir": list_dir,
     "read_file": read_file,
+    "find_file": find_file,
     "make_dir": make_dir,
     "copy_path": copy_path,
     "move_path": move_path,
@@ -58,6 +60,7 @@ REQUIRED_ARGS = {
     "write_file": ["filename", "content"],
     "list_dir": [],
     "read_file": ["path"],
+    "find_file": ["pattern"],
     "make_dir": ["path"],
     "copy_path": ["src", "dst"],
     "move_path": ["src", "dst"],

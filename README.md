@@ -289,7 +289,9 @@ Routes :
 - `GET /tools` — outils et arguments requis ;
 - `POST /tools/run` — exécution directe d'un outil : `{"tool": "gpu_info", "args": {}}` ;
 - `POST /ask` — prompt libre : `{"prompt": "..."}` — l'agent planifie lui-même
-  les appels d'outils puis renvoie la réponse finale.
+  les appels d'outils puis renvoie la réponse finale ; en cas d'appel invalide
+  (tool inconnu, arguments manquants, erreur d'exécution), l'erreur est renvoyée
+  au LLM qui se corrige automatiquement (plafonné à `MAX_LLM_ROUNDS` tours).
 
 ### Outils disponibles
 
@@ -299,6 +301,7 @@ Routes :
 | Fichiers | `write_file` | `(filename, content)` | Écrit un fichier (parents créés), sandboxé |
 | Fichiers | `list_dir` | `(path=".", recursive=false)` | Liste un répertoire (type, taille, date) |
 | Fichiers | `read_file` | `(path, max_bytes=65536)` | Lit un fichier texte, sortie tronquée |
+| Fichiers | `find_file` | `(pattern, path=".", max_results=100)` | Recherche récursive par regex (nom ou chemin), retourne les chemins relatifs |
 | Fichiers | `make_dir` | `(path)` | Crée un répertoire (parents inclus) |
 | Fichiers | `copy_path` | `(src, dst)` | Copie fichier ou arborescence |
 | Fichiers | `move_path` | `(src, dst)` | Déplace / renomme |
