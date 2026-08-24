@@ -1,7 +1,8 @@
 # project/core/models.py
 
 from enum import Enum
-from pydantic import BaseModel
+
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing import List, Optional, Dict
 
 
@@ -31,6 +32,62 @@ class TrainRequest(BaseModel):
     weight_decay: Optional[float] = None
     warmup_ratio: Optional[float] = None
     device: str = "auto"
+    # Exemple affiché/pré-rempli dans Swagger UI ("Try it out") : sans lui,
+    # les dicts libres sont pré-remplis avec des placeholders 'additionalProp1'
+    # qui font planter l'entraînement s'ils sont envoyés tels quels.
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "max_per_lang": 500,
+                    "local_corrections_path": None,
+                    "augment_fraction": 0.4,
+                    "variants_per_example": 2,
+                    "class_augment_weights": {"0": 1.0, "1": 2.0, "2": 1.0},
+                    "epochs": 3,
+                    "batch_size": 16,
+                    "num_workers": None,
+                    "max_length": None,
+                    "learning_rate": None,
+                    "weight_decay": None,
+                    "warmup_ratio": None,
+                    "device": "auto",
+                }
+            ]
+        }
+    )
+
+    @field_validator("class_augment_weights")
+    @classmethod
+    def validate_class_augment_weights(cls, v: Optional[Dict[str, float]]) -> Optional[Dict[str, float]]:
+        """Rejette tôt (HTTP 422) les clés non numériques et les poids négatifs.
+
+        Les clés 'additionalProp1', 'additionalProp2'... sont les placeholders
+        générés par Swagger UI pour les dicts libres : elles arrivaient jusque
+        dans augment_dataset() et provoquaient un ValueError obscur en plein
+        job d'entraînement au lieu d'une 422 immédiate côté API.
+        """
+        if v is None:
+            return v
+        cleaned: Dict[str, float] = {}
+        for key, weight in v.items():
+            try:
+                label = int(str(key).strip())
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"Clé invalide dans class_augment_weights : {key!r}. "
+                    "Attendu un label de classe entier (ex. 0, 1, 2). Les clés "
+                    "'additionalProp1', 'additionalProp2'... sont des valeurs "
+                    "d'exemple Swagger UI non modifiées : remplacez-les par de "
+                    "vrais labels (ex. {\"1\": 3.0}) ou supprimez le champ."
+                ) from None
+            if float(weight) < 0:
+                raise ValueError(
+                    f"Poids négatif interdit pour le label {label} : {weight}. "
+                    "Les poids servent à normaliser des probabilités d'échantillonnage."
+                )
+            cleaned[str(label)] = float(weight)
+        return cleaned
 
 
 class TrainJob(BaseModel):

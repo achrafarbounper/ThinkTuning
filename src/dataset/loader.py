@@ -496,7 +496,25 @@ def augment_dataset(
     # Normalise les poids (accepte des clés int ou str issues de YAML/JSON) et
     # bascule sur le surpoids par défaut de la classe neutral si rien n'est fourni.
     if class_augment_weights:
-        weights = {int(k): float(v) for k, v in class_augment_weights.items()}
+        weights: Dict[int, float] = {}
+        for key, weight in class_augment_weights.items():
+            try:
+                label = int(str(key).strip())
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"class_augment_weights : clé invalide {key!r} — attendu un "
+                    "label de classe entier (ex. 0, 1, 2). Les clés "
+                    "'additionalProp1', 'additionalProp2'... sont des placeholders "
+                    "Swagger UI envoyés tels quels : fournissez de vrais labels "
+                    "(ex. {\"1\": 3.0}) ou omettez le champ pour utiliser les "
+                    "poids par défaut."
+                ) from None
+            if float(weight) < 0:
+                raise ValueError(
+                    f"class_augment_weights : poids négatif interdit pour le "
+                    f"label {label} ({weight})."
+                )
+            weights[label] = float(weight)
     else:
         weights = dict(DEFAULT_CLASS_AUGMENT_WEIGHTS)
 

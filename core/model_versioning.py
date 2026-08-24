@@ -85,6 +85,35 @@ def _json_safe(value):
     return str(value)
 
 
+def _save_trained_model(trainer, model_dir):
+    """Persiste les poids du modèle entraîné dans le dossier versionné.
+
+    - Préfère ``trainer.save(model_dir)`` : pour un modèle HuggingFace,
+      ``Trainer.save`` appelle ``model.save_pretrained`` qui écrit
+      ``config.json`` + ``model.safetensors`` ; pour un module torch pur,
+      il retombe sur ``model_state_dict.pt``.
+    - Sinon, utilise directement ``trainer.model`` avec le même contrat.
+    """
+    save_fn = getattr(trainer, "save", None)
+    if callable(save_fn):
+        save_fn(model_dir)
+        return
+
+    model = getattr(trainer, "model", None)
+    if model is None:
+        return
+
+    if hasattr(model, "save_pretrained"):
+        # Modèle HuggingFace : écrit config.json + model.safetensors.
+        model.save_pretrained(model_dir)
+        return
+
+    import torch
+
+    state_dict_path = os.path.join(model_dir, "model_state_dict.pt")
+    torch.save(model.state_dict(), state_dict_path)
+
+
 def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at):
     os.makedirs(MODEL_ROOT, exist_ok=True)
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -92,6 +121,13 @@ def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples,
     os.makedirs(model_dir, exist_ok=True)
 
     tokenizer.save_pretrained(model_dir)
+
+    # Poids + configuration du modèle entraîné dans le dossier versionné.
+    # Indispensable : sans eux, list_model_versions() / resolve_model_dir()
+    # et le Predictor (qui exige config.json ou un fichier de poids) ne
+    # trouvent aucun modèle chargeable — POST /train produisait donc des
+    # versions inutilisables par /predict.
+    _save_trained_model(trainer, model_dir)
 
     # Configuration d'entraînement (copie json-safe).
     hyperparameters = _json_safe(dict(getattr(trainer, "cfg", {}) or {}))
