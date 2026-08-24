@@ -7,4 +7,15 @@ export default defineConfig({
   build: {
     outDir: 'dist', // Assurez-vous que c'est bien 'dist'
   },
+  server: {
+    // En développement, /api/* est transféré vers l'API FastAPI locale,
+    // ce qui rend fetch("/api/ai") homogène entre dev et production.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
 })
+

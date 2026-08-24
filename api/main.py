@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import train, predict, maintenance, metrics, health, models
+from api.routes import train, predict, maintenance, metrics, health, models, ai_chat, agent
 from api.middlewares.maintenance import maintenance_mode_middleware
 from api.middlewares.rate_limit import rate_limit_middleware
 from api.middlewares.metrics import request_metrics_middleware
@@ -40,3 +40,5 @@ app.include_router(models.router)
 app.include_router(maintenance.router)
 app.include_router(metrics.router)
 app.include_router(health.router)
+app.include_router(ai_chat.router)
+app.include_router(agent.router)
