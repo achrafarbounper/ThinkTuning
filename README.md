@@ -263,6 +263,52 @@ Le Predictor est mis en cache en mémoire — il n'est chargé qu'une fois, au p
 Le registre des jobs est en mémoire (dict Python) — parfait pour du dev/local, mais si tu déploies en multi-worker (plusieurs process uvicorn) ou que tu redémarres le service, il faudrait passer à un store partagé (Redis, base de données). Dis-moi si c'est ton cas, je peux adapter.
 Un GET /health te donne un statut rapide (modèle dispo ou non, jobs actifs).
 
+## Calibration (`calibrate.py`)
+
+Vérifie que la **confidence** du modèle reflète sa **précision réelle** : le
+script génère une calibration curve (*reliability diagram*) construite avec
+`sklearn.calibration.calibration_curve`, calcule l'**ECE** (Expected
+Calibration Error) et enregistre un **avertissement dans les logs dès que
+l'ECE dépasse 0.1** (mauvais calibrage).
+
+```bash
+# Courbe de calibration + ECE sur le jeu d'évaluation
+# (par défaut : la dernière version valide de experiments/models)
+python calibrate.py --max_per_lang 500
+
+# Calibrer une version précise du modèle
+python calibrate.py --model_name 20260825T153054Z
+
+# Si l'ECE > 0.1 : ajuster les probabilités par temperature scaling post-hoc
+python calibrate.py --temperature_scaling     # T appris (minimisation NLL)
+python calibrate.py --temperature 1.8         # ou T fixé à la main
+```
+
+Sorties générées dans `outputs/` :
+
+- `calibration_curve.png` : diagramme de fiabilité — précision réelle en
+  fonction de la confiance prédite, la diagonale représentant un modèle
+  parfaitement calibré ;
+- `calibration_curve_after.png` : idem après temperature scaling (si activé) ;
+- `calibration_report.json` : ECE avant/après, détail des bins, température.
+
+Options principales :
+
+- `--model_name <version>` : calibre une version précise de `experiments/models`
+  (ex. `20260825T153054Z`) ; par défaut, la **dernière version valide**
+  (horodatage le plus récent) y est utilisée automatiquement ;
+- `--max_per_lang`, `--batch_size`, `--max_length` : identiques à `evaluate.py`
+  (`max_length` réutilise `configs/default.yaml` par défaut) ;
+- `--n_bins` (10 par défaut) et `--strategy uniform|quantile` : binning de
+  l'ECE et de la courbe ;
+- `--output_dir` : dossier des artefacts (défaut : `outputs/`).
+
+> Notes :
+> - Le temperature scaling ne change **jamais** la classe prédite (l'argmax
+>   est invariant), uniquement la confiance associée.
+> - Pour un rapport non biaisé, ajustez idéalement T sur un jeu de validation
+>   distinct du jeu d'évaluation final.
+
 ## Agent IA (`ia/`)
 
 L'agent LLM (Ollama + outils sandboxés) est intégré à l'API principale sous le
