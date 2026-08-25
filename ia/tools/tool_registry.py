@@ -9,9 +9,12 @@ ligne ici + sa ligne REQUIRED_ARGS. Le system_prompt et l'API (/health,
 /tools) se mettent à jour via ces deux dicts.
 """
 
-from tools.math_tools import add
-from tools.file_tools import write_file
-from tools.system_tools import (
+# Imports relatifs : fonctionnent à la fois sous le paquet « ia.tools » (tests :
+# from ia.agent.agent_core import ...) et sous la racine « tools » (runtime :
+# core/agent_cache.py ajoute ia/ au sys.path puis importe tools.tool_registry).
+from .math_tools import add
+from .file_tools import write_file
+from .system_tools import (
     copy_path,
     find_file,
     list_dir,
@@ -20,11 +23,11 @@ from tools.system_tools import (
     read_file,
     remove_path,
 )
-from tools.shell_tools import run_command, run_python
-from tools.network_tools import http_get, http_post
-from tools.docker_tools import docker_exec, docker_logs, docker_ps
-from tools.gpu_tools import gpu_info
-from tools.database_tools import postgres_query, sqlite_query
+from .shell_tools import run_command, run_python
+from .network_tools import http_get, http_post
+from .docker_tools import docker_exec, docker_logs, docker_ps
+from .gpu_tools import gpu_info
+from .database_tools import postgres_query, sqlite_query
 
 TOOLS = {
     # math

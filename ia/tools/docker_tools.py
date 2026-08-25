@@ -6,7 +6,7 @@ plafonnées gérés par `tools.sandbox.run_subprocess`.
 
 import json
 
-from tools.sandbox import run_subprocess
+from .sandbox import run_subprocess
 
 DOCKER_TIMEOUT_S = 30.0
 _PS_MAX_CHARS = 16000  # une ligne JSON par conteneur

@@ -15,7 +15,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from tools.sandbox import (
+from .sandbox import (
     check_command_allowed,
     get_sandbox_root,
     run_subprocess,

@@ -21,8 +21,9 @@ for _p in (PROJECT_ROOT, IA_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# Config API avant tout import de l'app (cohérent avec test_agent_api.py).
-os.environ.setdefault("AGENT_API_KEY", "test-agent-key")
+# Config API avant tout import de l'app : clé de l'API principale (routes
+# /api/agent/*), cohérent avec tests/test_agent_api.py et test_api_ai_chat.py.
+os.environ.setdefault("API_KEY", "test-key")
 
 import pytest
 
@@ -694,38 +695,47 @@ def test_json_parser_still_drops_garbage():
     assert extract_json_blocks('{"tool": "add",') == []  # jamais fermé
 
 
-# --- Intégration API (/tools/run avec les nouveaux outils) ---------------------------------
+# --- Intégration API (/api/agent/tools/run avec les nouveaux outils) ------------------------
 
 def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
+    """Le serveur autonome ia/api_server.py a été remplacé par les routes
+    /api/agent/* du package api : on vérifie les mêmes outils via l'app principale."""
+    os.environ.setdefault("API_KEY", "test-key")
+
     from fastapi.testclient import TestClient
 
     monkeypatch.setenv("AGENT_SANDBOX_ROOT", str(tmp_path))
-    from ia import api_server
+    from core import agent_cache  # noqa: F401  (insère ia/ dans sys.path)
+    from api import app
 
-    headers = {"X-API-Key": os.environ.get("AGENT_API_KEY", "test-agent-key")}
-    with TestClient(api_server.app) as client:
-        health = client.get("/health")
-        assert health.status_code == 200
-        assert "gpu_info" in health.json()["tools"]
+    headers = {"X-API-Key": os.environ.get("API_KEY", "test-key")}
+    with TestClient(app) as client:
+        status = client.get("/api/agent/status")
+        assert status.status_code == 200
+        assert "gpu_info" in status.json()["tools"]
 
         created = client.post(
-            "/tools/run",
+            "/api/agent/tools/run",
             json={"tool": "write_file", "args": {"filename": "api.txt", "content": "via-api"}},
             headers=headers,
         )
         assert created.status_code == 200
 
         read = client.post(
-            "/tools/run", json={"tool": "read_file", "args": {"path": "api.txt"}}, headers=headers,
+            "/api/agent/tools/run",
+            json={"tool": "read_file", "args": {"path": "api.txt"}},
+            headers=headers,
         )
         assert read.status_code == 200 and "via-api" in read.json()["result"]
 
-        gpu = client.post("/tools/run", json={"tool": "gpu_info", "args": {}}, headers=headers)
+        gpu = client.post(
+            "/api/agent/tools/run", json={"tool": "gpu_info", "args": {}}, headers=headers,
+        )
         assert gpu.status_code == 200
         assert isinstance(gpu.json()["result"]["devices"], list)
 
         listing = client.post(
-            "/tools/run", json={"tool": "list_dir", "args": {"path": "."}}, headers=headers,
+            "/api/agent/tools/run", json={"tool": "list_dir", "args": {"path": "."}}, headers=headers,
         )
         assert listing.status_code == 200
         names = [e["path"] for e in listing.json()["result"]["entries"]]

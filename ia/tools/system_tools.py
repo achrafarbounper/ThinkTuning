@@ -9,7 +9,7 @@ import re
 import shutil
 from pathlib import Path
 
-from tools.sandbox import iso_from_timestamp, safe_resolve
+from .sandbox import iso_from_timestamp, safe_resolve
 
 MAX_LIST_ENTRIES = 500
 DEFAULT_READ_BYTES = 65536  # 64 Ko
@@ -192,6 +192,6 @@ def remove_path(path: str, recursive: bool = False) -> str:
 
 def get_root() -> Path:
     """Racine courante de la sandbox (ré-export pratique pour les tests)."""
-    from tools.sandbox import get_sandbox_root
+    from .sandbox import get_sandbox_root
 
     return get_sandbox_root()

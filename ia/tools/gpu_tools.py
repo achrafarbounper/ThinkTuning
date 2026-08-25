@@ -9,7 +9,7 @@ Deux sources complémentaires :
 Fonctionne aussi sans GPU : renvoie un état explicite au lieu de lever.
 """
 
-from tools.sandbox import run_subprocess
+from .sandbox import run_subprocess
 
 
 def _query_nvidia_smi() -> dict[int, dict]:
