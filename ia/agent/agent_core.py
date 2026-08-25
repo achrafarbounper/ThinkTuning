@@ -13,6 +13,7 @@ Correctifs du bug « l'agent ne montre pas le contenu du fichier » :
 
 import json
 import logging
+import time
 
 from agent.json_parser import extract_json_blocks
 from agent.system_prompt import SYSTEM_PROMPT
@@ -41,6 +42,22 @@ def _stringify(result) -> str:
     if len(text) > MAX_RESULT_CHARS:
         text = text[:MAX_RESULT_CHARS] + "\n… [tronqué]"
     return text
+
+
+def _preview(value, limit: int = 160) -> str:
+    """Aperçu compact sur UNE ligne d'un argument ou d'un résultat, pour les logs."""
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(value, ensure_ascii=False, default=str)
+        except Exception:
+            text = str(value)
+    text = " ".join(text.split())
+    if len(text) > limit:
+        text = text[:limit] + "…"
+    return text
+
 
 def _final_instructions() -> str:
     """Consignes de fidélité de la réponse finale (anti-hallucination)."""
@@ -76,7 +93,8 @@ class AgentCore:
         }
 
     def run(self, prompt: str):
-        logger.info("Nouveau run de l'agent : %.200s", prompt)
+        run_started = time.perf_counter()
+        logger.info("=== Nouveau run de l'agent | prompt : %.200s", prompt)
         system = {"role": "system", "content": SYSTEM_PROMPT}
         history = [system, {"role": "user", "content": prompt}]
 
@@ -100,7 +118,8 @@ class AgentCore:
 
             if not blocks:
                 logger.warning(
-                    "Tour %d/%d : aucun objet JSON exploitable dans la réponse du LLM.",
+                    "Auto-correction (tour %d/%d) : aucun objet JSON exploitable "
+                    "dans la réponse du LLM.",
                     round_index,
                     MAX_TOOL_ROUNDS,
                 )
@@ -136,19 +155,36 @@ class AgentCore:
                 # Une exception d'outil (docker absent, réseau coupé, chemin hors
                 # sandbox...) ne crash pas l'agent : convertie en message que le
                 # LLM expliquera à l'utilisateur (comportement historique conservé).
+                logger.info("Exécution du tool '%s' | arguments : %s", tool, _preview(args))
+                tool_started = time.perf_counter()
                 try:
-                    logger.info("Exécution du tool '%s' avec %d argument(s).", tool, len(args))
                     last_result = TOOLS[tool](**args)
-                    logger.info("Tool '%s' terminé.", tool)
                 except Exception as exc:  # noqa: BLE001 - volontairement large
                     last_result = f"ERREUR pendant '{tool}' : {type(exc).__name__}: {exc}"
-                    logger.warning("Échec de l'outil '%s' : %s", tool, last_result)
+                    logger.warning(
+                        "Échec de l'outil '%s' après %.2fs : %s",
+                        tool,
+                        time.perf_counter() - tool_started,
+                        last_result,
+                        exc_info=True,
+                    )
+                else:
+                    logger.info(
+                        "Tool '%s' terminé en %.2fs | résultat : %s",
+                        tool,
+                        time.perf_counter() - tool_started,
+                        _preview(last_result),
+                    )
 
                 outcome = "done"
 
             if planning_error:
                 logger.warning(
-                    "Tour %d/%d : %s", round_index, MAX_TOOL_ROUNDS, planning_error
+                    "Auto-correction (tour %d/%d) : %s | réponse LLM fautive : %.300s",
+                    round_index,
+                    MAX_TOOL_ROUNDS,
+                    planning_error,
+                    raw,
                 )
                 history.append({"role": "assistant", "content": raw})
                 history.append(self._correction_message(planning_error))
@@ -165,13 +201,17 @@ class AgentCore:
         if outcome != "done":
             suffix = f" (après {MAX_TOOL_ROUNDS} tentatives d'auto-correction)"
             if outcome == "unknown_tool":
-                return (
+                failure = (
                     f"Tool inconnu : '{unknown_tool}'. "
                     f"Tools disponibles : {sorted(TOOLS)}{suffix}."
                 )
-            if outcome == "bad_args":
-                return f"{missing_args}{suffix}."
-            return f"Réponse non exploitable :\n{last_raw}"
+            elif outcome == "bad_args":
+                failure = f"{missing_args}{suffix}."
+            else:
+                failure = f"Réponse non exploitable :\n{last_raw}"
+            logger.error("Run de l'agent en échec : %.400s", failure)
+            logger.info("Durée totale du run : %.2fs.", time.perf_counter() - run_started)
+            return failure
 
         history.append({"role": "assistant", "content": last_raw})
         history.append(
@@ -184,5 +224,9 @@ class AgentCore:
             }
         )
         final_answer = self.llm.call(history)
-        logger.info("Réponse finale générée (%d caractères).", len(final_answer))
+        logger.info(
+            "Réponse finale générée (%d caractères) | durée totale du run : %.2fs.",
+            len(final_answer),
+            time.perf_counter() - run_started,
+        )
         return final_answer

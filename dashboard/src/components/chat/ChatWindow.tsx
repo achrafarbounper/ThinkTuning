@@ -15,15 +15,28 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
+import { ChatModelSelector } from './ChatModelSelector';
 import { readSseEvents } from './streamSse';
-import type { ChatMessageData, ChatRequestBody, ChatStreamEvent } from './types';
+import type {
+  ChatMessageData,
+  ChatRequestBody,
+  ChatStreamEvent,
+  LlmModelInfo,
+  LlmModelsResponse,
+} from './types';
 import './chat.css';
 
 /** Endpoint du backend (proxifié par Vite vers l'API FastAPI en développement). */
 const AI_ENDPOINT = '/api/ai';
 
+/** Endpoint listant les modèles LLM disponibles (même proxy que /api/ai). */
+const MODELS_ENDPOINT = '/api/models';
+
 /** Clé de stockage partagée avec le dashboard (voir CONFIG_STORAGE_KEY dans dashboard-demo.jsx). */
 const API_CONFIG_STORAGE_KEY = 'thinktuning.apiConfig';
+
+/** Clé de persistance du modèle LLM choisi pour le chat (localStorage). */
+const CHAT_MODEL_STORAGE_KEY = 'thinktuning.chatModel';
 
 /** Distance (px) sous laquelle on considère que l'utilisateur « suit » le bas. */
 const SCROLL_THRESHOLD_PX = 80;
@@ -58,10 +71,26 @@ function resolveApiKey(): string {
   return import.meta.env.VITE_API_KEY ?? '';
 }
 
+/** Relit le modèle LLM choisi pour le chat ('' = modèle par défaut serveur). */
+function loadStoredChatModel(): string {
+  try {
+    return window.localStorage.getItem(CHAT_MODEL_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [stickToBottom, setStickToBottom] = useState(true);
+
+  // Sélecteur de modèle LLM : liste fournie par GET /api/models, choix
+  // persisté en localStorage pour survivre au rechargement de la page.
+  const [llmModels, setLlmModels] = useState<LlmModelInfo[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>(loadStoredChatModel);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState('');
 
   const listRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController>(null);
@@ -78,6 +107,51 @@ export function ChatWindow() {
       element.scrollTop = element.scrollHeight;
     }
   }, [messages, stickToBottom]);
+
+  // Chargement initial des modèles LLM disponibles (GET /api/models).
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadModels = async () => {
+      setModelsLoading(true);
+      setModelsError('');
+      try {
+        // Route protégée par require_api_key côté backend : même en-tête
+        // que POST /api/ai.
+        const headers: Record<string, string> = {};
+        const apiKey = resolveApiKey();
+        if (apiKey) headers['X-API-Key'] = apiKey;
+
+        const response = await fetch(MODELS_ENDPOINT, { headers });
+        if (!response.ok) {
+          throw new Error(`Le serveur a répondu ${response.status} (${response.statusText})`);
+        }
+        const data = (await response.json()) as LlmModelsResponse;
+        if (!cancelled) setLlmModels(data.models ?? []);
+      } catch (error) {
+        if (!cancelled) {
+          setModelsError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) setModelsLoading(false);
+      }
+    };
+
+    void loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Change le modèle LLM utilisé par les prochains messages du chat. */
+  const handleModelChange = useCallback((modelName: string) => {
+    setSelectedModel(modelName);
+    try {
+      window.localStorage.setItem(CHAT_MODEL_STORAGE_KEY, modelName);
+    } catch {
+      /* stockage indisponible : la sélection reste valable pour la session */
+    }
+  }, []);
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
@@ -152,6 +226,8 @@ export function ChatWindow() {
 
       try {
         const body: ChatRequestBody = { message: trimmed, history };
+        // Modèle choisi via le sélecteur de l'en-tête ('' = défaut serveur).
+        if (selectedModel) body.model = selectedModel;
         // POST /api/ai est protégé par require_api_key côté backend : on
         // transmet la clé via X-API-Key quand elle est disponible.
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -205,7 +281,7 @@ export function ChatWindow() {
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, patchMessage],
+    [isLoading, appendDelta, patchMessage, selectedModel],
   );
 
   const isEmpty = messages.length === 0;
@@ -218,6 +294,13 @@ export function ChatWindow() {
         <span className="copilot-chat__status-dot" data-active={isLoading} aria-hidden="true" />
         <h2 className="copilot-chat__title">Assistant IA</h2>
         <div className="copilot-chat__actions">
+          <ChatModelSelector
+            models={llmModels}
+            selected={selectedModel}
+            onChange={handleModelChange}
+            loading={modelsLoading}
+            error={modelsError}
+          />
           {isLoading && (
             <span className="copilot-chat__spinner" role="status" aria-label="Génération en cours" />
           )}
