@@ -27,6 +27,31 @@ export interface ChatRequestBody {
   message: string;
   /** Historique des tours précédents. */
   history: Array<{ role: Role; content: string }>;
+  /**
+   * Nom du modèle LLM à utiliser (sélecteur de l'en-tête du chat).
+   * Absent ou vide : modèle par défaut de la configuration serveur.
+   */
+  model?: string;
+}
+
+/** Un modèle LLM disponible côté serveur (installé sur Ollama). */
+export interface LlmModelInfo {
+  /** Nom exact attendu par l'API Ollama (ex : « llama3.1:8b »). */
+  name: string;
+  /** Taille sur disque en octets, si connue. */
+  size?: number | null;
+  /** Date de dernière modification (ISO 8601), si connue. */
+  modified_at?: string | null;
+  /** Vrai s'il s'agit du modèle par défaut de la configuration serveur. */
+  is_default?: boolean;
+}
+
+/** Réponse de GET /api/models (liste des modèles + modèle actif). */
+export interface LlmModelsResponse {
+  /** Modèle par défaut côté serveur (variables AGENT_*). */
+  active: string;
+  /** Modèles installés, triés par nom. */
+  models: LlmModelInfo[];
 }
 
 /** Événement SSE émis par le backend pendant la génération. */

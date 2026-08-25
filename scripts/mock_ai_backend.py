@@ -10,7 +10,8 @@ Lancement (depuis la racine du projet) :
 Le serveur écoute sur http://127.0.0.1:8000 et expose exactement le même
 contrat que `api/routes/ai_chat.py` :
 
-    POST /api/ai  {"message": "…", "history": [...]}
+    GET  /api/models  -> {"active": "...", "models": [{"name", ...}]}
+    POST /api/ai  {"message": "…", "history": [...], "model": "…"}
       -> flux SSE : data: {"delta": "…"} ... data: [DONE]
 
 Astuce : si le port 8000 est déjà occupé par la vraie API, lancez
@@ -52,6 +53,20 @@ class ChatMessageIn(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessageIn] = []
+    model: str | None = None  # modèle choisi dans le sélecteur (ignoré ici)
+
+
+# Modèles factices servis par GET /api/models pour alimenter le sélecteur.
+MOCK_MODELS = [
+    {"name": "mock-echo-mini", "size": 1_000_000_000, "modified_at": "2026-08-01T00:00:00Z"},
+    {"name": "mock-echo-large", "size": 4_000_000_000, "modified_at": "2026-08-15T00:00:00Z"},
+]
+
+
+@app.get("/api/models")
+def list_models() -> dict:
+    """Même contrat que api/routes/ai_chat.py : liste + modèle actif."""
+    return {"active": "mock-echo-mini", "models": MOCK_MODELS}
 
 
 def _build_reply(req: ChatRequest) -> str:

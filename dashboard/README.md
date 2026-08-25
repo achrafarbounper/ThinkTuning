@@ -32,7 +32,9 @@ src/components/chat/
 
 Fonctionnalités : streaming token par token, spinner de chargement,
 curseur clignotant, scroll automatique intelligent, bouton « Stop »
-(AbortController), gestion des erreurs, thème clair/sombre automatique.
+(AbortController), bouton « Nouvelle tâche » (nouvelle session : interrompt
+la génération en cours et vide la conversation), gestion des erreurs,
+thème clair/sombre automatique.
 
 ### Authentification (X-API-Key)
 

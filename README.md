@@ -273,7 +273,7 @@ préfixe `/api/agent` (l'ancien serveur autonome `ia/api_server.py` a été reti
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Variables d'environnement dédiées :
+Variables d'environnement dédiées (relues à chaque appel) :
 
 - `AGENT_OLLAMA_URL` (défaut `http://192.168.1.184:11434/api/chat`)
 - `AGENT_MODEL_NAME` (défaut `llama3.1:8b`)

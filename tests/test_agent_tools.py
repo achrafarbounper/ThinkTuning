@@ -705,11 +705,12 @@ def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     monkeypatch.setenv("AGENT_SANDBOX_ROOT", str(tmp_path))
+    monkeypatch.setenv("API_KEY", "test-key")
     from core import agent_cache  # noqa: F401  (insère ia/ dans sys.path)
-    from api import app
+    from api import app as api_app
 
-    headers = {"X-API-Key": os.environ.get("API_KEY", "test-key")}
-    with TestClient(app) as client:
+    headers = {"X-API-Key": "test-key"}
+    with TestClient(api_app) as client:
         status = client.get("/api/agent/status")
         assert status.status_code == 200
         assert "gpu_info" in status.json()["tools"]
@@ -723,8 +724,7 @@ def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
 
         read = client.post(
             "/api/agent/tools/run",
-            json={"tool": "read_file", "args": {"path": "api.txt"}},
-            headers=headers,
+            json={"tool": "read_file", "args": {"path": "api.txt"}}, headers=headers,
         )
         assert read.status_code == 200 and "via-api" in read.json()["result"]
 
@@ -735,7 +735,8 @@ def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
         assert isinstance(gpu.json()["result"]["devices"], list)
 
         listing = client.post(
-            "/api/agent/tools/run", json={"tool": "list_dir", "args": {"path": "."}}, headers=headers,
+            "/api/agent/tools/run",
+            json={"tool": "list_dir", "args": {"path": "."}}, headers=headers,
         )
         assert listing.status_code == 200
         names = [e["path"] for e in listing.json()["result"]["entries"]]
