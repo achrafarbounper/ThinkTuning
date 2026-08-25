@@ -33,6 +33,18 @@ services:
       - hf-cache:/app/.cache
     profiles: ["evaluate"]
 
+  calibrate:
+    build: .
+    image: thinktuning:latest
+    container_name: thinktuning-calibrate
+    command: ["python", "calibrate.py", "--max_per_lang", "500"]
+    volumes:
+      - ./experiments:/app/experiments
+      - ./outputs:/app/outputs
+      - hf-cache:/app/.cache
+    profiles: ["calibrate"]
+
+
   app:
     build: .
     image: thinktuning:latest
