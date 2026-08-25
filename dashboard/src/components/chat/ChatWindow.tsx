@@ -32,9 +32,6 @@ const AI_ENDPOINT = '/api/ai';
 /** Endpoint listant les modèles LLM disponibles (même proxy que /api/ai). */
 const MODELS_ENDPOINT = '/api/models';
 
-/** Endpoint listant les modèles LLM disponibles (même proxy que /api/ai). */
-const MODELS_ENDPOINT = '/api/models';
-
 /** Clé de stockage partagée avec le dashboard (voir CONFIG_STORAGE_KEY dans context/AppContext.jsx). */
 const API_CONFIG_STORAGE_KEY = 'thinktuning.apiConfig';
 
