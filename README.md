@@ -263,33 +263,44 @@ Le Predictor est mis en cache en mémoire — il n'est chargé qu'une fois, au p
 Le registre des jobs est en mémoire (dict Python) — parfait pour du dev/local, mais si tu déploies en multi-worker (plusieurs process uvicorn) ou que tu redémarres le service, il faudrait passer à un store partagé (Redis, base de données). Dis-moi si c'est ton cas, je peux adapter.
 Un GET /health te donne un statut rapide (modèle dispo ou non, jobs actifs).
 
-## API de l'agent IA (`ia/`)
+## Agent IA intégré à l'API (`ia/`)
 
-L'agent LLM (Ollama + 18 outils sandboxés) peut aussi être exposé en HTTP,
-indépendamment de l'API sentiment :
+L'agent LLM (Ollama + 18 outils sandboxés) est exposé directement par l'API
+principale (même process uvicorn que `/train` et `/predict`) :
 
 ```bash
-uvicorn ia.api_server:app --reload --host 0.0.0.0 --port 8001
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Variables d'environnement dédiées :
+Variables d'environnement dédiées (relues à chaque appel) :
 
 - `AGENT_OLLAMA_URL` (défaut `http://192.168.1.184:11434/api/chat`)
 - `AGENT_MODEL_NAME` (défaut `llama3.1:8b`)
-- `AGENT_TIMEOUT_SECONDS` (défaut `120`) — timeout des appels vers Ollama
-- `AGENT_API_KEY` : si définie, toutes les routes sauf `/health` exigent l'en-tête `X-API-Key`
+- `AGENT_TIMEOUT_SECONDS` (défaut `600`) — timeout des appels vers Ollama
+- `AGENT_LOG_LEVEL` : niveau de logs (DEBUG/INFO/...) — configuré dans `api/main.py`
 - `AGENT_SANDBOX_ROOT` : racine autorisée pour tous les outils fichiers (défaut : répertoire de lancement)
 - `AGENT_ALLOWED_BINARIES` : allowlist CSV des exécutables autorisés par `run_command`
 - `AGENT_BLOCK_PRIVATE_HOSTS=1` : interdit à http_get/http_post les hôtes privés/loopback (anti-SSRF)
 - `AGENT_PG_DSN` : DSN PostgreSQL de `postgres_query` (`postgresql://user:pwd@host:5432/base`)
 
-Routes :
+L'auth passe par la clé commune de l'API (`API_KEY` + en-tête `X-API-Key`),
+comme toutes les autres routes protégées.
 
-- `GET /health` — statut, modèle visé, outils disponibles ;
-- `GET /tools` — outils et arguments requis ;
-- `POST /tools/run` — exécution directe d'un outil : `{"tool": "gpu_info", "args": {}}` ;
-- `POST /ask` — prompt libre : `{"prompt": "..."}` — l'agent planifie lui-même
-  les appels d'outils puis renvoie la réponse finale.
+Routes (préfixe `/api/agent`) :
+
+- `GET /api/agent/status` — statut, modèle visé, outils disponibles (public) ;
+- `GET /api/agent/tools` — outils et arguments requis ;
+- `POST /api/agent/tools/run` — exécution directe d'un outil : `{"tool": "gpu_info", "args": {}}` ;
+- `POST /api/agent/ask` — prompt libre : `{"prompt": "..."}` — l'agent planifie lui-même
+  les appels d'outils puis renvoie la réponse finale ;
+- `POST /api/ai` — chat SSE (streaming) utilisé par le dashboard.
+- Auto-correction : si la réponse du LLM est hors format (pas de JSON, outil
+  inconnu, arguments manquants), l'erreur lui est renvoyée avec la liste des
+  outils valides (jusqu'à 3 tentatives) avant d'être exposée à l'appelant.
+- Fidélité : la réponse finale doit citer le contenu renvoyé par les outils
+  tel quel (bloc de code) et ne jamais inventer un contenu absent du résultat.
+- La liste des outils présentée au modèle est générée dynamiquement depuis le
+  registre `ia/tools/tool_registry.py` (plus de liste codée en dur à maintenir).
 
 ### Outils disponibles
 
@@ -331,26 +342,26 @@ Routes :
 
 ```bash
 # État GPU (VRAM + utilisation)
-curl -H "X-API-Key: change-me-agent-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8001/tools/run -d '{"tool": "gpu_info", "args": {}}'
+curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/api/agent/tools/run -d '{"tool": "gpu_info", "args": {}}'
 
 # Conteneurs Docker actifs
-curl -H "X-API-Key: change-me-agent-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8001/tools/run \
+curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/api/agent/tools/run \
   -d '{"tool": "docker_ps", "args": {"all_containers": true}}'
 
 # Requête SQLite en lecture seule
-curl -H "X-API-Key: change-me-agent-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8001/tools/run \
+curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/api/agent/tools/run \
   -d '{"tool": "sqlite_query", "args": {"db_path": "experiments/jobs.db", "query": "SELECT * FROM jobs LIMIT 5"}}'
 
 # Prompt libre : l'agent choisit lui-même les outils
-curl -H "X-API-Key: change-me-agent-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8001/ask \
+curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/api/agent/ask \
   -d '{"prompt": "Liste le dossier experiments puis dis-moi combien de modèles il contient."}'
 ```
 
-Doc interactive : http://localhost:8001/docs. Notes :
+Doc interactive : http://localhost:8000/docs. Notes :
 
 - `psycopg2-binary` (déjà dans requirements.txt) n'est requis que pour `postgres_query`.
 - Tests offline de tous ces outils : `pytest tests/test_agent_tools.py -v`.

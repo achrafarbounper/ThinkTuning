@@ -7,10 +7,10 @@ paresseusement au premier appel puis mise en cache (accès protégé par un
 verrou), avec rechargement explicite via `reload_agent_runner()`.
 
 Les modules de l'agent utilisent des imports absolus racinés sur le dossier
-`ia/` (`from agent...`, `from tools...`, cf. ia/api_server.py) : ce fichier
-ajoute donc ce dossier au `sys.path` AVANT d'importer l'agent. Il constitue
-le point d'entrée unique : le reste de l'API n'accède à l'agent que via ce
-module, jamais par un import direct de `agent.*` / `tools.*`.
+`ia/` (`from agent...`, `from tools...`) : ce fichier ajoute donc ce dossier
+au `sys.path` AVANT d'importer l'agent. Il constitue le point d'entrée
+unique : le reste de l'API n'accède à l'agent que via ce module, jamais par
+un import direct de `agent.*` / `tools.*`.
 """
 
 import os
@@ -45,7 +45,7 @@ __all__ = [
 
 DEFAULT_OLLAMA_URL = "http://192.168.1.184:11434/api/chat"
 DEFAULT_MODEL_NAME = "llama3.1:8b"
-DEFAULT_TIMEOUT_SECONDS = 120.0
+DEFAULT_TIMEOUT_SECONDS = 600.0
 
 _runner: AgentRunner | None = None
 _runner_lock = threading.Lock()
@@ -54,7 +54,7 @@ _runner_lock = threading.Lock()
 def agent_config() -> dict:
     """Configuration courante de l'agent, relue à chaque appel.
 
-    Variables d'environnement (identiques à ia/api_server.py) :
+    Variables d'environnement :
         AGENT_OLLAMA_URL       URL du endpoint chat Ollama
         AGENT_MODEL_NAME       nom du modèle (ex: llama3.1:8b)
         AGENT_TIMEOUT_SECONDS  timeout en secondes des appels LLM
@@ -93,7 +93,7 @@ def reload_agent_runner() -> AgentRunner:
 def ask_agent(prompt: str) -> str:
     """Envoie le prompt à l'agent et traduit les erreurs réseau en HTTP.
 
-    Même sémantique que POST /ask de ia/api_server.py :
+    Sémantique HTTP :
         Timeout LLM          -> 504
         Ollama injoignable   -> 502
         Erreur HTTP d'Ollama -> 502

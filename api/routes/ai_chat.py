@@ -8,8 +8,8 @@ Contrat de sortie : flux SSE -> data: {"delta": "..."} ... data: [DONE]
 L'agent IA réel (paquet `ia/`, exposé via `core.agent_cache`) produit la
 réponse ; le découpage en fragments SSE est géré par `_sse_generator()`.
 L'appel LLM étant bloquant, l'endpoint est un `def` : FastAPI l'exécute dans
-un threadpool, donc l'appel vers Ollama ne gèle pas l'event loop (même
-logique que `ia/api_server.py`). L'appel a lieu AVANT le streaming afin que
+un threadpool, donc l'appel vers Ollama ne gèle pas l'event loop.
+L'appel a lieu AVANT le streaming afin que
 les erreurs réseau deviennent des réponses HTTP propres (502/504).
 """
 

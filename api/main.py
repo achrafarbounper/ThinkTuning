@@ -1,12 +1,28 @@
 # project/api/main.py
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+import logging
+import os
 
-from api.routes import train, predict, maintenance, metrics, health, models, ai_chat, agent
-from api.middlewares.maintenance import maintenance_mode_middleware
-from api.middlewares.rate_limit import rate_limit_middleware
-from api.middlewares.metrics import request_metrics_middleware
+# --- Configuration logging ----------------------------------------------------
+# Sans cette configuration, les loggers de l'agent (`agent.*`, cf. paquet ia/)
+# n'ont AUCUN handler : Python n'affiche alors que les WARNING+ sur stderr via
+# son handler « last resort », et uvicorn ne configure que ses propres loggers
+# (`uvicorn`, `uvicorn.error`, `uvicorn.access`) — jamais ceux de votre app.
+# On branche donc explicitement la racine pour voir aussi les logs de l'agent.
+# Niveau réglable via la variable d'environnement AGENT_LOG_LEVEL (DEBUG/INFO/...).
+LOG_LEVEL = os.getenv("AGENT_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
+)
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+from api.routes import train, predict, maintenance, metrics, health, models, ai_chat, agent  # noqa: E402
+from api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
+from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
+from api.middlewares.metrics import request_metrics_middleware  # noqa: E402
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost",
