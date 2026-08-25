@@ -21,7 +21,7 @@ import './chat.css';
 /** Endpoint du backend (proxifié par Vite vers l'API FastAPI en développement). */
 const AI_ENDPOINT = '/api/ai';
 
-/** Clé de stockage partagée avec le dashboard (voir CONFIG_STORAGE_KEY dans dashboard-demo.jsx). */
+/** Clé de stockage partagée avec le dashboard (voir CONFIG_STORAGE_KEY dans context/AppContext.jsx). */
 const API_CONFIG_STORAGE_KEY = 'thinktuning.apiConfig';
 
 /** Distance (px) sous laquelle on considère que l'utilisateur « suit » le bas. */
@@ -71,7 +71,7 @@ export function ChatWindow() {
   const messagesRef = useRef(messages);
   useEffect(() => {
     messagesRef.current = messages;
-  }, [messages]);
+  });
 
   // Scroll automatique vers le bas à chaque nouveau message / token,
   // uniquement si l'utilisateur n'a pas remonté manuellement la conversation.

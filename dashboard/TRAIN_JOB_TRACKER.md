@@ -13,7 +13,7 @@ Le **TrainJobTracker** est un composant React qui affiche le suivi en temps rée
 
 ## Intégration
 
-Le composant est importé dans [dashboard-demo.jsx](src/dashboard-demo.jsx) :
+Le composant est importé dans [pages/TrainingPage.jsx](src/pages/TrainingPage.jsx) :
 
 ```jsx
 import TrainJobTracker from "./components/TrainJobTracker";
@@ -41,7 +41,7 @@ Composant React affichant le suivi d'un job d'entraînement avec :
 - **Bouton d'annulation** (visible seulement quand le job est en cours)
 - **Messages d'erreur/succès** affichables/repliables
 
-### 2. [dashboard-demo.jsx](src/dashboard-demo.jsx) (modifié)
+### 2. [pages/TrainingPage.jsx](src/pages/TrainingPage.jsx)
 
 Modifications :
 - **Ligne 3** : Import du composant `TrainJobTracker`
@@ -67,7 +67,7 @@ Le tracker affiche les 10 étapes définies dans le pipeline d'entraînement :
 
 ## Styles CSS
 
-Les styles sont intégrés directement dans le fichier CSS global de `dashboard-demo.jsx`.
+Les styles sont intégrés directement dans le fichier CSS global de `pages/TrainingPage.jsx`.
 
 Classes principales :
 - `.tt-tracker` — conteneur principal
