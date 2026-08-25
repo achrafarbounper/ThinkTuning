@@ -9,7 +9,7 @@ Sécurité :
 
 import requests
 
-from tools.sandbox import enforce_host_policy, truncate_output, url_scheme_allowed
+from .sandbox import enforce_host_policy, truncate_output, url_scheme_allowed
 
 DEFAULT_TIMEOUT_S = 30.0
 DEFAULT_MAX_CHARS = 8000

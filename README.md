@@ -263,10 +263,11 @@ Le Predictor est mis en cache en mémoire — il n'est chargé qu'une fois, au p
 Le registre des jobs est en mémoire (dict Python) — parfait pour du dev/local, mais si tu déploies en multi-worker (plusieurs process uvicorn) ou que tu redémarres le service, il faudrait passer à un store partagé (Redis, base de données). Dis-moi si c'est ton cas, je peux adapter.
 Un GET /health te donne un statut rapide (modèle dispo ou non, jobs actifs).
 
-## Agent IA intégré à l'API (`ia/`)
+## Agent IA (`ia/`)
 
-L'agent LLM (Ollama + 18 outils sandboxés) est exposé directement par l'API
-principale (même process uvicorn que `/train` et `/predict`) :
+L'agent LLM (Ollama + outils sandboxés) est intégré à l'API principale sous le
+préfixe `/api/agent` (l'ancien serveur autonome `ia/api_server.py` a été retiré ;
+`core/agent_cache.py` est le point d'entrée unique vers l'agent) :
 
 ```bash
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
@@ -277,30 +278,36 @@ Variables d'environnement dédiées (relues à chaque appel) :
 - `AGENT_OLLAMA_URL` (défaut `http://192.168.1.184:11434/api/chat`)
 - `AGENT_MODEL_NAME` (défaut `llama3.1:8b`)
 - `AGENT_TIMEOUT_SECONDS` (défaut `600`) — timeout des appels vers Ollama
-- `AGENT_LOG_LEVEL` : niveau de logs (DEBUG/INFO/...) — configuré dans `api/main.py`
 - `AGENT_SANDBOX_ROOT` : racine autorisée pour tous les outils fichiers (défaut : répertoire de lancement)
 - `AGENT_ALLOWED_BINARIES` : allowlist CSV des exécutables autorisés par `run_command`
 - `AGENT_BLOCK_PRIVATE_HOSTS=1` : interdit à http_get/http_post les hôtes privés/loopback (anti-SSRF)
 - `AGENT_PG_DSN` : DSN PostgreSQL de `postgres_query` (`postgresql://user:pwd@host:5432/base`)
+- `AGENT_LOG_LEVEL` : niveau de logs de l'agent (`DEBUG`, `INFO` par défaut, `WARNING`, ...)
 
-L'auth passe par la clé commune de l'API (`API_KEY` + en-tête `X-API-Key`),
-comme toutes les autres routes protégées.
+### Logs de l'agent (`thinktuning.agent`)
 
-Routes (préfixe `/api/agent`) :
+L'agent journalise chaque étape sur le logger standard **`thinktuning.agent`**
+(même convention que `thinktuning.api` pour le reste de l'API) :
 
-- `GET /api/agent/status` — statut, modèle visé, outils disponibles (public) ;
+| Événement | Niveau | Contenu |
+|---|---|---|
+| `run_start` / `run_done` | INFO | début/fin d'une requête agent (nb de rounds, taille de réponse, raison de sortie) |
+| `round start=i/n` | INFO | chaque tour de planification LLM |
+| `llm_request` / `llm_response` | INFO | appel Ollama : url, modèle, durée, taille du contenu |
+| `tool_call` / `tool_result` | INFO | outil exécuté avec ses arguments / type de résultat |
+| `tool_error` | ERROR | échec d'un outil, traceback complet inclus |
+| `auto_correction` | WARNING | erreur renvoyée au LLM pour qu'il se corrige |
+| `llm_raw_response`, `llm_response_content`, `tool_result_content` | DEBUG | payloads bruts (activer via `AGENT_LOG_LEVEL=DEBUG`) |
+
+Routes (auth principale `X-API-Key`, sauf `/status` qui est public) :
+
+- `GET /api/agent/status` — statut, modèle visé, outils disponibles ;
 - `GET /api/agent/tools` — outils et arguments requis ;
 - `POST /api/agent/tools/run` — exécution directe d'un outil : `{"tool": "gpu_info", "args": {}}` ;
 - `POST /api/agent/ask` — prompt libre : `{"prompt": "..."}` — l'agent planifie lui-même
-  les appels d'outils puis renvoie la réponse finale ;
-- `POST /api/ai` — chat SSE (streaming) utilisé par le dashboard.
-- Auto-correction : si la réponse du LLM est hors format (pas de JSON, outil
-  inconnu, arguments manquants), l'erreur lui est renvoyée avec la liste des
-  outils valides (jusqu'à 3 tentatives) avant d'être exposée à l'appelant.
-- Fidélité : la réponse finale doit citer le contenu renvoyé par les outils
-  tel quel (bloc de code) et ne jamais inventer un contenu absent du résultat.
-- La liste des outils présentée au modèle est générée dynamiquement depuis le
-  registre `ia/tools/tool_registry.py` (plus de liste codée en dur à maintenir).
+  les appels d'outils puis renvoie la réponse finale ; en cas d'appel invalide
+  (tool inconnu, arguments manquants, erreur d'exécution), l'erreur est renvoyée
+  au LLM qui se corrige automatiquement (plafonné à `MAX_LLM_ROUNDS` tours).
 
 ### Outils disponibles
 
@@ -310,6 +317,7 @@ Routes (préfixe `/api/agent`) :
 | Fichiers | `write_file` | `(filename, content)` | Écrit un fichier (parents créés), sandboxé |
 | Fichiers | `list_dir` | `(path=".", recursive=false)` | Liste un répertoire (type, taille, date) |
 | Fichiers | `read_file` | `(path, max_bytes=65536)` | Lit un fichier texte, sortie tronquée |
+| Fichiers | `find_file` | `(pattern, path=".", max_results=100)` | Recherche récursive par regex (nom ou chemin), retourne les chemins relatifs |
 | Fichiers | `make_dir` | `(path)` | Crée un répertoire (parents inclus) |
 | Fichiers | `copy_path` | `(src, dst)` | Copie fichier ou arborescence |
 | Fichiers | `move_path` | `(src, dst)` | Déplace / renomme |
@@ -342,21 +350,21 @@ Routes (préfixe `/api/agent`) :
 
 ```bash
 # État GPU (VRAM + utilisation)
-curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
   -X POST http://localhost:8000/api/agent/tools/run -d '{"tool": "gpu_info", "args": {}}'
 
 # Conteneurs Docker actifs
-curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
   -X POST http://localhost:8000/api/agent/tools/run \
   -d '{"tool": "docker_ps", "args": {"all_containers": true}}'
 
 # Requête SQLite en lecture seule
-curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
   -X POST http://localhost:8000/api/agent/tools/run \
   -d '{"tool": "sqlite_query", "args": {"db_path": "experiments/jobs.db", "query": "SELECT * FROM jobs LIMIT 5"}}'
 
 # Prompt libre : l'agent choisit lui-même les outils
-curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
   -X POST http://localhost:8000/api/agent/ask \
   -d '{"prompt": "Liste le dossier experiments puis dis-moi combien de modèles il contient."}'
 ```
@@ -364,7 +372,7 @@ curl -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 Doc interactive : http://localhost:8000/docs. Notes :
 
 - `psycopg2-binary` (déjà dans requirements.txt) n'est requis que pour `postgres_query`.
-- Tests offline de tous ces outils : `pytest tests/test_agent_tools.py -v`.
+- Tests offline de tous ces outils : `pytest tests/test_agent_tools.py tests/test_agent_api.py tests/test_agent_logging.py -v`.
 
 ## Docker
 docker compose build

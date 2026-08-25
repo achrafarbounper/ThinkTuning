@@ -96,8 +96,12 @@ export function ChatWindow() {
   const abortRef = useRef<AbortController>(null);
 
   // Miroir de l'état pour lire un historique à jour dans les callbacks asynchrones.
+  // La synchronisation se fait dans un effet : muter une ref pendant le rendu
+  // est interdit (règle react-hooks/refs) et non fiable en rendu concurrent.
   const messagesRef = useRef(messages);
-  messagesRef.current = messages;
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Scroll automatique vers le bas à chaque nouveau message / token,
   // uniquement si l'utilisateur n'a pas remonté manuellement la conversation.

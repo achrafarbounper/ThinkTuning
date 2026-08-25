@@ -13,7 +13,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-from tools.sandbox import safe_resolve
+from .sandbox import safe_resolve
 
 DEFAULT_MAX_ROWS = 50
 PG_CONNECT_TIMEOUT_S = 10

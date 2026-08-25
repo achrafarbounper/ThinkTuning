@@ -1,12 +1,8 @@
-"""Client HTTP vers le LLM (Ollama) avec journalisation complète.
+"""Client HTTP minimaliste vers l'endpoint chat Ollama, avec logs structurés.
 
-Chaque appel est tracé dans les logs :
-    INFO  : départ de l'appel (modèle, URL, nb de messages, température)
-            puis réception (durée, taille de la réponse) ;
-    DEBUG : aperçu de la réponse brute ;
-    ERROR : timeout / connexion impossible / erreur HTTP / réponse illisible,
-            avant de relancer l'exception (la traduction en codes HTTP reste
-            dans core/agent_cache.py : Timeout -> 504, ConnectionError -> 502).
+Les événements sont publiés sur le logger « thinktuning.agent » (même canal
+que AgentCore) : requête/durée/statut en INFO, contenus complets en DEBUG,
+erreurs réseau en ERROR. Le niveau se règle via AGENT_LOG_LEVEL.
 """
 
 import logging
@@ -15,12 +11,8 @@ import time
 
 import requests
 
-# Température basse par défaut : réduit drastiquement les sorties hors-format
-# (prose autour du JSON) et les hallucinations de contenu. Surchargeable via
-# la variable d'environnement AGENT_LLM_TEMPERATURE.
-DEFAULT_TEMPERATURE = float(os.getenv("AGENT_LLM_TEMPERATURE", "0.2"))
-
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("thinktuning.agent")
+logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
 
 class LLMClient:
@@ -33,52 +25,48 @@ class LLMClient:
         self.temperature = DEFAULT_TEMPERATURE if temperature is None else float(temperature)
 
     def call(self, messages):
-        logger.info(
-            "Appel LLM '%s' sur %s (%d message(s), température=%.2f)...",
-            self.model,
-            self.url,
-            len(messages),
-            self.temperature,
-        )
         started = time.perf_counter()
+        logger.info(
+            "llm_request url=%s model=%s messages=%d timeout=%s",
+            self.url,
+            self.model,
+            len(messages),
+            self.timeout,
+        )
         try:
             resp = requests.post(
                 self.url,
                 json={
                     "model": self.model,
                     "messages": messages,
-                    "stream": False,
-                    "options": {"temperature": self.temperature},
+                    "stream": False
                 },
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            content = resp.json()["message"]["content"]
         except requests.exceptions.Timeout:
             logger.error(
-                "Timeout du LLM '%s' après %.1fs (limite : %s s) sur %s.",
-                self.model,
-                time.perf_counter() - started,
-                self.timeout,
+                "llm_timeout url=%s model=%s elapsed_ms=%.0f timeout=%s",
                 self.url,
+                self.model,
+                (time.perf_counter() - started) * 1000,
+                self.timeout,
             )
             raise
-        except requests.exceptions.ConnectionError as exc:
-            logger.error("LLM injoignable sur %s : %s", self.url, exc)
+        except requests.exceptions.HTTPError:
+            status = resp.status_code if resp is not None else "?"
+            logger.error("llm_http_error url=%s status=%s", self.url, status)
             raise
-        except requests.exceptions.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else "?"
-            logger.error("Le LLM '%s' a renvoyé une erreur HTTP %s.", self.model, status)
-            raise
-        except (KeyError, TypeError, ValueError) as exc:
-            logger.error("Réponse illisible du LLM '%s' (%s).", self.model, exc)
+        except requests.exceptions.RequestException:
+            logger.exception("llm_connection_error url=%s", self.url)
             raise
 
+        content = resp.json()["message"]["content"]
         logger.info(
-            "Réponse du LLM '%s' reçue en %.2fs (%d caractères).",
-            self.model,
-            time.perf_counter() - started,
+            "llm_response status=%d elapsed_ms=%.0f content_chars=%d",
+            resp.status_code,
+            (time.perf_counter() - started) * 1000,
             len(content),
         )
-        logger.debug("Réponse brute du LLM : %.500s", content)
+        logger.debug("llm_response_content=%s", content)
         return content

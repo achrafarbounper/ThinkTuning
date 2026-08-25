@@ -13,55 +13,66 @@ Robustesse (correctif du bug « le contenu du fichier ne s'affiche pas ») :
 """
 
 import json
+import re
+
+# Séquence d'échappement INVALIDE en JSON strict : un backslash NON suivi d'un
+# caractère autorisé (\" \\ \/ \b \f \n \r \t \uXXXX). Les LLM oublient souvent
+# de doubler les backslashes des chemins Windows (ex: D:\ThinkTuning\configs).
+_INVALID_ESCAPE = re.compile(r'\\(?!["\\/bfnrtu])')
+# Virgule traînante avant } ou ] (autre erreur classique des modèles).
+_TRAILING_COMMA = re.compile(r",\s*(?=[}\]])")
 
 
-def _find_matching_brace(text: str, start: int) -> int:
-    """Indice du ``}`` fermant le ``{`` situé à ``start``, ou -1.
+def _parse_lenient(candidate: str):
+    """Parse en mode strict, puis retente après réparation des erreurs courantes."""
+    try:
+        return json.loads(candidate)
+    except ValueError:
+        pass
+    repaired = _INVALID_ESCAPE.sub("\\\\\\\\", candidate)
+    repaired = _TRAILING_COMMA.sub("", repaired)
+    try:
+        return json.loads(repaired)
+    except ValueError:
+        return None
 
-    Ignore les accolades et guillemets figurant À L'INTÉRIEUR des chaînes
-    JSON (gestion correcte des échappements ``\\"`` et ``\\\\``).
+
+def extract_json_blocks(text: str):
+    """Extrait les objets JSON {...} d'une réponse LLM, tolérant aux fautes.
+
+    Les blocs illisibles même après réparation sont ignorés silencieusement
+    (comportement historique).
     """
+    blocks = []
+    buffer = ""
     depth = 0
     in_string = False
     escape = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escape:
-                escape = False
-            elif char == "\\":
-                escape = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return index
-    return -1
 
+    for char in text:
+        if char == '"' and not escape:
+            in_string = not in_string
 
-def extract_json_blocks(text: str) -> list:
-    """Retourne la liste des objets JSON complets trouvés dans ``text``."""
-    blocks: list = []
-    index = 0
-    while index < len(text):
-        if text[index] == "{":
-            end = _find_matching_brace(text, index)
-            if end != -1:
-                candidate = text[index : end + 1]
-                try:
-                    blocks.append(json.loads(candidate))
-                    # Objet valide consommé : on reprend APRÈS sa fermeture
-                    # (les sous-objets imbriqués ne sont pas retournés seuls).
-                    index = end + 1
-                    continue
-                except json.JSONDecodeError:
-                    pass  # mal formé : on avance d'un caractère et on continue
-        index += 1
+        if char == "\\" and not escape:
+            escape = True
+        else:
+            escape = False
+
+        if not in_string:
+            if char == "{":
+                depth += 1
+            if depth > 0:
+                buffer += char
+            if char == "}":
+                depth -= 1
+                if depth == 0:
+                    parsed = _parse_lenient(buffer)
+                    if parsed is not None:
+                        blocks.append(parsed)
+                    buffer = ""
+        else:
+            if depth > 0:
+                buffer += char
+
     return blocks
 
