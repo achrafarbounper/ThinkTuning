@@ -1,0 +1,400 @@
+/* ==================================================================
+   Interface de chat style GitHub Copilot / VS Code
+   Réutilise les variables globales de index.css (--accent, --border…)
+   et suit la même logique clair / sombre (prefers-color-scheme).
+   ================================================================== */
+
+.copilot-chat {
+  /* Palette — thème clair par défaut */
+  --chat-panel-bg: #ffffff;
+  --chat-header-bg: #faf9fc;
+  --chat-list-bg: #fdfcfe;
+  --chat-border: var(--border, #e5e4e7);
+  --chat-text: #1f2430;
+  --chat-text-muted: #6b7280;
+  --chat-accent: var(--accent, #aa3bff);
+  --chat-accent-soft: var(--accent-bg, rgba(170, 59, 255, 0.1));
+  --chat-accent-border: var(--accent-border, rgba(170, 59, 255, 0.4));
+  --chat-bot-bg: #f6f5f0;
+  --chat-error-text: #dc2626;
+  --chat-error-bg: #fef2f2;
+  --chat-error-border: #fca5a5;
+  --chat-shadow: var(--shadow, rgba(0, 0, 0, 0.1) 0 10px 15px -3px);
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: clamp(480px, 62vh, 700px);
+  margin: 40px 24px 56px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--chat-text);
+  text-align: left;
+  background: var(--chat-panel-bg);
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+  box-shadow: var(--chat-shadow);
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .copilot-chat {
+    --chat-panel-bg: #1b1c22;
+    --chat-header-bg: #202128;
+    --chat-list-bg: #17181e;
+    --chat-text: #e5e7eb;
+    --chat-text-muted: #9ca3af;
+    --chat-bot-bg: #23242c;
+    --chat-error-text: #f87171;
+    --chat-error-bg: rgba(239, 68, 68, 0.1);
+    --chat-error-border: rgba(239, 68, 68, 0.4);
+  }
+}
+
+/* ------------------------------ En-tête --------------------------- */
+
+.copilot-chat__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--chat-border);
+  background: var(--chat-header-bg);
+}
+
+.copilot-chat__title {
+  margin: 0;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: inherit;
+}
+
+.copilot-chat__status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+}
+
+.copilot-chat__status-dot[data-active='true'] {
+  background: var(--chat-accent);
+  box-shadow: 0 0 8px var(--chat-accent-border);
+  animation: chat-pulse 1.2s ease-in-out infinite;
+}
+
+.copilot-chat__spinner {
+  margin-left: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--chat-accent-border);
+  border-top-color: var(--chat-accent);
+  animation: chat-spin 0.7s linear infinite;
+}
+
+/* --------------------------- Liste messages ----------------------- */
+
+.copilot-chat__list {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 16px;
+  overflow-y: auto;
+  background: var(--chat-list-bg);
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-border) transparent;
+}
+
+.copilot-chat__list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.copilot-chat__list::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: var(--chat-border);
+}
+
+.copilot-chat__empty {
+  margin: auto;
+  text-align: center;
+  color: var(--chat-text-muted);
+}
+
+.copilot-chat__empty-title {
+  margin-bottom: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--chat-text);
+}
+
+.copilot-chat__empty-hint code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* ------------------------------ Messages -------------------------- */
+
+.chat-message {
+  display: flex;
+  gap: 10px;
+  max-width: 88%;
+}
+
+.chat-message--user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.chat-message--assistant {
+  align-self: flex-start;
+}
+
+.chat-message__avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--chat-accent);
+  background: var(--chat-accent-soft);
+  border: 1px solid var(--chat-border);
+}
+
+.chat-message__avatar svg {
+  width: 17px;
+  height: 17px;
+}
+
+.chat-message__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-message__bubble {
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  overflow-wrap: anywhere;
+}
+
+.chat-message--user .chat-message__bubble {
+  background: var(--chat-accent-soft);
+  border-color: var(--chat-accent-border);
+  border-bottom-right-radius: 4px;
+}
+
+.chat-message--assistant .chat-message__bubble {
+  background: var(--chat-bot-bg);
+  border-color: var(--chat-border);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-message--error .chat-message__bubble {
+  background: var(--chat-error-bg);
+  border-color: var(--chat-error-border);
+}
+
+.chat-message__text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chat-message__cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--chat-accent);
+  animation: chat-blink 1s steps(2, start) infinite;
+}
+
+.chat-message__error {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--chat-error-text);
+}
+
+.chat-message__meta {
+  font-size: 11.5px;
+  color: var(--chat-text-muted);
+}
+
+.chat-message--user .chat-message__meta {
+  text-align: right;
+}
+
+/* Indicateur « l'IA écrit… » */
+.typing-dots {
+  display: inline-flex;
+  gap: 5px;
+  padding: 6px 2px;
+}
+
+.typing-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--chat-text-muted);
+  opacity: 0.5;
+  animation: chat-bounce 1.2s infinite ease-in-out;
+}
+
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* --------------------------- Zone de saisie ----------------------- */
+
+.chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--chat-border);
+  background: var(--chat-panel-bg);
+}
+
+.chat-input__field {
+  flex: 1;
+  min-height: 44px;
+  max-height: 160px;
+  padding: 10px 12px;
+  resize: none;
+  font: inherit;
+  line-height: 1.45;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--chat-border);
+  border-radius: 10px;
+}
+
+.chat-input__field:focus {
+  outline: none;
+  border-color: var(--chat-accent-border);
+  box-shadow: 0 0 0 3px var(--chat-accent-soft);
+}
+
+.chat-input__field::placeholder {
+  color: var(--chat-text-muted);
+}
+
+.chat-input__button {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--chat-accent);
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.chat-input__button:hover:not(:disabled):not(.chat-input__button--stop) {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+
+.chat-input__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chat-input__button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.chat-input__button--stop {
+  background: #ef4444;
+}
+
+.chat-input__button:focus-visible,
+.chat-input__field:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+}
+
+/* Bouton « revenir en bas » */
+.copilot-chat__jump {
+  position: absolute;
+  right: 20px;
+  bottom: 112px;
+  z-index: 2;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--chat-accent);
+  background: var(--chat-panel-bg);
+  border: 1px solid var(--chat-accent-border);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: var(--chat-shadow);
+}
+
+/* ----------------------------- Animations ------------------------- */
+
+@keyframes chat-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes chat-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes chat-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-5px);
+  }
+}
+
+@media (max-width: 640px) {
+  .copilot-chat {
+    margin: 20px 8px 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copilot-chat *,
+  .copilot-chat *::before,
+  .copilot-chat *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

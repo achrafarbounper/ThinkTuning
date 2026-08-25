@@ -172,3 +172,7 @@ build/
 # datasets/
 # *.csv
 # *.json
+
+# Agent IA : espace de travail sandbox + scripts temporaires
+agent_workspace/
+.agent_tmp/
