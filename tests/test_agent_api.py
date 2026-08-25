@@ -37,19 +37,52 @@ class FakeLLM:
 
     Réponses scriptées via `replies` (dépilées une par une), ou exception
     réseau simulée via `error` (Timeout, ConnectionError...).
+    Sans réponse scriptée disponible, un comportement par défaut raisonnable
+    est simulé : planification de l'outil `add` sur un prompt d'addition,
+    puis conclusion en TEXTE NORMAL dès qu'un résultat d'outil est présent.
+    `responses` conserve toutes les réponses effectivement renvoyées.
     """
 
     def __init__(self):
         self.calls: list[list[dict]] = []
         self.replies: list[str] = []
+        self.returned: list[str] = []
         self.error: Exception | None = None
+
+    @property
+    def responses(self) -> list[str]:
+        return self.returned
 
     def call(self, messages):
         self.calls.append([dict(m) for m in messages])
         if self.error is not None:
             raise self.error
-        assert self.replies, "FakeLLM interrogé sans réponse scriptée"
-        return self.replies.pop(0)
+        reply = self.replies.pop(0) if self.replies else self._default_reply(messages)
+        self.returned.append(reply)
+        return reply
+
+    @staticmethod
+    def _last_user_content(messages) -> str:
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                return message.get("content", "")
+        return ""
+
+    def _default_reply(self, messages) -> str:
+        """Script par défaut : `add` sur demande d'addition, puis conclusion."""
+        last_user = self._last_user_content(messages)
+        if last_user.startswith("Dernier résultat") or last_user.startswith(
+            "Nombre maximum d'étapes"
+        ):
+            # Un outil a tourné (ou budget épuisé) : conclure SANS JSON.
+            return "J'ai additionné les nombres et voici le résultat obtenu."
+        if "Arguments manquants" in last_user and "add" in last_user.lower():
+            # Auto-correction attendue : renvoyer le même outil avec des args.
+            return '{"tool": "add", "args": {"a": 12, "b": 30}}'
+        lowered = last_user.lower()
+        if "additionn" in lowered or "+" in last_user:
+            return '{"tool": "add", "args": {"a": 12, "b": 30}}'
+        return "Je n'ai pas compris la demande."  # texte simple, jamais de JSON
 
 
 # --- Registre ---------------------------------------------------------------------
