@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from tools.sandbox import safe_resolve
+from .sandbox import safe_resolve
 
 
 def write_file(filename: str, content: str) -> str:

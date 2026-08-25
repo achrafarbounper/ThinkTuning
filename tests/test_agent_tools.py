@@ -21,8 +21,9 @@ for _p in (PROJECT_ROOT, IA_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# Config API avant tout import de l'app (cohérent avec test_agent_api.py).
-os.environ.setdefault("AGENT_API_KEY", "test-agent-key")
+# Config API avant tout import de l'app : clé de l'API principale (routes
+# /api/agent/*), cohérent avec tests/test_agent_api.py et test_api_ai_chat.py.
+os.environ.setdefault("API_KEY", "test-key")
 
 import pytest
 
@@ -30,6 +31,7 @@ from tools import sandbox
 from tools.docker_tools import docker_exec, docker_logs, docker_ps
 from tools.system_tools import (
     copy_path,
+    find_file,
     list_dir,
     make_dir,
     move_path,
@@ -113,6 +115,54 @@ def test_read_file_truncates_large_content(sandbox_root):
     out = read_file("gros.txt", max_bytes=100)
     assert out.startswith("x" * 100)
     assert "tronqué" in out
+
+
+def test_find_file_by_regex_returns_relative_paths(sandbox_root):
+    """find_file localise un fichier n'importe où sous la racine via une regex."""
+    from tools.file_tools import write_file
+
+    write_file("configs/default.yaml", "cle: valeur")
+    write_file("configs/other.yaml", "autre: valeur")
+
+    result = find_file(r"default\.yaml$")
+    assert result["match_count"] == 1
+    assert result["truncated"] is False
+    assert result["matches"][0] == {"path": "configs/default.yaml", "type": "file"}
+    # Le chemin retourné est directement exploitable par read_file.
+    assert read_file(result["matches"][0]["path"]) == "cle: valeur"
+
+
+def test_find_file_anchored_name_matches_at_any_depth(sandbox_root):
+    from tools.file_tools import write_file
+
+    write_file("a/b/profond.yaml", "x")
+    result = find_file(r"^profond\.yaml$")  # ancré sur le NOM du fichier
+    assert [m["path"] for m in result["matches"]] == ["a/b/profond.yaml"]
+
+
+def test_find_file_invalid_regex_raises_value_error(sandbox_root):
+    with pytest.raises(ValueError, match="Regex invalide"):
+        find_file("(non_fermee")
+
+
+def test_find_file_max_results_and_truncated_flag(sandbox_root):
+    from tools.file_tools import write_file
+
+    for i in range(5):
+        write_file(f"lot/fichier_{i}.txt", "x")
+    result = find_file(r"fichier_\d+\.txt", max_results=2)
+    assert result["match_count"] == 2
+    assert result["truncated"] is True
+
+
+def test_find_file_unknown_base_dir_raises_file_not_found(sandbox_root):
+    with pytest.raises(FileNotFoundError):
+        find_file(".*", path="dossier_inconnu")
+
+
+def test_read_file_error_message_suggests_find_file(sandbox_root):
+    with pytest.raises(FileNotFoundError, match="find_file"):
+        read_file("configs/default.yaml")  # n'existe PAS dans cette sandbox
 
 
 # --- Outils réseau (HTTP simulé) -----------------------------------------------------
@@ -437,7 +487,7 @@ def test_expected_tool_names_registered():
 
     expected = {
         "add", "write_file",
-        "list_dir", "read_file", "make_dir", "copy_path", "move_path", "remove_path",
+        "list_dir", "read_file", "find_file", "make_dir", "copy_path", "move_path", "remove_path",
         "run_command", "run_python",
         "http_get", "http_post",
         "docker_ps", "docker_logs", "docker_exec",
@@ -448,7 +498,7 @@ def test_expected_tool_names_registered():
 
 
 def test_agent_core_reports_tool_error_to_llm(sandbox_root):
-    """Un outil qui échoue ne crash pas l'agent : l'erreur part au LLM."""
+    """Une erreur d'exécution ne crash pas l'agent : elle repart au LLM pour correction."""
     from ia.agent.agent_core import AgentCore
 
     class ScriptedLLM:
@@ -463,43 +513,229 @@ def test_agent_core_reports_tool_error_to_llm(sandbox_root):
 
     core = AgentCore(ScriptedLLM())
     answer = core.run("lis le fichier secret hors sandbox")
-    assert answer == "Explication finale."
-    assert core.llm.prompts[1].startswith("Dernier résultat")
+    assert answer.startswith("Explication finale.")
+    # La trace d'auto-correction est toujours visible pour l'utilisateur.
+    assert "[auto-correction]" in answer
+    # Le 2e prompt est le message d'auto-correction, qui contient l'erreur
+    # détaillée ET la piste find_file pour les chemins.
     assert "ERREUR pendant 'read_file'" in core.llm.prompts[1]
+    assert "find_file" in core.llm.prompts[1]
 
 
-# --- Intégration API (/tools/run avec les nouveaux outils) ---------------------------------
+def test_agent_core_self_corrects_missing_args(sandbox_root):
+    """Reproduit le bug réel : un appel JSON sans argument obligatoire.
+
+    Avant : mort immédiate sur « Arguments manquants pour … ».
+    Maintenant : l'erreur repart au LLM qui renvoie un appel corrigé, exécuté.
+    """
+    from ia.agent.agent_core import AgentCore
+    from tools.file_tools import write_file
+
+    class ScriptedLLM:
+        def __init__(self):
+            self.prompts = []
+
+        def call(self, messages):
+            self.prompts.append(messages[-1]["content"])
+            if len(self.prompts) == 1:
+                return '{"tool": "find_file", "args": {}}'  # pattern manquant !
+            if len(self.prompts) == 2:
+                return '{"tool": "find_file", "args": {"pattern": "cible"}}'
+            return "Voici ce que j'ai trouvé."
+
+    write_file("configs/cible.yaml", "contenu")
+
+    core = AgentCore(ScriptedLLM())
+    answer = core.run("trouve le fichier cible")
+    # La réponse finale est bien l'explication du LLM, enrichie de la trace
+    # d'auto-correction pour que l'utilisateur voie ce qui s'est passé.
+    assert answer.startswith("Voici ce que j'ai trouvé.")
+    assert "[auto-correction]" in answer
+    assert "Arguments manquants pour find_file" in answer
+    assert "Arguments manquants pour find_file" in core.llm.prompts[1]
+    assert "'pattern'" in core.llm.prompts[1]
+def test_agent_core_accepts_flat_tool_call(sandbox_root):
+    """Reproduit le bug réel : arguments au niveau du bloc au lieu de « args ».
+
+    {"tool": "read_file", "path": "..."} déclenchait « Arguments manquants pour
+    read_file : ['path'] » EN BOUCLE jusqu'à épuisement du budget (3 messages
+    d'auto-correction observés). Désormais l'appel à plat est compris du 1er coup.
+    """
+    from ia.agent.agent_core import AgentCore
+    from tools.file_tools import write_file
+
+    write_file("configs/default.yaml", "cle: valeur")
+
+    class ScriptedLLM:
+        def __init__(self):
+            self.prompts = []
+
+        def call(self, messages):
+            self.prompts.append(messages[-1]["content"])
+            if len(self.prompts) == 1:
+                return '{"tool": "read_file", "path": "configs/default.yaml"}'
+            return "Voici le contenu du fichier."
+
+    core = AgentCore(ScriptedLLM())
+    answer = core.run("affiche configs/default.yaml")
+    # Aucune auto-correction nécessaire : l'appel à plat est exécuté directement.
+    assert answer.startswith("Voici le contenu du fichier.")
+    assert "[auto-correction]" not in answer
+    assert "cle: valeur" in core.llm.prompts[1]
+
+
+def test_agent_core_accepts_scalar_args_for_single_required_arg(sandbox_root):
+    """Quand le tool n'a qu'un argument obligatoire, la valeur brute est acceptée :
+    {"tool": "read_file", "args": "chemin"} au lieu de {"args": {"path": ...}}."""
+    from ia.agent.agent_core import AgentCore
+    from tools.file_tools import write_file
+
+    write_file("configs/default.yaml", "cle: valeur")
+
+    class ScriptedLLM:
+        def __init__(self):
+            self.prompts = []
+
+        def call(self, messages):
+            self.prompts.append(messages[-1]["content"])
+            if len(self.prompts) == 1:
+                return '{"tool": "read_file", "args": "configs/default.yaml"}'
+            return "Contenu affiché."
+
+    core = AgentCore(ScriptedLLM())
+    answer = core.run("affiche configs/default.yaml")
+    assert answer.startswith("Contenu affiché.")
+    assert "[auto-correction]" not in answer
+
+
+def test_missing_args_error_shows_received_args(sandbox_root):
+    """Le message d'auto-correction montre CE QUI A ÉTÉ REÇU et le format attendu.
+
+    Sans cela, le modèle croit avoir fourni l'argument (fourni sous un mauvais
+    nom ou mauvais niveau) et répète indéfiniment la même erreur.
+    """
+    from ia.agent.agent_core import AgentCore
+
+    class ScriptedLLM:
+        def __init__(self):
+            self.prompts = []
+
+        def call(self, messages):
+            self.prompts.append(messages[-1]["content"])
+            if len(self.prompts) == 1:
+                # Mauvais nom d'argument ("filename" au lieu de "path").
+                return '{"tool": "read_file", "args": {"filename": "a.txt"}}'
+            return "Corrigé."
+
+    core = AgentCore(ScriptedLLM())
+    answer = core.run("lis a.txt")
+    prompt_correction = core.llm.prompts[1]
+    assert "Arguments manquants pour read_file" in prompt_correction
+    assert "filename" in prompt_correction          # ce qui a été reçu
+    assert "'path'" in prompt_correction             # ce qui est attendu
+    assert '"args"' in prompt_correction             # le format imbriqué rappelé
+    assert "[auto-correction]" in answer
+
+
+def test_agent_core_chains_find_then_read(sandbox_root):
+    """Flux multi-étapes : find_file PUIS read_file avec le chemin trouvé.
+
+    Après chaque succès, le LLM reçoit le résultat et peut enchaîner au lieu
+    de devoir conclure immédiatement.
+    """
+    from ia.agent.agent_core import AgentCore
+    from tools.file_tools import write_file
+
+    write_file("configs/secret.yaml", "la réponse")
+
+    class ScriptedLLM:
+        def __init__(self):
+            self.prompts = []
+
+        def call(self, messages):
+            self.prompts.append(messages[-1]["content"])
+            if len(self.prompts) == 1:
+                return '{"tool": "find_file", "args": {"pattern": "secret"}}'
+            if len(self.prompts) == 2:
+                # Le modèle construit l'appel suivant à partir du résultat reçu.
+                assert "configs/secret.yaml" in self.prompts[1]
+                return '{"tool": "read_file", "args": {"path": "configs/secret.yaml"}}'
+            return "J'ai trouvé et lu configs/secret.yaml."
+
+    core = AgentCore(ScriptedLLM())
+    answer = core.run("lis le fichier secret")
+    assert answer.startswith("J'ai trouvé et lu configs/secret.yaml.")
+    # Le 2e prompt contient bien le résultat de find_file injecté par l'agent.
+    assert "configs/secret.yaml" in core.llm.prompts[1]
+
+
+def test_json_parser_repairs_unescaped_windows_backslashes():
+    """Les LLM écrivent souvent D:\\dossier\\fichier sans doubler les backslashes :
+    le JSON strict échoue et le bloc était jeté silencieusement."""
+    from ia.agent.json_parser import extract_json_blocks
+
+    raw = r'{"tool": "read_file", "args": {"path": "D:\ThinkTuning\configs\default.yaml"}}'
+    blocks = extract_json_blocks(raw)
+    assert blocks == [
+        {"tool": "read_file", "args": {"path": "D:\\ThinkTuning\\configs\\default.yaml"}}
+    ]
+
+
+def test_json_parser_tolerates_trailing_commas():
+    from ia.agent.json_parser import extract_json_blocks
+
+    raw = '{"tool": "add", "args": {"a": 12, "b": 30,}}'
+    assert extract_json_blocks(raw) == [{"tool": "add", "args": {"a": 12, "b": 30}}]
+
+
+def test_json_parser_still_drops_garbage():
+    from ia.agent.json_parser import extract_json_blocks
+
+    assert extract_json_blocks("pas de json du tout") == []
+    assert extract_json_blocks('{"tool": "add",') == []  # jamais fermé
+
+
+# --- Intégration API (/api/agent/tools/run avec les nouveaux outils) ------------------------
 
 def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
+    """Le serveur autonome ia/api_server.py a été remplacé par les routes
+    /api/agent/* du package api : on vérifie les mêmes outils via l'app principale."""
+    os.environ.setdefault("API_KEY", "test-key")
+
     from fastapi.testclient import TestClient
 
     monkeypatch.setenv("AGENT_SANDBOX_ROOT", str(tmp_path))
-    from ia import api_server
+    from core import agent_cache  # noqa: F401  (insère ia/ dans sys.path)
+    from api import app
 
-    headers = {"X-API-Key": os.environ.get("AGENT_API_KEY", "test-agent-key")}
-    with TestClient(api_server.app) as client:
-        health = client.get("/health")
-        assert health.status_code == 200
-        assert "gpu_info" in health.json()["tools"]
+    headers = {"X-API-Key": os.environ.get("API_KEY", "test-key")}
+    with TestClient(app) as client:
+        status = client.get("/api/agent/status")
+        assert status.status_code == 200
+        assert "gpu_info" in status.json()["tools"]
 
         created = client.post(
-            "/tools/run",
+            "/api/agent/tools/run",
             json={"tool": "write_file", "args": {"filename": "api.txt", "content": "via-api"}},
             headers=headers,
         )
         assert created.status_code == 200
 
         read = client.post(
-            "/tools/run", json={"tool": "read_file", "args": {"path": "api.txt"}}, headers=headers,
+            "/api/agent/tools/run",
+            json={"tool": "read_file", "args": {"path": "api.txt"}},
+            headers=headers,
         )
         assert read.status_code == 200 and "via-api" in read.json()["result"]
 
-        gpu = client.post("/tools/run", json={"tool": "gpu_info", "args": {}}, headers=headers)
+        gpu = client.post(
+            "/api/agent/tools/run", json={"tool": "gpu_info", "args": {}}, headers=headers,
+        )
         assert gpu.status_code == 200
         assert isinstance(gpu.json()["result"]["devices"], list)
 
         listing = client.post(
-            "/tools/run", json={"tool": "list_dir", "args": {"path": "."}}, headers=headers,
+            "/api/agent/tools/run", json={"tool": "list_dir", "args": {"path": "."}}, headers=headers,
         )
         assert listing.status_code == 200
         names = [e["path"] for e in listing.json()["result"]["entries"]]

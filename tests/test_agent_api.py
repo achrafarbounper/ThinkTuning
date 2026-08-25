@@ -1,5 +1,12 @@
 """
-Tests offline de l'API agent (`ia/api_server.py`).
+Tests offline du noyau de l'agent IA et de son intégration API.
+
+Historique : ce fichier couvrait le serveur autonome `ia/api_server.py`,
+supprimé au profit des routes `/api/agent/*` du package `api` (couvertes par
+tests/test_api_ai_chat.py). On teste ici :
+    - AgentCore directement : boucle multi-round, auto-correction, budget ;
+    - core.agent_cache.ask_agent : traduction des erreurs réseau LLM en HTTP
+      (Timeout -> 504, ConnectionError/HTTPError -> 502).
 
 Aucun appel réseau : le LLM (Ollama) est remplacé par un FakeLLM scripté.
 Lance avec : pytest tests/test_agent_api.py -v
@@ -7,18 +14,19 @@ Lance avec : pytest tests/test_agent_api.py -v
 
 import os
 
-# Config test AVANT tout import de l'app (auth activée pour couvrir la 401).
-os.environ["AGENT_API_KEY"] = "test-agent-key"
-os.environ["AGENT_OLLAMA_URL"] = "http://127.0.0.1:9/api/chat"  # port factice
+# Config test AVANT tout import (le cache insère ia/ dans sys.path).
+os.environ.setdefault("API_KEY", "test-key")
+os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port factice
 
-import pytest
-import requests
-from fastapi.testclient import TestClient
+import pytest  # noqa: E402
+import requests  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
 
-from ia import api_server
-from ia.agent.agent_core import AgentCore
-from ia.agent.runner import AgentRunner
-from ia.tools.tool_registry import TOOLS as ALL_TOOLS
+from core import agent_cache  # noqa: E402  (insère ia/ dans sys.path)
+
+AgentCore = agent_cache.AgentCore
+AgentRunner = agent_cache.AgentRunner
+ALL_TOOLS = agent_cache.TOOLS
 
 
 class FakeLLM:
@@ -54,172 +62,115 @@ class FakeLLM:
         return answer
 
 
-@pytest.fixture()
-def fake_llm():
-    return FakeLLM()
+# --- Registre ---------------------------------------------------------------------
+
+def test_registry_exposes_expected_tools():
+    assert {"add", "write_file", "gpu_info", "docker_exec"} <= set(ALL_TOOLS)
+    # Cohérence du registre central partagé entre l'API et AgentCore.
+    assert set(ALL_TOOLS) == set(agent_cache.REQUIRED_ARGS)
 
 
-@pytest.fixture()
-def client(fake_llm, monkeypatch):
-    monkeypatch.setenv("AGENT_API_KEY", "test-agent-key")
-    monkeypatch.setattr(
-        api_server, "build_runner", lambda: AgentRunner(AgentCore(fake_llm))
-    )
-    with TestClient(api_server.app) as test_client:  # context manager -> lifespan
-        yield test_client
+# --- AgentCore : boucle principale -------------------------------------------------
 
+def test_agentcore_runs_tool_then_explains():
+    llm = FakeLLM()
+    answer = AgentRunner(AgentCore(llm)).ask("Additionne 12 + 30 avec l'outil add.")
 
-# --- /health -------------------------------------------------------------------
-
-def test_health_is_public_and_informative(client):
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "ok"
-    # La liste des outils est générée depuis le registre : on la compare à la source de vérité.
-    assert body["tools"] == sorted(ALL_TOOLS)
-    assert "add" in body["tools"] and "write_file" in body["tools"]
-    assert body["auth_enabled"] is True
-
-
-def test_health_works_without_api_key_configured(client, monkeypatch):
-    monkeypatch.delenv("AGENT_API_KEY", raising=False)
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json()["auth_enabled"] is False
-
-
-# --- Auth ----------------------------------------------------------------------
-
-def test_protected_routes_reject_missing_key(client):
-    assert client.get("/tools").status_code == 401
-    assert client.post("/ask", json={"prompt": "salut"}).status_code == 401
-    assert (
-        client.post("/tools/run", json={"tool": "add", "args": {}}).status_code == 401
-    )
-
-
-def test_auth_disabled_when_env_var_unset(client, monkeypatch):
-    monkeypatch.delenv("AGENT_API_KEY", raising=False)
-    resp = client.get("/tools")
-    assert resp.status_code == 200
-
-
-# --- /tools --------------------------------------------------------------------
-
-def test_list_tools(client):
-    resp = client.get("/tools", headers={"X-API-Key": "test-agent-key"})
-    assert resp.status_code == 200
-    tools = resp.json()
-    by_name = {t["name"]: t["required_args"] for t in tools}
-    # Le registre est la source de vérité : /tools doit le refléter en entier.
-    assert set(by_name) == set(ALL_TOOLS)
-    assert by_name["add"] == ["a", "b"]
-    assert by_name["write_file"] == ["filename", "content"]
-    assert by_name["gpu_info"] == []
-    assert by_name["docker_exec"] == ["container", "command"]
-
-
-# --- /tools/run ------------------------------------------------------------------
-
-def test_run_tool_add_directly(client):
-    resp = client.post(
-        "/tools/run",
-        json={"tool": "add", "args": {"a": 12, "b": 30}},
-        headers={"X-API-Key": "test-agent-key"},
-    )
-    assert resp.status_code == 200
-    assert resp.json() == {"tool": "add", "result": 42.0}
-
-
-def test_run_tool_unknown_returns_400(client):
-    resp = client.post(
-        "/tools/run",
-        json={"tool": "division", "args": {}},
-        headers={"X-API-Key": "test-agent-key"},
-    )
-    assert resp.status_code == 400
-    assert "Tool inconnu" in resp.json()["detail"]
-
-
-def test_run_tool_missing_args_returns_400(client):
-    resp = client.post(
-        "/tools/run",
-        json={"tool": "add", "args": {"a": 1}},
-        headers={"X-API-Key": "test-agent-key"},
-    )
-    assert resp.status_code == 400
-    assert "'b'" in resp.json()["detail"]
-
-
-# --- /ask ------------------------------------------------------------------------
-
-def test_ask_executes_tool_then_explains(client, fake_llm):
-    resp = client.post(
-        "/ask",
-        json={"prompt": "Additionne 12 + 30 avec l'outil add."},
-        headers={"X-API-Key": "test-agent-key"},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["model"]
-    assert "additionné" in body["response"]
+    assert "additionné" in answer
     # Deux appels LLM : 1) planification JSON, 2) explication finale.
-    assert len(fake_llm.calls) == 2
-    # 1er appel : le LLM a planifié un appel d'outil en JSON strict.
-    assert fake_llm.responses[0].startswith('{"tool": "add"')
-    # 2e appel : déclenché après exécution effective du tool (résultat 42).
-    assert fake_llm.calls[1][-1]["content"].startswith("Dernier résultat")
-    assert "42" in fake_llm.calls[1][-1]["content"]
+    assert len(llm.calls) == 2
+    assert llm.responses[0].startswith('{"tool": "add"')
+    assert llm.calls[1][-1]["content"].startswith("Dernier résultat")
+    assert "42" in llm.calls[1][-1]["content"]
 
 
-def test_ask_reports_unusable_llm_answer(client, fake_llm):
-    fake_llm.replies = ["Bonjour ! Pas de JSON ici."]
-    resp = client.post(
-        "/ask",
-        json={"prompt": "salut"},
-        headers={"X-API-Key": "test-agent-key"},
+def test_agentcore_reports_unusable_llm_answer():
+    llm = FakeLLM()
+    llm.replies = ["Bonjour ! Pas de JSON ici."]
+    answer = AgentCore(llm).run("salut")
+
+    assert "Réponse non exploitable" in answer
+
+
+def test_agentcore_auto_corrects_unknown_tool():
+    """Tool inconnu -> message d'erreur renvoyé au LLM qui se corrige."""
+    llm = FakeLLM()
+    llm.replies = ['{"tool": "division", "args": {"a": 1}}']
+    answer = AgentCore(llm).run("divise 1 par 2")
+
+    assert "[auto-correction]" in answer
+    assert "Tool inconnu" in answer
+    corrective_prompts = [
+        c[-1]["content"] for c in llm.calls if c[-1]["content"].startswith("Tool inconnu")
+    ]
+    assert corrective_prompts
+
+
+def test_agentcore_auto_corrects_missing_args():
+    llm = FakeLLM()
+    llm.replies = ['{"tool": "add", "args": {}}']
+    answer = AgentCore(llm).run("additionne")
+
+    # Les arguments manquants sont listés puis l'agent se corrige (add -> 42).
+    assert "'a'" in answer and "'b'" in answer
+    assert "[auto-correction]" in answer
+
+
+def test_agentcore_stops_at_max_rounds_budget():
+    llm = FakeLLM()
+    # Une réponse invalide par tour : le LLM ne se corrige jamais.
+    llm.replies = ['{"tool": "division"}'] * 3
+    answer = AgentCore(llm, max_rounds=3).run("divise")
+
+    # Budget respecté : 3 tours de correction + 1 appel de conclusion.
+    assert len(llm.calls) == 4
+    assert "[auto-correction]" in answer
+    assert "Tool inconnu" in answer
+
+
+# --- core.agent_cache.ask_agent : intégration API -----------------------------------
+
+def _inject_runner(monkeypatch, llm):
+    """Remplace le runner mis en cache par un runner adossé au FakeLLM."""
+    monkeypatch.setattr(
+        agent_cache, "_runner", agent_cache.AgentRunner(agent_cache.AgentCore(llm))
     )
-    assert resp.status_code == 200
-    assert "Réponse non exploitable" in resp.json()["response"]
 
 
-def test_ask_reports_unknown_tool_from_llm(client, fake_llm):
-    fake_llm.replies = ['{"tool": "division", "args": {"a": 1}}']
-    resp = client.post(
-        "/ask",
-        json={"prompt": "divise 1 par 2"},
-        headers={"X-API-Key": "test-agent-key"},
-    )
-    assert resp.status_code == 200
-    assert "Tool inconnu" in resp.json()["response"]
+def test_ask_agent_returns_final_answer(monkeypatch):
+    _inject_runner(monkeypatch, FakeLLM())
+
+    assert "additionné" in agent_cache.ask_agent("Additionne 12 + 30.")
 
 
-def test_ask_llm_connection_error_returns_502(client, fake_llm):
-    fake_llm.error = requests.exceptions.ConnectionError("connection refused")
-    resp = client.post(
-        "/ask",
-        json={"prompt": "salut"},
-        headers={"X-API-Key": "test-agent-key"},
-    )
-    assert resp.status_code == 502
-    assert "injoignable" in resp.json()["detail"]
+def test_ask_agent_maps_timeout_to_504(monkeypatch):
+    llm = FakeLLM()
+    llm.error = requests.exceptions.Timeout("too slow")
+    _inject_runner(monkeypatch, llm)
+
+    with pytest.raises(HTTPException) as excinfo:
+        agent_cache.ask_agent("salut")
+    assert excinfo.value.status_code == 504
 
 
-def test_ask_llm_timeout_returns_504(client, fake_llm):
-    fake_llm.error = requests.exceptions.Timeout("too slow")
-    resp = client.post(
-        "/ask",
-        json={"prompt": "salut"},
-        headers={"X-API-Key": "test-agent-key"},
-    )
-    assert resp.status_code == 504
+def test_ask_agent_maps_connection_error_to_502(monkeypatch):
+    llm = FakeLLM()
+    llm.error = requests.exceptions.ConnectionError("connection refused")
+    _inject_runner(monkeypatch, llm)
+
+    with pytest.raises(HTTPException) as excinfo:
+        agent_cache.ask_agent("salut")
+    assert excinfo.value.status_code == 502
+    assert "injoignable" in excinfo.value.detail
 
 
-def test_ask_empty_prompt_rejected(client):
-    resp = client.post(
-        "/ask",
-        json={"prompt": ""},
-        headers={"X-API-Key": "test-agent-key"},
-    )
-    assert resp.status_code == 422
+def test_ask_agent_maps_http_error_to_502(monkeypatch):
+    llm = FakeLLM()
+    response = requests.Response()
+    response.status_code = 500
+    llm.error = requests.exceptions.HTTPError("boom", response=response)
+    _inject_runner(monkeypatch, llm)
+
+    with pytest.raises(HTTPException) as excinfo:
+        agent_cache.ask_agent("salut")
+    assert excinfo.value.status_code == 502

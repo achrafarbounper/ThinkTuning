@@ -45,7 +45,7 @@ __all__ = [
 
 DEFAULT_OLLAMA_URL = "http://192.168.1.184:11434/api/chat"
 DEFAULT_MODEL_NAME = "llama3.1:8b"
-DEFAULT_TIMEOUT_SECONDS = 120.0
+DEFAULT_TIMEOUT_SECONDS = 600.0
 
 _runner: AgentRunner | None = None
 _runner_lock = threading.Lock()
