@@ -4,8 +4,7 @@
 intégrés au package `api`.
 
 Aucun appel réseau : le LLM (Ollama) est remplacé par un FakeLLM scripté,
-injecté dans le cache `core.agent_cache`. Même principe que
-tests/test_agent_api.py pour le serveur autonome ia/api_server.py.
+injecté dans le cache `core.agent_cache`.
 Lance avec : pytest tests/test_api_ai_chat.py -v
 """
 

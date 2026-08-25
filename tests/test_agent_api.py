@@ -8,7 +8,10 @@ tests/test_api_ai_chat.py). On teste ici :
     - core.agent_cache.ask_agent : traduction des erreurs réseau LLM en HTTP
       (Timeout -> 504, ConnectionError/HTTPError -> 502).
 
-Aucun appel réseau : le LLM (Ollama) est remplacé par un FakeLLM scripté.
+Complète tests/test_api_ai_chat.py (cas basiques) avec l'auto-correction de
+l'agent et la traduction des erreurs réseau en codes HTTP. Aucun appel
+réseau : le LLM (Ollama) est remplacé par un FakeLLM scripté injecté dans
+le cache `core.agent_cache`.
 Lance avec : pytest tests/test_agent_api.py -v
 """
 
@@ -32,16 +35,12 @@ ALL_TOOLS = agent_cache.TOOLS
 class FakeLLM:
     """Remplace LLMClient.
 
-    Comportement par défaut calqué sur AgentCore :
-      1er appel -> renvoie un bloc JSON d'appel d'outil ;
-      2e appel (prompt commençant par 'Dernier résultat') -> explication finale.
-    `replies` permet de scripter des réponses arbitraires, `error` de simuler
-    une exception réseau (Timeout, ConnectionError...).
+    Réponses scriptées via `replies` (dépilées une par une), ou exception
+    réseau simulée via `error` (Timeout, ConnectionError...).
     """
 
     def __init__(self):
         self.calls: list[list[dict]] = []
-        self.responses: list[str] = []
         self.replies: list[str] = []
         self.error: Exception | None = None
 
@@ -49,17 +48,8 @@ class FakeLLM:
         self.calls.append([dict(m) for m in messages])
         if self.error is not None:
             raise self.error
-        if self.replies:
-            answer = self.replies.pop(0)
-            self.responses.append(answer)
-            return answer
-        last = messages[-1]["content"]
-        if last.startswith("Dernier résultat"):
-            answer = "J'ai additionné les deux nombres avec l'outil add."
-        else:
-            answer = '{"tool": "add", "args": {"a": 12, "b": 30}}'
-        self.responses.append(answer)
-        return answer
+        assert self.replies, "FakeLLM interrogé sans réponse scriptée"
+        return self.replies.pop(0)
 
 
 # --- Registre ---------------------------------------------------------------------

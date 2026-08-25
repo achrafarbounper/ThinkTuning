@@ -1,3 +1,17 @@
+"""Extraction des blocs JSON dans les réponses du LLM.
+
+Le modèle entoure parfois ses appels d'outils de texte libre, de fences
+markdown (```json ... ```) ou empile plusieurs objets sur des lignes
+distinctes : cette fonction isole chaque objet JSON complet et valide.
+
+Robustesse (correctif du bug « le contenu du fichier ne s'affiche pas ») :
+    - l'état « dans une chaîne » est réinitialisé pour CHAQUE candidat ``{…}``,
+      donc un guillemet perdu dans la prose qui précède ne corrompt plus
+      l'analyse du JSON qui suit (bug historique de l'analyseur à état global) ;
+    - un objet mal formé est ignoré sans empêcher la découverte des suivants ;
+    - aucune exception ne remonte : une réponse sans JSON valide renvoie [].
+"""
+
 import json
 import re
 
@@ -61,3 +75,4 @@ def extract_json_blocks(text: str):
                 buffer += char
 
     return blocks
+

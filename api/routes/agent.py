@@ -2,9 +2,9 @@
 
 """Endpoints de l'agent IA intégrés au package api.
 
-Reprend la logique du serveur autonome `ia/api_server.py` sous le préfixe
-`/api/agent`, avec les conventions du package api (router, dépendance
-`require_api_key`, middlewares CORS / rate limit / métriques partagés) :
+Exposent l'agent du paquet `ia/` sous le préfixe `/api/agent`, avec les
+conventions du package api (router, dépendance `require_api_key`,
+middlewares CORS / rate limit / métriques partagés) :
 
     GET  /api/agent/status      statut + config + outils disponibles (public)
     GET  /api/agent/tools       outils et leurs arguments requis

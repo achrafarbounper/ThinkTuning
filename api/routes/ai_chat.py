@@ -8,8 +8,8 @@ Contrat de sortie : flux SSE -> data: {"delta": "..."} ... data: [DONE]
 L'agent IA réel (paquet `ia/`, exposé via `core.agent_cache`) produit la
 réponse ; le découpage en fragments SSE est géré par `_sse_generator()`.
 L'appel LLM étant bloquant, l'endpoint est un `def` : FastAPI l'exécute dans
-un threadpool, donc l'appel vers Ollama ne gèle pas l'event loop (même
-logique que `ia/api_server.py`). L'appel a lieu AVANT le streaming afin que
+un threadpool, donc l'appel vers Ollama ne gèle pas l'event loop.
+L'appel a lieu AVANT le streaming afin que
 les erreurs réseau deviennent des réponses HTTP propres (502/504).
 """
 
@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.dependencies.auth import require_api_key
-from core.agent_cache import ask_agent
+from core.agent_cache import ask_agent, list_llm_models
 
 router = APIRouter(prefix="/api", tags=["AI Chat"])
 
@@ -38,6 +38,14 @@ class ChatMessageIn(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="Message de l'utilisateur.")
     history: list[ChatMessageIn] = []
+    model: str | None = Field(
+        None,
+        max_length=100,
+        description=(
+            "Nom du modèle LLM Ollama à utiliser (sélecteur du chat). "
+            "Absent ou vide : modèle par défaut de la configuration serveur."
+        ),
+    )
 
 
 def _build_prompt(req: ChatRequest) -> str:
@@ -78,10 +86,21 @@ async def _sse_generator(reply: str) -> AsyncIterator[str]:
         raise
 
 
+@router.get("/models")
+def list_available_llm_models(_: bool = Depends(require_api_key)) -> dict:
+    """Liste les modèles LLM installés sur le serveur Ollama (sélecteur du chat).
+
+    Retourne ``{"active": ..., "models": [{"name", "size", "modified_at",
+    "is_default"}, ...]}``. Les erreurs Ollama sont déjà traduites en
+    502/504 par ``core.agent_cache.list_llm_models``.
+    """
+    return list_llm_models()
+
+
 @router.post("/ai")
 def ai_chat(req: ChatRequest, _: bool = Depends(require_api_key)) -> StreamingResponse:
     """Chat avec l'agent IA, réponse diffusée en Server-Sent Events."""
-    reply = ask_agent(_build_prompt(req))
+    reply = ask_agent(_build_prompt(req), req.model)
     return StreamingResponse(
         _sse_generator(reply),
         media_type="text/event-stream",

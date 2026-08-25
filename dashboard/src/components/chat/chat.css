@@ -86,14 +86,126 @@
   animation: chat-pulse 1.2s ease-in-out infinite;
 }
 
-.copilot-chat__spinner {
+/* Zone d'actions de l'en-tête : pousse spinner + bouton vers la droite. */
+
+.copilot-chat__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+}
+
+.copilot-chat__spinner {
   width: 16px;
   height: 16px;
   border-radius: 50%;
   border: 2px solid var(--chat-accent-border);
   border-top-color: var(--chat-accent);
   animation: chat-spin 0.7s linear infinite;
+}
+
+/* --------------------- Bouton « Nouvelle tâche » -------------------- */
+
+.copilot-chat__new-task {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--chat-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.copilot-chat__new-task svg {
+  width: 16px;
+  height: 16px;
+}
+
+.copilot-chat__new-task:hover:not(:disabled),
+.copilot-chat__new-task:active:not(:disabled) {
+  color: var(--chat-accent);
+  background: var(--chat-accent-soft);
+  border-color: var(--chat-accent-border);
+}
+
+.copilot-chat__new-task:focus-visible {
+  outline: 2px solid var(--chat-accent-border);
+  outline-offset: 1px;
+}
+
+.copilot-chat__new-task:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ------------------ Sélecteur de modèle (en-tête) ------------------- */
+
+/* Bouton <select> natif stylé comme les autres actions de l'en-tête :
+   chevron dessiné en SVG inline, aucune dépendance externe. */
+.copilot-chat__model-select {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  max-width: 200px;
+  height: 28px;
+  padding: 0 24px 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--chat-text-muted);
+  background-color: transparent;
+  border: 1px solid var(--chat-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+  /* Chevron déroulant encodé en data URI */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888da0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px 6px;
+}
+
+.copilot-chat__model-select:hover:not(:disabled) {
+  color: var(--chat-text);
+  border-color: var(--chat-accent-border);
+}
+
+.copilot-chat__model-select:focus-visible {
+  outline: 2px solid var(--chat-accent-border);
+  outline-offset: 1px;
+}
+
+.copilot-chat__model-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Échec du chargement de GET /api/models : bordure d'alerte discrète. */
+.copilot-chat__model-select[data-error='true'] {
+  color: var(--chat-error-text);
+  border-color: var(--chat-error-border);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Le popup natif du <select> hérite de l'OS : on force un fond lisible. */
+  .copilot-chat__model-select option {
+    background-color: #202128;
+    color: #e5e7eb;
+  }
 }
 
 /* --------------------------- Liste messages ----------------------- */

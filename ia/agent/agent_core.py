@@ -1,3 +1,16 @@
+"""Boucle de l'agent : planification JSON -> exécution d'outils -> réponse finale.
+
+Correctifs du bug « l'agent ne montre pas le contenu du fichier » :
+    1. AUTO-CORRECTION : réponse sans JSON, tool inconnu ou arguments manquants
+       sont renvoyés AU LLM (jusqu'à MAX_TOOL_ROUNDS tentatives) avec la liste
+       des outils valides, au lieu de terminer le run sur une erreur brute ;
+    2. FIDÉLITÉ : la réponse finale doit reproduire le résultat de l'outil tel
+       quel et n'a plus le droit d'inventer un contenu quand le résultat est
+       vide ou en erreur ;
+    3. Le system prompt est généré depuis le registre des outils (voir
+       agent/system_prompt.py) : plus de dérive prompt <-> réalité.
+"""
+
 import json
 import logging
 import os

@@ -1,12 +1,34 @@
 # project/api/main.py
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+import os
+import sys
 
-from api.routes import train, predict, maintenance, metrics, health, models, ai_chat, agent
-from api.middlewares.maintenance import maintenance_mode_middleware
-from api.middlewares.rate_limit import rate_limit_middleware
-from api.middlewares.metrics import request_metrics_middleware
+# --- Configuration logging ----------------------------------------------------
+# Sans cette configuration, les loggers de l'agent (`agent.*`, cf. paquet ia/)
+# n'ont AUCUN handler : Python n'affiche alors que les WARNING+ sur stderr via
+# son handler « last resort », et uvicorn ne configure que ses propres loggers
+# (`uvicorn`, `uvicorn.error`, `uvicorn.access`) — jamais ceux de votre app.
+#
+# On branche ici un handler CONSOLE COLORÉ (rich, cf. ia/logging_setup.py) sur
+# la racine : tous les logs de l'API ET de l'agent s'affichent lisiblement dans
+# le terminal (niveaux en couleur, durées, tracebacks riches). Idempotent :
+# aucun doublon même si uvicorn recharge le module. Niveau réglable via la
+# variable d'environnement AGENT_LOG_LEVEL (DEBUG/INFO/...).
+IA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ia")
+if IA_DIR not in sys.path:
+    sys.path.insert(0, IA_DIR)
+
+from logging_setup import setup_agent_logging  # noqa: E402
+
+setup_agent_logging(os.getenv("AGENT_LOG_LEVEL", "INFO"))
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+from api.routes import train, predict, maintenance, metrics, health, models, ai_chat, agent  # noqa: E402
+from api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
+from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
+from api.middlewares.metrics import request_metrics_middleware  # noqa: E402
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost",

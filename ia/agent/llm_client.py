@@ -16,12 +16,13 @@ logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
 
 class LLMClient:
-    def __init__(self, url, model, timeout=None):
+    def __init__(self, url, model, timeout=None, temperature=None):
         self.url = url
         self.model = model
         # Timeout en secondes pour requests.post ; None = comportement historique
         # (attente indéfinie), utilisé par ia/main.py.
         self.timeout = timeout
+        self.temperature = DEFAULT_TEMPERATURE if temperature is None else float(temperature)
 
     def call(self, messages):
         started = time.perf_counter()
