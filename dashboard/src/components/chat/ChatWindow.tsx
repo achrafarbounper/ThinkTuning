@@ -7,7 +7,8 @@
  * - l'authentification via l'en-tête X-API-Key (config dashboard ou VITE_API_KEY),
  * - le chargement (spinner + curseur clignotant),
  * - le défilement automatique vers le bas (avec respect du scroll manuel),
- * - l'interruption de la génération (AbortController).
+ * - l'interruption de la génération (AbortController),
+ * - la nouvelle session via le bouton « Nouvelle tâche » (réinitialisation).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -113,6 +114,19 @@ export function ChatWindow() {
     abortRef.current?.abort();
   }, []);
 
+  /**
+   * Démarre une nouvelle session (« Nouvelle tâche ») : interrompt la
+   * génération éventuellement en cours puis vide la conversation. Le backend
+   * /api/ai étant stateless (historique renvoyé à chaque requête), la
+   * réinitialisation de l'état local suffit ; le nettoyage final du flux
+   * interrompu est géré par le bloc finally de sendMessage().
+   */
+  const startNewSession = useCallback(() => {
+    abortRef.current?.abort();
+    setMessages([]);
+    setStickToBottom(true);
+  }, []);
+
   /** Envoie le message de l'utilisateur puis diffuse la réponse de l'IA en streaming. */
   const sendMessage = useCallback(
     async (text: string) => {
@@ -195,15 +209,29 @@ export function ChatWindow() {
   );
 
   const isEmpty = messages.length === 0;
+  /** Une nouvelle session n'a de sens que s'il y a quelque chose à réinitialiser. */
+  const canStartNewSession = !isEmpty || isLoading;
 
   return (
     <section className="copilot-chat" aria-label="Chat avec l'assistant IA">
       <header className="copilot-chat__header">
         <span className="copilot-chat__status-dot" data-active={isLoading} aria-hidden="true" />
         <h2 className="copilot-chat__title">Assistant IA</h2>
-        {isLoading && (
-          <span className="copilot-chat__spinner" role="status" aria-label="Génération en cours" />
-        )}
+        <div className="copilot-chat__actions">
+          {isLoading && (
+            <span className="copilot-chat__spinner" role="status" aria-label="Génération en cours" />
+          )}
+          <button
+            type="button"
+            className="copilot-chat__new-task"
+            onClick={startNewSession}
+            disabled={!canStartNewSession}
+            title="Nouvelle tâche (nouvelle session)"
+            aria-label="Nouvelle tâche : démarrer une nouvelle session de chat"
+          >
+            <PlusIcon />
+          </button>
+        </div>
       </header>
 
       <div
@@ -235,3 +263,22 @@ export function ChatWindow() {
     </section>
   );
 }
+
+/** Icône « + » du bouton Nouvelle tâche (nouvelle session de chat). */
+function PlusIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
