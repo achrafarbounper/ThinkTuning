@@ -1,11 +1,7 @@
-import React from "react";
-
 /**
- * ModelVersionSelector Component
- * 
  * Affiche un sélecteur de version de modèle sous forme de dropdown.
  * Permet à l'utilisateur de choisir la version de modèle pour les prédictions.
- * 
+ *
  * Props:
  *   - models: array of model objects { name, path, active, created_at }
  *   - activeModel: currently selected model name or ""

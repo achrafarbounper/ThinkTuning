@@ -13,6 +13,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 import types
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -215,6 +216,160 @@ def test_http_blocks_bad_scheme_and_private_hosts(sandbox_root, monkeypatch):
     monkeypatch.setenv("AGENT_BLOCK_PRIVATE_HOSTS", "1")
     with pytest.raises(PermissionError, match="privé"):
         http_get("http://192.168.1.1/admin")  # IP privée -> résolution hors-ligne
+
+
+# --- Outils Internet (recherche web + fetch + read, HTTP simulé) ----------------------
+
+_PAGE_HTML = """
+<html>
+  <head><title>Page de test</title><style>body { color: red; }</style></head>
+  <body>
+    <h1>Titre principal</h1>
+    <p>Premier paragraphe utile.</p>
+    <script>console.log('secret');</script>
+    <p>Deuxième &amp; dernier paragraphe.</p>
+  </body>
+</html>
+"""
+
+_LITE_HTML = """
+<html><body><table>
+<tr><td>&nbsp;1.&nbsp;</td></tr>
+<tr><td class="result-link"><a rel="nofollow" class="result-link"
+      href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdocs.python.org%2F3%2F&amp;rut=sig">Python 3 docs</a></td></tr>
+<tr><td class="result-snippet">Documentation officielle.</td></tr>
+<tr><td class="result-link"><a rel="nofollow" class="result-link"
+      href="https://realpython.com/">Real Python</a></td></tr>
+<tr><td class="result-snippet">Tutoriels Python.</td></tr>
+</table></body></html>
+"""
+
+
+class _FakeHtmlResponse(_FakeResponse):
+    def __init__(self, text, status=200, url="http://example.test/x"):
+        super().__init__(status=status, text=text, url=url)
+        self.headers = {"content-type": "text/html; charset=utf-8"}
+
+
+def test_web_search_parses_duckduckgo_results(monkeypatch):
+    from tools import web_tools
+
+    seen = {}
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        seen.update(url=url, data=data)
+        return _FakeHtmlResponse(_LITE_HTML, url="https://lite.duckduckgo.com/lite/")
+
+    monkeypatch.setattr(web_tools.requests, "post", fake_post)
+    result = web_tools.web_search("python tutorial")
+
+    assert seen["data"] == {"q": "python tutorial"}   # requête envoyée en POST
+    assert result["engine"] == "duckduckgo-lite" and result["result_count"] == 2
+    premier, second = result["results"]
+    assert premier["url"] == "https://docs.python.org/3/"   # lien uddg « déballé »
+    assert premier["title"] == "Python 3 docs"
+    assert premier["snippet"] == "Documentation officielle."
+    assert second["url"] == "https://realpython.com/"
+
+
+def test_web_search_max_results_and_empty_query(monkeypatch):
+    from tools import web_tools
+
+    monkeypatch.setattr(
+        web_tools.requests, "post", lambda *a, **k: _FakeHtmlResponse(_LITE_HTML)
+    )
+    result = web_tools.web_search("python", max_results=1)
+    assert result["result_count"] == 1 and result["truncated"] is True
+    with pytest.raises(ValueError, match="vide"):
+        web_tools.web_search("   ")
+
+
+def test_web_search_reports_http_error_without_raising(monkeypatch):
+    from tools import web_tools
+
+    monkeypatch.setattr(
+        web_tools.requests, "post",
+        lambda *a, **k: _FakeHtmlResponse("<html></html>", status=403),
+    )
+    result = web_tools.web_search("test")
+    assert result["result_count"] == 0 and "403" in result["error"]
+
+
+def test_web_search_filters_duckduckgo_ad_links(monkeypatch):
+    """Les annonces (URL finale restée sur duckduckgo.com/y.js) sont exclues."""
+    from tools import web_tools
+
+    html = (
+        "<html><body><table>"
+        '<tr><td class="result-link"><a class="result-link" '
+        'href="https://duckduckgo.com/y.js?ad_domain=shop.example">Super promo</a></td></tr>'
+        '<tr><td class="result-snippet">Publicité.</td></tr>'
+        '<tr><td class="result-link"><a class="result-link" '
+        'href="https://docs.python.org/">Python docs</a></td></tr>'
+        '<tr><td class="result-snippet">Doc officielle.</td></tr>'
+        "</table></body></html>"
+    )
+    monkeypatch.setattr(
+        web_tools.requests, "post", lambda *a, **k: _FakeHtmlResponse(html)
+    )
+    result = web_tools.web_search("achat")
+    assert result["result_count"] == 1
+    assert result["results"][0]["url"] == "https://docs.python.org/"
+    assert result["results"][0]["snippet"] == "Doc officielle."
+
+
+def test_web_search_blocks_private_hosts_like_http(monkeypatch):
+    """Même politique SSRF que http_get : endpoint privé refusé si flag actif."""
+    from tools import web_tools
+
+    monkeypatch.setattr(web_tools, "SEARCH_ENDPOINT", "http://127.0.0.1:9999/lite/")
+    monkeypatch.setenv("AGENT_BLOCK_PRIVATE_HOSTS", "1")
+    with pytest.raises(PermissionError, match="privé"):
+        web_tools.web_search("test")
+
+
+def test_web_read_extracts_readable_text(monkeypatch):
+    from tools import web_tools
+
+    monkeypatch.setattr(
+        web_tools.requests, "get", lambda *a, **k: _FakeHtmlResponse(_PAGE_HTML)
+    )
+    result = web_tools.web_read("http://example.test/article")
+    assert result["status"] == 200 and result["title"] == "Page de test"
+    assert "Titre principal" in result["text"]
+    assert "Premier paragraphe utile." in result["text"]
+    assert "Deuxième & dernier" in result["text"]      # entités décodées
+    assert "console.log" not in result["text"]         # scripts supprimés
+    assert "color: red" not in result["text"]          # styles supprimés
+
+
+def test_web_fetch_returns_structured_page(monkeypatch):
+    from tools import web_tools
+
+    seen = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        seen.update(headers=headers)
+        return _FakeHtmlResponse(_PAGE_HTML)
+
+    monkeypatch.setattr(web_tools.requests, "get", fake_get)
+    result = web_tools.web_fetch(
+        "http://example.test/page", headers={"X-Custom": "1"}, max_chars=200
+    )
+    assert seen["headers"]["X-Custom"] == "1"           # en-têtes fusionnés
+    assert "User-Agent" in seen["headers"]              # UA navigateur ajouté
+    assert result["status"] == 200 and result["title"] == "Page de test"
+    assert "<h1>" in result["body"]                     # corps BRUT
+    assert "tronqué" in result["body"]                  # plafond max_chars appliqué
+
+
+def test_web_fetch_and_read_block_bad_scheme():
+    from tools.web_tools import web_fetch, web_read
+
+    with pytest.raises(ValueError, match="Schéma interdit"):
+        web_fetch("ftp://example.test/f")
+    with pytest.raises(ValueError, match="Schéma interdit"):
+        web_read("file:///etc/passwd")
 
 
 # --- Outils Docker (sous-processus simulé) ---------------------------------------------
@@ -490,6 +645,7 @@ def test_expected_tool_names_registered():
         "list_dir", "read_file", "find_file", "make_dir", "copy_path", "move_path", "remove_path",
         "run_command", "run_python",
         "http_get", "http_post",
+        "web_search", "web_fetch", "web_read",
         "docker_ps", "docker_logs", "docker_exec",
         "gpu_info",
         "sqlite_query", "postgres_query",
@@ -741,3 +897,455 @@ def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
         assert listing.status_code == 200
         names = [e["path"] for e in listing.json()["result"]["entries"]]
         assert "api.txt" in names
+
+
+# --- Outils recherche contenu / calculatrice / horodatage (ia/tools/search_tools.py,
+# --- ia/tools/calc_tools.py) -------------------------------------------------------------
+
+def test_search_in_files_matches_content_with_line_numbers(sandbox_root):
+    from tools.file_tools import write_file
+    from tools.search_tools import search_in_files
+
+    write_file("src/train.log", "epoch 1 done\nepoch 2 done\nloss=0.3\n")
+    write_file("src/readme.md", "aucune correspondance ici\n")
+
+    result = search_in_files(r"epoch \d+ done")
+    assert result["scanned_files"] == 2
+    assert result["match_count"] == 2
+    assert result["matches"][0]["path"] == "src/train.log"
+    assert result["matches"][0]["line_number"] == 1
+    assert result["matches"][1]["line_number"] == 2
+
+
+def test_search_in_files_skips_excluded_dirs_and_binaries(sandbox_root):
+    from tools.file_tools import write_file
+    from tools.search_tools import search_in_files
+
+    write_file("venv/lib/secret.py", "TOKEN = 'abc'")
+    write_file(".git/hooks/pre-commit", "TOKEN = 'abc'")
+    with open(sandbox_root / "binaire.dat", "wb") as handle:
+        handle.write(b"ok\x00binary")
+    write_file("normal.txt", "TOKEN = 'abc'")
+
+    result = search_in_files(r"TOKEN")
+    assert result["scanned_files"] == 1  # seul normal.txt est balayé
+    assert [m["path"] for m in result["matches"]] == ["normal.txt"]
+
+
+def test_search_in_files_invalid_regex_and_max_results(sandbox_root):
+    from tools.file_tools import write_file
+    from tools.search_tools import search_in_files
+
+    write_file("multi.txt", "hit\nhit\nhit\n")
+    with pytest.raises(ValueError, match="Regex invalide"):
+        search_in_files("(non_fermee")
+
+    capped = search_in_files("hit", max_results=2)
+    assert capped["match_count"] == 2 and capped["truncated"] is True
+
+
+def test_tail_file_returns_last_lines_only(sandbox_root):
+    from tools.file_tools import write_file
+    from tools.search_tools import tail_file
+
+    write_file("long.log", "".join(f"ligne {i}\n" for i in range(1, 201)))
+    out = tail_file("long.log", lines=5)
+    assert out.splitlines()[-1] == "ligne 200"
+    assert len(out.splitlines()) == 5
+    assert "ligne 1\n" not in out
+    # Fichier plus court que la demande : tout le contenu, sans marqueur.
+    write_file("court.log", "a\nb\n")
+    assert tail_file("court.log", lines=50) == "a\nb"
+
+
+def test_append_file_creates_parents_and_concatenates(sandbox_root):
+    from tools.file_tools import write_file
+    from tools.search_tools import append_file
+    from tools.system_tools import read_file
+
+    append_file("logs/app.log", "ligne 1\n")
+    append_file("logs/app.log", "ligne 2\n")
+    assert read_file("logs/app.log") == "ligne 1\nligne 2\n"
+    # write_file écraserait : on vérifie la différence de contrat.
+    write_file("logs/app.log", "écrasé")
+    assert read_file("logs/app.log") == "écrasé"
+
+
+def test_now_returns_parseable_iso_timestamp(sandbox_root):
+    from datetime import datetime
+
+    from tools.search_tools import now
+
+    stamp = now()
+    parsed = datetime.fromisoformat(stamp)
+    assert parsed.year >= 2026
+    local = now(utc=False)
+    datetime.fromisoformat(local)  # ne lève pas
+
+
+def test_calc_evaluates_arithmetic_safely(sandbox_root):
+    from tools.calc_tools import calc
+
+    assert calc("(3 + 4) * 2")["result"] == 14
+    assert calc("2 ** 10")["result"] == 1024
+    assert calc("17 // 5")["result"] == 3
+    assert calc("-1.5 * 8")["result"] == -12
+    # Aucun code arbitraire ne doit passer.
+    for hostile in (
+        "__import__('os').system('dir')",
+        "open('secret.txt')",
+        "x + 1",
+        "'a' * 3",
+        "2 ** 99999999",
+    ):
+        with pytest.raises(ValueError):
+            calc(hostile)
+    with pytest.raises(ValueError, match="Division par zéro"):
+        calc("1 / 0")
+
+
+# --- Outils métier (ia/tools/ml_tools.py) ------------------------------------------------
+
+@pytest.fixture()
+def jobs_db(sandbox_root):
+    """Base experiments/jobs.db minimale, même schéma que core/job_store.py."""
+    db_path = sandbox_root / "experiments" / "jobs.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    payloads = [
+        ("j1", {"job_id": "j1", "status": "completed", "step": "done",
+                "started_at": 1.0, "finished_at": 2.0, "error": None,
+                "model_path": "experiments/models/v1",
+                "request": {"epochs": 2}}, 100.0),
+        ("j2", {"job_id": "j2", "status": "running", "step": "training",
+                "started_at": 3.0, "finished_at": None, "error": None,
+                "model_path": None}, 200.0),
+    ]
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, payload TEXT NOT NULL,"
+        " updated_at REAL NOT NULL)"
+    )
+    for job_id, payload, updated_at in payloads:
+        conn.execute(
+            "INSERT INTO jobs VALUES (?, ?, ?)", (job_id, json.dumps(payload), updated_at)
+        )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def test_job_list_orders_desc_and_filters_status(jobs_db):
+    from tools.ml_tools import job_list
+
+    listing = job_list()
+    assert listing["job_count"] == 2
+    assert [job["job_id"] for job in listing["jobs"]] == ["j2", "j1"]  # updated_at desc
+    assert listing["truncated"] is False
+
+    completed = job_list(status="completed")
+    assert [job["job_id"] for job in completed["jobs"]] == ["j1"]
+
+    capped = job_list(limit=1)
+    assert capped["job_count"] == 1 and capped["truncated"] is True
+
+
+def test_job_list_rejects_unknown_status_and_missing_db(sandbox_root):
+    from tools.ml_tools import job_list
+
+    with pytest.raises(ValueError, match="Statut inconnu"):
+        job_list(status="en_pause")
+
+    empty = job_list()  # pas de jobs.db dans cette sandbox
+    assert empty["job_count"] == 0 and empty["jobs"] == []
+
+
+def test_job_get_returns_full_payload(jobs_db):
+    from tools.ml_tools import job_get
+
+    payload = job_get("j1")
+    assert payload["status"] == "completed"
+    assert payload["request"] == {"epochs": 2}  # champs non compacts conservés
+
+    with pytest.raises(ValueError, match="Job introuvable"):
+        job_get("inconnu")
+
+
+def test_job_store_connection_is_read_only(jobs_db):
+    from tools.ml_tools import _connect_readonly
+
+    conn = _connect_readonly(jobs_db)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute(
+                "INSERT INTO jobs VALUES ('x', '{}', 0)"
+            )
+    finally:
+        conn.close()
+
+
+class _FakePredictor:
+    def predict(self, texts):
+        return [
+            {"text": text, "sentiment": "positive", "confidence": 0.9} for text in texts
+        ]
+
+
+def test_predict_sentiment_validates_and_delegates(sandbox_root, monkeypatch):
+    from tools import ml_tools
+
+    monkeypatch.setattr(ml_tools, "_get_predictor", lambda: _FakePredictor())
+
+    result = ml_tools.predict_sentiment(["super film", "nul"])
+    assert result["count"] == 2
+    assert result["predictions"][1]["text"] == "nul"
+    # Une chaîne seule est acceptée et enveloppée.
+    assert ml_tools.predict_sentiment("top")["count"] == 1
+
+    with pytest.raises(ValueError, match="liste non vide"):
+        ml_tools.predict_sentiment([])
+    too_many = [f"texte {index}" for index in range(21)]
+    with pytest.raises(ValueError, match="Maximum 20"):
+        ml_tools.predict_sentiment(too_many)
+    with pytest.raises(ValueError, match="chaîne non vide"):
+        ml_tools.predict_sentiment(["ok", "   "])
+
+
+def test_dataset_stats_profiles_csv_and_rejects_other_formats(sandbox_root):
+    from tools.file_tools import write_file
+    from tools.ml_tools import dataset_stats
+
+    csv_content = (
+        "text,label,lang_code\n"
+        "j'adore,positive,fr\n"
+        "j'adore,positive,fr\n"  # doublon volontaire
+        "bof,,fr\n"              # label manquant
+        "great,positive,en\n"
+    )
+    write_file("data/train.csv", csv_content)
+
+    stats = dataset_stats("data/train.csv")
+    assert stats["row_count"] == 4
+    assert stats["label_counts"] == {"positive": 3}  # la valeur manquante est dans « missing »
+    assert stats["lang_code_counts"] == {"fr": 3, "en": 1}
+    assert stats["duplicate_text_rows"] == 1
+    assert stats["missing"]["label"] == 1
+
+    write_file("notes.txt", "pas un dataset")
+    with pytest.raises(ValueError, match="Format non supporté"):
+        dataset_stats("notes.txt")
+
+
+def test_model_versions_flags_latest_as_active(sandbox_root):
+    from tools.ml_tools import model_versions
+
+    models_root = sandbox_root / "experiments" / "models"
+    (models_root / "20260101T000000Z").mkdir(parents=True)
+    (models_root / "20260101T000000Z" / "model.safetensors").write_bytes(b"x")
+    time.sleep(0.02)  # mtimes distincts pour un tri déterministe
+    (models_root / "20260201T000000Z").mkdir(parents=True)
+    (models_root / "20260201T000000Z" / "pytorch_model.bin").write_bytes(b"x")
+    # Dossier sans poids : ignoré.
+    (models_root / "brouillon").mkdir()
+
+    result = model_versions()
+    assert result["version_count"] == 2
+    names = [v["name"] for v in result["versions"]]
+    assert names == ["20260201T000000Z", "20260101T000000Z"]
+    assert result["versions"][0]["active"] is True
+    assert result["versions"][1]["active"] is False
+
+
+# --- Outils exploitation (ia/tools/ops_tools.py) ---------------------------------------------
+
+class _FakeStreamResponse:
+    def __init__(self, chunks, status_code=200):
+        self._chunks = chunks
+        self.status_code = status_code
+
+    def iter_content(self, chunk_size):
+        yield from self._chunks
+
+    def close(self):
+        pass
+
+
+def test_download_file_streams_into_sandbox(sandbox_root, monkeypatch):
+    import requests as requests_module
+    from tools.ops_tools import download_file
+
+    monkeypatch.setattr(
+        requests_module, "get",
+        lambda url, stream=True, timeout=None: _FakeStreamResponse([b"hello ", b"world"]),
+    )
+    result = download_file("https://example.com/data.bin", "downloads/data.bin", max_mb=1)
+    assert result["bytes_written"] == 11
+    assert (sandbox_root / "downloads" / "data.bin").read_bytes() == b"hello world"
+
+
+def test_download_file_http_error_leaves_no_partial(sandbox_root, monkeypatch):
+    import requests as requests_module
+    from tools.ops_tools import download_file
+
+    monkeypatch.setattr(
+        requests_module, "get",
+        lambda url, stream=True, timeout=None: _FakeStreamResponse([b"x"], status_code=404),
+    )
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        download_file("https://example.com/missing.bin", "missing.bin")
+    assert not (sandbox_root / "missing.bin").exists()
+
+
+def test_download_file_oversize_aborts_and_cleans(sandbox_root, monkeypatch):
+    import requests as requests_module
+    from tools.ops_tools import download_file
+
+    big_chunks = [b"A" * (64 * 1024) for _ in range(20)]  # ~1,25 Mo au total
+    monkeypatch.setattr(
+        requests_module, "get",
+        lambda url, stream=True, timeout=None: _FakeStreamResponse(big_chunks),
+    )
+    with pytest.raises(ValueError, match="trop volumineux"):
+        download_file("https://example.com/big.bin", "big.bin", max_mb=1)
+    assert not (sandbox_root / "big.bin").exists()
+
+
+def test_download_file_rejects_non_http_scheme(sandbox_root):
+    from tools.ops_tools import download_file
+
+    with pytest.raises(ValueError, match="http/https"):
+        download_file("ftp://example.com/f.bin", "f.bin")
+
+
+def test_env_info_reports_versions_without_secrets(sandbox_root):
+    from tools.ops_tools import env_info
+
+    info = env_info()
+    assert info["cpu_count"] >= 1
+    assert "torch" in info["packages"]
+    assert not any("KEY" in str(key).upper() for key in info)
+
+
+def test_disk_usage_totals_and_children_sizes(sandbox_root):
+    from tools.file_tools import write_file
+    from tools.ops_tools import disk_usage
+
+    write_file("gros/donnees.txt", "x" * 1000)
+    usage = disk_usage()
+    assert usage["free_gb"] > 0 and usage["total_gb"] > 0
+    children = {entry["name"]: entry for entry in usage["children"]}
+    assert children["gros"]["size_bytes"] == 1000
+
+
+def test_zip_then_unzip_roundtrip(sandbox_root):
+    from tools.file_tools import write_file
+    from tools.ops_tools import unzip_file, zip_path
+    from tools.system_tools import read_file
+
+    write_file("projet/a/f1.txt", "un")
+    write_file("projet/a/sub/f2.txt", "deux")
+    write_file(".git/interne.txt", "jamais archive")
+
+    archived = zip_path("projet", "sauvegarde.zip")
+    assert archived["file_count"] == 2  # .git exclu
+
+    extracted = unzip_file("sauvegarde.zip", "restaure")
+    assert extracted["extracted_files"] == 2
+    assert read_file("restaure/projet/a/sub/f2.txt") == "deux"
+
+
+def test_unzip_blocks_zip_slip_entries(sandbox_root):
+    import zipfile as zipfile_module
+    from tools.ops_tools import unzip_file
+
+    evil = sandbox_root / "evil.zip"
+    with zipfile_module.ZipFile(evil, "w") as archive:
+        archive.writestr("../evil.txt", "boom")
+    with pytest.raises(PermissionError, match="dangereuse"):
+        unzip_file("evil.zip", "out")
+    assert not (sandbox_root.parent / "evil.txt").exists()
+
+    with zipfile_module.ZipFile(evil, "w") as archive:
+        archive.writestr("/absolu.txt", "boom")
+    with pytest.raises(PermissionError, match="dangereuse"):
+        unzip_file("evil.zip", "out")
+
+
+def test_git_wrappers_return_structured_results_without_raising(sandbox_root, monkeypatch):
+    from tools import ops_tools
+
+    def fake_run_subprocess(argv, **kwargs):
+        if argv[2] == "status":
+            return 0, "## main\n M fichier.py\n", ""
+        return 128, "", "fatal: not a git repository"
+
+    monkeypatch.setattr(ops_tools, "run_subprocess", fake_run_subprocess)
+
+    status = ops_tools.git_status()
+    assert status["returncode"] == 0
+    assert "main" in status["stdout"]
+
+    log = ops_tools.git_log(limit=5)
+    assert log["returncode"] == 128  # pas d'exception : l'agent lit stderr
+    assert "not a git repository" in log["stderr"]
+
+
+def test_git_diff_appends_sandbox_relative_path(sandbox_root, monkeypatch):
+    from tools import ops_tools
+    from tools.file_tools import write_file
+
+    write_file("src/a.py", "print('ok')\n")
+    captured = {}
+
+    def fake_run_subprocess(argv, **kwargs):
+        captured["argv"] = argv
+        return 0, "", ""
+
+    monkeypatch.setattr(ops_tools, "run_subprocess", fake_run_subprocess)
+    ops_tools.git_diff(path="src/a.py", staged=True)
+    assert captured["argv"][:3] == ["git", "--no-pager", "diff"]
+    assert "--cached" in captured["argv"]
+    assert captured["argv"][-1] == "src/a.py"
+
+
+def test_docker_stats_parses_json_lines(sandbox_root, monkeypatch):
+    from tools import ops_tools
+
+    lines = [
+        json.dumps({"Name": "api", "CPUPerc": "0.15%", "MemUsage": "50MiB / 1GiB"}),
+        json.dumps({"Name": "dashboard", "CPUPerc": "1.20%", "MemUsage": "120MiB / 1GiB"}),
+    ]
+
+    def fake_run_subprocess(argv, **kwargs):
+        assert argv[1] == "stats" and "--no-stream" in argv
+        return 0, "\n".join(lines) + "\n", ""
+
+    monkeypatch.setattr(ops_tools, "run_subprocess", fake_run_subprocess)
+    stats = ops_tools.docker_stats()
+    assert [conteneur["Name"] for conteneur in stats] == ["api", "dashboard"]
+
+    def failing_run_subprocess(argv, **kwargs):
+        return 1, "", "docker daemon down"
+
+    monkeypatch.setattr(ops_tools, "run_subprocess", failing_run_subprocess)
+    with pytest.raises(RuntimeError, match="stats"):
+        ops_tools.docker_stats()
+
+
+# --- Cohérence du registre central --------------------------------------------------------------
+
+def test_registry_is_consistent_between_tools_and_required_args():
+    from tools.tool_registry import REQUIRED_ARGS, TOOLS
+
+    assert set(TOOLS) == set(REQUIRED_ARGS)
+    for name, func in TOOLS.items():
+        assert callable(func), name
+    # Quelques nouveaux outils bien enregistrés avec leurs arguments requis.
+    assert REQUIRED_ARGS["search_in_files"] == ["pattern"]
+    assert REQUIRED_ARGS["predict_sentiment"] == ["texts"]
+    assert REQUIRED_ARGS["download_file"] == ["url", "filename"]
+    assert REQUIRED_ARGS["job_get"] == ["job_id"]
+    assert REQUIRED_ARGS["now"] == []
+    assert REQUIRED_ARGS["web_search"] == ["query"]
+    assert REQUIRED_ARGS["web_fetch"] == ["url"]
+    assert REQUIRED_ARGS["web_read"] == ["url"]
+    assert len(TOOLS) >= 35

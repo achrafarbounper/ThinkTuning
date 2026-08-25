@@ -1,34 +1,60 @@
-import React, { useMemo } from "react";
-import { TRAIN_STEPS } from "../sentimentApiClient";
+import { useEffect, useState } from "react";
+import { TRAIN_STEPS } from "../api/sentimentApiClient";
 
 /**
- * TrainJobTracker — affiche le suivi d'un job d'entraînement en cours
- * avec visualisation de l'étape courant, statut, timing, et possibilité d'annulation.
+ * TrainJobTracker — affiche le suivi d'un job d'entraînement en cours :
+ * statut, étape courante, timing, et possibilité d'annulation.
+ *
+ * Les hooks sont volontairement appelés avant tout retour anticipé afin de
+ * respecter la règle react-hooks/rules-of-hooks.
  */
+
+const STEP_LABELS = {
+  queued: "En file d'attente",
+  loading_dataset: "Chargement du dataset",
+  splitting_dataset: "Split train/val",
+  augmenting_dataset: "Recomposition (EDA)",
+  building_dataloaders: "Construction DataLoaders",
+  computing_class_weights: "Poids des classes",
+  loading_model: "Chargement du modèle",
+  training: "Entraînement",
+  saving_model: "Sauvegarde du modèle",
+  done: "Terminé",
+  cancelled: "Annulé",
+};
+
+function formatDuration(startedAt, endSeconds) {
+  if (!startedAt || !endSeconds) return null;
+  const seconds = Math.max(0, Math.round(endSeconds - startedAt));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.round(seconds / 60)}m`;
+}
+
 export default function TrainJobTracker({
   job,
   onCancel,
   cancelLoading = false,
 }) {
+  // Horloge rafraîchie chaque seconde UNIQUEMENT pendant l'exécution du job ;
+  // évite d'appeler Date.now() (impur) pendant le rendu.
+  const [nowTs, setNowTs] = useState(0);
+  const isRunning = job?.status === "running" || job?.status === "pending";
+
+  useEffect(() => {
+    if (!isRunning) return undefined;
+    const timer = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isRunning]);
+
   if (!job) return null;
 
   const stepIndex = TRAIN_STEPS.indexOf(job.step);
-  const progress = stepIndex === -1 ? 0 : ((stepIndex + 1) / TRAIN_STEPS.length) * 100;
-
-  const isRunning = job.status === "running";
   const isCompleted = job.status === "completed";
   const isFailed = job.status === "failed";
   const isCancelled = job.status === "cancelled";
-  const isDone = isCompleted || isFailed || isCancelled;
 
-  const duration = useMemo(() => {
-    if (!job.started_at) return null;
-    const end = job.finished_at || Date.now() / 1000;
-    const seconds = Math.round(end - job.started_at);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.round(seconds / 60);
-    return `${minutes}m`;
-  }, [job.started_at, job.finished_at]);
+  const endSeconds = job.finished_at ?? (nowTs ? nowTs / 1000 : null);
+  const duration = formatDuration(job.started_at, endSeconds);
 
   const statusColor = {
     running: "#2563eb",
@@ -38,143 +64,63 @@ export default function TrainJobTracker({
     pending: "#6b7280",
   }[job.status] || "#9ca3af";
 
-  const stepLabel = {
-    queued: "En file d'attente",
-    loading_dataset: "Chargement du dataset",
-    splitting_dataset: "Split train/val",
-    augmenting_dataset: "Recomposition (EDA)",
-    building_dataloaders: "Construction DataLoaders",
-    computing_class_weights: "Poids des classes",
-    loading_model: "Chargement du modèle",
-    training: "Entraînement",
-    saving_model: "Sauvegarde du modèle",
-    done: "Terminé",
-    cancelled: "Annulé",
-  }[job.step] || job.step;
+  const stepLabel = STEP_LABELS[job.step] || job.step;
 
   return (
-    
-    <div className="tt-tracker">
-      <div className="tt-tracker-header">
-        <div className="tt-tracker-info">
-          <h3 className="tt-tracker-title">
-            Suivi du job
-            <span className="tt-tracker-id">{job.job_id.slice(0, 8)}</span>
-          </h3>
-          <div className="tt-tracker-meta">
-            <span
-              className="tt-tracker-status"
-              style={{
-                backgroundColor: statusColor,
-                color: "#fff",
-                padding: "0.25rem 0.75rem",
-                borderRadius: "4px",
-                fontSize: "0.85rem",
-                fontWeight: "500",
-              }}
-            >
-              {job.status.toUpperCase()}
-            </span>
-            {duration && (
-              <span className="tt-tracker-duration">
-                ⏱ {duration}
-              </span>
-            )}
-          </div>
-        </div>
-        {isRunning && (
-          <button
-            className="tt-btn tt-btn-danger"
-            onClick={onCancel}
-            disabled={cancelLoading}
-            title="Annuler cet entraînement"
-          >
-            {cancelLoading ? "Annulation…" : "Annuler"}
-          </button>
-        )}
-      </div>
-
-      {/* --- Progression visuelle ------------------------------------------ */}
-      <div className="tt-tracker-progress">
-        <div className="tt-progress-bar">
-          <div
-            className="tt-progress-fill"
-            style={{
-              width: `${progress}%`,
-              backgroundColor: statusColor,
-              transition: "width 0.3s ease-out",
-            }}
-          />
-        </div>
-        <span className="tt-progress-text">
-          {stepIndex + 1} / {TRAIN_STEPS.length}
+    <div className="tt-job-live">
+      <div className="tt-job-live-head">
+        <h3 className="tt-subtitle">
+          Job <span className="tt-mono">{job.job_id.slice(0, 8)}</span>
+        </h3>
+        <span
+          className={`tt-tag tt-tag-status-${job.status}`}
+          style={{ color: statusColor }}
+        >
+          {job.status}
         </span>
       </div>
 
-      {/* --- Étape courante ------------------------------------------------ */}
-      <div className="tt-tracker-step">
-        <span className="tt-step-label">Étape courante:</span>
-        <span className="tt-step-value">{stepLabel}</span>
-        {isRunning && <span className="tt-spinner" />}
-      </div>
+      <p className="tt-hint">
+        Étape actuelle : <strong>{stepLabel}</strong>
+        {duration && <> · Durée : {duration}</>}
+      </p>
 
-      {/* --- Timeline des étapes -------------------------------------------- */}
-      <div className="tt-steps-timeline">
-        {TRAIN_STEPS.map((step, idx) => {
-          const isActive = step === job.step;
-          const isDone = idx < stepIndex;
-          const stepName = {
-            queued: "En file",
-            loading_dataset: "Dataset",
-            splitting_dataset: "Split",
-            augmenting_dataset: "EDA",
-            building_dataloaders: "DataLoaders",
-            computing_class_weights: "Poids",
-            loading_model: "Modèle",
-            training: "Train",
-            saving_model: "Sauvegarde",
-            done: "✓",
-            cancelled: "✕",
-          }[step] || step;
-
+      <ul className="tt-tracker">
+        {TRAIN_STEPS.map((step, index) => {
+          const stateClass =
+            isFailed && index === stepIndex
+              ? "tt-tracker-error"
+              : index < stepIndex || isCompleted
+              ? "tt-tracker-done"
+              : index === stepIndex
+              ? "tt-tracker-active"
+              : "";
           return (
-            <div
-              key={step}
-              className={`tt-step-dot ${isDone ? "tt-step-done" : ""} ${
-                isActive ? "tt-step-active" : ""
-              }`}
-              title={step}
-            >
-              <span className="tt-step-dot-inner">{stepName}</span>
-              {idx < TRAIN_STEPS.length - 1 && (
-                <span
-                  className={`tt-step-line ${isDone || isActive ? "tt-step-line-done" : ""}`}
-                />
-              )}
-            </div>
+            <li key={step} className={`tt-tracker-step ${stateClass}`.trim()}>
+              <span className="tt-tracker-dot" aria-hidden="true" />
+              {STEP_LABELS[step]}
+            </li>
           );
         })}
-      </div>
+        {isCancelled && (
+          <li className="tt-tracker-step tt-tracker-error">
+            <span className="tt-tracker-dot" aria-hidden="true" />
+            Annulé
+          </li>
+        )}
+      </ul>
 
-      {/* --- Erreur ou message de succès ------------------------------------ */}
-      {isFailed && job.error && (
-        <div className="tt-tracker-error">
-          <strong>Erreur:</strong>
-          <pre className="tt-error-text">{job.error}</pre>
-        </div>
-      )}
+      {job.error && <p className="tt-hint tt-hint-error tt-job-error">{job.error}</p>}
 
-      {isCompleted && job.model_path && (
-        <div className="tt-tracker-success">
-          ✓ Modèle entraîné avec succès:<br />
-          <span className="tt-mono">{job.model_path}</span>
-        </div>
-      )}
-
-      {isCancelled && (
-        <div className="tt-tracker-cancelled">
-          Entraînement annulé par l'utilisateur
-        </div>
+      {(job.status === "running" || job.status === "pending") && (
+        <button
+          className="tt-btn tt-btn-danger"
+          type="button"
+          onClick={onCancel}
+          disabled={cancelLoading}
+        >
+          Annuler ce job
+        </button>
       )}
     </div>
   );

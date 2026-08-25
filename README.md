@@ -280,7 +280,8 @@ Variables d'environnement dédiées (relues à chaque appel) :
 - `AGENT_TIMEOUT_SECONDS` (défaut `600`) — timeout des appels vers Ollama
 - `AGENT_SANDBOX_ROOT` : racine autorisée pour tous les outils fichiers (défaut : répertoire de lancement)
 - `AGENT_ALLOWED_BINARIES` : allowlist CSV des exécutables autorisés par `run_command`
-- `AGENT_BLOCK_PRIVATE_HOSTS=1` : interdit à http_get/http_post les hôtes privés/loopback (anti-SSRF)
+- `AGENT_BLOCK_PRIVATE_HOSTS=1` : interdit aux outils HTTP (`http_get`, `http_post`,
+  `download_file`, `web_*`) les hôtes privés/loopback (anti-SSRF)
 - `AGENT_PG_DSN` : DSN PostgreSQL de `postgres_query` (`postgresql://user:pwd@host:5432/base`)
 - `AGENT_LOG_LEVEL` : niveau de logs de l'agent (`DEBUG`, `INFO` par défaut, `WARNING`, ...)
 
@@ -326,6 +327,9 @@ Routes (auth principale `X-API-Key`, sauf `/status` qui est public) :
 | Exécution | `run_python` | `(code, timeout=30)` | Code Python dans un sous-processus isolé puis nettoyé |
 | Réseau | `http_get` | `(url, headers?, timeout=30)` | GET http(s), corps tronqué (~8 Ko) |
 | Réseau | `http_post` | `(url, data?/json_payload?, ...)` | POST brut ou JSON |
+| Internet | `web_search` | `(query, max_results=5)` | Recherche web DuckDuckGo Lite : titres, URLs, extraits (publicités filtrées) |
+| Internet | `web_fetch` | `(url, headers?, timeout=20)` | Page distante brute : statut, titre HTML, corps tronqué |
+| Internet | `web_read` | `(url, timeout=20)` | Texte lisible extrait d'une page HTML (sans scripts/styles/balises) |
 | Docker | `docker_ps` | `(all_containers=false)` | Conteneurs au format JSON |
 | Docker | `docker_logs` | `(container, tail=100)` | Dernières lignes de logs |
 | Docker | `docker_exec` | `(container, command)` | Commande via `sh -c` dans le conteneur |
@@ -362,6 +366,11 @@ curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
   -X POST http://localhost:8000/api/agent/tools/run \
   -d '{"tool": "sqlite_query", "args": {"db_path": "experiments/jobs.db", "query": "SELECT * FROM jobs LIMIT 5"}}'
+
+# Recherche Internet (outils web_search / web_fetch / web_read)
+curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/api/agent/tools/run \
+  -d '{"tool": "web_search", "args": {"query": "transformers fine-tuning"}}'
 
 # Prompt libre : l'agent choisit lui-même les outils
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \

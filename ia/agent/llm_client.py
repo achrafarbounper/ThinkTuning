@@ -14,6 +14,10 @@ import requests
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
+# Température appliquée quand l'appelant n'en fournit pas explicitement
+# (0.8 = défaut historique du serveur Ollama).
+DEFAULT_TEMPERATURE = 0.8
+
 
 class LLMClient:
     def __init__(self, url, model, timeout=None, temperature=None):
