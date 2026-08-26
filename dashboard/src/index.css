@@ -44,3 +44,43 @@ a {
 ::-webkit-scrollbar-thumb:hover {
   background: #333c4b;
 }
+
+/* --- Panel assistant IA (Settings) -------------------------------------- */
+.tt-settings-assistant-panel {
+  border-top: 1px solid hsl(214, 22%, 22%);
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+}
+
+.tt-assistant-section {
+  margin-bottom: 1.5rem;
+}
+
+.tt-assistant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.tt-assistant-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 0.35rem;
+  color: var(--tt-text-dim, #9aa0a6);
+}
+
+.tt-assistant-section-help {
+  font-size: 0.78rem;
+  color: var(--tt-text-dim, #9aa0a6);
+  margin-top: 0.25rem;
+}
+
+.tt-assistant-prop-source {
+  font-size: 0.72rem;
+  color: var(--tt-accent, #5b8def);
+  margin-top: 0.15rem;
+  font-style: italic;
+}
+

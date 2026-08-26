@@ -92,6 +92,22 @@ function loadStoredThinking(): boolean {
   }
 }
 
+/**
+ * Extrait le message d'erreur FastAPI (`detail`) d'une réponse non-OK.
+ * Repli sur un message générique si le corps n'est pas JSON ou sans `detail`.
+ */
+async function apiErrorMessage(response: Response): Promise<string> {
+  const generic = `Le serveur a répondu ${response.status} (${response.statusText})`;
+  try {
+    const data = await response.json();
+    const detail = (data as { detail?: unknown })?.detail;
+    if (typeof detail === 'string' && detail) return detail;
+  } catch {
+    /* corps non-JSON : on garde le message générique */
+  }
+  return generic;
+}
+
 export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -143,7 +159,7 @@ export function ChatWindow() {
 
         const response = await fetch(MODELS_ENDPOINT, { headers });
         if (!response.ok) {
-          throw new Error(`Le serveur a répondu ${response.status} (${response.statusText})`);
+          throw new Error(await apiErrorMessage(response));
         }
         const data = (await response.json()) as LlmModelsResponse;
         if (!cancelled) setLlmModels(data.models ?? []);
@@ -297,7 +313,7 @@ export function ChatWindow() {
         });
 
         if (!response.ok) {
-          throw new Error(`Le serveur a répondu ${response.status} (${response.statusText})`);
+          throw new Error(await apiErrorMessage(response));
         }
 
         const contentType = response.headers.get('content-type') ?? '';

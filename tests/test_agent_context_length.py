@@ -98,7 +98,16 @@ def test_build_runner_forwards_context_length(monkeypatch):
     monkeypatch.setenv("AGENT_CONTEXT_LENGTH", "4096")
 
     def fake_llm_init(
-        self, url, model, timeout=None, temperature=None, think=False, context_length=None
+        self,
+        url,
+        model,
+        timeout=None,
+        temperature=None,
+        think=False,
+        context_length=None,
+        # Nouveaux paramètres multi-provider (provider/api_key) : acceptés
+        # pour rester compatible avec la fabrique sans altérer les assertions.
+        **kwargs,
     ):
         captured["url"] = url
         captured["model"] = model

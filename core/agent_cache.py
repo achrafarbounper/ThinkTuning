@@ -24,6 +24,8 @@ IA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if IA_DIR not in sys.path:
     sys.path.insert(0, IA_DIR)
 
+from core.agent_settings import get_agent_settings
+
 # --- Imports de l'agent (à placer APRÈS l'insertion du sys.path ci-dessus) ----
 from agent.agent_core import AgentCore  # noqa: E402
 from agent.llm_client import LLMClient  # noqa: E402
@@ -50,12 +52,22 @@ DEFAULT_OLLAMA_URL = "http://192.168.1.184:11434/api/chat"
 DEFAULT_MODEL_NAME = "llama3.1:8b"
 DEFAULT_TIMEOUT_SECONDS = 600.0
 
+# Provider LLM de l'agent : « ollama » (historique) ou « openrouter ».
+# Sélection via AGENT_PROVIDER ; la clé OpenRouter se règle via OPENROUTER_API_KEY
+# (requise dès qu'AGENT_PROVIDER=openrouter).
+DEFAULT_PROVIDER = "ollama"
+DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+# Modèle par défaut si AGENT_MODEL_NAME n'est pas défini (IDs OpenRouter au
+# format « vendor/model »).
+DEFAULT_OPENROUTER_MODEL_NAME = "deepseek/deepseek-r1:free"
+
 # Taille de fenêtre de contexte (tokens) appliquée par défaut à l'agent,
 # transmise à Ollama via `options.num_ctx` (env AGENT_CONTEXT_LENGTH).
 DEFAULT_CONTEXT_LENGTH = 2048
 
-# Timeout (secondes) de l'appel GET /api/tags utilisé pour lister les modèles.
-OLLAMA_TAGS_TIMEOUT_SECONDS = 10.0
+# Timeout (secondes) des appels GET listant les modèles (/api/tags Ollama,
+# /api/v1/models OpenRouter).
+LIST_MODELS_TIMEOUT_SECONDS = 10.0
 
 # Runner du modèle par défaut (config env). Variable globale volontairement
 # conservée : les tests offline l'injectent via monkeypatch.setattr(agent_cache,
@@ -66,25 +78,98 @@ _runner: AgentRunner | None = None
 # mis en cache par nom de modèle pour éviter de reconstruire à chaque message.
 _override_runners: dict[str, AgentRunner] = {}
 _runner_lock = threading.Lock()
+def _openrouter_chat_url(url: str | None) -> str:
+    """Normalise une URL OpenRouter vers l'endpoint chat complet.
+
+    La page Paramètres du dashboard enregistre la RACINE de l'API
+    (« https://openrouter.ai/api/v1 ») tandis que la configuration serveur
+    (AGENT_OPENROUTER_URL) et les tests utilisent l'endpoint complet
+    (« https://openrouter.ai/api/v1/chat/completions »). On accepte les deux :
+    un suffixe « /chat/completions » manquant est ajouté.
+    """
+    url = (url or "").strip().rstrip("/")
+    if not url:
+        return DEFAULT_OPENROUTER_URL
+    if url.endswith("/chat/completions"):
+        return url
+    return f"{url}/chat/completions"
+
+
+
 
 
 def agent_config() -> dict:
     """Configuration courante de l'agent, relue à chaque appel.
 
-    Variables d'environnement :
+    Sources par priorité décroissante (via ``core.agent_settings``) :
+        1. base SQLite des paramètres (page Paramètres du dashboard) ;
+        2. variables d'environnement ;
+        3. défauts historiques du module.
+
+    Variables d'environnement utilisées en repli :
+        AGENT_PROVIDER         « ollama » (défaut) ou « openrouter »
         AGENT_OLLAMA_URL       URL du endpoint chat Ollama
-        AGENT_MODEL_NAME       nom du modèle (ex: llama3.1:8b)
+        AGENT_OPENROUTER_URL   URL du endpoint chat OpenRouter (compatible OpenAI)
+        OPENROUTER_API_KEY     clé API OpenRouter (requise si provider=openrouter)
+        AGENT_MODEL_NAME       nom du modèle (ex: llama3.1:8b ou vendor/model)
         AGENT_TIMEOUT_SECONDS  timeout en secondes des appels LLM
         AGENT_CONTEXT_LENGTH   taille de fenêtre de contexte (tokens), défaut 2048
     """
+    settings = get_agent_settings()
+
+    def val(key: str):
+        return settings[key]["value"]
+
+    provider = val("provider") or DEFAULT_PROVIDER
+    # Défaut dépendant du provider : les modèles OpenRouter portent un
+    # identifiant « vendor/model » incompatible avec la convention Ollama.
+    model = val("model") or (
+        DEFAULT_OPENROUTER_MODEL_NAME if provider == "openrouter" else DEFAULT_MODEL_NAME
+    )
+    timeout_raw = val("timeout_seconds")
+    context_raw = val("context_length")
+    temperature_raw = val("temperature")
+
     return {
-        "ollama_url": os.getenv("AGENT_OLLAMA_URL", DEFAULT_OLLAMA_URL),
-        "model": os.getenv("AGENT_MODEL_NAME", DEFAULT_MODEL_NAME),
-        "timeout": float(os.getenv("AGENT_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)),
-        "context_length": int(
-            os.getenv("AGENT_CONTEXT_LENGTH", DEFAULT_CONTEXT_LENGTH)
+        "provider": provider,
+        "ollama_url": val("ollama_url") or DEFAULT_OLLAMA_URL,
+        "openrouter_url": _openrouter_chat_url(
+            val("openrouter_url") or DEFAULT_OPENROUTER_URL
         ),
+        "openrouter_api_key": val("openrouter_api_key") or "",
+        "model": model,
+        "timeout": (
+            float(timeout_raw) if timeout_raw is not None else DEFAULT_TIMEOUT_SECONDS
+        ),
+        "context_length": (
+            int(context_raw) if context_raw is not None else DEFAULT_CONTEXT_LENGTH
+        ),
+        # None -> LLMClient applique son DEFAULT_TEMPERATURE historique.
+        "temperature": float(temperature_raw) if temperature_raw is not None else None,
     }
+
+
+def _llm_endpoint(cfg: dict) -> tuple[str, str | None]:
+    """URL d'appel et clé API correspondant au provider configuré.
+
+    Retourne ``(url, api_key)`` : clé ``None`` pour Ollama ; pour OpenRouter,
+    la clé vient de la config effective (SQLite puis env OPENROUTER_API_KEY)
+    et une HTTPException 500 est levée quand elle manque (mauvaise
+    configuration serveur).
+    """
+    if cfg["provider"] == "openrouter":
+        api_key = (cfg["openrouter_api_key"] or "").strip()
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Provider LLM « openrouter » sélectionné mais aucune clé API "
+                    "n'est définie. Renseignez OPENROUTER_API_KEY (ou enregistrez-la "
+                    "dans la page Paramètres)."
+                ),
+            )
+        return cfg["openrouter_url"], api_key
+    return cfg["ollama_url"], None
 
 
 def _ollama_base_url() -> str:
@@ -102,12 +187,16 @@ def _build_runner(model_name: str | None = None, enable_thinking: bool = False) 
     extraction <think> côté noyau (AgentCore).
     """
     cfg = agent_config()
+    url, api_key = _llm_endpoint(cfg)
     llm = LLMClient(
-        cfg["ollama_url"],
+        url,
         model_name or cfg["model"],
         timeout=cfg["timeout"],
+        temperature=cfg["temperature"],
         think=enable_thinking,
         context_length=cfg["context_length"],
+        provider=cfg["provider"],
+        api_key=api_key,
     )
     return AgentRunner(AgentCore(llm, enable_thinking=enable_thinking))
 
@@ -158,16 +247,22 @@ def reload_agent_runner() -> AgentRunner:
 
 
 def list_llm_models() -> dict:
-    """Liste les modèles installés sur le serveur Ollama (GET /api/tags).
+    """Liste les modèles disponibles chez le provider configuré.
 
     Retourne ``{"active": <modèle par défaut>, "models": [...]}`` où chaque
     entrée porte ``name``, ``size``, ``modified_at`` et un marqueur
     ``is_default`` sur le modèle configuré côté serveur. Les erreurs réseau
     sont traduites en HTTPException (502 / 504) comme pour ``ask_agent``.
     """
+    cfg = agent_config()
+    if cfg["provider"] == "openrouter":
+        return _list_openrouter_models(cfg)
+
     base_url = _ollama_base_url()
     try:
-        response = requests.get(f"{base_url}/api/tags", timeout=OLLAMA_TAGS_TIMEOUT_SECONDS)
+        response = requests.get(
+            f"{base_url}/api/tags", timeout=LIST_MODELS_TIMEOUT_SECONDS
+        )
         response.raise_for_status()
         payload = response.json()
     except requests.exceptions.Timeout:
@@ -175,7 +270,7 @@ def list_llm_models() -> dict:
             status_code=504,
             detail=(
                 f"Le serveur Ollama ({base_url}) n'a pas répondu "
-                f"dans les {OLLAMA_TAGS_TIMEOUT_SECONDS:.0f}s."
+                f"dans les {LIST_MODELS_TIMEOUT_SECONDS:.0f}s."
             ),
         )
     except requests.exceptions.ConnectionError:
@@ -212,6 +307,80 @@ def list_llm_models() -> dict:
                 "size": entry.get("size"),
                 "modified_at": entry.get("modified_at"),
                 "is_default": is_default,
+            }
+        )
+    models.sort(key=lambda item: item["name"])
+
+    return {"active": active_model, "models": models}
+
+
+def _openrouter_base_api() -> str:
+    """Racine de l'API OpenRouter déduite de l'URL du endpoint chat.
+
+    « https://openrouter.ai/api/v1/chat/completions » -> « https://openrouter.ai/api/v1 ».
+    """
+    url = agent_config()["openrouter_url"]
+    marker = url.find("/chat/completions")
+    if marker != -1:
+        return url[:marker].rstrip("/")
+    return url.rsplit("/", 1)[0] if "/" in url.rstrip("/") else url
+
+
+def _list_openrouter_models(cfg: dict) -> dict:
+    """Liste les modèles OpenRouter (GET /api/v1/models).
+
+    L'endpoint est public mais l'entête Bearer est envoyé quand la clé est
+    définie. Mapping sur le même contrat que la liste Ollama : ``name`` porte
+    l'identifiant complet (« vendor/model ») attendu par le chat ; ``size`` et
+    ``modified_at`` n'existent pas côté OpenRouter (``None``).
+    """
+    url = f"{_openrouter_base_api()}/models"
+    # Clé effective (SQLite puis env) : entête Bearer envoyé seulement si définie.
+    api_key = (cfg["openrouter_api_key"] or "").strip()
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    try:
+        response = requests.get(url, headers=headers, timeout=LIST_MODELS_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        payload = response.json()
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"L'API OpenRouter ({url}) n'a pas répondu "
+                f"dans les {LIST_MODELS_TIMEOUT_SECONDS:.0f}s."
+            ),
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=502,
+            detail=f"API OpenRouter injoignable sur {url}.",
+        )
+    except requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Erreur renvoyée par OpenRouter (HTTP {status})."
+                + (" Clé OPENROUTER_API_KEY invalide ?" if status == 401 else "")
+            ),
+        )
+    except ValueError as exc:  # réponse non JSON
+        raise HTTPException(
+            status_code=502, detail=f"Réponse illisible de l'API OpenRouter ({exc})."
+        )
+
+    active_model = cfg["model"]
+    models = []
+    for entry in payload.get("data", []):
+        name = entry.get("id") or ""
+        if not name:
+            continue
+        models.append(
+            {
+                "name": name,
+                "size": None,
+                "modified_at": None,
+                "is_default": name == active_model,
             }
         )
     models.sort(key=lambda item: item["name"])
