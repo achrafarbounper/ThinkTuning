@@ -174,3 +174,92 @@ textarea { width: 100%; resize: vertical; }
 .tt-log-error { color: var(--tt-negative); }
 .tt-log-warning { color: var(--tt-neutral); }
 .tt-log-success { color: var(--tt-positive); }
+
+/* --- Page Comparer ------------------------------------------------------------ */
+
+/* Sélecteurs A / B avec bouton d'inversion entre les deux. */
+.tt-compare-selectors {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: end;
+}
+
+.tt-compare-swap {
+  margin-bottom: 14px; /* aligne le bouton sur la ligne des <select> */
+  font-size: 1rem;
+}
+
+/* Résultats côte à côte : deux colonnes desktop, empilées sur mobile. */
+.tt-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.tt-compare-card--error {
+  border-color: rgba(242, 84, 91, 0.45);
+}
+
+.tt-compare-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tt-compare-result .tt-confidence { flex: 1; }
+
+.tt-compare-conf-value { min-width: 52px; text-align: right; }
+
+.tt-compare-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Bandeau indicateur de divergence entre les deux modèles. */
+.tt-compare-verdict {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 0.85rem;
+}
+
+.tt-compare-verdict svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.tt-compare-verdict--ok {
+  background: rgba(47, 191, 113, 0.12);
+  border-color: rgba(47, 191, 113, 0.35);
+  color: var(--tt-positive);
+}
+
+.tt-compare-verdict--diff {
+  background: rgba(242, 183, 5, 0.12);
+  border-color: rgba(242, 183, 5, 0.4);
+  color: var(--tt-neutral);
+}
+
+.tt-compare-verdict--opposed {
+  background: rgba(242, 84, 91, 0.12);
+  border-color: rgba(242, 84, 91, 0.45);
+  color: var(--tt-negative);
+}
+
+@media (max-width: 860px) {
+  .tt-compare-grid { grid-template-columns: 1fr; }
+
+  .tt-compare-selectors { grid-template-columns: 1fr; }
+
+  .tt-compare-swap {
+    justify-self: center;
+    margin-bottom: 0;
+  }
+}

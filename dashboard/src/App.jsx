@@ -11,6 +11,7 @@ import AppProvider from "./context/AppProvider";
 import Sidebar from "./components/layout/Sidebar";
 import HomePage from "./pages/HomePage";
 import SentimentPage from "./pages/SentimentPage";
+import ComparePage from "./pages/ComparePage";
 import AssistantPage from "./pages/AssistantPage";
 import TrainingPage from "./pages/TrainingPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -19,6 +20,7 @@ import SettingsPage from "./pages/SettingsPage";
 const ROUTES = {
   dashboard: HomePage,
   analyse: SentimentPage,
+  comparer: ComparePage,
   assistant: AssistantPage,
   entrainement: TrainingPage,
   parametres: SettingsPage,
