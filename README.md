@@ -344,6 +344,7 @@ L'agent journalise chaque étape sur le logger standard **`thinktuning.agent`**
 | `tool_call` / `tool_result` | INFO | outil exécuté avec ses arguments / type de résultat |
 | `tool_error` | ERROR | échec d'un outil, traceback complet inclus |
 | `auto_correction` | WARNING | erreur renvoyée au LLM pour qu'il se corrige |
+| `tool_intent_detected` | WARNING | outil annoncé dans la réflexion sans aucun appel JSON : relance automatique exigeant le JSON strict |
 | `llm_raw_response`, `llm_response_content`, `tool_result_content` | DEBUG | payloads bruts (activer via `AGENT_LOG_LEVEL=DEBUG`) |
 
 Routes (auth principale `X-API-Key`, sauf `/status` qui est public) :
@@ -386,7 +387,16 @@ est séparée de la réponse finale et affichée dans une bulle repliable du cha
   `run()` / `ask_agent()` conservent leur comportement historique (réponse
   seule). `ask_agent_detailed_streaming(...)` propage en plus la réflexion
   au fil de l'eau via un callback.
-- **Tests** : `pytest tests/test_agent_thinking.py -v` (20 tests offline).
+- **Garde-fou « outil annoncé mais jamais appelé »** : quand le modèle raisonne
+  (« je vais appeler web_search », « let me use the web_search tool… ») puis
+  conclut EN TEXTE sans avoir jamais émis le JSON d'appel, l'agent refuse cette
+  réponse sortie de mémoire (bug « qui a gagné la coupe du monde 2026 »),
+  journalise `tool_intent_detected` (WARNING) et relance UNE fois le modèle en
+  exigeant le JSON strict ; l'outil est alors réellement exécuté avant toute
+  conclusion. Le parsing a aussi été re-rendu tolérant : un JSON d'appel
+  entouré de prose ou de fences markdown est de nouveau détecté et exécuté
+  (`AgentCore.extract_json_blocks` délègue à `ia/agent/json_parser.py`).
+- **Tests** : `pytest tests/test_agent_thinking.py -v` (tests offline).
 
 ### Outils disponibles
 

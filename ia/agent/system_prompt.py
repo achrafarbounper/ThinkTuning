@@ -127,6 +127,8 @@ RÈGLES DU MODE RÉFLEXION
 4. Raisonnement court et factuel : quelques lignes suffisent.
 5. Pour une question triviale qui n’exige aucun outil, tu peux répondre directement en TEXTE NORMAL sans balises <think>.
 6. Tu ne mentionnes jamais les balises <think> dans ta réponse finale visible.
+7. Un outil ANNONCÉ dans ton raisonnement doit être immédiatement suivi, APRÈS </think>, du JSON STRICT de cet appel : conclure en TEXTE NORMAL sans ce JSON est INTERDIT.
+8. Ton raisonnement ne simule JAMAIS le résultat d’un outil : un outil « prévu » n’est pas un outil exécuté. Tant que tu n’as pas reçu « Dernier résultat : » de la part du système, écris le JSON de l’appel au lieu d’une conclusion rédigée.
 """
 
 

@@ -40,39 +40,64 @@ def _parse_lenient(candidate: str):
 def extract_json_blocks(text: str):
     """Extrait les objets JSON {...} d'une réponse LLM, tolérant aux fautes.
 
-    Les blocs illisibles même après réparation sont ignorés silencieusement
-    (comportement historique).
+    L'état d'analyse (dans une chaîne / échappement / profondeur) est
+    réinitialisé pour CHAQUE candidat ``{…}`` :
+        - un nombre impair de guillemets dans la prose qui précède ne
+          corrompt plus l'analyse du JSON qui suit ;
+        - un objet mal formé est ignoré sans empêcher la découverte des
+          suivants (y compris des objets imbriqués DANS le mal formé) ;
+        - le curseur saute après chaque bloc valide, donc un objet déjà
+          extrait n'est jamais redétecté via ses accolades internes ;
+        - aucune exception ne remonte : sans JSON valide, renvoie [].
     """
     blocks = []
-    buffer = ""
-    depth = 0
-    in_string = False
-    escape = False
+    length = len(text)
+    cursor = 0
 
-    for char in text:
-        if char == '"' and not escape:
-            in_string = not in_string
+    while cursor < length:
+        brace = text.find("{", cursor)
+        if brace < 0:
+            break
 
-        if char == "\\" and not escape:
-            escape = True
-        else:
-            escape = False
+        # Scan ISOLÉ du candidat démarrant à ``brace`` : état frais.
+        depth = 0
+        in_string = False
+        escape = False
+        buffer: list[str] = []
+        end = -1
 
-        if not in_string:
-            if char == "{":
+        for index in range(brace, length):
+            char = text[index]
+            if in_string:
+                buffer.append(char)
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+            elif char == '"':
+                in_string = True
+                buffer.append(char)
+            elif char == "{":
                 depth += 1
-            if depth > 0:
-                buffer += char
-            if char == "}":
-                depth -= 1
-                if depth == 0:
-                    parsed = _parse_lenient(buffer)
-                    if parsed is not None:
-                        blocks.append(parsed)
-                    buffer = ""
-        else:
-            if depth > 0:
-                buffer += char
+                buffer.append(char)
+            elif depth > 0:
+                buffer.append(char)
+                if char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = index
+                        break
+
+        if end >= 0:
+            parsed = _parse_lenient("".join(buffer))
+            if parsed is not None:
+                blocks.append(parsed)
+                cursor = end + 1
+                continue
+        # Candidat illisible : on tente le ``{`` suivant.
+        cursor = brace + 1
 
     return blocks
 

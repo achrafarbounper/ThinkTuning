@@ -112,61 +112,115 @@ def test_loop_self_corrects_unknown_tool_then_displays_content(sandbox_root):
     ])
     answer = AgentCore(llm).run("affiche le fichier notes/a.txt")
 
-    assert answer == "Voici le contenu demandé."
+    # La conclusion s'appuie sur le contenu réellement lu ; l'incident
+    # « cat » reste tracé en toute transparence via le suffixe historique.
+    assert answer.startswith("Voici le contenu demandé.")
+    assert "[auto-correction] Tool inconnu : 'cat'" in answer
     # Appel 2 : feedback d'auto-correction avec la liste des outils valides.
-    assert "[auto-correction]" in llm.prompts[1]
     assert "Tool inconnu : 'cat'." in llm.prompts[1]
-    assert '"read_file"' in llm.prompts[1] or "'read_file'" in llm.prompts[1]
+    assert "read_file" in llm.prompts[1]
     # Appel 3 : synthèse fidèle — le contenu réel est injecté au LLM.
     assert llm.prompts[2].startswith("Dernier résultat")
     assert "CONTENU-VISIBLE-A-L-ECRAN" in llm.prompts[2]
 
 
-def test_loop_self_corrects_when_llm_answers_without_json(sandbox_root):
+def test_first_round_plain_text_without_tool_mention_is_direct_answer():
+    """Réponse en TEXTE NORMAL au premier tour sans aucune mention d'outil :
+    légitime (salutation, explication…), renvoyée telle quelle SANS relance."""
     from agent.agent_core import AgentCore
 
+    llm = ScriptedLLM(["Bonjour ! Comment puis-je vous aider ?"])
+    assert AgentCore(llm).run("salut") == "Bonjour ! Comment puis-je vous aider ?"
+    assert len(llm.prompts) == 1
+
+
+def test_loop_reprompts_when_tool_announced_without_any_json(sandbox_root, monkeypatch):
+    """Régression « coupe du monde 2026 » (sans balises <think>) : le modèle
+    ANNONCE l'outil (« je vais appeler calc… ») puis conclut sans avoir jamais
+    émis de JSON. L'agent doit relancer avec une exigence de JSON strict au
+    lieu d'accepter une réponse sortie de mémoire."""
+    import tools.tool_registry as registry
+    from agent.agent_core import AgentCore
+
+    calls = []
+
+    def fake_calc(expression):
+        calls.append(expression)
+        return 4
+
+    monkeypatch.setitem(registry.TOOLS, "calc", fake_calc)
+    monkeypatch.setitem(registry.REQUIRED_ARGS, "calc", ["expression"])
+
     llm = ScriptedLLM([
-        "Je vais lire le fichier tout de suite.",
-        '{"tool": "add", "args": {"a": 2, "b": 3}}',
-        "Deux plus trois font cinq.",
+        "Je vais appeler calc sur 2+3 tout de suite.",
+        '{"tool": "calc", "args": {"expression": "2+3"}}',
+        "Le calcul donne bien quatre.",
     ])
-    assert AgentCore(llm).run("calcule 2+3") == "Deux plus trois font cinq."
-    assert "aucun objet JSON exploitable" in llm.prompts[1]
+    answer = AgentCore(llm).run("calcule 2+3")
+
+    assert answer == "Le calcul donne bien quatre."
+    assert calls == ["2+3"]  # l'outil a VRAIMENT été exécuté
+    # La relance nomme l'outil annoncé et exige le JSON strict.
+    nudge = llm.prompts[1]
+    assert "« calc »" in nudge
+    assert "AUCUN JSON" in nudge
+    assert '{"tool": "calc"' in nudge
 
 
 def test_loop_self_corrects_missing_arguments(sandbox_root):
     from agent.agent_core import AgentCore
+    from tools.file_tools import write_file
 
+    write_file("f.txt", "hello")
     llm = ScriptedLLM([
         '{"tool": "read_file", "args": {}}',
         '{"tool": "read_file", "args": {"path": "f.txt"}}',
         "Contenu affiché.",
     ])
-    assert AgentCore(llm).run("lis f.txt") == "Contenu affiché."
+    assert AgentCore(llm).run("lis f.txt") == (
+        "Contenu affiché.\n\n"
+        "[auto-correction] Arguments manquants pour read_file : ['path']. "
+        "Reçu : {}. Format attendu : {\"tool\": \"read_file\", \"args\": {...}} — "
+        "arguments obligatoires : ['path']. Renvoie UN SEUL JSON corrigé."
+    )
     assert "Arguments manquants pour read_file : ['path']" in llm.prompts[1]
 
 
-def test_loop_gives_up_after_max_rounds_without_json():
-    from agent.agent_core import MAX_TOOL_ROUNDS, AgentCore
+def test_gives_up_after_max_rounds_with_unknown_tool():
+    """Budget de rounds épuisé sur des erreurs répétées : conclusion finale
+    enrichie du dernier problème signalé (suffixe [auto-correction])."""
+    from agent.agent_core import AgentCore
 
-    llm = ScriptedLLM(["réponse hors JSON"] * MAX_TOOL_ROUNDS)
-    answer = AgentCore(llm).run("salut")
-    assert answer.startswith("Réponse non exploitable")
-    assert len(llm.prompts) == MAX_TOOL_ROUNDS  # pas d'appel de synthèse
+    llm = ScriptedLLM(['{"tool": "division", "args": {"a": 1}}'] * 20)
+    answer = AgentCore(llm, max_rounds=4).run("divise")
+
+    assert "Tool inconnu : 'division'" in answer
+    assert "[auto-correction]" in answer
+    assert len(llm.prompts) == 5  # 4 tours LLM + l'appel de conclusion finale
 
 
-def test_loop_gives_up_after_max_rounds_with_unknown_tool():
-    from agent.agent_core import MAX_TOOL_ROUNDS, AgentCore
+def test_conclusion_after_max_rounds_reports_problems():
+    """Plafond atteint sur des erreurs répétées : le modèle reçoit bien une
+    demande de bilan citant les problèmes accumulés, et la réponse rendue à
+    l'utilisateur garde la trace transparente du suffixe [auto-correction]."""
+    from agent.agent_core import AgentCore
 
-    llm = ScriptedLLM(['{"tool": "division", "args": {"a": 1}}'] * MAX_TOOL_ROUNDS)
-    answer = AgentCore(llm).run("divise")
-    assert "Tool inconnu : 'division'." in answer
-    assert "tentatives d'auto-correction" in answer
-    assert len(llm.prompts) == MAX_TOOL_ROUNDS
+    llm = ScriptedLLM(
+        ['{"tool": "add", "args": {"a": 1}}'] * 3 + ["Voici mon bilan."]
+    )
+    answer = AgentCore(llm, max_rounds=3).run("calcule longuement")
+
+    assert answer.startswith("Voici mon bilan.")
+    assert "[auto-correction] Arguments manquants pour add : ['b']" in answer
+    # Le prompt de conclusion annonce le plafond et rejoue les problèmes.
+    conclusion_prompt = llm.prompts[3]
+    assert "Nombre maximum d" in conclusion_prompt
+    assert "Arguments manquants pour add : ['b']" in conclusion_prompt
+    assert len(llm.prompts) == 4  # 3 tours LLM + l'appel de conclusion finale
 
 
 def test_final_prompt_forbids_inventing_content(sandbox_root):
-    """Le prompt de synthèse impose la citation verbatim, interdit d'inventer."""
+    """Le prompt post-outil impose de s'appuyer sur le résultat OBTENU."""
     from agent.agent_core import AgentCore
 
     llm = ScriptedLLM([
@@ -176,9 +230,8 @@ def test_final_prompt_forbids_inventing_content(sandbox_root):
     AgentCore(llm).run("calcule")
     final_prompt = llm.prompts[1]
     assert final_prompt.startswith("Dernier résultat : 3.")
-    assert "TELLE QUELLE" in final_prompt
-    assert "invente JAMAIS" in final_prompt
-    assert "triples backticks" in final_prompt
+    assert "en TEXTE NORMAL" in final_prompt
+    assert "UN SEUL JSON" in final_prompt
 
 
 # --- System prompt généré depuis le registre ----------------------------------------
@@ -214,4 +267,4 @@ def test_system_prompt_is_regenerated_when_registry_changes(monkeypatch):
     monkeypatch.setitem(registry.REQUIRED_ARGS, "fake_tool_x", ["x"])
 
     prompt = build_system_prompt()
-    assert "- fake_tool_x(x)   # Fait un truc factice." in prompt
+    assert "- fake_tool_x(x) : Fait un truc factice" in prompt

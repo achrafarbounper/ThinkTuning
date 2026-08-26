@@ -428,3 +428,147 @@ def test_ai_without_thinking_keeps_historical_contract(monkeypatch):
     assert "thinking_delta" not in resp.text
     assert 'data: {"delta": "Bonjour ' in resp.text
     assert "data: [DONE]" in resp.text
+
+
+# --- Garde-fou « outil annoncé mais jamais appelé » --------------------------------
+
+def _patch_web_search(monkeypatch, results):
+    """Remplace web_search par une version offline mémorisant ses requêtes."""
+    calls = []
+
+    def fake_web_search(query, **_kwargs):
+        calls.append(query)
+        return {"query": query, "results": list(results)}
+
+    from tools import tool_registry
+
+    monkeypatch.setitem(tool_registry.TOOLS, "web_search", fake_web_search)
+    monkeypatch.setitem(tool_registry.REQUIRED_ARGS, "web_search", ["query"])
+    return calls
+
+
+def test_thinking_announces_tool_then_concluding_forces_the_call(monkeypatch):
+    """Régression SCRUM-54 exacte : réflexion qui ANNONCE web_search
+    (« Let me use the web_search tool… ») puis conclut en texte SANS émettre
+    le JSON (« La Coupe du Monde 2026 n'a pas encore eu lieu »). L'agent doit
+    relancer le modèle et exécuter la recherche au lieu d'accepter une réponse
+    sortie de mémoire présentée comme résultat d'une recherche jamais faite."""
+    calls = _patch_web_search(monkeypatch, results=["La France a gagné."])
+
+    llm = FakeLLM()
+    llm.replies = [
+        "<think>The user asks who won the 2026 World Cup. Let me use the "
+        "web_search tool to verify the latest information.</think>"
+        "La Coupe du Monde 2026 n'a pas encore eu lieu au moment de cette "
+        "recherche.",
+        '{"tool": "web_search", "args": {"query": "gagnant coupe du monde 2026"}}',
+        "<think>La recherche a abouti.</think>D'après la recherche : "
+        "la France a gagné la Coupe du Monde 2026.",
+    ]
+    result = AgentCore(llm, enable_thinking=True).run_detailed(
+        "cherche sur internet qui a gagné la coupe du monde 2026"
+    )
+
+    # L'outil a VRAIMENT été exécuté et la réponse finale s'appuie dessus.
+    assert calls == ["gagnant coupe du monde 2026"]
+    assert "France" in result.answer
+
+    # Trois appels LLM : annonce -> relance -> exécution -> conclusion.
+    assert len(llm.calls) == 3
+    nudge = llm.calls[1][-1]["content"]
+    assert "« web_search »" in nudge
+    assert "AUCUN JSON" in nudge
+    assert '{"tool": "web_search"' in nudge
+
+
+def test_native_thinking_announcing_tool_also_forces_the_call(monkeypatch):
+    """Même garde quand l'annonce arrive dans le champ NATIF Ollama
+    « message.thinking » (deepseek-r1…) : le contenu peut rester muet."""
+    calls = _patch_web_search(monkeypatch, results=["Argentine."])
+
+    llm = FakeLLM()
+    llm.native_thinking = [
+        "Je vais utiliser web_search pour vérifier le gagnant.",
+        "",
+        "",
+    ]
+    llm.replies = [
+        "Le tournoi n'a pas encore eu lieu.",
+        '{"tool": "web_search", "args": {"query": "vainqueur cdm 2026"}}',
+        "Selon la recherche : l'Argentine.",
+    ]
+    result = AgentCore(llm, enable_thinking=True).run_detailed("qui a gagné ?")
+
+    assert calls == ["vainqueur cdm 2026"]
+    assert "Argentine" in result.answer
+    assert "Je vais utiliser web_search" in result.thinking
+
+
+def test_plain_direct_answer_without_tool_mention_stays_single_round():
+    """Aucun faux positif : une réponse directe légitime (salutation,
+    explication générale sans mention d'outil) reste un unique appel LLM."""
+    llm = FakeLLM()
+    llm.replies = ["Bonjour ! Comment puis-je vous aider aujourd'hui ?"]
+    result = AgentCore(llm).run_detailed("salut")
+
+    assert result.answer.startswith("Bonjour !")
+    assert len(llm.calls) == 1
+    assert result.thinking == ""
+
+
+def test_tool_call_wrapped_in_prose_is_still_executed(monkeypatch):
+    """Régression parser : un JSON d'appel entouré de prose / fence markdown
+    doit être exécuté IMMÉDIATEMENT, pas traité comme une réponse finale."""
+    calls = _patch_web_search(monkeypatch, results=["Brésil."])
+
+    llm = FakeLLM()
+    llm.replies = [
+        'Voici ma recherche :\n```json\n'
+        '{"tool": "web_search", "args": {"query": "cdm 2026"}}\n```',
+        "Recherche terminée : le Brésil a gagné.",
+    ]
+    result = AgentCore(llm).run_detailed("qui a gagné la cdm 2026 ?")
+
+    assert calls == ["cdm 2026"]
+    assert "Brésil" in result.answer
+    assert len(llm.calls) == 2
+
+
+def test_nudge_fires_only_once_per_run(monkeypatch):
+    """Face à un modèle têtu qui ré-annonce sans jamais appeler : UNE seule
+    relance, puis sa réponse est rendue telle quelle (surcoût LLM strictement
+    borné à un tour supplémentaire, quel que soit le nombre d'annonces)."""
+    _patch_web_search(monkeypatch, results=[])
+
+    llm = FakeLLM()
+    llm.replies = [
+        "Je vais utiliser web_search pour vérifier.",
+        "Je vais vraiment utiliser web_search cette fois.",
+        "Cette réponse ne devrait jamais être atteinte.",
+    ]
+    result = AgentCore(llm, max_rounds=4).run_detailed("actualité")
+
+    # Tour 1 (annonce -> relance) puis tour 2 (ré-annonce ignorée, réponse
+    # rendue) : exactement deux appels LLM et une unique relance émise.
+    assert len(llm.calls) == 2
+    assert result.answer == "Je vais vraiment utiliser web_search cette fois."
+    nudges = [
+        message
+        for call in llm.calls
+        for message in call[1:]
+        if isinstance(message, dict) and "AUCUN JSON" in message.get("content", "")
+    ]
+    assert len(nudges) == 1
+
+
+def test_thinking_section_forbids_simulated_results_and_premature_conclusion():
+    """La section Réflexion enseigne explicitement les deux pièges observés :
+    conclure sans le JSON après avoir annoncé un outil, et simuler dans le
+    raisonnement le résultat d'un outil jamais exécuté."""
+    from agent.system_prompt import THINKING_PROMPT_SECTION
+
+    assert "conclure en TEXTE NORMAL sans ce JSON est INTERDIT" in (
+        THINKING_PROMPT_SECTION
+    )
+    assert "pas un outil exécuté" in THINKING_PROMPT_SECTION
+    assert "Dernier résultat :" in THINKING_PROMPT_SECTION

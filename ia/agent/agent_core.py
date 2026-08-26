@@ -20,12 +20,14 @@ Comportements clés :
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
 # Import relatif : fonctionne à la fois sous le paquet `ia.agent` (tests)
 # et sous le paquet racine `agent` (core/agent_cache.py ajoute ia/ au sys.path).
 from .system_prompt import THINKING_PROMPT_SECTION, build_system_prompt
+from .json_parser import extract_json_blocks as _parse_json_blocks
 from .thinking import extract_thinking
 
 
@@ -101,6 +103,70 @@ def register_tool(name: str, func: ToolFunc, required_args: List[str]) -> None:
 
 
 # ============================================================
+# GARDE-FOU « OUTIL ANNONCÉ MAIS JAMAIS APPELÉ »
+# ============================================================
+# En mode Réflexion (et parfois sans), un petit modèle raisonne
+# « je vais appeler web_search », puis conclut EN TEXTE sans avoir jamais
+# émis le JSON d'appel (bug « qui a gagné la coupe du monde 2026 » : une
+# réponse sortie de mémoire est présentée comme résultat d'une recherche
+# jamais faite). On détecte donc une ANNONCE : un nom d'outil du registre
+# apparaissant à proximité d'un marqueur d'intention d'appel.
+_INTENT_MARKERS = (
+    "appell",     # appelle / appeler / j'appelle / appelons
+    "utiliser",   # utiliser / je vais utiliser / va utiliser
+    "utilise",    # utilise / utilisons
+    "lanc",       # lance / lançons
+    "exécu",      # exécute / exécuter
+    "execu",      # execute (EN)
+    "vérifi",     # vérifier via / vérifions avec
+    "recherch",   # rechercher / recherchons via
+    "interrog",   # interroger / interrogeons
+    "je vais",
+    "il faut",
+    "dois ",
+    "let me",
+    "use ",       # let me use / I will use
+    "using",
+    "call ",      # call the tool
+    "calling",
+    "search ",
+    "fetch ",
+    "check ",
+    "query ",
+)
+
+# Distance maximale (en caractères) entre un nom d'outil et son marqueur
+# d'intention pour que l'occurrence soit considérée comme une annonce.
+_ANNOUNCE_WINDOW = 80
+
+
+def _detect_announced_tool(text: str) -> str:
+    """Nom du premier outil annoncé dans ``text``, sinon ``""``.
+
+    Une annonce = nom d'outil CONNU du registre (frontières de mot) à moins
+    de ``_ANNOUNCE_WINDOW`` caractères d'un marqueur d'intention. Le texte
+    analysé combine réflexion (inline ou natif Ollama) et réponse nettoyée :
+    l'outil peut n'être cité QUE dans le raisonnement.
+
+    Sans blocs JSON exécutables dans la même réponse, cette annonce révèle
+    exactement le cas « outil planifié puis conclusion sans exécution » —
+    la boucle principale s'en sert pour relancer le modèle au lieu de
+    valider une réponse sortie de mémoire.
+    """
+    if not text or not TOOLS:
+        return ""
+    lowered = text.lower()
+    pattern = re.compile(
+        r"\b(?:" + "|".join(re.escape(name.lower()) for name in sorted(TOOLS)) + r")\b"
+    )
+    for match in pattern.finditer(lowered):
+        window = lowered[max(0, match.start() - _ANNOUNCE_WINDOW): match.end() + _ANNOUNCE_WINDOW]
+        if any(marker in window for marker in _INTENT_MARKERS):
+            return match.group(0)
+    return ""
+
+
+# ============================================================
 # AGENT CORE PRO
 # ============================================================
 
@@ -169,29 +235,24 @@ class AgentCore:
     @staticmethod
     def extract_json_blocks(raw: str) -> List[Dict[str, Any]]:
         """
-        Extraction PRO :
+        Extraction PRO (déléguée à ia/agent/json_parser.py) :
         - détecte un JSON unique
         - détecte une liste de JSON
-        - ignore le texte autour
+        - ignore le texte autour : prose libre (« Voici l'appel : … »),
+          fences markdown (```json … ```), réflexion résiduelle ;
+        - répare les erreurs classiques des LLM (backslashes non échappés,
+          virgules traînantes)
         - ne casse jamais le flux
+
+        Régression SCRUM-54 : l'ancienne version ne tentait qu'un
+        ``json.loads`` strict sur la réponse ENTIÈRE — tout JSON d'appel
+        entouré du moindre texte était perdu, donc l'outil n'était jamais
+        exécuté et la réponse texte passait pour une conclusion légitime.
         """
         raw = raw.strip()
         if not raw:
             return []
-
-        # Tentative : JSON complet
-        try:
-            obj = json.loads(raw)
-            if isinstance(obj, dict):
-                return [obj]
-            if isinstance(obj, list):
-                return obj
-        except Exception:
-            pass
-
-        # Tentative : JSON isolé dans le texte
-        # (regex possible, mais on reste simple pour robustesse)
-        return []
+        return list(_parse_json_blocks(raw))
 
     # ---------------------------------------------------------
     # NORMALISATION DES ARGUMENTS
@@ -317,6 +378,9 @@ class AgentCore:
         - collecte de la réflexion (<think> inline et champ natif Ollama)
         """
         thinking_parts: List[str] = []
+        # Réflexion du tour LLM EN COURS (inline + natif) : lue par la boucle
+        # pour détecter un outil annoncé uniquement dans le raisonnement.
+        last_round_thinking = {"text": ""}
 
         # Vrai quand le client sait streamer ET qu'un récepteur temps réel est
         # branché : on injecte alors le callback directement dans l'appel.
@@ -345,6 +409,7 @@ class AgentCore:
             collected = [part for part in (native_thinking, inline_thinking) if part]
             if collected:
                 thinking_parts.append("\n\n".join(collected))
+            last_round_thinking["text"] = "\n\n".join(collected)
             return cleaned
 
         def _result(answer: str) -> AgentResult:
@@ -369,6 +434,9 @@ class AgentCore:
 
         last_result = None
         problems: List[str] = []
+        # Relances « outil annoncé mais jamais appelé » : UNE seule par run,
+        # pour garantir un surcoût borné même face à un modèle têtu.
+        nudged_rounds = 0
 
         logger.info(
             "run_start prompt_chars=%d max_rounds=%d",
@@ -392,6 +460,44 @@ class AgentCore:
             logger.debug("json_blocks_parsed=%d", len(blocks))
 
             if not blocks:
+                # Garde-fou « outil annoncé mais jamais appelé » : une réponse
+                # en texte SANS aucun JSON, sans résultat préalable et qui
+                # ANNONCE un outil (« je vais appeler web_search », « let me
+                # use read_file »…) n'est PAS une conclusion légitime : c'est
+                # une réponse sortie de mémoire déguisée en recherche. On
+                # renvoie une relance exigeant le JSON au lieu de l'accepter.
+                announced = _detect_announced_tool(
+                    f"{last_round_thinking['text']}\n{raw}"
+                )
+                if (
+                    last_result is None
+                    and not problems
+                    and nudged_rounds == 0
+                    and announced
+                ):
+                    nudged_rounds += 1
+                    logger.warning(
+                        "tool_intent_detected rounds_used=%d tool=%s",
+                        rounds_used,
+                        announced,
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Ta réflexion annonce utiliser l’outil "
+                                f"« {announced} » mais AUCUN JSON d’appel n’a été "
+                                "produit : aucune information réelle n’a donc été "
+                                "obtenue et ta réponse actuelle sort de mémoire. "
+                                "Jette-la. Renvoie UNIQUEMENT ce JSON strict, sans "
+                                'texte autour : {"tool": "'
+                                + announced
+                                + '", "args": {...}}'
+                            ),
+                        }
+                    )
+                    continue
+
                 if last_result is None and not problems:
                     # Réponse directe en texte sans JSON : réponse légitime
                     # (salutation, explication, avis…) — renvoyée telle quelle.
