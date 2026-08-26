@@ -13,7 +13,7 @@ ligne ici + sa ligne REQUIRED_ARGS. Le system_prompt et l'API (/health,
 # from ia.agent.agent_core import ...) et sous la racine « tools » (runtime :
 # core/agent_cache.py ajoute ia/ au sys.path puis importe tools.tool_registry).
 from .math_tools import add
-from .file_tools import write_file
+from .file_tools import edit_file, write_file
 from .system_tools import (
     copy_path,
     find_file,
@@ -57,6 +57,7 @@ TOOLS = {
     "calc": calc,
     # fichiers (sandbox)
     "write_file": write_file,
+    "edit_file": edit_file,
     "list_dir": list_dir,
     "read_file": read_file,
     "find_file": find_file,
@@ -110,6 +111,7 @@ REQUIRED_ARGS = {
     "add": ["a", "b"],
     "calc": ["expression"],
     "write_file": ["filename", "content"],
+    "edit_file": ["path", "old_text", "new_text"],
     "list_dir": [],
     "read_file": ["path"],
     "find_file": ["pattern"],

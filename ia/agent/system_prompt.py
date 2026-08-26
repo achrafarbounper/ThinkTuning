@@ -210,6 +210,22 @@ def build_tools_section(tools, required_args) -> str:
             "- Fichier ou répertoire → find_file (chemin inconnu) puis"
             " read_file / list_dir."
         )
+    if "edit_file" in tools:
+        guidance.append(
+            "- Modification d'un FICHIER EXISTANT → read_file /"
+            " search_in_files d'abord pour capturer le texte exact, puis"
+            " edit_file ciblé (old_text court ET unique). Réserve write_file"
+            " à la CRÉATION d'un fichier ou à une réécriture complète voulue."
+        )
+    if {"run_python", "write_file"}.issubset(tools):
+        guidance.append(
+            "- RÈGLE « DONE » (code) : une tâche de code n'est terminée que"
+            " si tu l'as EXÉCUTÉE avec succès (run_python, ou run_command +"
+            " pytest) SANS erreur. Ne conclus jamais « ça marche » sans"
+            " preuve d'exécution. Sur échec : lis le stderr/traceback,"
+            " corrige avec edit_file, relance — jusqu'à vérification OK ;"
+            " ensuite seulement, conclus en TEXTE NORMAL."
+        )
     if "calc" in tools:
         guidance.append(
             "- Calcul non trivial → calc (ou add) ; ne calcule jamais"

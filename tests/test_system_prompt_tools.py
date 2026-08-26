@@ -95,3 +95,28 @@ def test_agentcore_default_prompt_lists_real_tools():
     prompt_thinking = AgentCore(_LLM(), enable_thinking=True).system_prompt
     assert prompt_thinking.startswith(prompt)
     assert "MODE RÉFLEXION" in prompt_thinking
+
+
+def test_build_tools_section_promotes_targeted_edit_and_done_rule():
+    """Guidance « vibecoding » : privilégier edit_file ciblé + preuve d'exécution."""
+    section = build_tools_section(TOOLS, REQUIRED_ARGS)
+    # Signature réelle listée + guidance conditionnelle présente
+    assert "- edit_file(path, old_text, new_text, replace_all=False)" in section
+    assert "Modification d'un FICHIER EXISTANT" in section
+    assert "Réserve write_file" in section
+    # Règle « DONE » : jamais conclure sans exécution probante
+    assert "RÈGLE « DONE » (code)" in section
+    assert "preuve d'exécution" in section
+    assert "corrige avec edit_file" in section
+
+
+def test_build_tools_section_hides_edit_guidance_without_the_tool():
+    """Sans edit_file au registre : ni signature ni guidance associée (pas de
+    règle annonçant un outil inexistant), mais la règle « DONE » reste car
+    run_python/write_file sont toujours présents."""
+    subset_tools = {k: v for k, v in TOOLS.items() if k != "edit_file"}
+    section = build_tools_section(subset_tools, REQUIRED_ARGS)
+    assert "- edit_file(" not in section
+    assert "Modification d'un FICHIER EXISTANT" not in section
+    assert "edit_file ciblé" not in section
+    assert "RÈGLE « DONE » (code)" in section  # dépend de run_python+write_file
