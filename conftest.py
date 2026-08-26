@@ -9,7 +9,20 @@ the repository root.
 
 import os
 import sys
+import tempfile
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+# Isolation GLOBALE des paramètres persistants de l'agent : pendant les tests,
+# la base SQLite de core.agent_settings doit pointer vers un fichier temporaire
+# (jamais experiments/agent_settings.db) pour qu'aucun test n'écrase la
+# configuration réelle ni ne dépende d'une config sauvegardée manuellement.
+# L'env var doit être posée AVANT le premier agent_config() ; le store étant
+# créé paresseusement, chaque module qui en a besoin peut aussi appeler
+# core.agent_settings.reset_store_for_tests(...) pour un fichier par test.
+if not os.getenv("AGENT_SETTINGS_PATH"):
+    os.environ["AGENT_SETTINGS_PATH"] = os.path.join(
+        tempfile.gettempdir(), "thinktuning-test-agent-settings.db"
+    )

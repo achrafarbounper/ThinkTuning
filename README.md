@@ -398,6 +398,44 @@ est séparée de la réponse finale et affichée dans une bulle repliable du cha
   (`AgentCore.extract_json_blocks` délègue à `ia/agent/json_parser.py`).
 - **Tests** : `pytest tests/test_agent_thinking.py -v` (tests offline).
 
+### Provider LLM : Ollama ou OpenRouter
+
+Le même agent peut consommer soit un serveur Ollama auto-hébergé (historique),
+soit l'API hébergée [OpenRouter](https://openrouter.ai/) (compatible OpenAI,
+accès à des centaines de modèles cloud dont les modèles de raisonnement).
+La bascule est **globale côté serveur**, par variable d'environnement :
+
+| Variable | Rôle |
+|---|---|
+| `AGENT_PROVIDER` | `ollama` (défaut) ou `openrouter` |
+| `AGENT_MODEL_NAME` | nom du modèle (`llama3.1:8b`, ou ID OpenRouter `vendor/model`) |
+| `AGENT_OLLAMA_URL` | endpoint chat Ollama (`/api/chat`) |
+| `AGENT_OPENROUTER_URL` | endpoint OpenRouter (`…/api/v1/chat/completions`) |
+| `OPENROUTER_API_KEY` | clé API OpenRouter — **requise** si provider = openrouter |
+
+Exemple pour passer à OpenRouter (`.env`) :
+
+```env
+AGENT_PROVIDER=openrouter
+AGENT_MODEL_NAME=deepseek/deepseek-r1:free
+OPENROUTER_API_KEY=sk-or-v1-…
+```
+
+Comportements notables :
+
+- **Mode « Réflexion »** : fonctionne dans les deux cas. Côté Ollama le champ
+  natif `message.thinking` est lu ; côté OpenRouter le flux SSE porte la trace
+  via `choices[0].delta.reasoning` (repli `reasoning_content`), diffusée en
+  temps réel via les mêmes événements `thinking_delta`. Les balises `<think>`
+  inline restent extraites en repli.
+- **Sélecteur de modèle du chat** : `/api/models` liste les modèles installés
+  sur Ollama (`GET /api/tags`) OU disponibles sur OpenRouter (`GET /api/v1/models`)
+  selon le provider actif ; le contrat JSON est identique, aucun changement
+  dashboard requis.
+- **Clé manquante** : démarrage avec `AGENT_PROVIDER=openrouter` sans
+  `OPENROUTER_API_KEY` → réponse HTTP 500 explicite au premier appel.
+- **Tests** : `pytest tests/test_agent_openrouter.py -v` (tests offline).
+
 ### Outils disponibles
 
 | Catégorie | Outil | Signature | Description |
