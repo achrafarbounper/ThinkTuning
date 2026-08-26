@@ -510,3 +510,133 @@
     transition: none !important;
   }
 }
+
+/* ------------------------ Mode « Réflexion » ----------------------- */
+
+/* Toggle de l'en-tête, à gauche du sélecteur de modèle. */
+.copilot-chat__think-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--chat-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.copilot-chat__think-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.copilot-chat__think-toggle:hover {
+  color: var(--chat-text);
+  background: var(--chat-accent-soft);
+}
+
+/* État actif : même vocabulaire visuel que les autres accents du chat. */
+.copilot-chat__think-toggle[data-active='true'],
+.copilot-chat__think-toggle[aria-pressed='true'] {
+  color: var(--chat-accent);
+  background: var(--chat-accent-soft);
+  border-color: var(--chat-accent-border);
+}
+
+/* Sur très petit écran, l'intitulé disparaît au profit de l'icône. */
+@media (max-width: 480px) {
+  .copilot-chat__think-label {
+    display: none;
+  }
+
+  .copilot-chat__think-toggle {
+    width: 28px;
+    justify-content: center;
+    padding: 0;
+  }
+}
+
+/* Bloc repliable « 💭 Réflexion » des messages de l'assistant. */
+.chat-thinking {
+  margin-bottom: 8px;
+  overflow: hidden;
+  background: var(--chat-accent-soft);
+  border: 1px solid var(--chat-accent-border);
+  border-radius: 10px;
+}
+
+.chat-message--user .chat-thinking {
+  display: none; /* défense profonde : jamais de réflexion côté utilisateur */
+}
+
+.chat-thinking__toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--chat-accent);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-thinking__toggle:hover {
+  filter: brightness(0.92);
+}
+
+.chat-thinking__toggle:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: -2px;
+}
+
+.chat-thinking__icon {
+  flex: none;
+  font-size: 13px;
+}
+
+.chat-thinking[data-streaming='true'] .chat-thinking__label {
+  animation: chat-pulse 1.4s ease-in-out infinite;
+}
+
+.chat-thinking__chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.chat-thinking__toggle[aria-expanded='true'] .chat-thinking__chevron {
+  transform: rotate(90deg);
+}
+
+/* Contenu de la réflexion : italique grisé, préserve les retours à la ligne. */
+.chat-thinking__content {
+  max-height: 240px;
+  margin: 0;
+  padding: 8px 12px 10px;
+  overflow-y: auto;
+  font-family: inherit;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.55;
+  color: var(--chat-text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px dashed var(--chat-accent-border);
+}

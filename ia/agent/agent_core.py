@@ -1,24 +1,32 @@
 """Boucle de l'agent : planification JSON -> exécution d'outils -> réponse finale.
 
-Correctifs du bug « l'agent ne montre pas le contenu du fichier » :
-    1. AUTO-CORRECTION : réponse sans JSON, tool inconnu ou arguments manquants
-       sont renvoyés AU LLM (jusqu'à MAX_TOOL_ROUNDS tentatives) avec la liste
-       des outils valides, au lieu de terminer le run sur une erreur brute ;
-    2. FIDÉLITÉ : la réponse finale doit reproduire le résultat de l'outil tel
-       quel et n'a plus le droit d'inventer un contenu quand le résultat est
-       vide ou en erreur ;
-    3. Le system prompt est généré depuis le registre des outils (voir
-       agent/system_prompt.py) : plus de dérive prompt <-> réalité.
+Comportements clés :
+    1. OUTILS CONNUS : le system prompt par défaut est généré depuis le
+       registre réel des outils (system_prompt.build_system_prompt) — le
+       modèle connaît les noms/arguments (web_search, read_file…) et sait
+       QUAND les appeler ; sans cela il devine ses propres outils et répond
+       de mémoire (bug « qui a gagné la coupe du monde 2026 ») ;
+    2. RÉPONSE DIRECTE : une réponse en TEXTE NORMAL sans JSON au premier
+       tour est légitime (salutation, explication…) et renvoyée telle
+       quelle — l'ancien préfixe « Réponse non exploitable » pénalisait
+       toute question n'exigeant pas d'outil ;
+    3. AUTO-CORRECTION : tool inconnu, arguments manquants ou erreur
+       d'exécution sont renvoyés AU LLM (jusqu'à max_rounds tentatives)
+       avec la liste des outils valides ;
+    4. FIDÉLITÉ : après un tool, la conclusion doit s'appuyer sur le
+       résultat obtenu, pas inventer un contenu.
 """
 
 import json
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
 # Import relatif : fonctionne à la fois sous le paquet `ia.agent` (tests)
 # et sous le paquet racine `agent` (core/agent_cache.py ajoute ia/ au sys.path).
-from .system_prompt import SYSTEM_PROMPT
+from .system_prompt import THINKING_PROMPT_SECTION, build_system_prompt
+from .thinking import extract_thinking
 
 
 # ============================================================
@@ -37,6 +45,22 @@ logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
 MAX_RESULT_CHARS = 4000
 MAX_LLM_ROUNDS = 6
+
+
+@dataclass
+class AgentResult:
+    """Résultat détaillé d'un run de l'agent.
+
+    Attributes:
+        answer:   réponse finale destinée à l'utilisateur.
+        thinking: trace de réflexion collectée pendant le run ("" quand le
+                  mode « Réflexion » est désactivé ou que le modèle n'a rien
+                  émis). Alimentée par les balises <think> inline ET le champ
+                  natif « message.thinking » d'Ollama.
+    """
+
+    answer: str
+    thinking: str = ""
 
 
 def _stringify(result: Any) -> str:
@@ -97,13 +121,29 @@ class AgentCore:
         max_rounds: int = MAX_LLM_ROUNDS,
         enable_logging: bool = False,
         edge_tabs: Optional[List[Dict[str, Any]]] = None,
+        enable_thinking: bool = False,
     ):
         """
         `system_prompt` est optionnel : s'il n'est pas fourni (ou vide),
         le SYSTEM_PROMPT par défaut de ia/agent/system_prompt.py est utilisé.
+
+        `enable_thinking` active le mode « Réflexion » : une section dédiée
+        est ajoutée au prompt système (le modèle raisonne entre balises
+        <think></think> avant ses JSON / réponses finales) et run_detailed()
+        expose la trace collectée. Combiné à LLMClient(think=True), il
+        exploite en plus le champ natif « message.thinking » d'Ollama.
         """
         self.llm = llm_client
-        self.system_prompt = system_prompt if system_prompt else SYSTEM_PROMPT
+        # Prompt par défaut : généré depuis le registre RÉEL des outils pour
+        # que le modèle connaisse les noms/arguments et sache QUAND les
+        # appeler (sinon il « devine » ses outils et répond de mémoire).
+        base_prompt = (
+            system_prompt if system_prompt else build_system_prompt(TOOLS, REQUIRED_ARGS)
+        )
+        self.enable_thinking = bool(enable_thinking)
+        self.system_prompt = (
+            base_prompt + THINKING_PROMPT_SECTION if self.enable_thinking else base_prompt
+        )
         self.max_rounds = max(2, int(max_rounds))
         self.enable_logging = enable_logging
         self.edge_tabs = edge_tabs or []
@@ -259,14 +299,56 @@ class AgentCore:
     # ---------------------------------------------------------
 
     def run(self, user_prompt: str) -> str:
+        """Réponse finale seule (comportement historique, rétro-compatible)."""
+        return self.run_detailed(user_prompt).answer
+
+    def run_detailed(
+        self,
+        user_prompt: str,
+        on_thinking: Optional[Callable[[str], None]] = None,
+    ) -> AgentResult:
         """
-        Pipeline PRO :
-        - system prompt
+        Pipeline PRO complet :
+        - system prompt (+ section « Réflexion » si enable_thinking)
         - contexte Edge tabs
         - multi-round
         - auto-correction
         - conclusion propre
+        - collecte de la réflexion (<think> inline et champ natif Ollama)
         """
+        thinking_parts: List[str] = []
+
+        # Vrai quand le client sait streamer ET qu'un récepteur temps réel est
+        # branché : on injecte alors le callback directement dans l'appel.
+        streaming_llm = on_thinking is not None and callable(
+            getattr(self.llm, "call_stream", None)
+        )
+
+        def _call_llm(messages) -> str:
+            """Appelle le LLM, en streamant la réflexion vers on_thinking."""
+            if streaming_llm:
+                return self.llm.call_stream(messages, on_thinking=on_thinking)
+            return self.llm.call(messages)
+
+        def _capture(raw: str) -> str:
+            """Nettoie une réponse brute et archive sa réflexion éventuelle."""
+            cleaned, inline_thinking = extract_thinking(raw)
+            native_thinking = str(getattr(self.llm, "last_thinking", "") or "").strip()
+            if on_thinking is not None:
+                # Client non-stream (FakeLLM…) : la trace native n'a pas été
+                # émise au fil de l'eau, on la transmet ici en bloc. Le repli
+                # inline est toujours émis (aller-retour API hors streaming).
+                if not streaming_llm and native_thinking:
+                    on_thinking(native_thinking)
+                if inline_thinking:
+                    on_thinking(inline_thinking)
+            collected = [part for part in (native_thinking, inline_thinking) if part]
+            if collected:
+                thinking_parts.append("\n\n".join(collected))
+            return cleaned
+
+        def _result(answer: str) -> AgentResult:
+            return AgentResult(answer=answer, thinking="\n\n".join(thinking_parts))
 
         system = {"role": "system", "content": self.system_prompt}
 
@@ -300,7 +382,7 @@ class AgentCore:
             logger.info("round start=%d/%d", round_idx + 1, self.max_rounds)
             self._log(f"--- Round {round_idx + 1}/{self.max_rounds} ---")
 
-            raw = self.llm.call(messages)
+            raw = _capture(_call_llm(messages))
             logger.debug("llm_raw_response=%s", raw)
             self._log("LLM:", raw)
 
@@ -311,12 +393,16 @@ class AgentCore:
 
             if not blocks:
                 if last_result is None and not problems:
+                    # Réponse directe en texte sans JSON : réponse légitime
+                    # (salutation, explication, avis…) — renvoyée telle quelle.
+                    # Les cas « un outil était nécessaire » sont couverts en
+                    # amont par la liste d'outils du prompt (build_system_prompt).
                     logger.info(
-                        "run_done reason=unusable_first_answer rounds_used=%d answer_chars=%d",
+                        "run_done reason=direct_text_answer rounds_used=%d answer_chars=%d",
                         rounds_used,
                         len(raw),
                     )
-                    return f"Réponse non exploitable :\n{raw}"
+                    return _result(raw)
                 if problems:
                     raw += "\n\n[auto-correction] " + " | ".join(problems)
                 logger.info(
@@ -324,7 +410,7 @@ class AgentCore:
                     rounds_used,
                     len(raw),
                 )
-                return raw
+                return _result(raw)
 
             problem, last_result = self._execute(blocks, last_result)
 
@@ -351,7 +437,7 @@ class AgentCore:
         if problems:
             conclusion += " Problèmes : " + " | ".join(problems)
 
-        answer = self.llm.call([*messages, {"role": "user", "content": conclusion}])
+        answer = _capture(_call_llm([*messages, {"role": "user", "content": conclusion}]))
 
         if problems:
             answer += "\n\n[auto-correction] " + " | ".join(problems)
@@ -361,4 +447,4 @@ class AgentCore:
             rounds_used,
             len(answer),
         )
-        return answer
+        return _result(answer)

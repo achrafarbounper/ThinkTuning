@@ -124,12 +124,16 @@ def test_llm_client_logs_request_and_response(caplog, monkeypatch):
         def raise_for_status(self):
             pass
 
-        def json(self):
-            return {"message": {"content": "réponse du modèle"}}
+        def iter_lines(self, decode_unicode=False):
+            yield '{"message": {"content": "réponse du modèle"}, "done": true}'
 
-    def fake_post(url, json=None, timeout=None):
+        def close(self):
+            pass
+
+    def fake_post(url, json=None, timeout=None, stream=False):
         assert url == "http://ollama.test/api/chat"
         assert json["model"] == "llama3.1:8b"
+        assert json["stream"] is True
         return FakeResp()
 
     monkeypatch.setattr("requests.post", fake_post)
@@ -156,10 +160,40 @@ def test_llm_client_logs_request_and_response(caplog, monkeypatch):
     )
 
 
+def test_llm_client_parses_bytes_lines_when_no_charset(monkeypatch):
+    """Correction : Ollama renvoie `Content-Type: application/x-ndjson` sans
+    charset, donc `iter_lines(decode_unicode=True)` fournit des `bytes`.
+    L'appel ne doit plus lever
+    `TypeError: startswith first arg must be bytes or a tuple of bytes, not str`.
+    """
+    from ia.agent.llm_client import LLMClient
+
+    class FakeResp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def iter_lines(self, decode_unicode=False):
+            # Simule le comportement réel de requests quand l'encodage est
+            # indéterminé : les lignes sont émises en tant que `bytes` UTF-8.
+            yield ('{"message": {"content": "réponse de bytes"}, "done": true}').encode("utf-8")
+
+        def close(self):
+            pass
+
+    def fake_post(url, json=None, timeout=None, stream=False):
+        return FakeResp()
+
+    monkeypatch.setattr("requests.post", fake_post)
+    client = LLMClient("http://ollama.test/api/chat", "llama3.1:8b", timeout=5)
+    assert client.call([{"role": "user", "content": "bonjour"}]) == "réponse de bytes"
+
+
 def test_llm_client_logs_timeout_as_error(caplog, monkeypatch):
     from ia.agent import llm_client as llm_module
 
-    def slow_post(url, json=None, timeout=None):
+    def slow_post(url, json=None, timeout=None, stream=False):
         raise llm_module.requests.exceptions.Timeout("too slow")
 
     monkeypatch.setattr(llm_module.requests, "post", slow_post)

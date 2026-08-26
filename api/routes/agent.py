@@ -62,6 +62,7 @@ def agent_status():
         "model": cfg["model"],
         "ollama_url": cfg["ollama_url"],
         "timeout_seconds": cfg["timeout"],
+        "context_length": cfg["context_length"],
         "auth_required": True,  # l'API principale applique toujours X-API-Key
         "tools": sorted(TOOLS),
     }

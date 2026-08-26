@@ -107,12 +107,19 @@ def test_agentcore_runs_tool_then_explains():
     assert "42" in llm.calls[1][-1]["content"]
 
 
-def test_agentcore_reports_unusable_llm_answer():
+def test_agentcore_returns_direct_text_answer_when_no_tool_needed():
+    """Réponse texte sans JSON au 1er tour = réponse valide renvoyée telle quelle.
+
+    Comportement volontairement modifié (ex-« Réponse non exploitable ») :
+    la liste des outils étant désormais injectée dans le prompt système, une
+    réponse directe en texte est légitime (salutation, explication…) et ne
+    doit plus être écrasée par un préfixe d'erreur.
+    """
     llm = FakeLLM()
-    llm.replies = ["Bonjour ! Pas de JSON ici."]
+    llm.replies = ["Bonjour ! Comment puis-je vous aider ?"]
     answer = AgentCore(llm).run("salut")
 
-    assert "Réponse non exploitable" in answer
+    assert answer == "Bonjour ! Comment puis-je vous aider ?"
 
 
 def test_agentcore_auto_corrects_unknown_tool():
