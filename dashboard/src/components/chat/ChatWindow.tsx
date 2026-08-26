@@ -38,6 +38,9 @@ const API_CONFIG_STORAGE_KEY = 'thinktuning.apiConfig';
 /** Clé de persistance du modèle LLM choisi pour le chat (localStorage). */
 const CHAT_MODEL_STORAGE_KEY = 'thinktuning.chatModel';
 
+/** Clé de persistance du mode « Réflexion » (localStorage). */
+const THINKING_STORAGE_KEY = 'thinktuning.enableThinking';
+
 /** Distance (px) sous laquelle on considère que l'utilisateur « suit » le bas. */
 const SCROLL_THRESHOLD_PX = 80;
 
@@ -80,6 +83,15 @@ function loadStoredChatModel(): string {
   }
 }
 
+/** Relit l'état persisté du mode « Réflexion » (désactivé par défaut). */
+function loadStoredThinking(): boolean {
+  try {
+    return window.localStorage.getItem(THINKING_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -90,6 +102,9 @@ export function ChatWindow() {
   const [llmModels, setLlmModels] = useState<LlmModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>(loadStoredChatModel);
   const [modelsLoading, setModelsLoading] = useState(true);
+  // Mode « Réflexion » : transmis au backend (enable_thinking) pour chaque
+  // message et persisté en localStorage comme le modèle sélectionné.
+  const [enableThinking, setEnableThinking] = useState<boolean>(loadStoredThinking);
   const [modelsError, setModelsError] = useState('');
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -157,6 +172,19 @@ export function ChatWindow() {
     }
   }, []);
 
+  /** Active/désactive le mode « Réflexion » et persiste le choix. */
+  const handleThinkingToggle = useCallback(() => {
+    setEnableThinking((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(THINKING_STORAGE_KEY, String(next));
+      } catch {
+        /* stockage indisponible : le choix reste valable pour la session */
+      }
+      return next;
+    });
+  }, []);
+
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
@@ -176,6 +204,17 @@ export function ChatWindow() {
     setMessages((previous) =>
       previous.map((message) =>
         message.id === id ? { ...message, content: message.content + delta } : message,
+      ),
+    );
+  }, []);
+
+  /** Ajoute un fragment de réflexion au message en cours de streaming. */
+  const appendThinkingDelta = useCallback((id: string, delta: string) => {
+    setMessages((previous) =>
+      previous.map((message) =>
+        message.id === id
+          ? { ...message, thinking: (message.thinking ?? '') + delta, thinkingStreaming: true }
+          : message,
       ),
     );
   }, []);
@@ -220,7 +259,15 @@ export function ChatWindow() {
       setMessages((previous) => [
         ...previous,
         { id: createId(), role: 'user', content: trimmed, createdAt: nowIso() },
-        { id: assistantId, role: 'assistant', content: '', createdAt: nowIso(), streaming: true },
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          createdAt: nowIso(),
+          streaming: true,
+          thinking: '',
+          thinkingStreaming: false,
+        },
       ]);
       setStickToBottom(true);
       setIsLoading(true);
@@ -232,6 +279,10 @@ export function ChatWindow() {
         const body: ChatRequestBody = { message: trimmed, history };
         // Modèle choisi via le sélecteur de l'en-tête ('' = défaut serveur).
         if (selectedModel) body.model = selectedModel;
+        // Mode « Réflexion » : la trace arrivera via les événements thinking_delta.
+        // Le backend déclare le champ en snake_case (« enable_thinking ») : la
+        // forme camelCase serait ignorée par Pydantic et le mode ne s'activerait pas.
+        if (enableThinking) body.enable_thinking = true;
         // POST /api/ai est protégé par require_api_key côté backend : on
         // transmet la clé via X-API-Key quand elle est disponible.
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -266,6 +317,7 @@ export function ChatWindow() {
             }
 
             if (event.error) throw new Error(event.error);
+            if (event.thinking_delta) appendThinkingDelta(assistantId, event.thinking_delta);
             if (event.delta) appendDelta(assistantId, event.delta);
           }
         } else {
@@ -280,12 +332,12 @@ export function ChatWindow() {
           patchMessage(assistantId, { error: detail });
         }
       } finally {
-        patchMessage(assistantId, { streaming: false });
+        patchMessage(assistantId, { streaming: false, thinkingStreaming: false });
         setIsLoading(false);
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, patchMessage, selectedModel],
+    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking],
   );
 
   const isEmpty = messages.length === 0;
@@ -298,6 +350,17 @@ export function ChatWindow() {
         <span className="copilot-chat__status-dot" data-active={isLoading} aria-hidden="true" />
         <h2 className="copilot-chat__title">Assistant IA</h2>
         <div className="copilot-chat__actions">
+          <button
+            type="button"
+            className="copilot-chat__think-toggle"
+            data-active={enableThinking || undefined}
+            onClick={handleThinkingToggle}
+            aria-pressed={enableThinking}
+            title="Mode Réflexion : l'agent raisonne avant de répondre (trace affichée)"
+          >
+            <ThinkIcon />
+            <span className="copilot-chat__think-label">Réflexion</span>
+          </button>
           <ChatModelSelector
             models={llmModels}
             selected={selectedModel}
@@ -348,6 +411,25 @@ export function ChatWindow() {
 
       <ChatInput busy={isLoading} onSend={sendMessage} onStop={stopGeneration} />
     </section>
+  );
+}
+
+/** Icône « ampoule » du bouton Réflexion (mode chain-of-thought). */
+function ThinkIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2l.1.7h4.8l.1-.7c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3Z" />
+      <path d="M9.5 19.5h5" />
+      <path d="M10.5 22h3" />
+    </svg>
   );
 }
 

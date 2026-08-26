@@ -356,6 +356,38 @@ Routes (auth principale `X-API-Key`, sauf `/status` qui est public) :
   (tool inconnu, arguments manquants, erreur d'exécution), l'erreur est renvoyée
   au LLM qui se corrige automatiquement (plafonné à `MAX_LLM_ROUNDS` tours).
 
+### Mode « Réflexion » (thinking)
+
+L'agent peut raisonner explicitement avant de répondre : la trace de raisonnement
+est séparée de la réponse finale et affichée dans une bulle repliable du chat.
+
+- **Activation** : toggle « Réflexion » de l'en-tête du chat (choix persisté en
+  localStorage), ou champ `"enable_thinking": true` dans `POST /api/ai`
+  (désactivé par défaut).
+- **Deux mécanismes complémentaires** :
+  - *induit par le prompt* : la section `THINKING_PROMPT_SECTION`
+    (`ia/agent/system_prompt.py`) demande au modèle d'encadrer son raisonnement
+    par des balises `<think>…</think>`, extraites par `ia/agent/thinking.py`
+    avant le parsing JSON des outils — fonctionne avec n'importe quel modèle,
+    y compris `llama3.1:8b` ;
+  - *natif Ollama* : avec un modèle de raisonnement (`deepseek-r1`, `qwen3`,
+    `gpt-oss`…), `LLMClient(think=True)` envoie `"think": true` et lit le champ
+    `message.thinking` (repli automatique sur les balises inline pour les
+    serveurs Ollama anciens).
+- **Streaming réelle** : `LLMClient` appelle Ollama avec `stream: true` et
+  consomme le flux NDJSON (`message.thinking` et `message.content`). En mode
+  « Réflexion », la trace est diffusée EN TEMPS RÉEL via les événements SSE
+  `{"thinking_delta": "…"}` pendant la génération (avant la réponse finale),
+  elle s'affiche donc progressivement dans la bulle repliable du chat. Sans
+  réflexion, aucun événement `thinking_delta` : contrat inchangé.
+- **API Python** : `AgentCore.run_detailed(prompt, on_thinking=None) ->
+  AgentResult(answer, thinking)` et `core.agent_cache.ask_agent_detailed(prompt,
+  model, enable_thinking) -> {"answer", "thinking"}` exposent la trace ;
+  `run()` / `ask_agent()` conservent leur comportement historique (réponse
+  seule). `ask_agent_detailed_streaming(...)` propage en plus la réflexion
+  au fil de l'eau via un callback.
+- **Tests** : `pytest tests/test_agent_thinking.py -v` (20 tests offline).
+
 ### Outils disponibles
 
 | Catégorie | Outil | Signature | Description |

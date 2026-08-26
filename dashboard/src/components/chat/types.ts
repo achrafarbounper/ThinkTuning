@@ -19,6 +19,14 @@ export interface ChatMessageData {
   streaming?: boolean;
   /** Message d'erreur si la génération a échoué. */
   error?: string;
+  /**
+   * Trace de raisonnement de l'assistant (mode « Réflexion » activé),
+   * accumulée progressivement pendant le streaming. Vide côté utilisateur
+   * ou quand le mode est désactivé.
+   */
+  thinking?: string;
+  /** Vrai tant que la trace de réflexion est encore en cours d'émission. */
+  thinkingStreaming?: boolean;
 }
 
 /** Corps JSON attendu par le backend : POST /api/ai */
@@ -32,6 +40,14 @@ export interface ChatRequestBody {
    * Absent ou vide : modèle par défaut de la configuration serveur.
    */
   model?: string;
+  /**
+   * Mode « Réflexion » : l'agent raisonne avant de répondre et la trace est
+   * diffusée via les événements SSE `thinking_delta`. Désactivé par défaut.
+   *
+   * Nom bref du champ côté backend (contrat /api/ai) : Pydantic attend la forme
+   * snake_case « enable_thinking » — la forme camelCase est ignorée silencieusement.
+   */
+  enable_thinking?: boolean;
 }
 
 /** Un modèle LLM disponible côté serveur (installé sur Ollama). */
@@ -58,6 +74,11 @@ export interface LlmModelsResponse {
 export interface ChatStreamEvent {
   /** Fragment de texte à ajouter à la réponse. */
   delta?: string;
+  /**
+   * Fragment de la trace de réflexion (mode « Réflexion » activé). Ces
+   * événements sont émis par le backend AVANT les fragments de réponse.
+   */
+  thinking_delta?: string;
   /** Message d'erreur éventuel envoyé par le backend. */
   error?: string;
 }

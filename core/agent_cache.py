@@ -39,6 +39,8 @@ __all__ = [
     "TOOLS",
     "agent_config",
     "ask_agent",
+    "ask_agent_detailed",
+    "ask_agent_detailed_streaming",
     "get_agent_runner",
     "list_llm_models",
     "reload_agent_runner",
@@ -47,6 +49,10 @@ __all__ = [
 DEFAULT_OLLAMA_URL = "http://192.168.1.184:11434/api/chat"
 DEFAULT_MODEL_NAME = "llama3.1:8b"
 DEFAULT_TIMEOUT_SECONDS = 600.0
+
+# Taille de fenêtre de contexte (tokens) appliquée par défaut à l'agent,
+# transmise à Ollama via `options.num_ctx` (env AGENT_CONTEXT_LENGTH).
+DEFAULT_CONTEXT_LENGTH = 2048
 
 # Timeout (secondes) de l'appel GET /api/tags utilisé pour lister les modèles.
 OLLAMA_TAGS_TIMEOUT_SECONDS = 10.0
@@ -69,11 +75,15 @@ def agent_config() -> dict:
         AGENT_OLLAMA_URL       URL du endpoint chat Ollama
         AGENT_MODEL_NAME       nom du modèle (ex: llama3.1:8b)
         AGENT_TIMEOUT_SECONDS  timeout en secondes des appels LLM
+        AGENT_CONTEXT_LENGTH   taille de fenêtre de contexte (tokens), défaut 2048
     """
     return {
         "ollama_url": os.getenv("AGENT_OLLAMA_URL", DEFAULT_OLLAMA_URL),
         "model": os.getenv("AGENT_MODEL_NAME", DEFAULT_MODEL_NAME),
         "timeout": float(os.getenv("AGENT_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)),
+        "context_length": int(
+            os.getenv("AGENT_CONTEXT_LENGTH", DEFAULT_CONTEXT_LENGTH)
+        ),
     }
 
 
@@ -84,22 +94,47 @@ def _ollama_base_url() -> str:
     return url[:marker].rstrip("/") if marker != -1 else url.rstrip("/")
 
 
-def _build_runner(model_name: str | None = None) -> AgentRunner:
-    """Fabrique un runner de l'agent pour le modèle demandé (ou la config env)."""
+def _build_runner(model_name: str | None = None, enable_thinking: bool = False) -> AgentRunner:
+    """Fabrique un runner de l'agent pour le modèle demandé (ou la config env).
+
+    ``enable_thinking=True`` active le mode « Réflexion » des deux côtés :
+    paramètre « think » côté Ollama (LLMClient) et section de prompt +
+    extraction <think> côté noyau (AgentCore).
+    """
     cfg = agent_config()
-    llm = LLMClient(cfg["ollama_url"], model_name or cfg["model"], timeout=cfg["timeout"])
-    return AgentRunner(AgentCore(llm))
+    llm = LLMClient(
+        cfg["ollama_url"],
+        model_name or cfg["model"],
+        timeout=cfg["timeout"],
+        think=enable_thinking,
+        context_length=cfg["context_length"],
+    )
+    return AgentRunner(AgentCore(llm, enable_thinking=enable_thinking))
 
 
-def get_agent_runner(model: str | None = None) -> AgentRunner:
+def get_agent_runner(model: str | None = None, enable_thinking: bool = False) -> AgentRunner:
     """Renvoie le runner mis en cache, ou le construit au premier appel.
 
-    Sans ``model`` (ou pour le modèle configuré par défaut) : runner partagé,
-    injectable dans les tests via ``monkeypatch.setattr(agent_cache, "_runner",
-    ...)``. Avec un nom de modèle explicite : runner dédié, mis en cache par
-    modèle afin de supporter le sélecteur de modèle du dashboard.
+    Sans ``model`` (ou pour le modèle configuré par défaut) et sans mode
+    « Réflexion » : runner partagé, injectable dans les tests via
+    ``monkeypatch.setattr(agent_cache, "_runner", ...)``. Avec un nom de
+    modèle explicite ou ``enable_thinking=True`` : runner dédié, mis en cache
+    (clé « <modèle>::thinking » pour ce dernier) afin de supporter le
+    sélecteur de modèle et le toggle « Réflexion » du dashboard.
     """
     requested = (model or "").strip()
+
+    if enable_thinking:
+        # Runner séparé du chemin historique : le toggle « Réflexion » du chat
+        # ne doit ni remplacer ni polluer le runner partagé (injecté en tests).
+        with _runner_lock:
+            cache_key = f"{requested}::thinking"
+            if cache_key not in _override_runners:
+                _override_runners[cache_key] = _build_runner(
+                    requested or None, enable_thinking=True
+                )
+            return _override_runners[cache_key]
+
     if not requested or requested == agent_config()["model"]:
         global _runner
         with _runner_lock:
@@ -184,21 +219,16 @@ def list_llm_models() -> dict:
     return {"active": active_model, "models": models}
 
 
-def ask_agent(prompt: str, model: str | None = None) -> str:
-    """Envoie le prompt à l'agent et traduit les erreurs réseau en HTTP.
+def _ask_runner_with_http_errors(runner: AgentRunner, prompt: str, effective_model: str):
+    """Exécute runner.ask_detailed(prompt) en traduisant les erreurs réseau.
 
     Sémantique HTTP :
         Timeout LLM          -> 504
         Ollama injoignable   -> 502
         Erreur HTTP d'Ollama -> 502
-
-    ``model`` permet d'utiliser un autre modèle que celui de la configuration
-    (sélecteur de modèle du chat) sans toucher aux variables AGENT_*.
     """
-    effective_model = (model or "").strip() or agent_config()["model"]
-    runner = get_agent_runner(effective_model)
     try:
-        return runner.ask(prompt)
+        return runner.ask_detailed(prompt)
     except requests.exceptions.Timeout:
         raise HTTPException(
             status_code=504,
@@ -218,3 +248,76 @@ def ask_agent(prompt: str, model: str | None = None) -> str:
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
         raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).")
+
+
+def ask_agent(prompt: str, model: str | None = None) -> str:
+    """Envoie le prompt à l'agent et traduit les erreurs réseau en HTTP.
+
+    Renvoie la réponse finale seule ; voir ``ask_agent_detailed`` pour la
+    version incluant la trace de réflexion.
+
+    ``model`` permet d'utiliser un autre modèle que celui de la configuration
+    (sélecteur de modèle du chat) sans toucher aux variables AGENT_*.
+    """
+    effective_model = (model or "").strip() or agent_config()["model"]
+    runner = get_agent_runner(effective_model)
+    return _ask_runner_with_http_errors(runner, prompt, effective_model).answer
+
+
+def ask_agent_detailed(
+    prompt: str,
+    model: str | None = None,
+    enable_thinking: bool = False,
+) -> dict:
+    """Comme ``ask_agent``, mais renvoie aussi la trace de réflexion.
+
+    Retour : ``{"answer": str, "thinking": str}`` où ``thinking`` vaut ""
+    quand le mode « Réflexion » est désactivé ou que le modèle n'a rien émis.
+    Même sémantique HTTP que ``ask_agent`` ; ``enable_thinking`` bascule sur
+    un runner dédié (prompt enrichi + paramètre « think » Ollama).
+    """
+    effective_model = (model or "").strip() or agent_config()["model"]
+    runner = get_agent_runner(effective_model, enable_thinking)
+    result = _ask_runner_with_http_errors(runner, prompt, effective_model)
+    return {"answer": result.answer, "thinking": result.thinking}
+
+
+def ask_agent_detailed_streaming(
+    prompt: str,
+    model: str | None = None,
+    enable_thinking: bool = False,
+    on_thinking=None,
+) -> dict:
+    """Comme ``ask_agent_detailed``, mais la réflexion est diffusée EN TEMPS RÉEL.
+
+    ``on_thinking`` (optionnel — à activer quand ``enable_thinking``) est
+    invoqué pour chaque fragment de la trace de raisonnement dès sa production
+    par Ollama (l'appel est `stream: true`). Retour : ``{"answer", "thinking"}``
+    comme ``ask_agent_detailed`` ; même sémantique HTTP (504/502).
+    """
+    effective_model = (model or "").strip() or agent_config()["model"]
+    runner = get_agent_runner(effective_model, enable_thinking)
+    try:
+        result = runner.ask_detailed_streaming(prompt, on_thinking=on_thinking)
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Le LLM ({effective_model}) n'a pas répondu en "
+                f"{agent_config()['timeout']:.0f}s."
+            ),
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"LLM injoignable sur {agent_config()['ollama_url']}. "
+                "Vérifiez qu'Ollama tourne."
+            ),
+        )
+    except requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
+        )
+    return {"answer": result.answer, "thinking": result.thinking}

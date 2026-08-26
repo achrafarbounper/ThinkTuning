@@ -1,3 +1,4 @@
+import { ThinkingBlock } from './ThinkingBlock';
 import type { ChatMessageData } from './types';
 
 interface ChatMessageProps {
@@ -74,6 +75,14 @@ export function ChatMessage({ message }: ChatMessageProps) {
       </div>
 
       <div className="chat-message__body">
+        {/* Trace de raisonnement (« Réflexion »), au-dessus de la bulle. */}
+        {!isUser && message.thinking !== undefined && (
+          <ThinkingBlock
+            thinking={message.thinking}
+            streaming={Boolean(message.thinkingStreaming)}
+          />
+        )}
+
         <div className="chat-message__bubble">
           {message.content ? (
             <p className="chat-message__text">
