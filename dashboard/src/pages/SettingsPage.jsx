@@ -9,6 +9,7 @@
 
 import { useCallback, useState } from "react";
 import { useApp } from "../context/useApp";
+import { DEFAULT_BASE_URL } from "../api/sentimentApiClient";
 
 export default function SettingsPage() {
     const {
@@ -24,7 +25,7 @@ export default function SettingsPage() {
 
   // Draft local : ne modifie pas l'état global tant qu'on n'a pas sauvegardé.
   const [draft, setDraft] = useState(() => ({
-    baseUrl: config.baseUrl || "http://localhost:8000",
+    baseUrl: config.baseUrl || DEFAULT_BASE_URL,
     apiKey: config.apiKey || "",
     ...(agentSettings || {
       provider: "ollama",

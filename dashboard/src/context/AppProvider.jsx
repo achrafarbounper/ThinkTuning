@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SentimentApiClient, agentSettingsPayload, normalizeAgentSettings } from "../api/sentimentApiClient";
+import { SentimentApiClient, agentSettingsPayload, normalizeAgentSettings, DEFAULT_BASE_URL } from "../api/sentimentApiClient";
 import { AppContext } from "./appContext";
 
 const DEFAULT_MAX_HISTORY = 20;
@@ -24,10 +24,10 @@ const AGENT_DEFAULTS = {
 function loadStoredConfig() {
   try {
     const raw = window.localStorage.getItem("thinktuning.apiConfig");
-    if (!raw) return { baseUrl: "http://localhost:8000", apiKey: "" };
+    if (!raw) return { baseUrl: DEFAULT_BASE_URL, apiKey: "" };
     const parsed = JSON.parse(raw);
-    return { baseUrl: parsed.baseUrl || "http://localhost:8000", apiKey: parsed.apiKey || "" };
-  } catch { return { baseUrl: "http://localhost:8000", apiKey: "" }; }
+    return { baseUrl: parsed.baseUrl || DEFAULT_BASE_URL, apiKey: parsed.apiKey || "" };
+  } catch { return { baseUrl: DEFAULT_BASE_URL, apiKey: "" }; }
 }
 
 function loadAgentSettings() {
