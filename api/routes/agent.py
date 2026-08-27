@@ -15,10 +15,17 @@ Les endpoints sont des `def` (et non async) : FastAPI les exécute dans un
 threadpool, donc l'appel bloquant vers Ollama ne gèle pas l'event loop.
 """
 
+import asyncio
+import json
+import queue
+import threading
+import time
 from typing import Any, Optional
+from collections.abc import AsyncIterator
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.dependencies.auth import require_api_key
@@ -30,6 +37,7 @@ from core.agent_cache import (
     _openrouter_chat_url,
     agent_config,
     ask_agent_decision,
+    ask_agent_decision_streaming,
     reload_agent_runner,
 )
 from core.approval_store import (
@@ -39,6 +47,15 @@ from core.approval_store import (
     STATUSES,
     get_approval_store,
 )
+from core.run_store import (
+    AWAITING_APPROVAL as RUN_AWAITING_APPROVAL,
+    COMPLETED as RUN_COMPLETED,
+    ERROR as RUN_ERROR,
+    REJECTED as RUN_REJECTED,
+    STATUSES as RUN_STATUSES,
+    get_run_store,
+)
+from core.session_store import get_session_store
 
 router = APIRouter(prefix="/api/agent", tags=["Agent IA"])
 
@@ -55,6 +72,27 @@ class AskRequest(BaseModel):
         description="Relance une tâche en attente : id donné par une réponse "
         "« awaiting_approval » après validation humaine (approve).",
     )
+    session_id: Optional[str] = Field(
+        None,
+        description="Session de conversation (core/session_store) où journaliser "
+        "l'échange ; absent : aucune persistance côté serveur.",
+    )
+
+
+class AskStreamRequest(BaseModel):
+    """Corps de POST /api/agent/ask/stream (mode Agent temps réel).
+
+    Même contrat que ``AskRequest`` avec en plus la sélection du modèle LLM
+    et du mode « Réflexion » (sélecteurs de l'en-tête du chat).
+    """
+
+    prompt: str = Field(..., min_length=1, description="Instruction envoyée à l'agent.")
+    resume_request_id: Optional[str] = Field(None)
+    model: Optional[str] = Field(
+        None, max_length=100, description="Modèle LLM ; absent/vide = défaut serveur."
+    )
+    enable_thinking: bool = Field(False, description="Mode « Réflexion ». ")
+    session_id: Optional[str] = Field(None, description="Conversation cible (persistance).")
 
 
 class AskResponse(BaseModel):
@@ -178,12 +216,37 @@ def ask(request: AskRequest, _: bool = Depends(require_api_key)):
     Traduction des erreurs réseau (Timeout -> 504, ConnectionError -> 502)
     centralisée dans ``core.agent_cache``.
     """
+    run_store = get_run_store()
+    run_row = run_store.start_run(
+        request.prompt, model=agent_config()["model"], source="ask"
+    )
     try:
         decision = ask_agent_decision(
-            request.prompt, resume_request_id=request.resume_request_id
+            request.prompt,
+            resume_request_id=request.resume_request_id,
+            # Mémoire de session : rejoue les tours précédents en contexte pour
+            # que l'agent se souvienne de la conversation (ex. le nom).
+            history_messages=_load_session_history(
+                request.session_id, request.resume_request_id
+            ),
         )
     except ValueError as exc:
+        run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
+
+    status_map = {
+        "completed": RUN_COMPLETED,
+        "awaiting_approval": RUN_AWAITING_APPROVAL,
+        "rejected": RUN_REJECTED,
+    }
+    run_store.finish_run(
+        run_row["id"],
+        status_map.get(decision.get("status", "completed"), RUN_COMPLETED),
+        answer_summary=(decision.get("response") or "")[:300],
+    )
+    _persist_exchange(
+        request.session_id, request.prompt, decision.get("response") or ""
+    )
 
     return AskResponse(
         response=decision["response"] or "",
@@ -191,6 +254,241 @@ def ask(request: AskRequest, _: bool = Depends(require_api_key)):
         status=decision.get("status", "completed"),
         request_id=decision.get("request_id"),
         approval=decision.get("approval"),
+    )
+
+
+# --- Streaming du mode Agent (POST /api/agent/ask/stream) ----------------------------
+
+# Cadence (secondes) de l'émission mot à mot de la réponse finale ; la
+# réflexion et les événements d'outils, eux, sont diffusés en temps réel.
+ANSWER_STREAM_CADENCE_SECONDS = 0.02
+
+
+def _stream_fragments(text: str):
+    """Découpe un texte en fragments mot à mot (générateur synchrone)."""
+    for word in text.split(" "):
+        yield word + " "
+
+
+def _sse(payload: dict | str) -> str:
+    """Formate une charge utile en événement SSE (`data: ...`)."""
+    data = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+    return "data: " + data + "\n\n"
+
+
+# Nombre maximal de paires user/assistant rejouées comme contexte de session
+# (mémoire de conversation en mode Agent). Borné pour ne pas exploser la
+# fenêtre de contexte LLM sur les longues conversations.
+MAX_SESSION_CONTEXT_TURNS = 5
+
+
+def _load_session_history(
+    session_id: Optional[str],
+    resume_request_id: Optional[str],
+) -> list[dict]:
+    """Recharge les messages précédents d'une session pour nourrir le contexte.
+
+    Mémoire de session en mode Agent : sans cela chaque tour est atomique et
+    l'agent « oublie » ce qui a été dit avant (ex. le nom de l'utilisateur).
+
+    Règles :
+        - ``session_id`` absent -> historique vide (pas de conversation à relire) ;
+        - ``resume_request_id`` présent -> historique vide : la reprise relance
+          l'état interne de l'agent, pas besoin de rejouer la conversation ;
+        - sinon, on relit les ``get_messages`` de la session et on garde les
+          ``MAX_SESSION_CONTEXT_TURNS`` dernières paires. Le tour courant n'y
+          figure pas encore (``_persist_exchange`` écrit après coup).
+        - Les ``tool_calls`` sont écartés (pas de JSON d'outils en contexte).
+
+    Retourne une liste de ``{"role": "user"|"assistant", "content": str}``,
+    vide par défaut.
+    """
+    if not session_id or resume_request_id:
+        return []
+    try:
+        store = get_session_store()
+        if store.get_session(session_id) is None:
+            return []
+        messages = store.get_messages(session_id, limit=500)
+    except Exception:  # pragma: no cover - mémoire optionnelle, jamais bloquante
+        return []
+    kept: list[dict] = []
+    for message in messages:
+        role = str(message.get("role") or "").strip().lower()
+        content = message.get("content")
+        text = content if isinstance(content, str) else str(content or "")
+        if role not in ("user", "assistant") or not text.strip():
+            continue
+        kept.append({"role": role, "content": text.strip()})
+    # Conserve seulement les N dernières paires user/assistant (les plus récents).
+    return kept[-MAX_SESSION_CONTEXT_TURNS * 2 :]
+
+
+def _persist_exchange(
+    session_id: Optional[str],
+    prompt: str,
+    answer: str,
+    tool_events: Optional[list[dict]] = None,
+) -> None:
+    """Journalise l'échange (user + assistant) dans la session demandée.
+
+    Best-effort : une session absente ou une erreur de base ne doivent jamais
+    faire échouer le tour de chat lui-même.
+    """
+    if not session_id:
+        return
+    try:
+        store = get_session_store()
+        store.append_message(session_id, "user", prompt)
+        store.append_message(session_id, "assistant", answer or "", tool_calls=tool_events)
+    except Exception:  # pragma: no cover - persistance optionnelle
+        pass
+
+
+@router.post("/ask/stream")
+def ask_stream(request: AskStreamRequest, _: bool = Depends(require_api_key)):
+    """Mode Agent en streaming SSE — le temps réel de /api/ai pour l'agent.
+
+    Contrat d'entrée : POST JSON ``AskStreamRequest``.
+    Contrat de sortie : flux SSE ->
+        data: {"tool_start":  {tool, args}}             appel d'outil annoncé
+        data: {"tool_result": {tool, status, summary…}} résultat (ok/error)
+        data: {"thinking_delta": "..."}                 réflexion (mode activé)
+        data: {"delta": "..."}                          réponse finale, mot à mot
+        data: {"final": {...AskResponse...}}            statut du gate + ids
+        data: [DONE]
+
+    Réutilisation du schéma éprouvé de /api/ai (queue.Queue + thread worker +
+    générateur asynchrone) complété par le journal des runs : chaque appel
+    crée une ligne ``running`` dans core/run_store, enrichie au vol via le
+    callback d'événements d'outils.
+    """
+    events: queue.Queue[tuple[str, object]] = queue.Queue()
+    run_store = get_run_store()
+    run_row = run_store.start_run(
+        request.prompt,
+        model=(request.model or "").strip() or agent_config()["model"],
+        source="ask-stream",
+    )
+
+    def _emit_thinking(chunk: str) -> None:
+        events.put(("thinking", chunk))
+
+    def _on_tool_event(event: dict) -> None:
+        kind = event.get("event", "tool_result")
+        events.put((kind, event))
+        tool_events.append(event)
+        try:
+            run_store.append_tool_event(run_row["id"], event)
+        except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
+            pass
+
+    tool_events: list[dict] = []
+
+    def worker() -> None:
+        try:
+            result = ask_agent_decision_streaming(
+                request.prompt,
+                model=request.model or None,
+                enable_thinking=request.enable_thinking,
+                resume_request_id=request.resume_request_id,
+                # Sans « Réflexion », aucun thinking_delta n'est émis.
+                on_thinking=_emit_thinking if request.enable_thinking else None,
+                on_tool_event=_on_tool_event,
+                # Mémoire de session : rejoue les tours précédents en contexte.
+                history_messages=_load_session_history(
+                    request.session_id, request.resume_request_id
+                ),
+            )
+            answer = result.get("answer") or ""
+            for word in _stream_fragments(answer):
+                events.put(("delta", word))
+                time.sleep(ANSWER_STREAM_CADENCE_SECONDS)
+            status_map = {
+                "completed": RUN_COMPLETED,
+                "awaiting_approval": RUN_AWAITING_APPROVAL,
+                "rejected": RUN_REJECTED,
+            }
+            run_store.finish_run(
+                run_row["id"],
+                status_map.get(result.get("status", "completed"), RUN_COMPLETED),
+                answer_summary=answer[:300],
+            )
+            # Persistance de l'échange dans la session demandée (best-effort),
+            # avec la trace complète des événements d'outils observés.
+            _persist_exchange(
+                request.session_id,
+                request.prompt,
+                answer,
+                tool_events=tool_events or None,
+            )
+            events.put(
+                (
+                    "final",
+                    {
+                        "response": answer,
+                        "model": result.get("model"),
+                        "status": result.get("status", "completed"),
+                        "request_id": result.get("request_id"),
+                        "approval": result.get("approval"),
+                    },
+                )
+            )
+        except ValueError as exc:
+            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+            events.put(("bad_request", str(exc)))
+        except HTTPException as exc:  # panne réseau déjà traduite par agent_cache
+            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc.detail))
+            events.put(("http_error", exc))
+        except Exception as exc:
+            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+            events.put(("error", str(exc)))
+        finally:
+            events.put(("done", None))
+
+    # Thread daemon : l'agent se termine seul même si le client coupe (Stop).
+    threading.Thread(target=worker, daemon=True).start()
+
+    # Réception SYNCHRONE du premier événement : une panne précoce (LLM
+    # injoignable, resume_request_id invalide) reste une vraie erreur HTTP.
+    first_kind, first_payload = events.get()
+    if first_kind == "bad_request":
+        raise HTTPException(status_code=400, detail=str(first_payload))
+    if first_kind == "http_error":
+        raise first_payload  # noqa: TRY201 - re-lever l'HTTPException d'origine
+    if first_kind == "error":
+        raise HTTPException(status_code=502, detail=str(first_payload))
+
+    async def _sse_stream() -> AsyncIterator[str]:
+        try:
+            if first_kind != "done":
+                # Rejoue le premier événement déjà consommé ci-dessus.
+                field = "thinking_delta" if first_kind == "thinking" else first_kind
+                yield _sse({field: first_payload})
+
+            while True:
+                kind, payload = await asyncio.to_thread(events.get)
+                if kind == "done":
+                    break
+                if kind in ("bad_request", "http_error", "error"):
+                    detail = payload.detail if kind == "http_error" else str(payload)
+                    yield _sse({"error": detail})
+                    break
+                field = "thinking_delta" if kind == "thinking" else kind
+                yield _sse({field: payload})
+            yield "data: [DONE]\n\n"
+        except asyncio.CancelledError:
+            # Le client a interrompu la génération (bouton Stop du chat).
+            raise
+
+    return StreamingResponse(
+        _sse_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # désactive le buffering nginx
+        },
     )
 
 
@@ -236,6 +534,43 @@ def reject_request(request_id: str, _: bool = Depends(require_api_key)):
             detail="Demande non en attente (impossible de réfuter).",
         )
     return {"status": REJECTED, "approval": row}
+
+
+# --- Journal des exécutions (runs) ----------------------------------------------------
+
+
+@router.get("/runs")
+def list_runs(
+    limit: int = 50,
+    status: Optional[str] = None,
+    tool: Optional[str] = None,
+    _: bool = Depends(require_api_key),
+):
+    """Liste paginée des exécutions de l'agent (les plus récentes d'abord).
+
+    Filtres optionnels : ``status`` (completed/error/awaiting_approval/
+    rejected/running) et ``tool`` (nom exact d'un outil présent dans la trace).
+    """
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=422, detail="limit doit être entre 1 et 200.")
+    if status is not None and status not in RUN_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Statut inconnu : '{status}'. Valeurs : {', '.join(RUN_STATUSES)}",
+        )
+    return {
+        "runs": get_run_store().list(limit=limit, status=status, tool=tool),
+        "statuses": list(RUN_STATUSES),
+    }
+
+
+@router.get("/runs/{run_id}")
+def get_run(run_id: str, _: bool = Depends(require_api_key)):
+    """Détail complet d'un run : prompt, statut, chaîne d'outils horodatée."""
+    run_row = get_run_store().get(run_id)
+    if run_row is None:
+        raise HTTPException(status_code=404, detail=f"Run introuvable : {run_id}")
+    return run_row
 
 
 # --- Paramètres de l'agent (persistés en SQLite) ------------------------------------

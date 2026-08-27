@@ -16,15 +16,20 @@ import type { UIEvent } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ChatModelSelector } from './ChatModelSelector';
+import { SessionSelector } from './SessionSelector';
 import { readSseEvents } from './streamSse';
 import type {
   AgentAskResponse,
   ChatMessageData,
   ChatRequestBody,
+  ChatSessionInfo,
   ChatStreamEvent,
   LlmModelInfo,
   LlmModelsResponse,
   PendingApprovalData,
+  StoredMessage,
+  ToolCallData,
+  ToolCallStatus,
 } from './types';
 import './chat.css';
 
@@ -38,8 +43,23 @@ const AI_ENDPOINT = '/api/ai';
  */
 const AGENT_ASK_ENDPOINT = '/api/agent/ask';
 
+/**
+ * Variante streaming du mode Agent (POST /api/agent/ask/stream) : mêmes
+ * événements temps réel que /api/ai (thinking_delta, delta) PLUS la diffusion
+ * des appels d'outils (tool_start / tool_result) et un payload final (« final »)
+ * portant le statut du gate (completed / awaiting_approval / rejected).
+ * Utilisé en priorité ; repli automatique sur POST /api/agent/ask si absent.
+ */
+const AGENT_ASK_STREAM_ENDPOINT = '/api/agent/ask/stream';
+
 /** Base des endpoints de validation humaine (approve / reject). */
 const APPROVALS_ENDPOINT = '/api/agent/approvals';
+
+/** Endpoint des conversations persistées (GET/POST /api/sessions…). */
+const SESSIONS_ENDPOINT = '/api/sessions';
+
+/** Clé de persistance de la conversation active (localStorage). */
+const CHAT_SESSION_STORAGE_KEY = 'thinktuning.chatSession';
 
 /** Endpoint listant les modèles LLM disponibles (même proxy que /api/ai). */
 const MODELS_ENDPOINT = '/api/models';
@@ -124,6 +144,66 @@ function loadStoredAgentMode(): boolean {
   }
 }
 
+/** Relit l'id de la conversation active ('' = aucune / nouvelle). */
+function loadStoredSession(): string {
+  try {
+    return window.localStorage.getItem(CHAT_SESSION_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** Persiste (ou efface) l'id de la conversation active. */
+function storeSession(id: string): void {
+  try {
+    if (id) window.localStorage.setItem(CHAT_SESSION_STORAGE_KEY, id);
+    else window.localStorage.removeItem(CHAT_SESSION_STORAGE_KEY);
+  } catch {
+    /* stockage indisponible : la sélection reste valable pour la session */
+  }
+}
+
+/**
+ * Convertit les événements d'outils bruts d'une conversation rechargée en
+ * timeline appariée (tool_start -> tool_result), même modèle que le streaming.
+ */
+function mapStoredToolCalls(
+  events: StoredMessage['tool_calls'],
+): ToolCallData[] | undefined {
+  if (!events || events.length === 0) return undefined;
+  const calls: ToolCallData[] = [];
+  for (const raw of events) {
+    const event = raw as Record<string, string | number>;
+    const tool = String(event.tool ?? '?');
+    if (event.event === 'tool_start') {
+      calls.push({
+        tool,
+        args: typeof event.args === 'string' ? event.args : undefined,
+        status: 'running',
+      });
+    } else if (event.event === 'tool_result') {
+      const status = (event.status as ToolCallStatus) || 'ok';
+      const durationMs = Number(event.duration_ms);
+      const target = [...calls]
+        .reverse()
+        .find((call) => call.tool === tool && call.status === 'running');
+      if (target) {
+        target.status = status;
+        target.summary = typeof event.summary === 'string' ? event.summary : undefined;
+        target.durationMs = Number.isFinite(durationMs) ? durationMs : undefined;
+      } else {
+        calls.push({
+          tool,
+          status,
+          summary: typeof event.summary === 'string' ? event.summary : undefined,
+          durationMs: Number.isFinite(durationMs) ? durationMs : undefined,
+        });
+      }
+    }
+  }
+  return calls.length > 0 ? calls : undefined;
+}
+
 /** Aperçu compact des arguments d'un appel pour la carte d'approbation. */
 function formatArgsPreview(args: Record<string, unknown> | undefined): string {
   if (!args || Object.keys(args).length === 0) return '{}';
@@ -161,13 +241,19 @@ export function ChatWindow() {
   const [modelsLoading, setModelsLoading] = useState(true);
   // Mode « Réflexion » : transmis au backend (enable_thinking) pour chaque
   // message et persisté en localStorage comme le modèle sélectionné.
-  const [enableThinking, setEnableThinking] = useState<boolean>(loadStoredThinking);
+      const [enableThinking, setEnableThinking] = useState<boolean>(loadStoredThinking);
   const [modelsError, setModelsError] = useState('');
   // Mode « Agent » : les messages passent par /api/agent/ask (l'agent peut
   // appeler ses outils). Une action à risque affiche la carte d'approbation.
   const [agentMode, setAgentMode] = useState<boolean>(loadStoredAgentMode);
   // Demande en attente de décision humaine (approve / reject), le cas échéant.
   const [pendingApproval, setPendingApproval] = useState<PendingApprovalData | null>(null);
+
+  // Conversations persistées côté serveur (GET/POST /api/sessions) : la
+  // conversation active est sélectionnée via le menu de l'en-tête ; '' =
+  // aucune (création à la volée au premier message envoyé).
+  const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
+  const [sessionId, setSessionId] = useState<string>(loadStoredSession);
 
   const listRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController>(null);
@@ -222,6 +308,102 @@ export function ChatWindow() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // --- Conversations persistées (/api/sessions) --------------------------------
+
+  // Charge la liste des conversations au montage du composant.
+  useEffect(() => {
+    let cancelled = false;
+    const loadSessions = async (): Promise<void> => {
+      const headers: Record<string, string> = {};
+      const apiKey = resolveApiKey();
+      if (apiKey) headers['X-API-Key'] = apiKey;
+      try {
+        const response = await fetch(SESSIONS_ENDPOINT, { headers });
+        if (!response.ok) {
+          throw new Error(await apiErrorMessage(response));
+        }
+        const data = (await response.json()) as { sessions: ChatSessionInfo[] };
+        if (!cancelled) setSessions(data.sessions ?? []);
+      } catch {
+        /* échec silencieux : le chat reste utilisable hors persistance */
+        if (!cancelled) setSessions([]);
+      }
+    };
+    void loadSessions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persiste l'id de la conversation active (localStorage) quand il change.
+  useEffect(() => {
+    storeSession(sessionId);
+  }, [sessionId]);
+
+  /** Charge les messages d'une conversation existante et la rend active. */
+  const selectSession = useCallback(
+    async (id: string): Promise<void> => {
+      abortRef.current?.abort();
+      const headers: Record<string, string> = {};
+      const apiKey = resolveApiKey();
+      if (apiKey) headers['X-API-Key'] = apiKey;
+      try {
+        const response = await fetch(`${SESSIONS_ENDPOINT}/${id}/messages`, { headers });
+        if (!response.ok) throw new Error(await apiErrorMessage(response));
+        const stored = (await response.json()) as { messages: StoredMessage[] };
+        const storedMessages = stored.messages ?? [];
+        setMessages(
+          storedMessages.map(
+            (message, index): ChatMessageData => ({
+              id: `s-${index + 1}`,
+              role: message.role,
+              content: message.content ?? '',
+              createdAt: message.created_at ?? nowIso(),
+              thinking: message.role === 'assistant' ? (message.content ?? '') : undefined,
+              toolCalls:
+                message.role === 'assistant'
+                  ? mapStoredToolCalls(message.tool_calls)
+                  : undefined,
+            }),
+          ),
+        );
+        setSessionId(id);
+        setPendingApproval(null);
+        setStickToBottom(true);
+      } catch {
+        /* erreur non bloquante : on garde la conversation courante */
+      }
+    },
+    [],
+  );
+
+  /** Crée une nouvelle conversation vide et la sélectionne (mode « Nouvelle tâche »). */
+  const createSession = useCallback(async (): Promise<void> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const apiKey = resolveApiKey();
+    if (apiKey) headers['X-API-Key'] = apiKey;
+    try {
+      const response = await fetch(SESSIONS_ENDPOINT, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ title: 'Nouvelle tâche' }),
+      });
+      if (!response.ok) throw new Error(await apiErrorMessage(response));
+      const created = (await response.json()) as ChatSessionInfo;
+      setSessionId(created.id);
+      setSessions((previous) => [created, ...previous]);
+      setMessages([]);
+      setPendingApproval(null);
+      setStickToBottom(true);
+    } catch {
+      /* repli hors persistance : réinitialisation locale uniquement */
+      setSessionId('');
+      setMessages([]);
+      setPendingApproval(null);
+      setStickToBottom(true);
+    }
   }, []);
 
   /** Change le modèle LLM utilisé par les prochains messages du chat. */
@@ -306,6 +488,42 @@ export function ChatWindow() {
     );
   }, []);
 
+  /** Ajoute un appel d'outil « running » à la timeline du message (tool_start). */
+  const appendToolCall = useCallback((id: string, call: ToolCallData) => {
+    setMessages((previous) =>
+      previous.map((message) =>
+        message.id === id
+          ? { ...message, toolCalls: [...(message.toolCalls ?? []), call] }
+          : message,
+      ),
+    );
+  }, []);
+
+  /** Clôture le dernier appel « running » portant le même outil (tool_result). */
+  const completeToolCall = useCallback(
+    (id: string, result: NonNullable<ChatStreamEvent['tool_result']>) => {
+      setMessages((previous) =>
+        previous.map((message) => {
+          if (message.id !== id || !message.toolCalls?.length) return message;
+          const calls = [...message.toolCalls];
+          for (let index = calls.length - 1; index >= 0; index -= 1) {
+            if (calls[index].status === 'running' && calls[index].tool === result.tool) {
+              calls[index] = {
+                ...calls[index],
+                status: ((result.status as ToolCallStatus) || 'ok') satisfies ToolCallStatus,
+                summary: result.summary,
+                durationMs: result.duration_ms,
+              };
+              break;
+            }
+          }
+          return { ...message, toolCalls: calls };
+        }),
+      );
+    },
+    [],
+  );
+
   /** Interrompt proprement la génération en cours. */
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
@@ -313,22 +531,24 @@ export function ChatWindow() {
 
   /**
    * Démarre une nouvelle session (« Nouvelle tâche ») : interrompt la
-   * génération éventuellement en cours puis vide la conversation. Le backend
-   * /api/ai étant stateless (historique renvoyé à chaque requête), la
-   * réinitialisation de l'état local suffit ; le nettoyage final du flux
-   * interrompu est géré par le bloc finally de sendMessage().
+   * génération éventuellement en cours puis ouvre une conversation à vide.
+   * La création côté serveur (POST /api/sessions) permet de retrouver la
+   * conversation après rechargement ; en cas d'échec, on se rabat sur une
+   * réinitialisation strictement locale.
    */
   const startNewSession = useCallback(() => {
     abortRef.current?.abort();
-    setMessages([]);
-    setPendingApproval(null);
-    setStickToBottom(true);
-  }, []);
+    void createSession();
+  }, [createSession]);
 
   /**
-   * Tour d'agent : POST /api/agent/ask puis rendu de la réponse dans la bulle
-   * donnée. Couvre les trois statuts du gate auto_approve / approve / reject :
-   *   - completed         : réponse finale affichée telle quelle ;
+   * Tour d'agent : POST /api/agent/ask/stream en priorité (temps réel complet
+   * : réflexion + appels d'outils + réponse mot à mot + statut final du gate),
+   * avec repli automatique sur le POST bloquant historique (/api/agent/ask)
+   * quand l'endpoint de streaming n'existe pas (backend antérieur).
+   *
+   * Les trois statuts du gate auto_approve / approve / reject restent couverts :
+   *   - completed         : réponse finale affichée au fil de l'eau ;
    *   - awaiting_approval : carte Approuver / Refuser déclenchée ;
    *   - rejected          : motif du blocage policy affiché au mot pour mot.
    */
@@ -339,42 +559,118 @@ export function ChatWindow() {
       controller: AbortController,
       resumeRequestId?: string,
     ): Promise<void> => {
+      /**
+       * Applique le statut final du gate. ``alreadyStreamed`` vaut vrai quand
+       * le texte a déjà été affiché via les deltas SSE (on ne le duplique pas).
+       */
+      const handleFinal = (data: AgentAskResponse, alreadyStreamed: boolean): void => {
+        if (data.status === 'awaiting_approval' && data.request_id) {
+          const tool = data.approval?.tool ?? 'outil inconnu';
+          setPendingApproval({
+            requestId: data.request_id,
+            prompt,
+            tool,
+            reason: data.approval?.reason ?? 'validation humaine requise',
+            args: data.approval?.args,
+          });
+          if (!alreadyStreamed) {
+            appendDelta(assistantId, `[En attente de validation] L'action « ${tool} » nécessite votre décision avant exécution.`);
+          }
+          return;
+        }
+        // completed ou rejected : la réponse backend porte déjà l'explication.
+        if (!alreadyStreamed) appendDelta(assistantId, data.response || '');
+      };
+
+      /** Repli historique : POST bloquant /api/agent/ask (réponse d'un bloc). */
+      const askAgentBlocking = async (): Promise<void> => {
+        // Contrat backend (schéma AskRequest) : champ en snake_case, comme
+        // « enable_thinking » — la forme camelCase serait ignorée par Pydantic.
+        const blockingBody: { prompt: string; session_id?: string; resume_request_id?: string } = { prompt };
+        if (sessionId) blockingBody.session_id = sessionId;
+        if (resumeRequestId) blockingBody.resume_request_id = resumeRequestId;
+
+        const response = await fetch(AGENT_ASK_ENDPOINT, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(blockingBody),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(await apiErrorMessage(response));
+        }
+        const data = (await response.json()) as AgentAskResponse;
+        handleFinal(data, false);
+      };
+
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const apiKey = resolveApiKey();
       if (apiKey) headers['X-API-Key'] = apiKey;
 
-      // Contrat backend (schéma AskRequest) : champ en snake_case, comme
-      // « enable_thinking » — la forme camelCase serait ignorée par Pydantic.
-      const body: { prompt: string; resume_request_id?: string } = { prompt };
+      // Contrat backend (schéma AskStreamRequest) : champs snake_case ; les
+      // sélecteurs de l'en-tête du chat (modèle, Réflexion) sont transmis.
+      const body: Record<string, unknown> = { prompt };
+      if (sessionId) body.session_id = sessionId;
       if (resumeRequestId) body.resume_request_id = resumeRequestId;
+      if (selectedModel) body.model = selectedModel;
+      if (enableThinking) body.enable_thinking = true;
 
-      const response = await fetch(AGENT_ASK_ENDPOINT, {
+      const response = await fetch(AGENT_ASK_STREAM_ENDPOINT, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+
+      // Backend sans endpoint de streaming : repli transparent.
+      if (!response.ok && (response.status === 404 || response.status === 405)) {
+        await askAgentBlocking();
+        return;
+      }
       if (!response.ok) {
         throw new Error(await apiErrorMessage(response));
       }
-      const data = (await response.json()) as AgentAskResponse;
 
-      if (data.status === 'awaiting_approval' && data.request_id) {
-        const tool = data.approval?.tool ?? 'outil inconnu';
-        setPendingApproval({
-          requestId: data.request_id,
-          prompt,
-          tool,
-          reason: data.approval?.reason ?? 'validation humaine requise',
-          args: data.approval?.args,
-        });
-        appendDelta(assistantId, `[En attente de validation] L'action « ${tool} » nécessite votre décision avant exécution.`);
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!(contentType.includes('text/event-stream') && response.body)) {
+        // Réponse JSON classique du gate (sans flux) : même rendu que le bloquant.
+        const data = (await response.json()) as AgentAskResponse;
+        handleFinal(data, false);
         return;
       }
-      // completed ou rejected : la réponse backend porte déjà l'explication.
-      appendDelta(assistantId, data.response || '');
+
+      let streamedChars = 0;
+      for await (const payload of readSseEvents(response.body)) {
+        if (payload === '[DONE]') break;
+
+        let event: ChatStreamEvent;
+        try {
+          event = JSON.parse(payload) as ChatStreamEvent;
+        } catch {
+          // Charge utile non JSON : affichée telle quelle (tolérance).
+          appendDelta(assistantId, payload);
+          streamedChars += payload.length;
+          continue;
+        }
+
+        if (event.error) throw new Error(event.error);
+        if (event.tool_start?.tool) {
+          appendToolCall(assistantId, {
+            tool: event.tool_start.tool,
+            args: event.tool_start.args,
+            status: 'running',
+          });
+        }
+        if (event.tool_result?.tool) completeToolCall(assistantId, event.tool_result);
+        if (event.thinking_delta) appendThinkingDelta(assistantId, event.thinking_delta);
+        if (event.delta) {
+          appendDelta(assistantId, event.delta);
+          streamedChars += event.delta.length;
+        }
+        if (event.final) handleFinal(event.final, streamedChars > 0);
+      }
     },
-    [appendDelta],
+    [appendDelta, appendThinkingDelta, appendToolCall, completeToolCall, selectedModel, enableThinking, sessionId],
   );
 
   /** Envoie le message de l'utilisateur puis diffuse la réponse de l'IA en streaming. */
@@ -417,6 +713,9 @@ export function ChatWindow() {
         }
 
         const body: ChatRequestBody = { message: trimmed, history };
+        // Conversation active (persistance serveur). Absent ou '' : le backend
+        // crée une session à la volée (ou laisse l'échange hors journal).
+        if (sessionId) body.session_id = sessionId;
         // Modèle choisi via le sélecteur de l'en-tête ('' = défaut serveur).
         if (selectedModel) body.model = selectedModel;
         // Mode « Réflexion » : la trace arrivera via les événements thinking_delta.
@@ -477,7 +776,7 @@ export function ChatWindow() {
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking, agentMode, askAgentTurn],
+    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking, agentMode, askAgentTurn, sessionId],
   );
 
   /**
@@ -581,8 +880,60 @@ export function ChatWindow() {
   }, [pendingApproval, isLoading]);
 
   const isEmpty = messages.length === 0;
-  /** Une nouvelle session n'a de sens que s'il y a quelque chose à réinitialiser. */
   const canStartNewSession = !isEmpty || isLoading;
+  const headerActions = (
+    <>
+      <SessionSelector
+        sessions={sessions}
+        selectedId={sessionId}
+        onSelect={selectSession}
+        isLoading={isLoading}
+      />
+      <button
+        type="button"
+        className="copilot-chat__think-toggle"
+        data-active={agentMode || undefined}
+        onClick={handleAgentToggle}
+        aria-pressed={agentMode}
+        title="Mode Agent : l'agent peut exécuter ses outils ; une action à risque attend votre validation (approve / reject)"
+      >
+        <BotIcon />
+        <span className="copilot-chat__think-label">Agent</span>
+      </button>
+      <button
+        type="button"
+        className="copilot-chat__think-toggle"
+        data-active={enableThinking || undefined}
+        onClick={handleThinkingToggle}
+        aria-pressed={enableThinking}
+        title="Mode Réflexion : l'agent raisonne avant de répondre (trace affichée)"
+      >
+        <ThinkIcon />
+        <span className="copilot-chat__think-label">Réflexion</span>
+      </button>
+      <ChatModelSelector
+        models={llmModels}
+        selected={selectedModel}
+        onChange={handleModelChange}
+        loading={modelsLoading}
+        error={modelsError}
+      />
+      {isLoading && (
+        <span className="copilot-chat__spinner" role="status" aria-label="Génération en cours" />
+      )}
+      <button
+        type="button"
+        className="copilot-chat__new-task"
+        onClick={startNewSession}
+        disabled={!canStartNewSession}
+        title="Nouvelle tâche (nouvelle session)"
+        aria-label="Nouvelle tâche : démarrer une nouvelle session de chat"
+      >
+        <PlusIcon />
+      </button>
+    </>
+  );
+
 
   return (
     <section className="copilot-chat" aria-label="Chat avec l'assistant IA">
@@ -590,48 +941,7 @@ export function ChatWindow() {
         <span className="copilot-chat__status-dot" data-active={isLoading} aria-hidden="true" />
         <h2 className="copilot-chat__title">Assistant IA</h2>
         <div className="copilot-chat__actions">
-          <button
-            type="button"
-            className="copilot-chat__think-toggle"
-            data-active={agentMode || undefined}
-            onClick={handleAgentToggle}
-            aria-pressed={agentMode}
-            title="Mode Agent : l'agent peut exécuter ses outils ; une action à risque attend votre validation (approve / reject)"
-          >
-            <BotIcon />
-            <span className="copilot-chat__think-label">Agent</span>
-          </button>
-          <button
-            type="button"
-            className="copilot-chat__think-toggle"
-            data-active={enableThinking || undefined}
-            onClick={handleThinkingToggle}
-            aria-pressed={enableThinking}
-            title="Mode Réflexion : l'agent raisonne avant de répondre (trace affichée)"
-          >
-            <ThinkIcon />
-            <span className="copilot-chat__think-label">Réflexion</span>
-          </button>
-          <ChatModelSelector
-            models={llmModels}
-            selected={selectedModel}
-            onChange={handleModelChange}
-            loading={modelsLoading}
-            error={modelsError}
-          />
-          {isLoading && (
-            <span className="copilot-chat__spinner" role="status" aria-label="Génération en cours" />
-          )}
-          <button
-            type="button"
-            className="copilot-chat__new-task"
-            onClick={startNewSession}
-            disabled={!canStartNewSession}
-            title="Nouvelle tâche (nouvelle session)"
-            aria-label="Nouvelle tâche : démarrer une nouvelle session de chat"
-          >
-            <PlusIcon />
-          </button>
+          {headerActions}
         </div>
       </header>
 

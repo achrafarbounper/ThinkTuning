@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
@@ -47,6 +48,45 @@ logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
 MAX_RESULT_CHARS = 4000
 MAX_LLM_ROUNDS = 6
+
+# Taille maximale des résumés diffusés dans les événements d'outils (streaming
+# SSE « tool_start » / « tool_result ») : l'UI affiche un aperçu compact, pas
+# la charge utile complète (qui reste disponible dans les logs détaillés).
+TOOL_EVENT_SUMMARY_CHARS = 240
+
+
+def _compact_text(text: str, limit: int = TOOL_EVENT_SUMMARY_CHARS) -> str:
+    """Tronque proprement un texte destiné à un aperçu d'événement d'outil."""
+    text = text.strip()
+    if len(text) > limit:
+        return text[:limit] + "… [tronqué]"
+    return text
+
+
+def summarize_tool_args(args: Any) -> str:
+    """Résumé JSON compact des arguments d'un appel d'outil (aperçu UI/logs)."""
+    if isinstance(args, (dict, list)):
+        try:
+            text = json.dumps(args, ensure_ascii=False, default=str)
+        except Exception:
+            text = str(args)
+    else:
+        text = str(args)
+    return _compact_text(text)
+
+
+def summarize_tool_result(result: Any) -> str:
+    """Résumé mono-ligne du résultat d'un outil pour l'événement « tool_result »."""
+    if isinstance(result, (dict, list)):
+        try:
+            text = json.dumps(result, ensure_ascii=False, indent=2, default=str)
+        except Exception:
+            text = str(result)
+    else:
+        text = str(result)
+    # Mono-ligne : les aperçus multi-lignes cassent la compacité de l'affichage.
+    text = " ".join(text.split())
+    return _compact_text(text)
 
 
 @dataclass
@@ -353,6 +393,7 @@ class AgentCore:
         self,
         blocks: List[Dict[str, Any]],
         previous_result: Any,
+        on_tool_event: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Tuple[Optional[str], Any]:
 
         last_result = previous_result
@@ -412,6 +453,14 @@ class AgentCore:
 
             try:
                 logger.info("tool_call name=%s args=%s", tool, args)
+                # Diffusion temps réel de l'APPEL (streaming SSE / journal de run).
+                tool_started = time.perf_counter()
+                if on_tool_event is not None:
+                    on_tool_event({
+                        "event": "tool_start",
+                        "tool": tool,
+                        "args": summarize_tool_args(args),
+                    })
                 last_result = TOOLS[tool](**args)
                 logger.info(
                     "tool_result name=%s result_type=%s",
@@ -419,8 +468,24 @@ class AgentCore:
                     type(last_result).__name__,
                 )
                 logger.debug("tool_result_content name=%s result=%r", tool, last_result)
+                if on_tool_event is not None:
+                    on_tool_event({
+                        "event": "tool_result",
+                        "tool": tool,
+                        "status": "ok",
+                        "summary": summarize_tool_result(last_result),
+                        "duration_ms": round((time.perf_counter() - tool_started) * 1000),
+                    })
             except Exception as exc:
                 logger.exception("tool_error name=%s args=%s", tool, args)
+                if on_tool_event is not None:
+                    on_tool_event({
+                        "event": "tool_result",
+                        "tool": tool,
+                        "status": "error",
+                        "summary": f"{type(exc).__name__}: {exc}",
+                        "duration_ms": round((time.perf_counter() - tool_started) * 1000),
+                    })
                 detail = f"ERREUR pendant '{tool}' : {type(exc).__name__}: {exc}"
                 hint = (
                     " Utilise find_file si le chemin est inconnu."
@@ -450,15 +515,53 @@ class AgentCore:
     # BOUCLE PRINCIPALE
     # ---------------------------------------------------------
 
-    def run(self, user_prompt: str) -> str:
-        """Réponse finale seule (comportement historique, rétro-compatible)."""
-        return self.run_detailed(user_prompt).answer
+    @staticmethod
+    def _normalize_history_messages(
+        history_messages: Optional[List[Dict[str, Any]]],
+    ) -> List[Dict[str, str]]:
+        """Normalise et valide l'historique de session rejoué en contexte.
+
+        Garde uniquement les rôles ``user`` / ``assistant`` avec un ``content``
+        texte non vide (les éventuels ``tool_calls`` sont écartés : ils ne
+        doivent pas polluer le contexte conversationnel de l'agent). Renvoie
+        une liste vide si ``history_messages`` est absent ou invalide — le
+        comportement historique (aucun historique) est alors préservé.
+        """
+        if not history_messages:
+            return []
+        cleaned: List[Dict[str, str]] = []
+        for raw in history_messages:
+            if not isinstance(raw, dict):
+                continue
+            role = str(raw.get("role") or "").strip().lower()
+            if role not in ("user", "assistant"):
+                continue
+            content = raw.get("content")
+            text = content if isinstance(content, str) else str(content or "")
+            if not text.strip():
+                continue
+            cleaned.append({"role": role, "content": text.strip()})
+        return cleaned
+
+    def run(
+        self,
+        user_prompt: str,
+        history_messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
+        """Réponse finale seule (comportement historique, rétro-compatible).
+
+        ``history_messages`` (optionnel) : messages de conversation rejoués en
+        tête du contexte LLM pour donner une mémoire de session à l'agent.
+        """
+        return self.run_detailed(user_prompt, history_messages=history_messages).answer
 
     def run_detailed(
         self,
         user_prompt: str,
         on_thinking: Optional[Callable[[str], None]] = None,
         resume_request_id: Optional[str] = None,
+        on_tool_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        history_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> AgentResult:
         """
         Pipeline PRO complet :
@@ -527,6 +630,11 @@ class AgentCore:
         messages = [
             system,
             context_edge,
+            # Historique de session rejoué en contexte (mémoire de conversation).
+            # Normalisé une seule fois ici : présent en tête de `messages`, il est
+            # réaffiché tel quel à chaque round LLM (comme system/context_edge),
+            # sans jamais être dupliqué à l'intérieur d'un round.
+            *self._normalize_history_messages(history_messages),
             {"role": "user", "content": user_prompt},
         ]
 
@@ -551,7 +659,24 @@ class AgentCore:
             if not isinstance(resume_args, dict):
                 resume_args = {}
             try:
+                if on_tool_event is not None:
+                    # L'exécution d'une action approuvée fait partie de la
+                    # trace visible (streaming SSE / journal des runs).
+                    on_tool_event({
+                        "event": "tool_start",
+                        "tool": resume_tool,
+                        "args": summarize_tool_args(resume_args),
+                    })
+                resume_started = time.perf_counter()
                 resume_result = TOOLS[resume_tool](**resume_args)
+                if on_tool_event is not None:
+                    on_tool_event({
+                        "event": "tool_result",
+                        "tool": resume_tool,
+                        "status": "ok",
+                        "summary": summarize_tool_result(resume_result),
+                        "duration_ms": round((time.perf_counter() - resume_started) * 1000),
+                    })
             except Exception as exc:
                 raise ValueError(
                     f"Échec d'exécution de l'action approuvée « {resume_tool} » : "
@@ -659,7 +784,7 @@ class AgentCore:
                 )
                 return _result(raw)
 
-            problem, last_result = self._execute(blocks, last_result)
+            problem, last_result = self._execute(blocks, last_result, on_tool_event=on_tool_event)
 
             # Gate de décision : une action attend une validation (approve) ou
             # a été bloquée (reject). On arrête le run ICI, sans relancer le LLM.

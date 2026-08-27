@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 interface ThinkingBlockProps {
   /** Trace de raisonnement accumulée (peut être vide au démarrage). */
@@ -19,9 +19,13 @@ export function ThinkingBlock({ thinking, streaming }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(streaming);
 
   // Dépliage pendant la diffusion de la réflexion, refermeture à la fin.
-  useEffect(() => {
+  // Ajustement d'état PENDANT le rendu (pattern React documenté, cf. Settings)
+  // plutôt qu'un useEffect + setState qui déclenche des rendus en cascade.
+  const [prevStreaming, setPrevStreaming] = useState(streaming);
+  if (streaming !== prevStreaming) {
+    setPrevStreaming(streaming);
     setExpanded(streaming);
-  }, [streaming]);
+  }
 
   // Rien à afficher et rien qui arrive : le bloc n'est pas rendu du tout.
   if (!streaming && thinking.trim().length === 0) return null;
