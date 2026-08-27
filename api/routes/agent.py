@@ -29,8 +29,15 @@ from core.agent_cache import (
     TOOLS,
     _openrouter_chat_url,
     agent_config,
-    ask_agent,
+    ask_agent_decision,
     reload_agent_runner,
+)
+from core.approval_store import (
+    APPROVED,
+    PENDING,
+    REJECTED,
+    STATUSES,
+    get_approval_store,
 )
 
 router = APIRouter(prefix="/api/agent", tags=["Agent IA"])
@@ -43,11 +50,19 @@ CONNECTIVITY_TIMEOUT_SECONDS = 8.0
 
 class AskRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="Instruction envoyée à l'agent.")
+    resume_request_id: Optional[str] = Field(
+        None,
+        description="Relance une tâche en attente : id donné par une réponse "
+        "« awaiting_approval » après validation humaine (approve).",
+    )
 
 
 class AskResponse(BaseModel):
     response: str
     model: str
+    status: str = "completed"
+    request_id: Optional[str] = None
+    approval: Optional[dict] = None
 
 
 class ToolInfo(BaseModel):
@@ -152,13 +167,75 @@ def run_tool(request: ToolRunRequest, _: bool = Depends(require_api_key)):
 
 @router.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest, _: bool = Depends(require_api_key)):
-    """Prompt libre : l'agent décide des outils à appeler puis renvoie sa réponse finale.
+    """Prompt libre : l'agent décide des outils, puis renvoie sa réponse finale.
 
-    La traduction des erreurs réseau (Timeout -> 504, ConnectionError -> 502)
-    est centralisée dans `core.agent_cache.ask_agent`.
+    Ponte le gate de décision (auto_approve / approve / reject) : quand une
+    action requiert une validation humaine, la réponse porte
+    ``status="awaiting_approval"`` (avec ``request_id``) — l'agent n'attend
+    pas, il s'arrête et l'UI peut proposer approve/reject puis relancer via
+    ``resume_request_id``. S'il y a un refus (policy), ``status="rejected"``.
+
+    Traduction des erreurs réseau (Timeout -> 504, ConnectionError -> 502)
+    centralisée dans ``core.agent_cache``.
     """
-    answer = ask_agent(request.prompt)
-    return AskResponse(response=answer, model=agent_config()["model"])
+    try:
+        decision = ask_agent_decision(
+            request.prompt, resume_request_id=request.resume_request_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return AskResponse(
+        response=decision["response"] or "",
+        model=agent_config()["model"],
+        status=decision.get("status", "completed"),
+        request_id=decision.get("request_id"),
+        approval=decision.get("approval"),
+    )
+
+
+# --- Approbation humaine (approve / reject) -----------------------------------------
+
+
+@router.get("/approvals")
+def list_approvals(
+    status: Optional[str] = None, _: bool = Depends(require_api_key)
+):
+    """Liste des demandes d'approbation (toutes ou filtrées par statut)."""
+    if status is not None and status not in STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Statut inconnu : '{status}'. Valeurs : {', '.join(STATUSES)}",
+        )
+    return {"approvals": get_approval_store().list(status)}
+
+
+@router.post("/approvals/{request_id}/approve")
+def approve_request(request_id: str, _: bool = Depends(require_api_key)):
+    """Valide une demande `pending` → `approved` (l'outil sera exécuté au résumé)."""
+    row = get_approval_store().approve(request_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Demande introuvable : {request_id}")
+    if row["status"] != APPROVED:
+        raise HTTPException(
+            status_code=409,
+            detail="Cette demande n'était pas en attente (approbation impossible).",
+        )
+    return {"status": APPROVED, "approval": row}
+
+
+@router.post("/approvals/{request_id}/reject")
+def reject_request(request_id: str, _: bool = Depends(require_api_key)):
+    """Refuse une demande `pending` → rejected (aucune exécution)."""
+    row = get_approval_store().reject(request_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Demande introuvable : {request_id}")
+    if row["status"] != REJECTED:
+        raise HTTPException(
+            status_code=409,
+            detail="Demande non en attente (impossible de réfuter).",
+        )
+    return {"status": REJECTED, "approval": row}
 
 
 # --- Paramètres de l'agent (persistés en SQLite) ------------------------------------

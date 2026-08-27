@@ -82,3 +82,55 @@ export interface ChatStreamEvent {
   /** Message d'erreur éventuel envoyé par le backend. */
   error?: string;
 }
+
+/* --- Mode Agent : gate auto_approve / approve / reject --------------------- */
+
+/**
+ * Décision structurée (JSON horodaté) renvoyée par le gate côté backend
+ * (ia/agent/approvals.py — PolicyDecision.to_dict()).
+ */
+export interface AgentApprovalInfo {
+  /** Outil que l'agent souhaitait appeler. */
+  tool: string;
+  /** Arguments (tronqués) de l'appel. */
+  args?: Record<string, unknown>;
+  /** Décision brute : « auto_approve » | « approve » | « reject ». */
+  decision?: string;
+  /** Catégorie d'action (« read », « write », « exec »…). */
+  category?: string;
+  /** Motif lisible de la décision. */
+  reason?: string;
+  /** Empreinte SHA-256 des arguments canoniques (traçabilité). */
+  args_hash?: string;
+  /** Horodatage ISO 8601 UTC de la décision. */
+  timestamp?: string;
+}
+
+/**
+ * Réponse JSON de POST /api/agent/ask. En mode Agent (contrairement au SSE
+ * /api/ai), la réponse arrive d'un bloc :
+ *   - completed         : réponse finale dans `response` ;
+ *   - awaiting_approval : une action attend validation (`request_id`) ;
+ *   - rejected          : action bloquée par la policy (motif dans `response`).
+ */
+export interface AgentAskResponse {
+  response: string;
+  model: string;
+  status: string;
+  request_id?: string | null;
+  approval?: AgentApprovalInfo | null;
+}
+
+/** Action en attente de décision humaine (carte Approuver / Refuser). */
+export interface PendingApprovalData {
+  /** Identifiant de la demande (POST /api/agent/approvals/{id}/…). */
+  requestId: string;
+  /** Prompt d'origine : requis pour relancer avec `resume_request_id`. */
+  prompt: string;
+  /** Outil concerné (affiché sur la carte). */
+  tool: string;
+  /** Motif de validation exigé. */
+  reason: string;
+  /** Arguments tronqués de l'appel (aperçu sur la carte). */
+  args?: Record<string, unknown>;
+}
