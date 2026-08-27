@@ -5,6 +5,23 @@
 /** Rôle d'un participant à la conversation. */
 export type Role = 'user' | 'assistant';
 
+/** Statut d'un appel d'outil dans la timeline du mode Agent. */
+export type ToolCallStatus = 'running' | 'ok' | 'error';
+
+/** Un appel d'outil émis par l'agent pendant un tour en mode Agent. */
+export interface ToolCallData {
+  /** Nom exact de l'outil côté backend (ex : « calc », « web_search »). */
+  tool: string;
+  /** Résumé JSON compact des arguments (tronqué par le backend). */
+  args?: string;
+  /** running tant que tool_result n'est pas arrivé. */
+  status: ToolCallStatus;
+  /** Aperçu mono-ligne du résultat (payload « summary » du backend). */
+  summary?: string;
+  /** Durée d'exécution rapportée par le backend (millisecondes). */
+  durationMs?: number;
+}
+
 /** Un message affiché dans la fenêtre de chat. */
 export interface ChatMessageData {
   /** Identifiant unique du message. */
@@ -48,6 +65,11 @@ export interface ChatRequestBody {
    * snake_case « enable_thinking » — la forme camelCase est ignorée silencieusement.
    */
   enable_thinking?: boolean;
+  /**
+   * Conversation cible (persistance serveur). Absent : le backend crée une
+   * session à la volée ou laisse l'échange hors journal selon la route.
+   */
+  session_id?: string;
 }
 
 /** Un modèle LLM disponible côté serveur (installé sur Ollama). */
@@ -81,6 +103,26 @@ export interface ChatStreamEvent {
   thinking_delta?: string;
   /** Message d'erreur éventuel envoyé par le backend. */
   error?: string;
+  /** Début d'un appel d'outil (mode Agent streaming). */
+  tool_start?: {
+    tool: string;
+    args?: string;
+  };
+  /**
+   * Résultat d'un appel d'outil annoncé par tool_start : status « ok » ou
+   * « error », résumé mono-ligne du résultat et durée en millisecondes.
+   */
+  tool_result?: {
+    tool: string;
+    status?: string;
+    summary?: string;
+    duration_ms?: number;
+  };
+  /**
+   * Réponse finale du gate du mode Agent (même contrat que POST /api/agent/ask)
+   * envoyée en toute fin de flux : statut, request_id et approbation éventuelle.
+   */
+  final?: AgentAskResponse;
 }
 
 /* --- Mode Agent : gate auto_approve / approve / reject --------------------- */
@@ -133,4 +175,25 @@ export interface PendingApprovalData {
   reason: string;
   /** Arguments tronqués de l'appel (aperçu sur la carte). */
   args?: Record<string, unknown>;
+}
+
+/* --- Conversations persistées (/api/sessions) ------------------------------ */
+
+/** Une conversation enregistrée côté serveur (GET /api/sessions). */
+export interface ChatSessionInfo {
+  id: string;
+  title: string;
+  /** Modèle LLM associé à la création (informatif). */
+  model?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Message tel que renvoyé par GET /api/sessions/{id}/messages. */
+export interface StoredMessage {
+  role: Role;
+  content: string;
+  created_at?: string;
+  /** Événements bruts d'outils (tool_start / tool_result) en mode Agent. */
+  tool_calls?: Array<Record<string, unknown>>;
 }

@@ -48,6 +48,7 @@ __all__ = [
     "agent_config",
     "ask_agent",
     "ask_agent_decision",
+    "ask_agent_decision_streaming",
     "ask_agent_detailed",
     "ask_agent_detailed_streaming",
     "get_agent_runner",
@@ -400,8 +401,12 @@ def _ask_runner_with_http_errors(
     prompt: str,
     effective_model: str,
     resume_request_id: str | None = None,
+    history_messages: list | None = None,
 ):
     """Exécute runner.ask_detailed(prompt) en traduisant les erreurs réseau.
+
+    ``history_messages`` (optionnel) est transmis au runner (mémoire de
+    session, voir AgentCore.run_detailed).
 
     Sémantique HTTP :
         Timeout LLM          -> 504
@@ -409,7 +414,11 @@ def _ask_runner_with_http_errors(
         Erreur HTTP d'Ollama -> 502
     """
     try:
-        return runner.ask_detailed(prompt, resume_request_id=resume_request_id)
+        return runner.ask_detailed(
+            prompt,
+            resume_request_id=resume_request_id,
+            history_messages=history_messages,
+        )
     except requests.exceptions.Timeout:
         raise HTTPException(
             status_code=504,
@@ -435,6 +444,7 @@ def ask_agent_decision(
     prompt: str,
     model: str | None = None,
     resume_request_id: str | None = None,
+    history_messages: list | None = None,
 ) -> dict:
     """Version consciente du gate de décision (auto_approve/approve/reject).
 
@@ -443,12 +453,19 @@ def ask_agent_decision(
         - ``awaiting_approval`` : une action attend `/approve` (request_id) ;
         - ``rejected``  : une action a été bloquée par la policy (request_id).
 
+    ``history_messages`` (optionnel) : messages de la conversation rejoués en
+    tête du contexte LLM (mémoire de session, voir AgentCore.run_detailed).
+
     Retourne toujours un dict JSON provenable pour les endpoints.
     """
     effective_model = (model or "").strip() or agent_config()["model"]
     runner = get_agent_runner(effective_model)
     result = _ask_runner_with_http_errors(
-        runner, prompt, effective_model, resume_request_id=resume_request_id
+        runner,
+        prompt,
+        effective_model,
+        resume_request_id=resume_request_id,
+        history_messages=history_messages,
     )
     agent = runner.agent
     approval = agent.last_approval.to_dict() if agent.last_approval is not None else None
@@ -541,3 +558,89 @@ def ask_agent_detailed_streaming(
             status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
         )
     return {"answer": result.answer, "thinking": result.thinking}
+
+
+def ask_agent_decision_streaming(
+    prompt: str,
+    model: str | None = None,
+    enable_thinking: bool = False,
+    resume_request_id: str | None = None,
+    on_thinking=None,
+    on_tool_event=None,
+    history_messages: list | None = None,
+) -> dict:
+    """Comme ``ask_agent_decision``, mais avec diffusion temps réel.
+
+    Combine les deux flux temps réel de l'agent :
+        - ``on_thinking`` : fragments de la trace de réflexion (mode activé) ;
+        - ``on_tool_event`` : dicts ``tool_start`` / ``tool_result`` émis par
+          AgentCore à chaque appel d'outil (voir ``ia/agent/runner.py``).
+
+    ``history_messages`` (optionnel) : mémoire de conversation rejouée en tête
+    du contexte LLM (voir AgentCore.run_detailed).
+
+    Retour : même contrat que ``ask_agent_decision`` + ``thinking`` —
+    ``{"answer", "thinking", "status", "request_id", "approval"}``. Les
+    erreurs réseau sont traduites en HTTPException ; un ``ValueError`` sur
+    ``resume_request_id`` est propagé (traduit en 400 par la route).
+    """
+    effective_model = (model or "").strip() or agent_config()["model"]
+    runner = get_agent_runner(effective_model, enable_thinking)
+    try:
+        result = runner.run(
+            prompt,
+            resume_request_id=resume_request_id,
+            on_thinking=on_thinking,
+            on_tool_event=on_tool_event,
+            history_messages=history_messages,
+        )
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Le LLM ({effective_model}) n'a pas répondu en "
+                f"{agent_config()['timeout']:.0f}s."
+            ),
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"LLM injoignable sur {agent_config()['ollama_url']}. "
+                "Vérifiez qu'Ollama tourne."
+            ),
+        )
+    except requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
+        )
+
+    agent = runner.agent
+    approval = agent.last_approval.to_dict() if agent.last_approval is not None else None
+
+    payload: dict = {
+        "answer": result.answer,
+        "thinking": result.thinking,
+        "response": result.answer,
+        "model": effective_model,
+    }
+    if agent.awaiting_request_id:
+        payload.update(
+            {
+                "status": "awaiting_approval",
+                "request_id": agent.awaiting_request_id,
+                "approval": approval,
+            }
+        )
+    elif agent.rejected_request_id:
+        payload.update(
+            {
+                "status": "rejected",
+                "request_id": agent.rejected_request_id,
+                "approval": approval,
+            }
+        )
+    else:
+        payload["status"] = "completed"
+    return payload

@@ -1,4 +1,5 @@
 import { ThinkingBlock } from './ThinkingBlock';
+import { ToolCallBlock } from './ToolCallBlock';
 import type { ChatMessageData } from './types';
 
 interface ChatMessageProps {
@@ -75,6 +76,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
       </div>
 
       <div className="chat-message__body">
+        {/* Chaîne d'outils appelés par l'agent (mode Agent streaming). */}
+        {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
+          <ToolCallBlock calls={message.toolCalls} />
+        )}
+
         {/* Trace de raisonnement (« Réflexion »), au-dessus de la bulle. */}
         {!isUser && message.thinking !== undefined && (
           <ThinkingBlock

@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from api.dependencies.auth import require_api_key
 from core.agent_cache import ask_agent_detailed_streaming, list_llm_models
+from core.session_store import get_session_store
 
 router = APIRouter(prefix="/api", tags=["AI Chat"])
 
@@ -60,6 +61,13 @@ class ChatRequest(BaseModel):
             "Mode « Réflexion » : l'agent raisonne avant de répondre et la "
             "trace est diffusée via les événements SSE thinking_delta. "
             "Désactivé par défaut (comportement historique inchangé)."
+        ),
+    )
+    session_id: str | None = Field(
+        None,
+        description=(
+            "Session de conversation (core/session_store) où journaliser "
+            "l'échange ; absent : aucune persistance côté serveur."
         ),
     )
 
@@ -143,6 +151,14 @@ def ai_chat(req: ChatRequest, _: bool = Depends(require_api_key)) -> StreamingRe
                 on_thinking=_emit_thinking if req.enable_thinking else None,
             )
             _emit_answer(result["answer"])
+            # Persistance best-effort de l'échange dans la session demandée.
+            if req.session_id:
+                try:
+                    store = get_session_store()
+                    store.append_message(req.session_id, "user", req.message)
+                    store.append_message(req.session_id, "assistant", result["answer"])
+                except Exception:  # pragma: no cover - persistance optionnelle
+                    pass
         except HTTPException as exc:  # panne réseau déjà traduite par agent_cache
             events.put(("http_error", exc))
         except Exception as exc:
