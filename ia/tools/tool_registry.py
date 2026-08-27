@@ -60,11 +60,15 @@ from .database_tools import postgres_query, sqlite_query
 from .search_tools import append_file, now, search_in_files, tail_file
 from .calc_tools import calc
 from .ml_tools import (
+    cancel_training,
     dataset_stats,
     job_get,
     job_list,
     model_versions,
     predict_sentiment,
+    start_training,
+    stop_training,
+    train_model,
 )
 from .ops_tools import (
     disk_usage,
@@ -143,6 +147,10 @@ TOOLS = {
     "predict_sentiment": predict_sentiment,
     "dataset_stats": dataset_stats,
     "model_versions": model_versions,
+    "start_training": start_training,
+    "train_model": train_model,
+    "cancel_training": cancel_training,
+    "stop_training": stop_training,
 }
 
 # ---------------------------------------------------------------------------

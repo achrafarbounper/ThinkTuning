@@ -1456,3 +1456,220 @@ def test_find_duplicates_and_split_and_dedupe(sandbox_root):
     assert dedup["removed_duplicates"] == 1
     assert read_file("dup.txt") == "x\ny\nz\n"
     assert (sandbox_root / "dup.txt.bak").exists()
+
+
+
+# --- Nouveaux outils ML : start_training / train_model ------------------------------------------
+
+class _FakeJobStore(dict):
+    """Job store mémoire : mêmes usages (setitem / get) que PersistentJobStore."""
+
+
+def _patch_ml_training(monkeypatch, runner):
+    """Remplace job store et runner d'entraînement par des doublures offline."""
+    from tools import ml_tools
+
+    store = _FakeJobStore()
+    monkeypatch.setattr(ml_tools, "_get_job_store", lambda: store)
+    monkeypatch.setattr(ml_tools, "_get_trainer_runner", lambda: runner)
+    return store
+
+
+def _finish_job(store, job_id, status, model_path=None, error=None):
+    from core.models import JobStatus
+
+    job = store.get(job_id)
+    job.status = JobStatus(status)
+    job.step = "done" if status == "completed" else status
+    job.model_path = model_path
+    job.error = error
+    job.finished_at = time.time()
+    store[job_id] = job
+
+
+def _wait_terminal(store, job_id, deadline_seconds=5.0):
+    from tools import ml_tools
+
+    limit = time.time() + deadline_seconds
+    while time.time() < limit:
+        job = store.get(job_id)
+        if job.status.value in ml_tools.TERMINAL_JOB_STATUSES:
+            return job
+        time.sleep(0.02)
+    raise AssertionError("le job n'a pas atteint un statut terminal à temps")
+
+
+def test_start_training_launches_background_job(sandbox_root, monkeypatch):
+    from tools import ml_tools
+
+    seen = {}
+
+    def fake_run_training(job_id, req):
+        seen["job_id"], seen["req"] = job_id, req
+        time.sleep(0.05)  # laisse l'appelant lire le statut initial
+        _finish_job(ml_tools._get_job_store(), job_id, "completed",
+                    model_path="experiments/models/abc")
+
+    store = _patch_ml_training(monkeypatch, fake_run_training)
+
+    result = ml_tools.start_training(epochs=1, batch_size=4)
+
+    assert result["status"] in ("pending", "running")
+    assert "job_get" in result["message"]
+    job = _wait_terminal(store, result["job_id"])
+    assert job.status.value == "completed"
+    assert seen["job_id"] == result["job_id"]
+    assert seen["req"].epochs == 1 and seen["req"].batch_size == 4
+
+
+def test_start_training_refuses_when_training_already_running(sandbox_root, monkeypatch):
+    from core.models import JobStatus, TrainJob
+    from tools import ml_tools
+
+    store = _patch_ml_training(monkeypatch, lambda job_id, req: None)
+    store["en_cours"] = TrainJob(job_id="en_cours", status=JobStatus.RUNNING)
+
+    with pytest.raises(ValueError, match="déjà en cours"):
+        ml_tools.start_training(epochs=1)
+    assert list(store) == ["en_cours"]  # aucun nouveau job créé
+
+
+def test_train_model_waits_until_completion(sandbox_root, monkeypatch):
+    from tools import ml_tools
+
+    def fake_run_training(job_id, req):
+        time.sleep(0.1)
+        _finish_job(ml_tools._get_job_store(), job_id, "completed",
+                    model_path="experiments/models/v9")
+
+    store = _patch_ml_training(monkeypatch, fake_run_training)
+
+    result = ml_tools.train_model(wait_timeout=5, epochs=1)
+
+    assert result["status"] == "completed"
+    assert result["model_path"] == "experiments/models/v9"
+    assert result["timed_out"] is False
+    assert "v9" in result["message"]
+
+
+def test_train_model_reports_failure(sandbox_root, monkeypatch):
+    from tools import ml_tools
+
+    def failing_run_training(job_id, req):
+        _finish_job(ml_tools._get_job_store(), job_id, "failed",
+                    error="CUDA out of memory")
+
+    _patch_ml_training(monkeypatch, failing_run_training)
+
+    result = ml_tools.train_model(wait_timeout=5)
+
+    assert result["status"] == "failed"
+    assert result["error"] == "CUDA out of memory"
+
+
+def test_train_model_times_out_and_returns_tracking_payload(sandbox_root, monkeypatch):
+    from tools import ml_tools
+
+    # runner « coincé » : le job reste pending/running bien au-delà du timeout
+    _patch_ml_training(monkeypatch, lambda job_id, req: time.sleep(1.0))
+
+    result = ml_tools.train_model(wait_timeout=0.3)
+
+    assert result["timed_out"] is True
+    assert result["status"] in ("pending", "running")
+    assert "job_get" in result["message"]
+
+
+def test_train_tools_validate_params_and_corrections_path(sandbox_root, monkeypatch):
+    from tools import ml_tools
+
+    _patch_ml_training(monkeypatch, lambda job_id, req: None)
+
+    with pytest.raises(ValueError, match="inconnu"):
+        ml_tools.start_training(hyper_inconnu=1)
+    with pytest.raises(ValueError, match="Device invalide"):
+        ml_tools.train_model(wait_timeout=1, device="tpu")
+    with pytest.raises(FileNotFoundError):
+        ml_tools.start_training(local_corrections_path="corrections.csv")
+    with pytest.raises(ValueError, match="class_augment_weights"):
+        ml_tools.start_training(class_augment_weights={"additionalProp1": 1.0})
+
+
+def test_train_tools_are_registered_with_empty_required_args():
+    from tools.tool_registry import REQUIRED_ARGS, TOOLS
+
+    assert REQUIRED_ARGS["start_training"] == []
+    assert REQUIRED_ARGS["train_model"] == []
+    assert callable(TOOLS["start_training"])
+    assert callable(TOOLS["train_model"])
+
+
+
+# --- Nouveaux outils ML : cancel_training / stop_training ----------------------------------------
+
+def _patch_ml_canceller(monkeypatch, store):
+    """Doublure offline de core.trainer_runner.cancel_training."""
+    from tools import ml_tools
+
+    def fake_cancel(job_id):
+        _finish_job(store, job_id, "cancelled", error="Training cancelled by user")
+        return store.get(job_id)
+
+    monkeypatch.setattr(ml_tools, "_get_training_canceller", lambda: fake_cancel)
+
+
+def test_cancel_training_stops_running_job(sandbox_root, monkeypatch):
+    from core.models import JobStatus, TrainJob
+    from tools import ml_tools
+
+    store = _FakeJobStore()
+    store["j-run"] = TrainJob(job_id="j-run", status=JobStatus.RUNNING)
+    monkeypatch.setattr(ml_tools, "_get_job_store", lambda: store)
+    _patch_ml_canceller(monkeypatch, store)
+
+    result = ml_tools.cancel_training("j-run")
+
+    assert result["job_id"] == "j-run"
+    assert result["status"] == "cancelled"
+    assert "job_get" in result["message"]
+    assert store.get("j-run").status.value == "cancelled"
+
+
+def test_cancel_training_accepts_pending_and_stop_is_alias(sandbox_root, monkeypatch):
+    from core.models import JobStatus, TrainJob
+    from tools import ml_tools
+
+    store = _FakeJobStore()
+    store["j-pending"] = TrainJob(job_id="j-pending", status=JobStatus.PENDING)
+    monkeypatch.setattr(ml_tools, "_get_job_store", lambda: store)
+    _patch_ml_canceller(monkeypatch, store)
+
+    result = ml_tools.stop_training("j-pending")
+
+    assert result["status"] == "cancelled"  # stop_training == cancel_training
+
+
+def test_cancel_training_rejects_unknown_and_finished_jobs(sandbox_root, monkeypatch):
+    from core.models import JobStatus, TrainJob
+    from tools import ml_tools
+
+    store = _FakeJobStore()
+    store["j-done"] = TrainJob(job_id="j-done", status=JobStatus.COMPLETED)
+    monkeypatch.setattr(ml_tools, "_get_job_store", lambda: store)
+    _patch_ml_canceller(monkeypatch, store)
+
+    with pytest.raises(ValueError, match="Job introuvable"):
+        ml_tools.cancel_training("inconnu")
+    with pytest.raises(ValueError, match="rien \u00e0 annuler"):
+        ml_tools.cancel_training("j-done")
+    with pytest.raises(ValueError, match="cha\u00eene non vide"):
+        ml_tools.cancel_training("   ")
+
+
+def test_cancel_tools_are_registered_with_job_id_required():
+    from tools.tool_registry import REQUIRED_ARGS, TOOLS
+
+    assert REQUIRED_ARGS["cancel_training"] == ["job_id"]
+    assert REQUIRED_ARGS["stop_training"] == ["job_id"]
+    assert callable(TOOLS["cancel_training"])
+    assert callable(TOOLS["stop_training"])
