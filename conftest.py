@@ -26,3 +26,12 @@ if not os.getenv("AGENT_SETTINGS_PATH"):
     os.environ["AGENT_SETTINGS_PATH"] = os.path.join(
         tempfile.gettempdir(), "thinktuning-test-agent-settings.db"
     )
+
+# Isolation de la FILE D'APPROBATION de l'agent : pendant les tests, la base
+# SQLite de core.approval_store pointe vers un fichier temporaire (jamais la
+# vraie base experiments/agent_approvals.db) pour ne pas polluer ni partager
+# les demandes d'un test à l'autre.
+if not os.getenv("AGENT_APPROVAL_PATH"):
+    os.environ["AGENT_APPROVAL_PATH"] = os.path.join(
+        tempfile.gettempdir(), "thinktuning-test-agent-approvals.db"
+    )

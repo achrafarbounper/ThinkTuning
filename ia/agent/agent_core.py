@@ -95,6 +95,10 @@ try:  # paquet « ia.tools » (imports racinés sur le projet / tests)
 except ImportError:  # racine « agent » / « tools » (core/agent_cache.py)
     from tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: F401
 
+# .approvals est un module frère du paquet « ia.agent » : l'import relatif
+# fonctionne dans les deux contextes (« ia.agent » tests ET « agent » runtime).
+from .approvals import ApprovalDecision, classify_approval  # noqa: E402
+
 
 def register_tool(name: str, func: ToolFunc, required_args: List[str]) -> None:
     """Enregistre un tool dans le registre central partagé avec tool_registry."""
@@ -188,6 +192,7 @@ class AgentCore:
         enable_logging: bool = False,
         edge_tabs: Optional[List[Dict[str, Any]]] = None,
         enable_thinking: bool = False,
+        approval_store=None,
     ):
         """
         `system_prompt` est optionnel : s'il n'est pas fourni (ou vide),
@@ -213,6 +218,15 @@ class AgentCore:
         self.max_rounds = max(2, int(max_rounds))
         self.enable_logging = enable_logging
         self.edge_tabs = edge_tabs or []
+        # File de validation humaine (approve / reject). Surchargeable en
+        # tests ; par défaut, le store applicatif partagé (sqLite).
+        self._approval_store = approval_store
+
+        # État du derning run : renseigné par le gate de décision.
+        self.last_approval = None          # PolicyDecision du dernier appel
+        self.awaiting_request_id = None    # id si une action attend validation
+        self.rejected_request_id = None    # id si une action a été bloquée
+        self._run_prompt = ""              # prompt du dernier run (traçabilité)
 
     # ---------------------------------------------------------
     # LOGGING
@@ -283,6 +297,55 @@ class AgentCore:
         return None
 
     # ---------------------------------------------------------
+    # GATE DE DÉCISION (auto_approve / approve / reject)
+    # ---------------------------------------------------------
+
+    def _get_store(self):
+        """Store de validation humaine : injecté ou applicatif partagé."""
+        if self._approval_store is not None:
+            return self._approval_store
+        from core.approval_store import get_approval_store  # lazy (import local)
+
+        return get_approval_store()
+
+    def _record_approval(self, decision, status: str = "pending") -> str:
+        """Persiste une décision (approve/reject) et renvoie son identifiant.
+
+        L'action n'est JAMAIS exécutée ici : elle est seulement tracée.
+        ``decision`` est la PolicyDecision calculée par le gate ; ``status``
+        est « pending » (approve, attente humaine) ou « rejected ».
+        """
+        return self._get_store().create(
+            tool=decision.tool,
+            args=decision.args,
+            category=decision.category,
+            decision=decision.decision.value,
+            reason=decision.reason,
+            prompt=self._run_prompt,
+            args_hash=decision.args_hash,
+            status=status,
+        )
+
+    def _gate(self, tool: str, args: Dict[str, Any]) -> Optional[str]:
+        """Soumet un appel à la policy. Bloque/retarde selon la décision.
+
+        Retourne l'identifiant de la demande si l'action doit attendre une
+        validation (approve) ou est bloquée (reject) ; ``None`` = auto_approve
+        (peut être exécutée). Met à jour `last_approval`, `awaiting_request_id`
+        et `rejected_request_id`.
+        """
+        decision = classify_approval(tool, args)
+        self.last_approval = decision
+        if decision.decision == ApprovalDecision.AUTO_APPROVE:
+            return None
+        if decision.decision == ApprovalDecision.APPROVE:
+            self.awaiting_request_id = self._record_approval(decision, "pending")
+            return self.awaiting_request_id
+        # REJECT
+        self.rejected_request_id = self._record_approval(decision, "rejected")
+        return self.rejected_request_id
+
+    # ---------------------------------------------------------
     # EXÉCUTION DES TOOLS
     # ---------------------------------------------------------
 
@@ -334,6 +397,19 @@ class AgentCore:
                     last_result,
                 )
 
+            # GATE DE DÉCISION : auto_approve / approve / reject.
+            # Un retour non-None signifie que l'action est mise en attente
+            # (approve) ou bloquée (reject) ; on stop le tour sans exécuter.
+            gate_id = self._gate(tool, args)
+            if gate_id is not None:
+                logger.info(
+                    "tool_gate tool=%s decision=%s request_id=%s",
+                    tool,
+                    self.last_approval.decision.value,
+                    gate_id,
+                )
+                return None, last_result
+
             try:
                 logger.info("tool_call name=%s args=%s", tool, args)
                 last_result = TOOLS[tool](**args)
@@ -382,6 +458,7 @@ class AgentCore:
         self,
         user_prompt: str,
         on_thinking: Optional[Callable[[str], None]] = None,
+        resume_request_id: Optional[str] = None,
     ) -> AgentResult:
         """
         Pipeline PRO complet :
@@ -396,6 +473,12 @@ class AgentCore:
         # Réflexion du tour LLM EN COURS (inline + natif) : lue par la boucle
         # pour détecter un outil annoncé uniquement dans le raisonnement.
         last_round_thinking = {"text": ""}
+
+        # Réinitialisation de l'état du gate pour ce run (traçabilité).
+        self.last_approval = None
+        self.awaiting_request_id = None
+        self.rejected_request_id = None
+        self._run_prompt = user_prompt
 
         # Vrai quand le client sait streamer ET qu'un récepteur temps réel est
         # branché : on injecte alors le callback directement dans l'appel.
@@ -446,6 +529,49 @@ class AgentCore:
             context_edge,
             {"role": "user", "content": user_prompt},
         ]
+
+        # --- Reprise après validation humaine (approve) -------------------------
+        # Si `resume_request_id` pointe une demande approuvée, on exécute
+        # l'action approuvée puis on laisse le LLM conclure (résultat injecté).
+        if resume_request_id:
+            resume_row = self._get_store().get(str(resume_request_id))
+            if resume_row is None:
+                raise ValueError(
+                    f"Demande d'approbation introuvable : {resume_request_id}"
+                )
+            if resume_row["status"] != "approved":
+                raise ValueError(
+                    f"Demande {resume_request_id} non approuvée (statut : "
+                    f"{resume_row['status']}). Impossible de reprendre."
+                )
+            resume_tool = resume_row["tool"]
+            if resume_tool not in TOOLS:
+                raise ValueError(f"Outil de reprise inconnu : {resume_tool}")
+            resume_args = resume_row.get("args")
+            if not isinstance(resume_args, dict):
+                resume_args = {}
+            try:
+                resume_result = TOOLS[resume_tool](**resume_args)
+            except Exception as exc:
+                raise ValueError(
+                    f"Échec d'exécution de l'action approuvée « {resume_tool} » : "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+            messages.append({
+                "role": "assistant",
+                "content": json.dumps(
+                    {"tool": resume_tool, "args": resume_args}, ensure_ascii=False
+                ),
+            })
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"Dernier résultat : {_stringify(resume_result)}. "
+                    "Si la tâche est complète, explique ce que tu as fait en TEXTE "
+                    "NORMAL. Sinon, renvoie le prochain appel d’outil en UN SEUL JSON."
+                ),
+            })
+            self.awaiting_request_id = None
 
         last_result = None
         problems: List[str] = []
@@ -534,6 +660,35 @@ class AgentCore:
                 return _result(raw)
 
             problem, last_result = self._execute(blocks, last_result)
+
+            # Gate de décision : une action attend une validation (approve) ou
+            # a été bloquée (reject). On arrête le run ICI, sans relancer le LLM.
+            if self.awaiting_request_id:
+                awaiting = self._get_store().get(self.awaiting_request_id) or {}
+                reason = awaiting.get("reason", "validation humaine requise")
+                tool_name = awaiting.get("tool", "?")
+                logger.info(
+                    "run awaiting_approval request_id=%s tool=%s",
+                    self.awaiting_request_id,
+                    tool_name,
+                )
+                return _result(
+                    "[En attente de validation] L'agent a besoin d'une validation "
+                    f"humaine (approve) avant d'exécuter « {tool_name} ». "
+                    f"Motif : {reason}. "
+                    "Utilisez POST /api/agent/approvals/{id}/approve ou /reject, "
+                    f"puis relancez avec resume_request_id. (request id : {self.awaiting_request_id})"
+                )
+            if self.rejected_request_id:
+                decision = self._get_store().get(self.rejected_request_id) or {}
+                reason = decision.get("reason", "action bloquée")
+                logger.info(
+                    "run rejected request_id=%s", self.rejected_request_id
+                )
+                return _result(
+                    "[Action refusée (reject)] "
+                    f"{reason}. Aucune exécution. (request id : {self.rejected_request_id})"
+                )
 
             if problem is None:
                 messages.append({

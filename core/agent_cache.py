@@ -32,16 +32,22 @@ from agent.llm_client import LLMClient  # noqa: E402
 from agent.runner import AgentRunner  # noqa: E402
 from tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
 
+# File de validation humaine — ré-exportée pour les routes /api/agent/approvals.
+from core.approval_store import ApprovalStore  # noqa: E402,F401
+from core.approval_store import get_approval_store as _get_approval_store  # noqa: E402
+
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
 __all__ = [
     "AgentCore",
     "AgentRunner",
     "LLMClient",
+    "ApprovalStore",
     "REQUIRED_ARGS",
     "TOOL_META",
     "TOOLS",
     "agent_config",
     "ask_agent",
+    "ask_agent_decision",
     "ask_agent_detailed",
     "ask_agent_detailed_streaming",
     "get_agent_runner",
@@ -389,7 +395,12 @@ def _list_openrouter_models(cfg: dict) -> dict:
     return {"active": active_model, "models": models}
 
 
-def _ask_runner_with_http_errors(runner: AgentRunner, prompt: str, effective_model: str):
+def _ask_runner_with_http_errors(
+    runner: AgentRunner,
+    prompt: str,
+    effective_model: str,
+    resume_request_id: str | None = None,
+):
     """Exécute runner.ask_detailed(prompt) en traduisant les erreurs réseau.
 
     Sémantique HTTP :
@@ -398,7 +409,7 @@ def _ask_runner_with_http_errors(runner: AgentRunner, prompt: str, effective_mod
         Erreur HTTP d'Ollama -> 502
     """
     try:
-        return runner.ask_detailed(prompt)
+        return runner.ask_detailed(prompt, resume_request_id=resume_request_id)
     except requests.exceptions.Timeout:
         raise HTTPException(
             status_code=504,
@@ -418,6 +429,45 @@ def _ask_runner_with_http_errors(runner: AgentRunner, prompt: str, effective_mod
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
         raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).")
+
+
+def ask_agent_decision(
+    prompt: str,
+    model: str | None = None,
+    resume_request_id: str | None = None,
+) -> dict:
+    """Version consciente du gate de décision (auto_approve/approve/reject).
+
+    Alimente le flux API « approbation humaine » :
+        - ``completed``  : l'agent a répondu sans bloquer (réponse finale) ;
+        - ``awaiting_approval`` : une action attend `/approve` (request_id) ;
+        - ``rejected``  : une action a été bloquée par la policy (request_id).
+
+    Retourne toujours un dict JSON provenable pour les endpoints.
+    """
+    effective_model = (model or "").strip() or agent_config()["model"]
+    runner = get_agent_runner(effective_model)
+    result = _ask_runner_with_http_errors(
+        runner, prompt, effective_model, resume_request_id=resume_request_id
+    )
+    agent = runner.agent
+    approval = agent.last_approval.to_dict() if agent.last_approval is not None else None
+
+    if agent.awaiting_request_id:
+        return {
+            "status": "awaiting_approval",
+            "request_id": agent.awaiting_request_id,
+            "approval": approval,
+            "response": result.answer,
+        }
+    if agent.rejected_request_id:
+        return {
+            "status": "rejected",
+            "request_id": agent.rejected_request_id,
+            "approval": approval,
+            "response": result.answer,
+        }
+    return {"status": "completed", "response": result.answer}
 
 
 def ask_agent(prompt: str, model: str | None = None) -> str:

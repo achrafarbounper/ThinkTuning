@@ -18,16 +18,28 @@ import { ChatInput } from './ChatInput';
 import { ChatModelSelector } from './ChatModelSelector';
 import { readSseEvents } from './streamSse';
 import type {
+  AgentAskResponse,
   ChatMessageData,
   ChatRequestBody,
   ChatStreamEvent,
   LlmModelInfo,
   LlmModelsResponse,
+  PendingApprovalData,
 } from './types';
 import './chat.css';
 
 /** Endpoint du backend (proxifié par Vite vers l'API FastAPI en développement). */
 const AI_ENDPOINT = '/api/ai';
+
+/**
+ * Endpoint du mode Agent (POST /api/agent/ask) : contrairement au chat SSE
+ * /api/ai, l'agent peut déclencher des outils ; une action à risque renvoie
+ * status="awaiting_approval" et attend la décision humaine (approve/reject).
+ */
+const AGENT_ASK_ENDPOINT = '/api/agent/ask';
+
+/** Base des endpoints de validation humaine (approve / reject). */
+const APPROVALS_ENDPOINT = '/api/agent/approvals';
 
 /** Endpoint listant les modèles LLM disponibles (même proxy que /api/ai). */
 const MODELS_ENDPOINT = '/api/models';
@@ -40,6 +52,17 @@ const CHAT_MODEL_STORAGE_KEY = 'thinktuning.chatModel';
 
 /** Clé de persistance du mode « Réflexion » (localStorage). */
 const THINKING_STORAGE_KEY = 'thinktuning.enableThinking';
+
+/**
+ * Clé de persistance du mode « Agent » (localStorage). Dans ce mode, les
+ * messages partent vers /api/agent/ask au lieu du chat SSE /api/ai : l'agent
+ * peut appeler ses outils, et une action à risque déclenche la carte de
+ * validation humaine (auto_approve / approve / reject).
+ */
+const AGENT_MODE_STORAGE_KEY = 'thinktuning.agentMode';
+
+/** Nombre maximal de caractères d'arguments affichés sur la carte d'approbation. */
+const APPROVAL_ARGS_PREVIEW_LIMIT = 400;
 
 /** Distance (px) sous laquelle on considère que l'utilisateur « suit » le bas. */
 const SCROLL_THRESHOLD_PX = 80;
@@ -92,6 +115,24 @@ function loadStoredThinking(): boolean {
   }
 }
 
+/** Relit l'état persisté du mode « Agent » (désactivé par défaut). */
+function loadStoredAgentMode(): boolean {
+  try {
+    return window.localStorage.getItem(AGENT_MODE_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** Aperçu compact des arguments d'un appel pour la carte d'approbation. */
+function formatArgsPreview(args: Record<string, unknown> | undefined): string {
+  if (!args || Object.keys(args).length === 0) return '{}';
+  const json = JSON.stringify(args, null, 2);
+  return json.length > APPROVAL_ARGS_PREVIEW_LIMIT
+    ? `${json.slice(0, APPROVAL_ARGS_PREVIEW_LIMIT)}…`
+    : json;
+}
+
 /**
  * Extrait le message d'erreur FastAPI (`detail`) d'une réponse non-OK.
  * Repli sur un message générique si le corps n'est pas JSON ou sans `detail`.
@@ -122,6 +163,11 @@ export function ChatWindow() {
   // message et persisté en localStorage comme le modèle sélectionné.
   const [enableThinking, setEnableThinking] = useState<boolean>(loadStoredThinking);
   const [modelsError, setModelsError] = useState('');
+  // Mode « Agent » : les messages passent par /api/agent/ask (l'agent peut
+  // appeler ses outils). Une action à risque affiche la carte d'approbation.
+  const [agentMode, setAgentMode] = useState<boolean>(loadStoredAgentMode);
+  // Demande en attente de décision humaine (approve / reject), le cas échéant.
+  const [pendingApproval, setPendingApproval] = useState<PendingApprovalData | null>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController>(null);
@@ -201,6 +247,24 @@ export function ChatWindow() {
     });
   }, []);
 
+  /**
+   * Active/désactive le mode « Agent » et persiste le choix. Quitter le mode
+   * annule la carte d'approbation affichée (le backend reste maître de la
+   * demande, qui expire seule côté store).
+   */
+  const handleAgentToggle = useCallback(() => {
+    setAgentMode((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(AGENT_MODE_STORAGE_KEY, String(next));
+      } catch {
+        /* stockage indisponible : le choix reste valable pour la session */
+      }
+      return next;
+    });
+    setPendingApproval(null);
+  }, []);
+
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
@@ -257,8 +321,61 @@ export function ChatWindow() {
   const startNewSession = useCallback(() => {
     abortRef.current?.abort();
     setMessages([]);
+    setPendingApproval(null);
     setStickToBottom(true);
   }, []);
+
+  /**
+   * Tour d'agent : POST /api/agent/ask puis rendu de la réponse dans la bulle
+   * donnée. Couvre les trois statuts du gate auto_approve / approve / reject :
+   *   - completed         : réponse finale affichée telle quelle ;
+   *   - awaiting_approval : carte Approuver / Refuser déclenchée ;
+   *   - rejected          : motif du blocage policy affiché au mot pour mot.
+   */
+  const askAgentTurn = useCallback(
+    async (
+      assistantId: string,
+      prompt: string,
+      controller: AbortController,
+      resumeRequestId?: string,
+    ): Promise<void> => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const apiKey = resolveApiKey();
+      if (apiKey) headers['X-API-Key'] = apiKey;
+
+      // Contrat backend (schéma AskRequest) : champ en snake_case, comme
+      // « enable_thinking » — la forme camelCase serait ignorée par Pydantic.
+      const body: { prompt: string; resume_request_id?: string } = { prompt };
+      if (resumeRequestId) body.resume_request_id = resumeRequestId;
+
+      const response = await fetch(AGENT_ASK_ENDPOINT, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      const data = (await response.json()) as AgentAskResponse;
+
+      if (data.status === 'awaiting_approval' && data.request_id) {
+        const tool = data.approval?.tool ?? 'outil inconnu';
+        setPendingApproval({
+          requestId: data.request_id,
+          prompt,
+          tool,
+          reason: data.approval?.reason ?? 'validation humaine requise',
+          args: data.approval?.args,
+        });
+        appendDelta(assistantId, `[En attente de validation] L'action « ${tool} » nécessite votre décision avant exécution.`);
+        return;
+      }
+      // completed ou rejected : la réponse backend porte déjà l'explication.
+      appendDelta(assistantId, data.response || '');
+    },
+    [appendDelta],
+  );
 
   /** Envoie le message de l'utilisateur puis diffuse la réponse de l'IA en streaming. */
   const sendMessage = useCallback(
@@ -292,6 +409,13 @@ export function ChatWindow() {
       abortRef.current = controller;
 
       try {
+        // Mode Agent : POST /api/agent/ask (réponse d'un bloc, gate
+        // auto_approve/approve/reject) au lieu du chat SSE /api/ai.
+        if (agentMode) {
+          await askAgentTurn(assistantId, trimmed, controller);
+          return;
+        }
+
         const body: ChatRequestBody = { message: trimmed, history };
         // Modèle choisi via le sélecteur de l'en-tête ('' = défaut serveur).
         if (selectedModel) body.model = selectedModel;
@@ -353,8 +477,108 @@ export function ChatWindow() {
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking],
+    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking, agentMode, askAgentTurn],
   );
+
+  /**
+   * Décision humaine : APPROUVER une action en attente. La demande passe à
+   * « approved » côté store, puis le run interrompu est relancé via
+   * resume_request_id — l'action est exécutée UNE fois et l'agent conclut.
+   */
+  const handleApprove = useCallback(async () => {
+    if (!pendingApproval || isLoading) return;
+    const { requestId, prompt } = pendingApproval;
+    setPendingApproval(null);
+    setIsLoading(true);
+
+    const assistantId = createId();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const headers: Record<string, string> = {};
+      const apiKey = resolveApiKey();
+      if (apiKey) headers['X-API-Key'] = apiKey;
+      const response = await fetch(`${APPROVALS_ENDPOINT}/${requestId}/approve`, {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+
+      // Reprise du run : nouvelle bulle, alimentée par la suite du run agent.
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          createdAt: nowIso(),
+          streaming: true,
+        },
+      ]);
+      await askAgentTurn(assistantId, prompt, controller, requestId);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        patchMessage(assistantId, {
+          error: error instanceof Error ? error.message : String(error),
+          streaming: false,
+        });
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        patchMessage(assistantId, { streaming: false });
+      }
+      setIsLoading(false);
+      abortRef.current = null;
+    }
+  }, [pendingApproval, isLoading, askAgentTurn, patchMessage]);
+
+  /**
+   * Décision humaine : REFUSER une action en attente. Aucune exécution ; un
+   * message explicite trace le refus dans la conversation.
+   */
+  const handleReject = useCallback(async () => {
+    if (!pendingApproval || isLoading) return;
+    const { requestId, tool, reason } = pendingApproval;
+    setPendingApproval(null);
+    setIsLoading(true);
+    try {
+      const headers: Record<string, string> = {};
+      const apiKey = resolveApiKey();
+      if (apiKey) headers['X-API-Key'] = apiKey;
+      const response = await fetch(`${APPROVALS_ENDPOINT}/${requestId}/reject`, {
+        method: 'POST',
+        headers,
+      });
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: createId(),
+          role: 'assistant' as const,
+          content: `[Action refusée] « ${tool} » n'a pas été exécutée. Motif du contrôle : ${reason}.`,
+          createdAt: nowIso(),
+        },
+      ]);
+    } catch (error) {
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: createId(),
+          role: 'assistant' as const,
+          content: '',
+          createdAt: nowIso(),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [pendingApproval, isLoading]);
 
   const isEmpty = messages.length === 0;
   /** Une nouvelle session n'a de sens que s'il y a quelque chose à réinitialiser. */
@@ -366,6 +590,17 @@ export function ChatWindow() {
         <span className="copilot-chat__status-dot" data-active={isLoading} aria-hidden="true" />
         <h2 className="copilot-chat__title">Assistant IA</h2>
         <div className="copilot-chat__actions">
+          <button
+            type="button"
+            className="copilot-chat__think-toggle"
+            data-active={agentMode || undefined}
+            onClick={handleAgentToggle}
+            aria-pressed={agentMode}
+            title="Mode Agent : l'agent peut exécuter ses outils ; une action à risque attend votre validation (approve / reject)"
+          >
+            <BotIcon />
+            <span className="copilot-chat__think-label">Agent</span>
+          </button>
           <button
             type="button"
             className="copilot-chat__think-toggle"
@@ -425,6 +660,35 @@ export function ChatWindow() {
         </button>
       )}
 
+      {pendingApproval && (
+        <div className="approval-card" role="alertdialog" aria-label="Validation d'action requise">
+          <div className="approval-card__header">
+            <span className="approval-card__badge">Validation requise</span>
+            <code className="approval-card__tool">{pendingApproval.tool}</code>
+          </div>
+          <p className="approval-card__reason">{pendingApproval.reason}</p>
+          <pre className="approval-card__args">{formatArgsPreview(pendingApproval.args)}</pre>
+          <div className="approval-card__actions">
+            <button
+              type="button"
+              className="approval-card__button approval-card__button--approve"
+              onClick={handleApprove}
+              disabled={isLoading}
+            >
+              ✓ Approuver et exécuter
+            </button>
+            <button
+              type="button"
+              className="approval-card__button approval-card__button--reject"
+              onClick={handleReject}
+              disabled={isLoading}
+            >
+              ✕ Refuser
+            </button>
+          </div>
+        </div>
+      )}
+
       <ChatInput busy={isLoading} onSend={sendMessage} onStop={stopGeneration} />
     </section>
   );
@@ -463,6 +727,28 @@ function PlusIcon() {
     >
       <path d="M12 5v14" />
       <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+/** Icône « robot » du bouton Mode Agent (outils + validation humaine). */
+function BotIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="4" y="8" width="16" height="12" rx="2" />
+      <path d="M12 8V4" />
+      <circle cx="12" cy="3" r="1" />
+      <path d="M9 13h.01" />
+      <path d="M15 13h.01" />
+      <path d="M9.5 17h5" />
     </svg>
   );
 }
