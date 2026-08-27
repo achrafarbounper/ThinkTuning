@@ -31,10 +31,14 @@ def list_models(_: bool = Depends(require_api_key)):
 @router.get("/details", response_model=List[ModelVersion])
 def list_models_details(_: bool = Depends(require_api_key)):
     """Renvoie la liste des modèles enregistrés, du plus récent au plus ancien."""
-    active_model_dir = resolve_model_dir()
-    active_model_path = os.path.abspath(active_model_dir)
-
     model_versions = []
+    # Aucun modèle entraîné (ex: premier lancement de l'image Docker avec
+    # /app/experiments/models vide) -> renvoyer une liste vide (200) plutôt
+    # qu'un 500 RuntimeError. Cohérent avec /predict qui renvoie 503.
+    try:
+        active_model_path = os.path.abspath(resolve_model_dir())
+    except RuntimeError:
+        active_model_path = None
     for name in list_model_versions():
         path = os.path.abspath(os.path.join(MODEL_ROOT, name))
         model_versions.append(

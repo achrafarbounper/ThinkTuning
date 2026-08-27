@@ -8,7 +8,9 @@ COPY dashboard/package*.json ./
 RUN npm ci
 
 COPY dashboard/ .
-ARG VITE_API_URL=http://localhost:8000
+# Chaîne vide => le client API utilise des chemins relatifs (/api/...)
+# et passe par le proxy Nginx du même conteneur (voir dashboard/nginx.conf).
+ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
@@ -53,6 +55,8 @@ RUN mkdir -p experiments/checkpoints sentiment_model_final
 # Copy frontend build into nginx
 COPY --from=frontend-build /app/dashboard/dist /usr/share/nginx/html
 COPY dashboard/nginx.conf /etc/nginx/conf.d/default.conf
+COPY dashboard/nginx.main.conf /etc/nginx/nginx.conf
+RUN rm -f /etc/nginx/sites-enabled/default
 
 # Copy supervisord config
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf

@@ -15,10 +15,10 @@
  *   const { results } = await api.predict(["Ce produit est génial !"]);
  */
 
-const DEFAULT_BASE_URL =
+export const DEFAULT_BASE_URL =
   (typeof import.meta !== "undefined" &&
     import.meta.env &&
-    import.meta.env.VITE_API_URL) ||
+    import.meta.env.VITE_API_URL) ??
   "http://localhost:8000";
 
 // --- Constantes de l'agent IA -------------------------------------------------

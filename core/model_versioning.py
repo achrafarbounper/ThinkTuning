@@ -17,7 +17,11 @@ def list_model_versions() -> list[str]:
     for name in os.listdir(MODEL_ROOT):
         path = os.path.join(MODEL_ROOT, name)
         if os.path.isdir(path):
-            if any(os.path.exists(os.path.join(path, f)) for f in MODEL_FILES):
+            if any(
+                os.path.isfile(os.path.join(path, f))
+                and os.path.getsize(os.path.join(path, f)) > 0
+                for f in MODEL_FILES
+            ):
                 versions.append(name)
 
     versions.sort(reverse=True)
@@ -33,7 +37,10 @@ def resolve_model_dir(model_name: str | None = None) -> str:
 
     versions = list_model_versions()
     if not versions:
-        raise RuntimeError("No valid model versions found.")
+        raise RuntimeError(
+            "No valid model versions found in "
+            f"{os.path.abspath(MODEL_ROOT)}. Train a model first (POST /train)."
+        )
 
     return os.path.join(MODEL_ROOT, versions[0])
 
