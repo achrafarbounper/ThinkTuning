@@ -189,6 +189,7 @@ export default function AppProvider({ children }) {
   }, [pushLog]);
 
   const value = useMemo(() => ({
+    client,
     config, setConfig, saveConfig,
     agentSettings, persistAgentSettings, updateAgentSettings, testAgentConnection,
     agentLoading, agentError, setAgentError,
@@ -197,7 +198,7 @@ export default function AppProvider({ children }) {
     predictionsHistory, addToHistory, clearHistory,
     maxHistorySize, setMaxHistorySize,
     logs, pushLog,
-  }), [config, agentSettings, agentLoading, agentError, health, healthError, models, modelsError, activeModel, predictionsHistory, maxHistorySize, logs, pushLog, addToHistory, clearHistory, persistAgentSettings, refreshModels, saveConfig, setMaxHistorySize, testAgentConnection, updateAgentSettings]);
+  }), [client, config, agentSettings, agentLoading, agentError, health, healthError, models, modelsError, activeModel, predictionsHistory, maxHistorySize, logs, pushLog, addToHistory, clearHistory, persistAgentSettings, refreshModels, saveConfig, setMaxHistorySize, testAgentConnection, updateAgentSettings]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

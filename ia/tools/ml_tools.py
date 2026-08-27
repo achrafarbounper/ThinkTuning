@@ -8,7 +8,14 @@ SQL brut ni importer torch inutilement :
       (import paresseux : tests et environnements sans modèle fonctionnent) ;
     - dataset_stats      : profil CSV/TSV/JSONL via pandas ;
     - model_versions     : scan sandbox de experiments/models (mêmes conventions
-      que core/model_versioning.py).
+      que core/model_versioning.py) ;
+    - start_training     : lance un entraînement en arrière-plan (même
+      mécanique que POST /train) et rend la main immédiatement ;
+    - train_model        : variante bloquante qui attend la fin du job
+      (timeout borné) avant de retourner le résultat final ;
+    - cancel_training / stop_training : demande l'arrêt d'un entraînement
+      en cours via le cancel_event du Trainer (effectif au prochain
+      point de contrôle de la boucle d'entraînement).
 
 Sécurité : SQLite mode ro + PRAGMA query_only, chemins confinés par
 safe_resolve, listes bornées, aucune variable d'environnement exposée.
@@ -16,6 +23,9 @@ safe_resolve, listes bornées, aucune variable d'environnement exposée.
 
 import json
 import sqlite3
+import threading
+import time
+import uuid
 from pathlib import Path
 
 from .sandbox import iso_from_timestamp, safe_resolve, truncate_output
@@ -251,3 +261,263 @@ def model_versions(model_root: str = "experiments/models") -> dict:
             }
         )
     return {"model_root": str(base), "version_count": len(versions), "versions": versions}
+
+# --- lancement d'entraînements ------------------------------------------------------------
+# Champs acceptés par TrainRequest (core/models.py) : la validation pydantic de
+# l'API est réutilisée telle quelle (y compris le validateur class_augment_weights).
+TRAIN_REQUEST_FIELDS = (
+    "max_per_lang",
+    "local_corrections_path",
+    "augment_fraction",
+    "variants_per_example",
+    "class_augment_weights",
+    "epochs",
+    "batch_size",
+    "num_workers",
+    "max_length",
+    "learning_rate",
+    "weight_decay",
+    "warmup_ratio",
+    "device",
+)
+_CORRECTIONS_SUFFIXES = {".csv", ".jsonl"}
+_DEVICE_PREFIXES = ("auto", "cpu", "cuda")
+TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "cancelled"})
+TRAIN_POLL_INTERVAL_SECONDS = 0.5
+TRAIN_DEFAULT_WAIT_TIMEOUT = 3600.0
+MAX_TRAIN_WAIT_TIMEOUT = 24 * 3600.0
+
+
+def _get_job_store():
+    """Import paresseux du job store persistant (core.job_store)."""
+    try:
+        from core.job_store import get_job_store
+    except ImportError as exc:
+        raise RuntimeError(
+            "core.job_store inaccessible : lancez l'agent depuis la racine du projet."
+        ) from exc
+    return get_job_store()
+
+
+def _get_trainer_runner():
+    """Import paresseux de core.trainer_runner (qui importe torch/transformers)."""
+    try:
+        from core.trainer_runner import run_training
+    except ImportError as exc:
+        raise RuntimeError(
+            "core.trainer_runner inaccessible (torch/transformers manquants ?) : "
+            "lancez l'agent depuis la racine du projet avec les requirements."
+        ) from exc
+    return run_training
+
+
+def _build_train_request(params: dict):
+    """Valide les hyperparamètres via le modèle pydantic TrainRequest de l'API
+    (mêmes règles que POST /train) et retourne l'instance correspondante."""
+    from core.models import TrainRequest  # pydantic uniquement, sans torch
+
+    unknown = sorted(set(params) - set(TRAIN_REQUEST_FIELDS))
+    if unknown:
+        raise ValueError(
+            f"Hyperparamètre(s) inconnu(s) : {unknown}. Champs acceptés (tous "
+            f"optionnels) : {list(TRAIN_REQUEST_FIELDS)}."
+        )
+    device = params.get("device")
+    if device is not None and not str(device).startswith(_DEVICE_PREFIXES):
+        raise ValueError(
+            f"Device invalide : '{device}'. Valeurs attendues : auto, cpu, cuda "
+            "(ou cuda:N)."
+        )
+    corrections = params.get("local_corrections_path")
+    if corrections is not None:
+        resolved = safe_resolve(str(corrections), must_exist=True)
+        if not resolved.is_file():
+            raise IsADirectoryError(f"Pas un fichier de corrections : {resolved}")
+        if resolved.suffix.lower() not in _CORRECTIONS_SUFFIXES:
+            raise ValueError(
+                f"Format de corrections non supporté : '{resolved.suffix}'. "
+                f"Formats : {sorted(_CORRECTIONS_SUFFIXES)} (CSV/JSONL)."
+            )
+        params = {**params, "local_corrections_path": str(resolved)}
+    try:
+        return TrainRequest(**params)
+    except ValueError as exc:  # pydantic ValidationError (hérite de ValueError)
+        raise ValueError(f"Hyperparamètres d'entraînement invalides : {exc}") from exc
+
+
+def _refuse_if_training_running(store) -> None:
+    """Un seul entraînement à la fois : le runner écrit dans experiments/models."""
+    for job in store.values():
+        status = getattr(getattr(job, "status", None), "value", None)
+        if status in ("pending", "running"):
+            raise ValueError(
+                f"Un entraînement est déjà en cours (job_id={getattr(job, 'job_id', '?')}, "
+                f"statut={status}). Attendez sa fin (job_get) ou annulez-le avant "
+                "d'en lancer un nouveau."
+            )
+
+
+def _training_thread_target(job_id: str, req) -> None:
+    """Exécute run_training dans un thread daemon ; en cas d'échec d'import ou
+    d'exécution, marque le job FAILED pour ne jamais le laisser en attente."""
+    try:
+        _get_trainer_runner()(job_id, req)
+    except Exception as exc:  # le thread ne doit jamais laisser un job orphelin
+        try:
+            from core.models import JobStatus
+
+            store = _get_job_store()
+            job = store.get(job_id)
+            if job is not None and job.status in (JobStatus.PENDING, JobStatus.RUNNING):
+                job.status = JobStatus.FAILED
+                job.error = truncate_output(str(exc), 500)
+                job.finished_at = time.time()
+                store[job_id] = job
+        except Exception:  # dernier recours : on n'élève jamais depuis un thread
+            pass
+
+
+def _launch_training_job(params: dict) -> dict:
+    """Point commun start_training / train_model : validation des hyperparamètres,
+    garde anti-concurrence, création du TrainJob PENDING puis démarrage du thread
+    d'entraînement (même mécanique que POST /train dans api/routes/train.py)."""
+    from core.models import JobStatus, TrainJob  # pydantic uniquement, sans torch
+
+    req = _build_train_request(params)
+    store = _get_job_store()
+    _refuse_if_training_running(store)
+
+    job_id = str(uuid.uuid4())
+    job = TrainJob(job_id=job_id, status=JobStatus.PENDING)
+    store[job_id] = job
+    started_status = job.status.value  # snapshot AVANT le démarrage du thread
+    threading.Thread(
+        target=_training_thread_target, args=(job_id, req), daemon=True
+    ).start()
+    return {"job_id": job_id, "store": store, "started_at_status": started_status}
+
+
+def start_training(**params) -> dict:
+    """Lance un entraînement en ARRIÈRE-PLAN (même mécanique que POST /train) et
+    retourne immédiatement le job_id ; suivez la progression avec job_get / job_list.
+
+    Hyperparamètres optionnels : max_per_lang, local_corrections_path (CSV/JSONL
+    de corrections sous la sandbox), augment_fraction, variants_per_example,
+    class_augment_weights, epochs, batch_size, num_workers, max_length,
+    learning_rate, weight_decay, warmup_ratio, device (auto/cpu/cuda)."""
+    launched = _launch_training_job(params)
+    return {
+        "job_id": launched["job_id"],
+        "status": launched["started_at_status"],
+        "step": "queued",
+        "message": (
+            f"Entraînement lancé en arrière-plan (job_id={launched['job_id']}). "
+            "Suivez la progression avec job_get(job_id=...) ou job_list(status='running')."
+        ),
+    }
+
+
+def train_model(wait_timeout: float = TRAIN_DEFAULT_WAIT_TIMEOUT, **params) -> dict:
+    """Lance un entraînement et ATTEND sa fin (bloquant, timeout en secondes).
+    Retourne le statut final, le chemin du modèle sauvegardé et l'erreur éventuelle.
+    Mêmes hyperparamètres optionnels que start_training."""
+    wait_timeout = min(max(float(wait_timeout), 1.0), MAX_TRAIN_WAIT_TIMEOUT)
+    launched = _launch_training_job(params)
+    job_id, store = launched["job_id"], launched["store"]
+
+    deadline = time.monotonic() + wait_timeout
+    job = store.get(job_id)
+    while job is not None and job.status.value not in TERMINAL_JOB_STATUSES:
+        if time.monotonic() >= deadline:
+            return {
+                "job_id": job_id,
+                "status": job.status.value,
+                "step": job.step,
+                "timed_out": True,
+                "message": (
+                    f"Entraînement toujours en cours après {wait_timeout:g}s "
+                    f"(statut={job.status.value}). Continuez à suivre avec "
+                    f"job_get(job_id='{job_id}') et ne relancez PAS d'entraînement "
+                    "tant que celui-ci n'est pas terminé ou annulé."
+                ),
+            }
+        time.sleep(TRAIN_POLL_INTERVAL_SECONDS)
+        job = store.get(job_id)
+
+    if job is None:  # pragma: no cover - le job vient d'être créé
+        raise RuntimeError(f"Job {job_id} disparu du job store pendant l'attente.")
+
+    if job.status.value == "completed":
+        message = f"Entraînement terminé : modèle sauvegardé dans {job.model_path}."
+    elif job.status.value == "failed":
+        message = f"Entraînement échoué : {job.error}"
+    else:
+        message = f"Entraînement annulé (statut={job.status.value})."
+    return {
+        "job_id": job_id,
+        "status": job.status.value,
+        "step": job.step,
+        "model_path": job.model_path,
+        "error": job.error,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "timed_out": False,
+        "message": message,
+    }
+
+
+
+def _get_training_canceller():
+    """Import paresseux de core.trainer_runner.cancel_training (qui importe
+    torch/transformers) : c'est le même cancel_event que lit la boucle du
+    Trainer pour s'arrêter proprement au prochain point de contrôle."""
+    try:
+        from core.trainer_runner import cancel_training
+    except ImportError as exc:
+        raise RuntimeError(
+            "core.trainer_runner inaccessible (torch/transformers manquants ?) : "
+            "lancez l'agent depuis la racine du projet avec les requirements."
+        ) from exc
+    return cancel_training
+
+
+def cancel_training(job_id: str) -> dict:
+    """Demande l'ARRÊT d'un entraînement en cours (pending/running) via son job_id.
+
+    Marque le job CANCELLED dans le job store et positionne le cancel_event que
+    la boucle d'entraînement consulte : le thread s'arrête au prochain point de
+    contrôle (pas de kill brutal). Confirmez avec job_get après quelques
+    secondes. Seuls les jobs pending/running peuvent être annulés."""
+    if not isinstance(job_id, str) or not job_id.strip():
+        raise ValueError("'job_id' doit être une chaîne non vide (via job_list).")
+
+    store = _get_job_store()
+    job = store.get(str(job_id))
+    if job is None:
+        raise ValueError(
+            f"Job introuvable : '{job_id}'. Utilisez job_list pour voir les "
+            "jobs existants."
+        )
+    status = getattr(getattr(job, "status", None), "value", None)
+    if status not in ("pending", "running"):
+        raise ValueError(
+            f"Job déjà terminé (statut={status}) : rien à annuler pour '{job_id}'."
+        )
+
+    cancelled = _get_training_canceller()(str(job_id))
+    return {
+        "job_id": cancelled.job_id,
+        "status": cancelled.status.value,
+        "step": cancelled.step,
+        "message": (
+            f"Arrêt demandé (job_id={cancelled.job_id}). Le thread s'arrête au "
+            f"prochain point de contrôle : confirmez avec job_get(job_id='{cancelled.job_id}') "
+            "avant de relancer un entraînement."
+        ),
+    }
+
+
+def stop_training(job_id: str) -> dict:
+    """Alias de cancel_training : demande l'arrêt propre d'un entraînement
+    en cours (pending/running) via son job_id."""
+    return cancel_training(job_id)

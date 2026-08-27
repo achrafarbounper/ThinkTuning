@@ -20,7 +20,7 @@
     },
     "append_file": {
       "name": "append_file",
-      "description": "Ajoute `content` à la fin d'un fichier DANS la sandbox (crée le fichier et ses parents si nécessaire — contrairement à write_file qui écras…",
+      "description": "Ajoute `content` Ã  la fin d'un fichier DANS la sandbox (crÃ©e le fichier et ses parents si nÃ©cessaire â€” contrairement Ã  write_file qui Ã©crasâ€¦",
       "required_args": [
         "path",
         "content"
@@ -38,7 +38,7 @@
     },
     "calc": {
       "name": "calc",
-      "description": "Évalue une expression arithmétique pure et renvoie {expression, result}",
+      "description": "Ã‰value une expression arithmÃ©tique pure et renvoie {expression, result}",
       "required_args": [
         "expression"
       ],
@@ -48,6 +48,31 @@
           "type": "string"
         }
       }
+    },
+    "cancel_training": {
+
+        "name": "cancel_training",
+
+        "description": "Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au prochain point de contrÃ´le, confirmez avec job_get",
+
+        "required_args": [
+
+            "job_id"
+
+        ],
+
+        "parameters": {
+
+            "job_id": {
+
+                "required": true,
+
+                "type": "string"
+
+            }
+
+        }
+
     },
     "copy_path": {
       "name": "copy_path",
@@ -69,7 +94,7 @@
     },
     "count_lines": {
       "name": "count_lines",
-      "description": "Décompte lignes, mots, caractères et octets (équivalent `wc`)",
+      "description": "DÃ©compte lignes, mots, caractÃ¨res et octets (Ã©quivalent `wc`)",
       "required_args": [
         "path"
       ],
@@ -100,7 +125,7 @@
     },
     "dedupe_lines": {
       "name": "dedupe_lines",
-      "description": "Supprime les lignes dupliquées d'un fichier (dans la sandbox)",
+      "description": "Supprime les lignes dupliquÃ©es d'un fichier (dans la sandbox)",
       "required_args": [
         "path"
       ],
@@ -118,7 +143,7 @@
     },
     "disk_usage": {
       "name": "disk_usage",
-      "description": "Espace disque libre + taille des enfants directs d'un dossier sandbox (les entraînements meurent silencieusement sur un disque plein)",
+      "description": "Espace disque libre + taille des enfants directs d'un dossier sandbox (les entraÃ®nements meurent silencieusement sur un disque plein)",
       "required_args": [],
       "parameters": {
         "path": {
@@ -130,7 +155,7 @@
     },
     "docker_exec": {
       "name": "docker_exec",
-      "description": "Exécute `command` (chaîne, via `sh -c`) dans le conteneur",
+      "description": "ExÃ©cute `command` (chaÃ®ne, via `sh -c`) dans le conteneur",
       "required_args": [
         "container",
         "command"
@@ -158,7 +183,7 @@
     },
     "docker_logs": {
       "name": "docker_logs",
-      "description": "Dernières `tail` lignes de logs d'un conteneur (stdout + stderr)",
+      "description": "DerniÃ¨res `tail` lignes de logs d'un conteneur (stdout + stderr)",
       "required_args": [
         "container"
       ],
@@ -193,7 +218,7 @@
     },
     "docker_stats": {
       "name": "docker_stats",
-      "description": "Consommation CPU/RAM par conteneur (`docker stats --no-stream`, un objet JSON par conteneur — même convention que docker_ps)",
+      "description": "Consommation CPU/RAM par conteneur (`docker stats --no-stream`, un objet JSON par conteneur â€” mÃªme convention que docker_ps)",
       "required_args": [],
       "parameters": {
         "all_containers": {
@@ -205,7 +230,7 @@
     },
     "download_file": {
       "name": "download_file",
-      "description": "Télécharge un fichier http(s) DANS la sandbox, en streaming",
+      "description": "TÃ©lÃ©charge un fichier http(s) DANS la sandbox, en streaming",
       "required_args": [
         "url",
         "filename"
@@ -233,13 +258,13 @@
     },
     "env_info": {
       "name": "env_info",
-      "description": "Diagnostic lecture seule : Python, OS, CPU et versions des packages clés",
+      "description": "Diagnostic lecture seule : Python, OS, CPU et versions des packages clÃ©s",
       "required_args": [],
       "parameters": {}
     },
     "file_checksum": {
       "name": "file_checksum",
-      "description": "Empreinte (hash) d'un fichier : md5, sha1, sha256 (défaut) ou sha512",
+      "description": "Empreinte (hash) d'un fichier : md5, sha1, sha256 (dÃ©faut) ou sha512",
       "required_args": [
         "path"
       ],
@@ -257,7 +282,7 @@
     },
     "file_info": {
       "name": "file_info",
-      "description": "Métadonnées d'un fichier ou dossier (type, taille, dates, encodage, lignes)",
+      "description": "MÃ©tadonnÃ©es d'un fichier ou dossier (type, taille, dates, encodage, lignes)",
       "required_args": [
         "path"
       ],
@@ -270,7 +295,7 @@
     },
     "find_duplicates": {
       "name": "find_duplicates",
-      "description": "Détecte les fichiers au contenu identique (par empreinte) sous `path`",
+      "description": "DÃ©tecte les fichiers au contenu identique (par empreinte) sous `path`",
       "required_args": [],
       "parameters": {
         "path": {
@@ -282,7 +307,7 @@
     },
     "find_file": {
       "name": "find_file",
-      "description": "Cherche récursivement les fichiers/dossiers dont le chemin relatif ou le nom correspond à `pattern` (regex Python, insensible à la casse)",
+      "description": "Cherche rÃ©cursivement les fichiers/dossiers dont le chemin relatif ou le nom correspond Ã  `pattern` (regex Python, insensible Ã  la casse)",
       "required_args": [
         "pattern"
       ],
@@ -305,7 +330,7 @@
     },
     "git_diff": {
       "name": "git_diff",
-      "description": "`git diff` (index <-> travail), optionnellement `--cached` et restreint à un chemin de la sandbox",
+      "description": "`git diff` (index <-> travail), optionnellement `--cached` et restreint Ã  un chemin de la sandbox",
       "required_args": [],
       "parameters": {
         "path": {
@@ -322,7 +347,7 @@
     },
     "git_log": {
       "name": "git_log",
-      "description": "`git log --oneline` des N derniers commits (limit plafonné à 100)",
+      "description": "`git log --oneline` des N derniers commits (limit plafonnÃ© Ã  100)",
       "required_args": [],
       "parameters": {
         "limit": {
@@ -334,19 +359,19 @@
     },
     "git_status": {
       "name": "git_status",
-      "description": "`git status --short --branch` sur le dépôt de la racine sandbox",
+      "description": "`git status --short --branch` sur le dÃ©pÃ´t de la racine sandbox",
       "required_args": [],
       "parameters": {}
     },
     "gpu_info": {
       "name": "gpu_info",
-      "description": "État GPU complet : disponibilité CUDA, VRAM, utilisation",
+      "description": "Ã‰tat GPU complet : disponibilitÃ© CUDA, VRAM, utilisation",
       "required_args": [],
       "parameters": {}
     },
     "head_file": {
       "name": "head_file",
-      "description": "Premières lignes d'un fichier texte (pendant symétrique de tail_file)",
+      "description": "PremiÃ¨res lignes d'un fichier texte (pendant symÃ©trique de tail_file)",
       "required_args": [
         "path"
       ],
@@ -364,7 +389,7 @@
     },
     "http_get": {
       "name": "http_get",
-      "description": "GET HTTP : renvoie {status, reason, url, content_type, body tronqué}",
+      "description": "GET HTTP : renvoie {status, reason, url, content_type, body tronquÃ©}",
       "required_args": [
         "url"
       ],
@@ -430,7 +455,7 @@
     },
     "job_get": {
       "name": "job_get",
-      "description": "Charge le payload COMPLET d'un job (hyperparamètres, erreur, chemin modèle)",
+      "description": "Charge le payload COMPLET d'un job (hyperparamÃ¨tres, erreur, chemin modÃ¨le)",
       "required_args": [
         "job_id"
       ],
@@ -443,7 +468,7 @@
     },
     "job_list": {
       "name": "job_list",
-      "description": "Liste les jobs d'entraînement les plus récents (lecture seule)",
+      "description": "Liste les jobs d'entraÃ®nement les plus rÃ©cents (lecture seule)",
       "required_args": [],
       "parameters": {
         "status": {
@@ -460,7 +485,7 @@
     },
     "list_dir": {
       "name": "list_dir",
-      "description": "Liste un répertoire (dossiers d'abord, puis fichiers, ordre alphabétique)",
+      "description": "Liste un rÃ©pertoire (dossiers d'abord, puis fichiers, ordre alphabÃ©tique)",
       "required_args": [],
       "parameters": {
         "path": {
@@ -477,7 +502,7 @@
     },
     "make_dir": {
       "name": "make_dir",
-      "description": "Crée un répertoire (parents inclus, sans erreur s'il existe déjà)",
+      "description": "CrÃ©e un rÃ©pertoire (parents inclus, sans erreur s'il existe dÃ©jÃ )",
       "required_args": [
         "path"
       ],
@@ -490,7 +515,7 @@
     },
     "model_versions": {
       "name": "model_versions",
-      "description": "Liste les versions de modèles entraînés visibles dans la sandbox (mêmes conventions que core/model_versioning : nom de dossier contenant mo…",
+      "description": "Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que core/model_versioning : nom de dossier contenant moâ€¦",
       "required_args": [],
       "parameters": {
         "model_root": {
@@ -502,7 +527,7 @@
     },
     "move_path": {
       "name": "move_path",
-      "description": "Déplace/renomme fichier ou répertoire dans la sandbox",
+      "description": "DÃ©place/renomme fichier ou rÃ©pertoire dans la sandbox",
       "required_args": [
         "src",
         "dst"
@@ -532,7 +557,7 @@
     },
     "postgres_query": {
       "name": "postgres_query",
-      "description": "Exécute une requête SQL sur PostgreSQL",
+      "description": "ExÃ©cute une requÃªte SQL sur PostgreSQL",
       "required_args": [
         "query"
       ],
@@ -565,7 +590,7 @@
     },
     "predict_sentiment": {
       "name": "predict_sentiment",
-      "description": "Prédit le sentiment (positive/neutral/negative) d'une liste de textes FR/EN avec le modèle courant",
+      "description": "PrÃ©dit le sentiment (positive/neutral/negative) d'une liste de textes FR/EN avec le modÃ¨le courant",
       "required_args": [
         "texts"
       ],
@@ -577,7 +602,7 @@
     },
     "read_file": {
       "name": "read_file",
-      "description": "Lit un fichier texte (UTF-8) ; tronque au-delà de max_bytes",
+      "description": "Lit un fichier texte (UTF-8) ; tronque au-delÃ  de max_bytes",
       "required_args": [
         "path"
       ],
@@ -595,7 +620,7 @@
     },
     "read_json": {
       "name": "read_json",
-      "description": "Lit et parse un fichier JSON ; message d'erreur précis si invalide",
+      "description": "Lit et parse un fichier JSON ; message d'erreur prÃ©cis si invalide",
       "required_args": [
         "path"
       ],
@@ -608,7 +633,7 @@
     },
     "remove_path": {
       "name": "remove_path",
-      "description": "Supprime fichier ou répertoire",
+      "description": "Supprime fichier ou rÃ©pertoire",
       "required_args": [
         "path"
       ],
@@ -626,7 +651,7 @@
     },
     "run_command": {
       "name": "run_command",
-      "description": "Exécute une commande en liste d'arguments, ex : [\"git\", \"--version\"]",
+      "description": "ExÃ©cute une commande en liste d'arguments, ex : [\"git\", \"--version\"]",
       "required_args": [
         "command"
       ],
@@ -649,7 +674,7 @@
     },
     "run_python": {
       "name": "run_python",
-      "description": "Exécute un extrait Python dans un sous-processus fraîchement créé",
+      "description": "ExÃ©cute un extrait Python dans un sous-processus fraÃ®chement crÃ©Ã©",
       "required_args": [
         "code"
       ],
@@ -667,7 +692,7 @@
     },
     "search_in_files": {
       "name": "search_in_files",
-      "description": "Cherche `pattern` (regex Python, insensible à la casse) dans le contenu des fichiers sous `path`",
+      "description": "Cherche `pattern` (regex Python, insensible Ã  la casse) dans le contenu des fichiers sous `path`",
       "required_args": [
         "pattern"
       ],
@@ -695,7 +720,7 @@
     },
     "split_file": {
       "name": "split_file",
-      "description": "Découpe un gros fichier en morceaux numérotés (max_lines lignes chacun)",
+      "description": "DÃ©coupe un gros fichier en morceaux numÃ©rotÃ©s (max_lines lignes chacun)",
       "required_args": [
         "path"
       ],
@@ -713,7 +738,7 @@
     },
     "sqlite_query": {
       "name": "sqlite_query",
-      "description": "Exécute une requête SQL sur une base SQLite située dans la sandbox",
+      "description": "ExÃ©cute une requÃªte SQL sur une base SQLite situÃ©e dans la sandbox",
       "required_args": [
         "db_path",
         "query"
@@ -739,9 +764,81 @@
         }
       }
     },
+    "start_training": {
+        "name": "start_training",
+        "description": "Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_id ; suivez la progression avec job_get/job_list",
+        "required_args": [],
+        "parameters": {
+            "max_per_lang": {
+                "required": false,
+                "type": "integer",
+                "default": 500
+            },
+            "local_corrections_path": {
+                "required": false,
+                "type": "string",
+                "default": null
+            },
+            "augment_fraction": {
+                "required": false,
+                "type": "number",
+                "default": 0.4
+            },
+            "variants_per_example": {
+                "required": false,
+                "type": "integer",
+                "default": 2
+            },
+            "class_augment_weights": {
+                "required": false,
+                "type": "object",
+                "default": null
+            },
+            "epochs": {
+                "required": false,
+                "type": "integer",
+                "default": null
+            },
+            "batch_size": {
+                "required": false,
+                "type": "integer",
+                "default": null
+            },
+            "device": {
+                "required": false,
+                "type": "string",
+                "default": "auto"
+            }
+        }
+    },
+    "stop_training": {
+
+        "name": "stop_training",
+
+        "description": "Alias de cancel_training : demande l'arrÃªt propre d'un entraÃ®nement en cours (pending/running) via son job_id",
+
+        "required_args": [
+
+            "job_id"
+
+        ],
+
+        "parameters": {
+
+            "job_id": {
+
+                "required": true,
+
+                "type": "string"
+
+            }
+
+        }
+
+    },
     "tail_file": {
       "name": "tail_file",
-      "description": "Dernières `lines` lignes d'un fichier texte (lecture arrière bornée à 256 Ko : adapté aux logs qui grossissent sans rien saturer)",
+      "description": "DerniÃ¨res `lines` lignes d'un fichier texte (lecture arriÃ¨re bornÃ©e Ã  256 Ko : adaptÃ© aux logs qui grossissent sans rien saturer)",
       "required_args": [
         "path"
       ],
@@ -759,7 +856,7 @@
     },
     "touch": {
       "name": "touch",
-      "description": "Crée un fichier vide ou rafraîchit sa date de modification (sans écraser)",
+      "description": "CrÃ©e un fichier vide ou rafraÃ®chit sa date de modification (sans Ã©craser)",
       "required_args": [
         "path"
       ],
@@ -769,6 +866,58 @@
           "type": "string"
         }
       }
+    },
+    "train_model": {
+        "name": "train_model",
+        "description": "Lance un entraÃ®nement et ATTEND sa fin (bloquant, timeout en secondes) ; retourne le statut final, le chemin du modÃ¨le sauvegardÃ© et l'erreur Ã©ventuelle (dÃ©tail via job_get)",
+        "required_args": [],
+        "parameters": {
+            "max_per_lang": {
+                "required": false,
+                "type": "integer",
+                "default": 500
+            },
+            "local_corrections_path": {
+                "required": false,
+                "type": "string",
+                "default": null
+            },
+            "augment_fraction": {
+                "required": false,
+                "type": "number",
+                "default": 0.4
+            },
+            "variants_per_example": {
+                "required": false,
+                "type": "integer",
+                "default": 2
+            },
+            "class_augment_weights": {
+                "required": false,
+                "type": "object",
+                "default": null
+            },
+            "epochs": {
+                "required": false,
+                "type": "integer",
+                "default": null
+            },
+            "batch_size": {
+                "required": false,
+                "type": "integer",
+                "default": null
+            },
+            "device": {
+                "required": false,
+                "type": "string",
+                "default": "auto"
+            },
+            "wait_timeout": {
+                "required": false,
+                "type": "number",
+                "default": 3600
+            }
+        }
     },
     "unzip_file": {
       "name": "unzip_file",
@@ -790,7 +939,7 @@
     },
     "web_fetch": {
       "name": "web_fetch",
-      "description": "Récupère une page distante : {status, reason, url, content_type, title, body}",
+      "description": "RÃ©cupÃ¨re une page distante : {status, reason, url, content_type, title, body}",
       "required_args": [
         "url"
       ],
@@ -864,7 +1013,7 @@
     },
     "write_file": {
       "name": "write_file",
-      "description": "Écrit `content` DANS la sandbox (rétro-compatible : chemins relatifs résolus depuis la racine autorisée, évasion hors racine refusée)",
+      "description": "Ã‰crit `content` DANS la sandbox (rÃ©tro-compatible : chemins relatifs rÃ©solus depuis la racine autorisÃ©e, Ã©vasion hors racine refusÃ©e)",
       "required_args": [
         "filename",
         "content"
@@ -887,7 +1036,7 @@
     },
     "write_json": {
       "name": "write_json",
-      "description": "Sérialise `data` (dict ou list) en JSON UTF-8 indenté DANS la sandbox",
+      "description": "SÃ©rialise `data` (dict ou list) en JSON UTF-8 indentÃ© DANS la sandbox",
       "required_args": [
         "path",
         "data"

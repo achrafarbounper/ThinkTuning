@@ -190,6 +190,10 @@ _APPROVE_TOOLS = frozenset({
     "remove_path", "zip_path", "unzip_file", "download_file",
     # exécution de code / conteneurs / réseau en écriture
     "run_command", "run_python", "docker_exec", "http_post",
+    # entraînements (créent un job et écrivent dans experiments/models)
+    "start_training", "train_model",
+    # arrêts d'entraînements (mutation de l'état d'un job)
+    "cancel_training", "stop_training",
 })
 
 _DB_QUERY_TOOLS = frozenset({"sqlite_query", "postgres_query"})
