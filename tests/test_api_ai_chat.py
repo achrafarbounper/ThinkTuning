@@ -167,6 +167,18 @@ def test_list_tools_returns_required_args(fake_llm):
     assert tools["write_file"] == ["filename", "content"]
 
 
+def test_list_tools_exposes_json_description_and_parameters(fake_llm):
+    """Les métadonnées déclaratives (tools_config.json) sont exposées par l'API."""
+    resp = client.get("/api/agent/tools", headers=HEADERS)
+
+    assert resp.status_code == 200
+    by_name = {item["name"]: item for item in resp.json()}
+    calc = by_name["calc"]
+    assert "expression" in calc["parameters"]
+    assert calc["parameters"]["expression"]["required"] is True
+    assert calc["description"]  # description non vide issue du JSON
+
+
 # --- POST /api/agent/tools/run --------------------------------------------------------
 
 

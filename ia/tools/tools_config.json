@@ -1,0 +1,929 @@
+{
+  "tools": {
+    "add": {
+      "name": "add",
+      "description": "",
+      "required_args": [
+        "a",
+        "b"
+      ],
+      "parameters": {
+        "a": {
+          "required": true,
+          "type": "number"
+        },
+        "b": {
+          "required": true,
+          "type": "number"
+        }
+      }
+    },
+    "append_file": {
+      "name": "append_file",
+      "description": "Ajoute `content` à la fin d'un fichier DANS la sandbox (crée le fichier et ses parents si nécessaire — contrairement à write_file qui écras…",
+      "required_args": [
+        "path",
+        "content"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "content": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "calc": {
+      "name": "calc",
+      "description": "Évalue une expression arithmétique pure et renvoie {expression, result}",
+      "required_args": [
+        "expression"
+      ],
+      "parameters": {
+        "expression": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "copy_path": {
+      "name": "copy_path",
+      "description": "Copie fichier ou arborescence dans la sandbox",
+      "required_args": [
+        "src",
+        "dst"
+      ],
+      "parameters": {
+        "src": {
+          "required": true,
+          "type": "string"
+        },
+        "dst": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "count_lines": {
+      "name": "count_lines",
+      "description": "Décompte lignes, mots, caractères et octets (équivalent `wc`)",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "dataset_stats": {
+      "name": "dataset_stats",
+      "description": "Profil rapide d'un dataset CSV/TSV/JSONL sous la sandbox : lignes, colonnes, valeurs manquantes, distribution des labels/langues, doublons",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "sample_rows": {
+          "required": false,
+          "type": "integer",
+          "default": 2000
+        }
+      }
+    },
+    "dedupe_lines": {
+      "name": "dedupe_lines",
+      "description": "Supprime les lignes dupliquées d'un fichier (dans la sandbox)",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "keep": {
+          "required": false,
+          "type": "string",
+          "default": "first"
+        }
+      }
+    },
+    "disk_usage": {
+      "name": "disk_usage",
+      "description": "Espace disque libre + taille des enfants directs d'un dossier sandbox (les entraînements meurent silencieusement sur un disque plein)",
+      "required_args": [],
+      "parameters": {
+        "path": {
+          "required": false,
+          "type": "string",
+          "default": "."
+        }
+      }
+    },
+    "docker_exec": {
+      "name": "docker_exec",
+      "description": "Exécute `command` (chaîne, via `sh -c`) dans le conteneur",
+      "required_args": [
+        "container",
+        "command"
+      ],
+      "parameters": {
+        "container": {
+          "required": true,
+          "type": "string"
+        },
+        "command": {
+          "required": true,
+          "type": "string"
+        },
+        "workdir": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "user": {
+          "required": false,
+          "type": "string",
+          "default": null
+        }
+      }
+    },
+    "docker_logs": {
+      "name": "docker_logs",
+      "description": "Dernières `tail` lignes de logs d'un conteneur (stdout + stderr)",
+      "required_args": [
+        "container"
+      ],
+      "parameters": {
+        "container": {
+          "required": true,
+          "type": "string"
+        },
+        "tail": {
+          "required": false,
+          "type": "integer",
+          "default": 100
+        },
+        "timestamps": {
+          "required": false,
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "docker_ps": {
+      "name": "docker_ps",
+      "description": "Liste les conteneurs (un objet JSON par conteneur, format `docker ps`)",
+      "required_args": [],
+      "parameters": {
+        "all_containers": {
+          "required": false,
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "docker_stats": {
+      "name": "docker_stats",
+      "description": "Consommation CPU/RAM par conteneur (`docker stats --no-stream`, un objet JSON par conteneur — même convention que docker_ps)",
+      "required_args": [],
+      "parameters": {
+        "all_containers": {
+          "required": false,
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "download_file": {
+      "name": "download_file",
+      "description": "Télécharge un fichier http(s) DANS la sandbox, en streaming",
+      "required_args": [
+        "url",
+        "filename"
+      ],
+      "parameters": {
+        "url": {
+          "required": true,
+          "type": "string"
+        },
+        "filename": {
+          "required": true,
+          "type": "string"
+        },
+        "max_mb": {
+          "required": false,
+          "type": "integer",
+          "default": 50
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 60.0
+        }
+      }
+    },
+    "env_info": {
+      "name": "env_info",
+      "description": "Diagnostic lecture seule : Python, OS, CPU et versions des packages clés",
+      "required_args": [],
+      "parameters": {}
+    },
+    "file_checksum": {
+      "name": "file_checksum",
+      "description": "Empreinte (hash) d'un fichier : md5, sha1, sha256 (défaut) ou sha512",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "algo": {
+          "required": false,
+          "type": "string",
+          "default": "sha256"
+        }
+      }
+    },
+    "file_info": {
+      "name": "file_info",
+      "description": "Métadonnées d'un fichier ou dossier (type, taille, dates, encodage, lignes)",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "find_duplicates": {
+      "name": "find_duplicates",
+      "description": "Détecte les fichiers au contenu identique (par empreinte) sous `path`",
+      "required_args": [],
+      "parameters": {
+        "path": {
+          "required": false,
+          "type": "string",
+          "default": "."
+        }
+      }
+    },
+    "find_file": {
+      "name": "find_file",
+      "description": "Cherche récursivement les fichiers/dossiers dont le chemin relatif ou le nom correspond à `pattern` (regex Python, insensible à la casse)",
+      "required_args": [
+        "pattern"
+      ],
+      "parameters": {
+        "pattern": {
+          "required": true,
+          "type": "string"
+        },
+        "path": {
+          "required": false,
+          "type": "string",
+          "default": "."
+        },
+        "max_results": {
+          "required": false,
+          "type": "integer",
+          "default": 100
+        }
+      }
+    },
+    "git_diff": {
+      "name": "git_diff",
+      "description": "`git diff` (index <-> travail), optionnellement `--cached` et restreint à un chemin de la sandbox",
+      "required_args": [],
+      "parameters": {
+        "path": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "staged": {
+          "required": false,
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "git_log": {
+      "name": "git_log",
+      "description": "`git log --oneline` des N derniers commits (limit plafonné à 100)",
+      "required_args": [],
+      "parameters": {
+        "limit": {
+          "required": false,
+          "type": "integer",
+          "default": 20
+        }
+      }
+    },
+    "git_status": {
+      "name": "git_status",
+      "description": "`git status --short --branch` sur le dépôt de la racine sandbox",
+      "required_args": [],
+      "parameters": {}
+    },
+    "gpu_info": {
+      "name": "gpu_info",
+      "description": "État GPU complet : disponibilité CUDA, VRAM, utilisation",
+      "required_args": [],
+      "parameters": {}
+    },
+    "head_file": {
+      "name": "head_file",
+      "description": "Premières lignes d'un fichier texte (pendant symétrique de tail_file)",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "max_lines": {
+          "required": false,
+          "type": "integer",
+          "default": 50
+        }
+      }
+    },
+    "http_get": {
+      "name": "http_get",
+      "description": "GET HTTP : renvoie {status, reason, url, content_type, body tronqué}",
+      "required_args": [
+        "url"
+      ],
+      "parameters": {
+        "url": {
+          "required": true,
+          "type": "string"
+        },
+        "headers": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 30.0
+        },
+        "max_chars": {
+          "required": false,
+          "type": "integer",
+          "default": 8000
+        }
+      }
+    },
+    "http_post": {
+      "name": "http_post",
+      "description": "POST HTTP : corps brut (`data`) ou JSON (`json_payload`), mutuellement exclusifs",
+      "required_args": [
+        "url"
+      ],
+      "parameters": {
+        "url": {
+          "required": true,
+          "type": "string"
+        },
+        "data": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "json_payload": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "headers": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 30.0
+        },
+        "max_chars": {
+          "required": false,
+          "type": "integer",
+          "default": 8000
+        }
+      }
+    },
+    "job_get": {
+      "name": "job_get",
+      "description": "Charge le payload COMPLET d'un job (hyperparamètres, erreur, chemin modèle)",
+      "required_args": [
+        "job_id"
+      ],
+      "parameters": {
+        "job_id": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "job_list": {
+      "name": "job_list",
+      "description": "Liste les jobs d'entraînement les plus récents (lecture seule)",
+      "required_args": [],
+      "parameters": {
+        "status": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "limit": {
+          "required": false,
+          "type": "integer",
+          "default": 20
+        }
+      }
+    },
+    "list_dir": {
+      "name": "list_dir",
+      "description": "Liste un répertoire (dossiers d'abord, puis fichiers, ordre alphabétique)",
+      "required_args": [],
+      "parameters": {
+        "path": {
+          "required": false,
+          "type": "string",
+          "default": "."
+        },
+        "recursive": {
+          "required": false,
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "make_dir": {
+      "name": "make_dir",
+      "description": "Crée un répertoire (parents inclus, sans erreur s'il existe déjà)",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "model_versions": {
+      "name": "model_versions",
+      "description": "Liste les versions de modèles entraînés visibles dans la sandbox (mêmes conventions que core/model_versioning : nom de dossier contenant mo…",
+      "required_args": [],
+      "parameters": {
+        "model_root": {
+          "required": false,
+          "type": "string",
+          "default": "experiments/models"
+        }
+      }
+    },
+    "move_path": {
+      "name": "move_path",
+      "description": "Déplace/renomme fichier ou répertoire dans la sandbox",
+      "required_args": [
+        "src",
+        "dst"
+      ],
+      "parameters": {
+        "src": {
+          "required": true,
+          "type": "string"
+        },
+        "dst": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "now": {
+      "name": "now",
+      "description": "Horodatage courant ISO lisible ('2026-08-25 14:03:27+00:00')",
+      "required_args": [],
+      "parameters": {
+        "utc": {
+          "required": false,
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "postgres_query": {
+      "name": "postgres_query",
+      "description": "Exécute une requête SQL sur PostgreSQL",
+      "required_args": [
+        "query"
+      ],
+      "parameters": {
+        "query": {
+          "required": true,
+          "type": "string"
+        },
+        "dsn": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "readonly": {
+          "required": false,
+          "type": "boolean",
+          "default": true
+        },
+        "max_rows": {
+          "required": false,
+          "type": "integer",
+          "default": 50
+        },
+        "timeout_s": {
+          "required": false,
+          "type": "number",
+          "default": 30
+        }
+      }
+    },
+    "predict_sentiment": {
+      "name": "predict_sentiment",
+      "description": "Prédit le sentiment (positive/neutral/negative) d'une liste de textes FR/EN avec le modèle courant",
+      "required_args": [
+        "texts"
+      ],
+      "parameters": {
+        "texts": {
+          "required": true
+        }
+      }
+    },
+    "read_file": {
+      "name": "read_file",
+      "description": "Lit un fichier texte (UTF-8) ; tronque au-delà de max_bytes",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "max_bytes": {
+          "required": false,
+          "type": "integer",
+          "default": 65536
+        }
+      }
+    },
+    "read_json": {
+      "name": "read_json",
+      "description": "Lit et parse un fichier JSON ; message d'erreur précis si invalide",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "remove_path": {
+      "name": "remove_path",
+      "description": "Supprime fichier ou répertoire",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "recursive": {
+          "required": false,
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "run_command": {
+      "name": "run_command",
+      "description": "Exécute une commande en liste d'arguments, ex : [\"git\", \"--version\"]",
+      "required_args": [
+        "command"
+      ],
+      "parameters": {
+        "command": {
+          "required": true,
+          "type": "array"
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 60.0
+        },
+        "cwd": {
+          "required": false,
+          "type": "string",
+          "default": null
+        }
+      }
+    },
+    "run_python": {
+      "name": "run_python",
+      "description": "Exécute un extrait Python dans un sous-processus fraîchement créé",
+      "required_args": [
+        "code"
+      ],
+      "parameters": {
+        "code": {
+          "required": true,
+          "type": "string"
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 30.0
+        }
+      }
+    },
+    "search_in_files": {
+      "name": "search_in_files",
+      "description": "Cherche `pattern` (regex Python, insensible à la casse) dans le contenu des fichiers sous `path`",
+      "required_args": [
+        "pattern"
+      ],
+      "parameters": {
+        "pattern": {
+          "required": true,
+          "type": "string"
+        },
+        "path": {
+          "required": false,
+          "type": "string",
+          "default": "."
+        },
+        "glob": {
+          "required": false,
+          "type": "string",
+          "default": "*"
+        },
+        "max_results": {
+          "required": false,
+          "type": "integer",
+          "default": 100
+        }
+      }
+    },
+    "split_file": {
+      "name": "split_file",
+      "description": "Découpe un gros fichier en morceaux numérotés (max_lines lignes chacun)",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "max_lines": {
+          "required": false,
+          "type": "integer",
+          "default": 1000
+        }
+      }
+    },
+    "sqlite_query": {
+      "name": "sqlite_query",
+      "description": "Exécute une requête SQL sur une base SQLite située dans la sandbox",
+      "required_args": [
+        "db_path",
+        "query"
+      ],
+      "parameters": {
+        "db_path": {
+          "required": true,
+          "type": "string"
+        },
+        "query": {
+          "required": true,
+          "type": "string"
+        },
+        "readonly": {
+          "required": false,
+          "type": "boolean",
+          "default": true
+        },
+        "max_rows": {
+          "required": false,
+          "type": "integer",
+          "default": 50
+        }
+      }
+    },
+    "tail_file": {
+      "name": "tail_file",
+      "description": "Dernières `lines` lignes d'un fichier texte (lecture arrière bornée à 256 Ko : adapté aux logs qui grossissent sans rien saturer)",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "lines": {
+          "required": false,
+          "type": "integer",
+          "default": 50
+        }
+      }
+    },
+    "touch": {
+      "name": "touch",
+      "description": "Crée un fichier vide ou rafraîchit sa date de modification (sans écraser)",
+      "required_args": [
+        "path"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "unzip_file": {
+      "name": "unzip_file",
+      "description": "Extrait une archive .zip de la sandbox vers un dossier de la sandbox",
+      "required_args": [
+        "src",
+        "dst"
+      ],
+      "parameters": {
+        "src": {
+          "required": true,
+          "type": "string"
+        },
+        "dst": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    },
+    "web_fetch": {
+      "name": "web_fetch",
+      "description": "Récupère une page distante : {status, reason, url, content_type, title, body}",
+      "required_args": [
+        "url"
+      ],
+      "parameters": {
+        "url": {
+          "required": true,
+          "type": "string"
+        },
+        "headers": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 20.0
+        },
+        "max_chars": {
+          "required": false,
+          "type": "integer",
+          "default": 12000
+        }
+      }
+    },
+    "web_read": {
+      "name": "web_read",
+      "description": "Lit une page web et en extrait le TEXTE lisible (sans HTML)",
+      "required_args": [
+        "url"
+      ],
+      "parameters": {
+        "url": {
+          "required": true,
+          "type": "string"
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 20.0
+        },
+        "max_chars": {
+          "required": false,
+          "type": "integer",
+          "default": 6000
+        }
+      }
+    },
+    "web_search": {
+      "name": "web_search",
+      "description": "Recherche web DuckDuckGo : {query, engine, result_count, results}",
+      "required_args": [
+        "query"
+      ],
+      "parameters": {
+        "query": {
+          "required": true,
+          "type": "string"
+        },
+        "max_results": {
+          "required": false,
+          "type": "integer",
+          "default": 5
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 20.0
+        }
+      }
+    },
+    "write_file": {
+      "name": "write_file",
+      "description": "Écrit `content` DANS la sandbox (rétro-compatible : chemins relatifs résolus depuis la racine autorisée, évasion hors racine refusée)",
+      "required_args": [
+        "filename",
+        "content"
+      ],
+      "parameters": {
+        "filename": {
+          "required": true,
+          "type": "string"
+        },
+        "content": {
+          "required": true,
+          "type": "string"
+        },
+        "max_bytes": {
+          "required": false,
+          "type": "string",
+          "default": null
+        }
+      }
+    },
+    "write_json": {
+      "name": "write_json",
+      "description": "Sérialise `data` (dict ou list) en JSON UTF-8 indenté DANS la sandbox",
+      "required_args": [
+        "path",
+        "data"
+      ],
+      "parameters": {
+        "path": {
+          "required": true,
+          "type": "string"
+        },
+        "data": {
+          "required": true
+        },
+        "indent": {
+          "required": false,
+          "type": "integer",
+          "default": 2
+        }
+      }
+    },
+    "zip_path": {
+      "name": "zip_path",
+      "description": "Compresse un fichier ou un dossier de la sandbox vers une archive .zip",
+      "required_args": [
+        "src",
+        "dst"
+      ],
+      "parameters": {
+        "src": {
+          "required": true,
+          "type": "string"
+        },
+        "dst": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -30,7 +30,7 @@ from core.agent_settings import get_agent_settings
 from agent.agent_core import AgentCore  # noqa: E402
 from agent.llm_client import LLMClient  # noqa: E402
 from agent.runner import AgentRunner  # noqa: E402
-from tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: E402,F401
+from tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
 
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
 __all__ = [
@@ -38,6 +38,7 @@ __all__ = [
     "AgentRunner",
     "LLMClient",
     "REQUIRED_ARGS",
+    "TOOL_META",
     "TOOLS",
     "agent_config",
     "ask_agent",
