@@ -25,6 +25,7 @@ from api.dependencies.auth import require_api_key
 from core.agent_settings import get_agent_settings, save_agent_settings
 from core.agent_cache import (
     REQUIRED_ARGS,
+    TOOL_META,
     TOOLS,
     _openrouter_chat_url,
     agent_config,
@@ -52,6 +53,8 @@ class AskResponse(BaseModel):
 class ToolInfo(BaseModel):
     name: str
     required_args: list[str]
+    description: str = ""
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolRunRequest(BaseModel):
@@ -109,9 +112,15 @@ def agent_status():
 
 @router.get("/tools", response_model=list[ToolInfo])
 def list_tools(_: bool = Depends(require_api_key)):
-    """Liste des outils que l'agent peut appeler, avec leurs arguments requis."""
+    """Liste des outils que l'agent peut appeler, avec leurs arguments requis,
+    leur description et leur schéma de paramètres (issus de tools_config.json)."""
     return [
-        ToolInfo(name=name, required_args=REQUIRED_ARGS[name])
+        ToolInfo(
+            name=name,
+            required_args=REQUIRED_ARGS[name],
+            description=TOOL_META.get(name, {}).get("description", ""),
+            parameters=TOOL_META.get(name, {}).get("parameters", {}),
+        )
         for name in sorted(TOOLS)
     ]
 

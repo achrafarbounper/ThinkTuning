@@ -348,7 +348,22 @@ class AgentCore:
                 detail = f"ERREUR pendant '{tool}' : {type(exc).__name__}: {exc}"
                 hint = (
                     " Utilise find_file si le chemin est inconnu."
-                    if tool in ("read_file", "write_file", "copy_path", "move_path")
+                    if tool
+                    in (
+                        "read_file",
+                        "write_file",
+                        "write_json",
+                        "copy_path",
+                        "move_path",
+                        "touch",
+                        "file_info",
+                        "file_checksum",
+                        "head_file",
+                        "count_lines",
+                        "read_json",
+                        "split_file",
+                        "dedupe_lines",
+                    )
                     else ""
                 )
                 return f"{detail}.{hint} Renvoie UN SEUL JSON corrigé.", last_result

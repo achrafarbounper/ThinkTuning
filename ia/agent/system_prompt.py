@@ -181,18 +181,38 @@ def _short_description(func) -> str:
     return sentence
 
 
+def _resolve_description(name, func) -> str:
+    """Description pour le LLM : *d'abord* le manifeste JSON, puis la docstring.
+
+    Le JSON (tools_config.json) est la source déclarative privilégiée ; si elle
+    est vide, on retombe sur la 1re phrase de la docstring pour ne jamais
+    perdre de description.
+    """
+    try:  # paquet « ia.tools » (tests)
+        from ..tools.tool_registry import get_tool_meta
+    except ImportError:  # racine « tools » (core/agent_cache.py)
+        from tools.tool_registry import get_tool_meta
+
+    desc = (get_tool_meta(name).get("description") or "").strip()
+    if desc:
+        if len(desc) > _DESC_MAX_CHARS:
+            desc = desc[: _DESC_MAX_CHARS - 1].rstrip() + "…"
+        return desc
+    return _short_description(func)
+
+
 def build_tools_section(tools, required_args) -> str:
     """Construit la section « OUTILS DISPONIBLES » depuis le registre réel.
 
     Chaque ligne : ``- nom(arg, optionnel=défaut) : description`` — signature
-    complète via ``inspect.signature`` et description extraite de la
-    docstring de la fonction : zéro duplication, le prompt ne peut plus
-    dériver de la réalité du registre.
+    complète via ``inspect.signature`` et description extraite du manifeste
+    JSON (tools_config.json), fallback docstring. Zéro duplication, le prompt
+    ne peut plus dériver de la réalité du registre.
     """
     lines = []
     for name in sorted(tools):
         entry = f"- {name}({_signature_line(tools[name], required_args.get(name, []))})"
-        description = _short_description(tools[name])
+        description = _resolve_description(name, tools[name])
         if description:
             entry += f" : {description}"
         lines.append(entry)
@@ -209,6 +229,18 @@ def build_tools_section(tools, required_args) -> str:
         guidance.append(
             "- Fichier ou répertoire → find_file (chemin inconnu) puis"
             " read_file / list_dir."
+        )
+    if {"file_info", "file_checksum", "head_file", "count_lines"} & set(tools):
+        guidance.append(
+            "- Inspecter un fichier (type, taille, dates, encodage) → file_info ;"
+            " intégrité/empreinte → file_checksum ; aperçu des premières lignes →"
+            " head_file ; décompte lignes/mots → count_lines."
+        )
+    if {"write_json", "read_json", "find_duplicates", "split_file", "dedupe_lines"} & set(tools):
+        guidance.append(
+            "- Config/résultats structurés → write_json / read_json ; fichiers"
+            " doublons → find_duplicates ; gros fichier → split_file ; lignes"
+            " dupliquées → dedupe_lines."
         )
     if "calc" in tools:
         guidance.append(

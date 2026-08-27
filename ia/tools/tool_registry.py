@@ -3,17 +3,45 @@
 TOOLS       : nom -> fonction appelée par AgentCore / POST /tools/run.
 REQUIRED_ARGS : arguments obligatoires validés AVANT l'appel (les autres
               paramètres des fonctions ont des valeurs par défaut).
+TOOL_META   : les MÉTADONNÉES (description, paramètres, args requis) chargées
+              depuis tools_config.json — source unique déclarative des outils.
 
-Ajouter un outil = créer sa fonction dans un module de ia/tools/, puis une
-ligne ici + sa ligne REQUIRED_ARGS. Le system_prompt et l'API (/health,
-/tools) se mettent à jour via ces deux dicts.
+Deux parties bien distinctes :
+  1. La DÉFINITION déclarative -> ia/tools/tools_config.json
+     (name, description, required_args, parameters). C'est le seul endroit que
+     l'on édite pour décrire un outil au LLM / à l'API.
+  2. L'IMPLÉMENTATION exécutable -> les fonctions Python de ia/tools/*.py,
+     référencées ci-dessous dans TOOLS (un JSON ne contient pas de logique :
+     on décrit un outil en JSON, mais on l'exécute en code).
+
+Ajouter un outil :
+  - créer sa fonction dans un module de ia/tools/
+  - l'enregistrer dans TOOLS ci-dessous
+  - ajouter son entrée dans tools_config.json (description, required_args,
+    parameters). Un test anti-divergence vérifie la cohérence entre le JSON,
+    TOOLS et REQUIRED_ARGS.
 """
+
+import json
+from pathlib import Path
 
 # Imports relatifs : fonctionnent à la fois sous le paquet « ia.tools » (tests :
 # from ia.agent.agent_core import ...) et sous la racine « tools » (runtime :
 # core/agent_cache.py ajoute ia/ au sys.path puis importe tools.tool_registry).
 from .math_tools import add
-from .file_tools import write_file
+from .file_tools import (
+    count_lines,
+    dedupe_lines,
+    file_checksum,
+    file_info,
+    find_duplicates,
+    head_file,
+    read_json,
+    split_file,
+    touch,
+    write_file,
+    write_json,
+)
 from .system_tools import (
     copy_path,
     find_file,
@@ -64,6 +92,17 @@ TOOLS = {
     "copy_path": copy_path,
     "move_path": move_path,
     "remove_path": remove_path,
+    # fichiers : inspection / production avancée
+    "file_info": file_info,
+    "file_checksum": file_checksum,
+    "head_file": head_file,
+    "count_lines": count_lines,
+    "touch": touch,
+    "write_json": write_json,
+    "read_json": read_json,
+    "find_duplicates": find_duplicates,
+    "split_file": split_file,
+    "dedupe_lines": dedupe_lines,
     # recherche / lecture ciblée
     "search_in_files": search_in_files,
     "tail_file": tail_file,
@@ -106,46 +145,28 @@ TOOLS = {
     "model_versions": model_versions,
 }
 
-REQUIRED_ARGS = {
-    "add": ["a", "b"],
-    "calc": ["expression"],
-    "write_file": ["filename", "content"],
-    "list_dir": [],
-    "read_file": ["path"],
-    "find_file": ["pattern"],
-    "make_dir": ["path"],
-    "copy_path": ["src", "dst"],
-    "move_path": ["src", "dst"],
-    "remove_path": ["path"],
-    "search_in_files": ["pattern"],
-    "tail_file": ["path"],
-    "append_file": ["path", "content"],
-    "now": [],
-    "run_command": ["command"],
-    "run_python": ["code"],
-    "http_get": ["url"],
-    "http_post": ["url"],
-    "download_file": ["url", "filename"],
-    "web_search": ["query"],
-    "web_fetch": ["url"],
-    "web_read": ["url"],
-    "docker_ps": [],
-    "docker_logs": ["container"],
-    "docker_exec": ["container", "command"],
-    "docker_stats": [],
-    "gpu_info": [],
-    "env_info": [],
-    "disk_usage": [],
-    "zip_path": ["src", "dst"],
-    "unzip_file": ["src", "dst"],
-    "git_status": [],
-    "git_log": [],
-    "git_diff": [],
-    "sqlite_query": ["db_path", "query"],
-    "postgres_query": ["query"],
-    "job_list": [],
-    "job_get": ["job_id"],
-    "predict_sentiment": ["texts"],
-    "dataset_stats": ["path"],
-    "model_versions": [],
-}
+# ---------------------------------------------------------------------------
+# Métadonnées déclaratives chargées depuis tools_config.json (source unique).
+# REQUIRED_ARGS est dérivé du JSON : on ne le maintient plus à la main.
+# ---------------------------------------------------------------------------
+_MANIFEST_PATH = Path(__file__).resolve().parent / "tools_config.json"
+
+with _MANIFEST_PATH.open(encoding="utf-8") as _fh:
+    _MANIFEST = json.load(_fh)["tools"]
+
+TOOL_META = {name: meta for name, meta in _MANIFEST.items()}
+
+
+def get_tool_meta(name: str) -> dict:
+    """Métadonnées déclaratives d'un outil ({} si absent du manifeste)."""
+    return TOOL_META.get(name, {})
+
+
+def required_args_of(name: str) -> list[str]:
+    """Args obligatoires déclarés du JSON pour un outil."""
+    return get_tool_meta(name).get("required_args", [])
+
+
+# Dérivé : un clé manquante dans le JSON est une source de divergence -> le
+# test anti-divergence échoue, plutôt que de produire un prompt incomplet.
+REQUIRED_ARGS = {name: meta.get("required_args", []) for name, meta in TOOL_META.items()}

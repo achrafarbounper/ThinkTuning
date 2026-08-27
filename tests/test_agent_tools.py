@@ -921,12 +921,14 @@ def test_search_in_files_skips_excluded_dirs_and_binaries(sandbox_root):
     from tools.file_tools import write_file
     from tools.search_tools import search_in_files
 
-    write_file("venv/lib/secret.py", "TOKEN = 'abc'")
-    write_file(".git/hooks/pre-commit", "TOKEN = 'abc'")
-    with open(sandbox_root / "binaire.dat", "wb") as handle:
-        handle.write(b"ok\x00binary")
+    # Fixtures dans des dossiers exclus : créées directement (pas via write_file,
+    # dont le garde-fou interdit d'écrire sous .git/... — c'est volontaire).
+    (sandbox_root / "venv/lib").mkdir(parents=True, exist_ok=True)
+    (sandbox_root / "venv/lib/secret.py").write_text("TOKEN = 'abc'", encoding="utf-8")
+    (sandbox_root / ".git/hooks").mkdir(parents=True, exist_ok=True)
+    (sandbox_root / ".git/hooks/pre-commit").write_text("TOKEN = 'abc'", encoding="utf-8")
+    (sandbox_root / "binaire.dat").write_bytes(b"ok\x00binary")
     write_file("normal.txt", "TOKEN = 'abc'")
-
     result = search_in_files(r"TOKEN")
     assert result["scanned_files"] == 1  # seul normal.txt est balayé
     assert [m["path"] for m in result["matches"]] == ["normal.txt"]
@@ -1243,7 +1245,10 @@ def test_zip_then_unzip_roundtrip(sandbox_root):
 
     write_file("projet/a/f1.txt", "un")
     write_file("projet/a/sub/f2.txt", "deux")
-    write_file(".git/interne.txt", "jamais archive")
+    # Fixture sous .git créée directement (le garde-fou de write_file interdit
+    # volontairement d'écrire sous .git).
+    (sandbox_root / ".git").mkdir(parents=True, exist_ok=True)
+    (sandbox_root / ".git/interne.txt").write_text("jamais archive", encoding="utf-8")
 
     archived = zip_path("projet", "sauvegarde.zip")
     assert archived["file_count"] == 2  # .git exclu
@@ -1334,7 +1339,7 @@ def test_docker_stats_parses_json_lines(sandbox_root, monkeypatch):
 # --- Cohérence du registre central --------------------------------------------------------------
 
 def test_registry_is_consistent_between_tools_and_required_args():
-    from tools.tool_registry import REQUIRED_ARGS, TOOLS
+    from tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS
 
     assert set(TOOLS) == set(REQUIRED_ARGS)
     for name, func in TOOLS.items():
@@ -1349,3 +1354,105 @@ def test_registry_is_consistent_between_tools_and_required_args():
     assert REQUIRED_ARGS["web_fetch"] == ["url"]
     assert REQUIRED_ARGS["web_read"] == ["url"]
     assert len(TOOLS) >= 35
+
+    # Cohérence du registre déclaratif (tools_config.json) : chaque outil
+    # exécutable a une entrée JSON, et REQUIRED_ARGS est exactement celui du JSON.
+    assert set(TOOL_META) == set(TOOLS)
+    for name in TOOLS:
+        meta = TOOL_META[name]
+        assert meta["name"] == name
+        assert meta["required_args"] == REQUIRED_ARGS[name]
+
+
+def test_json_manifest_exposes_description_and_parameters():
+    from tools.tool_registry import TOOL_META
+
+    # Le JSON est la source déclarative : les champs attendus y figurent.
+    assert TOOL_META["calc"]["description"]
+    assert TOOL_META["calc"]["parameters"]["expression"]["required"] is True
+    assert set(TOOL_META["calc"]["parameters"]) == {"expression"}
+    # Un outil avec paramètres optionnels documentés dans le manifeste.
+    read_file = TOOL_META["read_file"]
+    assert "max_bytes" in read_file["parameters"]
+    assert read_file["parameters"]["max_bytes"]["required"] is False
+
+
+# --- Nouveaux outils fichiers (file_tools) -------------------------------------------------------
+
+def test_write_file_is_atomic_and_guards_git_and_dir(sandbox_root):
+    from tools.file_tools import write_file
+
+    msg = write_file("notes/a.txt", "bonjour")
+    assert "écrit" in msg and "octets" in msg
+    # Écraser un fichier existant -> verbe « écrasé », contenu remplacé.
+    msg2 = write_file("notes/a.txt", "nouveau")
+    assert "écrasé" in msg2
+    assert (sandbox_root / "notes/a.txt").read_text(encoding="utf-8") == "nouveau"
+    # Écriture sous .git refusée (garde-fou de sécurité).
+    with pytest.raises(PermissionError, match=".git"):
+        write_file(".git/x.txt", "ok")
+    # Content non-str -> TypeError clair.
+    with pytest.raises(TypeError, match="str"):
+        write_file("n.txt", 123)
+
+
+def test_file_info_and_checksum_and_head_and_count(sandbox_root):
+    from tools.file_tools import (
+        file_checksum,
+        file_info,
+        head_file,
+        count_lines,
+        write_file,
+    )
+
+    write_file("logs/app.log", "ligne 1\nligne 2\nligne 3\n")
+    info = file_info("logs/app.log")
+    assert info["type"] == "file" and info["lines"] == 3 and info["size_bytes"] > 0
+    assert info["encoding"] == "utf-8"
+
+    checksum = file_checksum("logs/app.log", algo="sha256")
+    assert len(checksum["hexdigest"]) == 64 and checksum["algorithm"] == "sha256"
+    assert file_checksum("logs/app.log", algo="md5")["hexdigest"]
+
+    head = head_file("logs/app.log", max_lines=2)
+    assert head["returned_lines"] == 2 and head["truncated"] is True
+    assert head["lines"] == ["ligne 1", "ligne 2"]
+
+    counts = count_lines("logs/app.log")
+    assert counts["lines"] == 3 and counts["words"] == 6
+
+
+def test_touch_and_json_roundtrip(sandbox_root):
+    from tools.file_tools import read_json, touch, write_file, write_json
+
+    assert "créé" in touch("empty.txt")
+    assert (sandbox_root / "empty.txt").exists()
+
+    write_json("config.json", {"lr": 0.01, "epochs": 3, "tags": ["a"]})
+    out = read_json("config.json")
+    assert out["data"] == {"lr": 0.01, "epochs": 3, "tags": ["a"]}
+
+    write_file("bad.json", "{ pas du json }")
+    with pytest.raises(ValueError, match="JSON invalide"):
+        read_json("bad.json")
+
+
+def test_find_duplicates_and_split_and_dedupe(sandbox_root):
+    from tools.file_tools import dedupe_lines, find_duplicates, split_file, write_file
+    from tools.system_tools import read_file
+
+    write_file("a/one/f.txt", "A")
+    write_file("a/two/f.txt", "A")
+    write_file("a/unique.txt", "B")
+    dups = find_duplicates("a")
+    assert dups["duplicate_groups"] == 1 and dups["duplicate_files"] == 2
+
+    write_file("big.log", "\n".join(f"ligne {i}" for i in range(1, 11)) + "\n")
+    res = split_file("big.log", max_lines=4)
+    assert res["part_count"] == 3 and len(res["parts"]) == 3
+
+    write_file("dup.txt", "x\ny\nx\nz\n")
+    dedup = dedupe_lines("dup.txt", keep="first")
+    assert dedup["removed_duplicates"] == 1
+    assert read_file("dup.txt") == "x\ny\nz\n"
+    assert (sandbox_root / "dup.txt.bak").exists()
