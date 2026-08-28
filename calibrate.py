@@ -469,6 +469,16 @@ def main(args):
         # Nouvelle vérification : le scaling suffit-il à repasser sous le seuil ?
         warn_if_miscalibrated(adjusted["ece"])
 
+        # Le scaling doit AMÉLIORER l'ECE : sinon on alerte (T mal choisi,
+        # ou modèle sous-confiant pour lequel T > 1 aggrave la situation).
+        if adjusted["ece"] > base["ece"]:
+            logger.warning(
+                "Temperature scaling DÉGRADANT : ECE=%.4f après scaling > "
+                "ECE=%.4f avant (T=%.4f). La température retenue ne devrait "
+                "pas être appliquée au modèle.",
+                adjusted["ece"], base["ece"], adjusted["temperature"],
+            )
+
         after_path = os.path.join(output_dir, "calibration_curve_after.png")
         plot_reliability_diagram(adjusted["prob_true"], adjusted["prob_pred"],
                                  adjusted["ece"], after_path,
@@ -477,6 +487,14 @@ def main(args):
         print(f"[Calibration] Figure sauvegardée : {after_path}")
 
         report["after"] = _summary_block(adjusted)
+    else:
+        # Sans scaling, on supprime toute courbe « après » résiduelle d'un run
+        # précédent : sinon le dossier de sortie mélange des artefacts de
+        # plusieurs exécutions (JSON sans 'after' + PNG 'after' obsolète).
+        stale_after = os.path.join(output_dir, "calibration_curve_after.png")
+        if os.path.exists(stale_after):
+            os.remove(stale_after)
+            print(f"[Calibration] Artefact obsolète supprimé : {stale_after}")
 
     os.makedirs(output_dir, exist_ok=True)
     report_path = os.path.join(output_dir, "calibration_report.json")

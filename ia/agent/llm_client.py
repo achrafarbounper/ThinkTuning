@@ -124,6 +124,18 @@ class LLMClient:
         # AgentCore via getattr(llm, "last_thinking", "").
         self.last_thinking = ""
 
+        # --- Fiabilité (Phase A, flag AGENT_RELIABILITY) -----------------------
+        # Dernière erreur du client (exception + classification) pour que les
+        # appelants / l'API puissent remonter une cause normalisée.
+        self.last_error: BaseException | None = None
+        self.last_error_class = None
+        # Nombre de tentatives et délai de base du retry à backoff exponentiel.
+        self.retry_attempts = int(os.getenv("AGENT_LLM_RETRY_ATTEMPTS", "3"))
+        self.retry_base_delay = float(os.getenv("AGENT_LLM_RETRY_BASE_DELAY", "0.5"))
+        # Circuit breaker par endpoint (créé paresseusement au premier appel
+        # quand le flag est actif) : nom = url+model pour isoler plusieurs backends.
+        self._circuit_breaker = None
+
     def call(self, messages):
         """Appel historique : renvoie la réponse complète (str).
 
@@ -132,6 +144,158 @@ class LLMClient:
         contrat de retour est inchangé pour les appelants et les tests.
         """
         return self.call_stream(messages)
+
+# -------------------------------------------------------------------------
+    # Helpers réseau (fiabilité Phase A) : construction de la requête et
+    # ouverture du flux, avec retry + circuit breaker optionnels.
+    # -------------------------------------------------------------------------
+
+    def _build_payload(self, messages) -> dict:
+        """Construit le corps JSON de la requête selon le provider."""
+        if self.provider == "openrouter":
+            # Format compatible OpenAI : température au niveau racine, pas de
+            # bloc « options » (num_ctx n'existe pas côté OpenRouter ; la
+            # fenêtre de contexte est gérée par le modèle hébergé).
+            payload: dict = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+                "temperature": self.temperature,
+            }
+            # Les modèles de raisonnement d'OpenRouter émettent spontanément
+            # delta.reasoning : aucun paramètre « think » à envoyer.
+        else:
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+                "options": {
+                    # Fenêtre de contexte du modèle (tokens). Explicite pour ne
+                    # pas dépendre du défaut du serveur Ollama.
+                    "num_ctx": self.context_length,
+                    # Température réellement transmise à Ollama.
+                    "temperature": self.temperature,
+                },
+            }
+        if self.think and self.provider == "ollama":
+            # Support natif du « thinking » côté Ollama (>0.9) : le flux porte
+            # alors un champ « message.thinking » séparé du contenu.
+            payload["think"] = True
+        return payload
+
+    def _headers(self):
+        """Entêtes HTTP. Ollama part sans header (forme historique) ; OpenRouter
+        exige l'en-tête ``Authorization: Bearer``."""
+        if self.api_key:
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return None
+
+    def _open_stream_once(self, payload):
+        """TENTATIVE UNIQUE de POST + vérification du statut. Renvoie ``resp``
+        (flux ouvert) ou relève l'exception requests (non re-traitée ici)."""
+        started = time.perf_counter()
+        headers = self._headers()
+        resp = None
+        try:
+            if headers is not None:
+                resp = requests.post(
+                    self.url,
+                    json=payload,
+                    headers=headers,
+                    timeout=self.timeout,
+                    stream=True,
+                )
+            else:
+                resp = requests.post(
+                    self.url, json=payload, timeout=self.timeout, stream=True
+                )
+            resp.raise_for_status()
+        except requests.exceptions.Timeout:
+            logger.error(
+                "llm_timeout url=%s model=%s elapsed_ms=%.0f timeout=%s",
+                self.url,
+                self.model,
+                (time.perf_counter() - started) * 1000,
+                self.timeout,
+            )
+            raise
+        except requests.exceptions.HTTPError:
+            status = resp.status_code if resp is not None else "?"
+            logger.error("llm_http_error url=%s status=%s", self.url, status)
+            raise
+        except requests.exceptions.RequestException:
+            logger.exception("llm_connection_error url=%s", self.url)
+            raise
+        return resp
+
+    def _get_circuit_breaker(self):
+        """Circuit breaker (par client/endpoint), créé paresseusement."""
+        if self._circuit_breaker is None:
+            name = f"{self.provider}:{self.model}"
+            cooldown = float(os.getenv("AGENT_LLM_CIRCUIT_COOLDOWN", "30"))
+            failures_max = int(os.getenv("AGENT_LLM_CIRCUIT_FAILURES", "5"))
+            from .reliability import CircuitBreaker  # import local (flag-gated)
+
+            self._circuit_breaker = CircuitBreaker(
+                name=name, failures_max=failures_max, cooldown_seconds=cooldown
+            )
+        return self._circuit_breaker
+
+    def _reliability_enabled(self) -> bool:
+        """Flag `AGENT_RELIABILITY` lu de façon robuste.
+
+        Chemin canonique : ``core.feature_flags`` (racine du projet). Repli :
+        lecture directe de l'env quand le paquet ``core`` n'est pas importable
+        (harness de tests isolés du paquet ``ia``) — même convention duale que
+        le reste de l'agent.
+        """
+        try:
+            from core.feature_flags import flag  # noqa: E402
+
+            return flag("reliability")
+        except Exception:
+            return os.getenv("AGENT_RELIABILITY", "").strip().lower() in {
+                "1", "true", "yes", "on",
+            }
+
+    def _open_stream(self, payload):
+        """Ouvre le flux avec retry + circuit breaker si ``AGENT_RELIABILITY=on``.
+
+        Sans le flag (défaut), se comporte EXACTEMENT comme avant : un unique
+        ``requests.post`` + ``raise_for_status``. Le retry ne s'applique qu'à
+        l'ÉTABLISSEMENT de la connexion (avant le premier octet du stream) :
+        une fois la réponse commencée, on s'engage — re-tenter casserait
+        l'intégrité du flux déjà diffusé (pas de double émission).
+        """
+        if not self._reliability_enabled():
+            return self._open_stream_once(payload)
+
+        from .reliability import classify_llm_error, retry
+
+        cb = self._get_circuit_breaker()
+
+        def guarded_once():
+            return cb.call(lambda: self._open_stream_once(payload))
+
+        return retry(
+            guarded_once,
+            attempts=self.retry_attempts,
+            base_delay=self.retry_base_delay,
+            classify=classify_llm_error,
+            on_retry=self._log_retry,
+        )
+
+    def _log_retry(self, attempt, exc, error_class) -> None:
+        """Log des échecs intermédiaires (chaque tentative) — télémétrie."""
+        ec = error_class.to_dict() if error_class is not None else None
+        logger.warning(
+            "llm_attempt_failed attempt=%d/%d category=%s error=%s retryable=%s",
+            attempt,
+            self.retry_attempts,
+            (ec or {}).get("category"),
+            type(exc).__name__,
+            (ec or {}).get("retryable"),
+        )
 
     def call_stream(
         self,
@@ -162,75 +326,14 @@ class LLMClient:
             self.timeout,
             self.context_length,
         )
-        if self.provider == "openrouter":
-            # Format compatible OpenAI : température au niveau racine, pas de
-            # bloc « options » (num_ctx n'existe pas côté OpenRouter ; la
-            # fenêtre de contexte est gérée par le modèle hébergé).
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "stream": True,
-                "temperature": self.temperature,
-            }
-            # Les modèles de raisonnement d'OpenRouter émettent spontanément
-            # delta.reasoning : aucun paramètre « think » à envoyer.
-        else:
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "stream": True,
-                "options": {
-                    # Fenêtre de contexte du modèle (tokens). Explicite pour ne pas
-                    # dépendre du défaut du serveur Ollama (2048 par défaut ici).
-                    "num_ctx": self.context_length,
-                    # Température avant d'être réellement transmise à Ollama : le
-                    # champ était historiquement configuré mais jamais envoyé.
-                    "temperature": self.temperature,
-                },
-            }
-        if self.think and self.provider == "ollama":
-            # Support natif du « thinking » côté Ollama (>0.9) : le flux porte
-            # alors un champ « message.thinking » séparé du contenu.
-            payload["think"] = True
-
-        # OpenRouter exige la clé API en Bearer ; Ollama part sans entête
-        # d'authentification. Sans clé, l'appel garde SA FORME HISTORIQUE
-        # (pas d'argument « headers ») : certains appelants/tests monkeypatchent
-        # requests.post avec une signature stricte.
-        if self.api_key:
-            headers = {"Authorization": f"Bearer {self.api_key}"}
-        else:
-            headers = None
-
+        payload = self._build_payload(messages)
         try:
-            if headers is not None:
-                resp = requests.post(
-                    self.url,
-                    json=payload,
-                    headers=headers,
-                    timeout=self.timeout,
-                    stream=True,
-                )
-            else:
-                resp = requests.post(
-                    self.url, json=payload, timeout=self.timeout, stream=True
-                )
-            resp.raise_for_status()
-        except requests.exceptions.Timeout:
-            logger.error(
-                "llm_timeout url=%s model=%s elapsed_ms=%.0f timeout=%s",
-                self.url,
-                self.model,
-                (time.perf_counter() - started) * 1000,
-                self.timeout,
-            )
-            raise
-        except requests.exceptions.HTTPError:
-            status = resp.status_code if resp is not None else "?"
-            logger.error("llm_http_error url=%s status=%s", self.url, status)
-            raise
-        except requests.exceptions.RequestException:
-            logger.exception("llm_connection_error url=%s", self.url)
+            resp = self._open_stream(payload)
+        except BaseException as exc:  # noqa: BLE001 - re-levée après classification
+            from .reliability import classify_llm_error  # import local, flag-driven
+
+            self.last_error = exc
+            self.last_error_class = classify_llm_error(exc)
             raise
 
         # Consommation du flux. Deux formats tolérés :
@@ -294,4 +397,6 @@ class LLMClient:
         logger.debug("llm_response_content=%s", content)
         if self.last_thinking:
             logger.debug("llm_response_thinking=%s", self.last_thinking)
+        self.last_error = None
+        self.last_error_class = None
         return content

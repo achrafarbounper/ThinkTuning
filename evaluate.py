@@ -3,6 +3,7 @@
 
 Usage :
     python evaluate.py --max_per_lang 500
+    python evaluate.py --model_name 20260825T153054Z
 """
 
 import argparse
@@ -22,8 +23,6 @@ from src.utils.config import load_config
 from src.utils.metrics import compute_metrics
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
 
-
-MODEL_PATH = "./sentiment_model_final"
 
 # Ordre des classes, aligné sur les labels 0, 1, 2 du dataset.
 LABEL_NAMES = ["negative", "neutral", "positive"]
@@ -213,12 +212,21 @@ def main(args):
     cfg = load_config("configs/default.yaml")
     max_length = args.max_length or cfg["max_length"]
 
+    # Import paresseux pour éviter l'import circulaire : calibrate importe
+    # evaluate (pour OUTPUT_DIR) au chargement du module.
+    from calibrate import select_model_path
+
+    # Même sélection de modèle que calibrate.py : version explicite
+    # (--model_name) ou dernière version valide de experiments/models.
+    # évite le décalage historique avec l'ancien MODEL_PATH codé en dur.
+    model_path, model_label = select_model_path(args.model_name)
+
     print(f"1. Chargement du dataset FR/EN (max {args.max_per_lang}/langue)...")
     raw = load_raw_dataset(max_per_lang=args.max_per_lang)
 
-    print("2. Chargement du tokenizer et du modèle...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-    model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+    print(f"2. Chargement du tokenizer et du modèle ({model_label})...")
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
     print(f"3. Tokenisation du dataset (max_length={max_length})...")
     tokenized = tokenize_dataset(raw, tokenizer, max_length=max_length)
@@ -240,6 +248,10 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--max_length", type=int, default=None,
                          help="Par défaut, réutilise max_length de configs/default.yaml")
+    parser.add_argument("--model_name", type=str, default=None,
+                         help="Version à évaluer dans experiments/models "
+                              "(ex. 20260825T153054Z). Par défaut : la dernière "
+                              "version valide.")
     args = parser.parse_args()
 
     main(args)

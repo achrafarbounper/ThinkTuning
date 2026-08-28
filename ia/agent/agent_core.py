@@ -135,6 +135,11 @@ try:  # paquet « ia.tools » (imports racinés sur le projet / tests)
 except ImportError:  # racine « agent » / « tools » (core/agent_cache.py)
     from tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: F401
 
+try:  # Phase B : analytique d'usage des outils (best-effort, jamais bloquant)
+    from ..tools.tool_analytics import record_usage
+except ImportError:
+    from tools.tool_analytics import record_usage
+
 # .approvals est un module frère du paquet « ia.agent » : l'import relatif
 # fonctionne dans les deux contextes (« ia.agent » tests ET « agent » runtime).
 from .approvals import ApprovalDecision, classify_approval  # noqa: E402
@@ -462,6 +467,7 @@ class AgentCore:
                         "args": summarize_tool_args(args),
                     })
                 last_result = TOOLS[tool](**args)
+                record_usage(tool, (time.perf_counter() - tool_started) * 1000.0)
                 logger.info(
                     "tool_result name=%s result_type=%s",
                     tool,
@@ -486,6 +492,9 @@ class AgentCore:
                         "summary": f"{type(exc).__name__}: {exc}",
                         "duration_ms": round((time.perf_counter() - tool_started) * 1000),
                     })
+                record_usage(
+                    tool, (time.perf_counter() - tool_started) * 1000.0, error=True
+                )
                 detail = f"ERREUR pendant '{tool}' : {type(exc).__name__}: {exc}"
                 hint = (
                     " Utilise find_file si le chemin est inconnu."

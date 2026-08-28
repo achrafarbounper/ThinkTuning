@@ -263,6 +263,71 @@ class SessionStore:
                 conn.close()
         return [m for m in (self._message_row(r) for r in rows) if m is not None]
 
+    # --- Mémoire inter-sessions (Phase C, flag AGENT_CONTEXT) -------------------
+
+    def _ensure_memory_table(self, conn):
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_memory (
+                key        TEXT PRIMARY KEY,
+                summary    TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+    def save_memory(self, key: str, summary: str) -> None:
+        """Enregistre (upsert) un résumé de mémoire pour la clé donnée.
+
+        ``key`` est typiquement l'identifiant d'espace mémoire (ex. l'id de
+        session pour la mémoire glissante d'une conversation, ou ``"global"``
+        pour une mémoire partagée entre sessions). Best-effort chez l'appelant.
+        """
+        with self._lock:
+            conn = self._connect()
+            try:
+                self._ensure_memory_table(conn)
+                conn.execute(
+                    """
+                    INSERT INTO agent_memory(key, summary, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        summary = excluded.summary,
+                        updated_at = excluded.updated_at
+                    """,
+                    (str(key), str(summary or ""), _utcnow_iso()),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_memory(self, key: str) -> str:
+        """Résumé de mémoire associé à la clé (chaîne vide si absent)."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                self._ensure_memory_table(conn)
+                row = conn.execute(
+                    "SELECT summary FROM agent_memory WHERE key = ?",
+                    (str(key),),
+                ).fetchone()
+            finally:
+                conn.close()
+        return str(row[0]) if row else ""
+
+    def delete_memory(self, key: str) -> None:
+        """Supprime une entrée de mémoire (nettoyage / tests)."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                self._ensure_memory_table(conn)
+                conn.execute(
+                    "DELETE FROM agent_memory WHERE key = ?", (str(key),)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
 
 # --- Store partagé (lazy, surchargeable en tests) ------------------------------------
 
