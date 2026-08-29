@@ -372,6 +372,14 @@ export class SentimentApiClient {
     return this._request("/models/details");
   }
 
+  // -- /evaluate ------------------------------------------------------------
+
+  getConfusion({ model, limit } = {}) {
+    return this._request("/evaluate/confusion", {
+      query: { model, limit },
+    });
+  }
+
   // -- /predict ---------------------------------------------------------------
 
   predict(texts, model) {

@@ -89,6 +89,19 @@ const MENU_ITEMS = [
     ),
   },
   {
+    id: "evaluation",
+    label: "Évaluation",
+    hint: "Confusion & comparaison",
+    icon: (
+      <Icon>
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <path d="m14 17 3 3 4-4" />
+        <line x1="3" y1="17" x2="11" y2="17" />
+      </Icon>
+    ),
+  },
+  {
     id: "parametres",
     label: "Paramètres",
     hint: "Connexion & préférences",

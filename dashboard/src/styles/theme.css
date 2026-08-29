@@ -263,3 +263,286 @@ textarea { width: 100%; resize: vertical; }
     margin-bottom: 0;
   }
 }
+
+/* --- Page Évaluation ------------------------------------------------------ */
+
+.tt-eval { display: flex; flex-direction: column; gap: 18px; }
+
+/* Panneaux premium : flou + transparence, bordure translucide, coins arrondis,
+   ombre douce (elevation), hover glass. */
+.tt-eval-panel {
+  background: rgba(18, 22, 28, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.tt-eval-panel:hover {
+  background: rgba(24, 30, 38, 0.72);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.32);
+}
+
+.tt-eval-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.tt-eval-controls .tt-model-selector { flex: 1 1 260px; margin-bottom: 0; }
+.tt-eval-meta {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: var(--tt-text-dim);
+  background: rgba(91, 141, 239, 0.08);
+  border: 1px solid rgba(91, 141, 239, 0.2);
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+/* Heatmap */
+.tt-heat { margin-top: 12px; }
+
+.tt-heat-tooltip {
+  background: rgba(11, 14, 17, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--tt-text);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+.tt-heat-tooltip strong { color: var(--tt-text); }
+.tt-heat-tooltip span { color: var(--tt-text-dim); }
+.tt-heat-ok { color: var(--tt-positive) !important; }
+.tt-heat-err { color: var(--tt-negative) !important; }
+
+/* Pied de la heatmap : légende + erreurs par classe */
+.tt-eval-footer {
+
+/* Explication automatique de la matrice */
+.tt-explain {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--tt-accent);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--tt-text-dim);
+}
+.tt-explain strong { color: var(--tt-text); }
+.tt-explain .tt-explain-hl {
+  color: var(--tt-accent);
+  font-weight: 600;
+}
+.tt-explain-ok { color: var(--tt-positive); }
+.tt-explain-ok strong { color: var(--tt-positive); }
+
+/* Journal des erreurs (liste défilante) */
+.tt-errlog {
+  margin-top: 16px;
+  border-top: 1px solid var(--tt-panel-border);
+  padding-top: 12px;
+}
+.tt-errlog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--tt-text);
+}
+.tt-errlog-count {
+  font-size: 0.75rem;
+  color: var(--tt-text-dim);
+  padding: 3px 9px;
+  background: rgba(242, 84, 91, 0.12);
+  border: 1px solid rgba(242, 84, 91, 0.25);
+  border-radius: 999px;
+}
+.tt-errlog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tt-errlog-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tt-errlog-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.tt-errlog-text {
+  flex: 1;
+  font-size: 0.82rem;
+  color: var(--tt-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tt-errlog-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.tt-errlog-flow .tt-badge { font-size: 0.68rem; padding: 2px 8px; }
+.tt-errlog-arrow { color: var(--tt-text-dim); }
+.tt-errlog-conf {
+  flex-shrink: 0;
+  min-width: 44px;
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--tt-text-dim);
+}
+
+@media (max-width: 640px) {
+  .tt-errlog-item { flex-wrap: wrap; }
+  .tt-errlog-text { white-space: normal; }
+  .tt-errlog-flow { order: 2; }
+  .tt-errlog-conf { order: 3; }
+}
+
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--tt-panel-border);
+  padding-top: 12px;
+}
+.tt-legend { display: flex; gap: 16px; font-size: 0.8rem; color: var(--tt-text-dim); }
+.tt-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.tt-legend-swatch { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+.tt-legend-correct { background: rgba(47, 191, 113, 0.7); }
+.tt-legend-error { background: rgba(242, 84, 91, 0.7); }
+.tt-errlist { display: flex; flex-wrap: wrap; gap: 8px; }
+.tt-errchip {
+  font-size: 0.78rem;
+  color: var(--tt-text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+/* --- Panneau de comparaison v1 vs v2 (style premium) ---------------------- */
+
+.tt-cmp { margin-top: 16px; }
+
+.tt-cmp-sides {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+}
+.tt-cmp-title { color: var(--tt-text-dim); font-size: 0.85rem; font-weight: 600; }
+.tt-cmp-side { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.tt-cmp-side-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px currentColor; }
+.tt-cmp-side-loading { color: var(--tt-text-dim); font-weight: 500; }
+.tt-cmp-side-error { color: var(--tt-negative); font-weight: 500; }
+
+/* En-tête de colonnes */
+.tt-cmp-head {
+  display: grid;
+  grid-template-columns: 170px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tt-text-dim);
+  border-bottom: 1px solid var(--tt-panel-border);
+}
+.tt-cmp-head-bars { text-align: center; }
+.tt-cmp-head-values { display: flex; gap: 10px; align-items: center; }
+
+/* Ligne = une métrique */
+.tt-cmp-row {
+  display: grid;
+  grid-template-columns: 170px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.15s ease;
+}
+.tt-cmp-row:hover { background: rgba(255, 255, 255, 0.06); }
+.tt-cmp-row:last-child { border-bottom: none; }
+
+.tt-cmp-label { font-size: 0.85rem; color: var(--tt-text); }
+
+/* Barres fines + rond terminal */
+.tt-cmp-bars { display: flex; flex-direction: column; gap: 6px; }
+.tt-cmp-bar {
+  position: relative;
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  width: 100%;
+}
+.tt-cmp-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  opacity: 0.85;
+}
+.tt-cmp-v1 .tt-cmp-fill { background: var(--tt-accent); }
+.tt-cmp-v2 .tt-cmp-fill { background: #a855f7; }
+.tt-cmp-dot {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* Badges de valeurs + différence */
+.tt-cmp-values { display: flex; gap: 8px; align-items: center; }
+.tt-cmp-values .tt-badge {
+  min-width: 52px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid;
+  font-size: 0.72rem;
+  color: var(--tt-text);
+}
+.tt-badge-na { opacity: 0.6; }
+.tt-badge-diff.tt-badge-up { background: rgba(47, 191, 113, 0.16); color: var(--tt-positive); }
+.tt-badge-diff.tt-badge-down { background: rgba(242, 84, 91, 0.16); color: var(--tt-negative); }
+.tt-badge-diff.tt-badge-flat { background: rgba(139, 148, 163, 0.16); color: var(--tt-text-dim); }
+
+@media (max-width: 720px) {
+  .tt-cmp-head, .tt-cmp-row { grid-template-columns: 1fr; gap: 8px; }
+  .tt-cmp-head-bars { display: none; }
+}
+
