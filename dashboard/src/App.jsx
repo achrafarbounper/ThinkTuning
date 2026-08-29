@@ -14,6 +14,7 @@ import SentimentPage from "./pages/SentimentPage";
 import ComparePage from "./pages/ComparePage";
 import AssistantPage from "./pages/AssistantPage";
 import TrainingPage from "./pages/TrainingPage";
+import EvaluationPage from "./pages/EvaluationPage";
 import SettingsPage from "./pages/SettingsPage";
 
 /** Table de routage : identifiant de menu → composant de page. */
@@ -23,6 +24,7 @@ const ROUTES = {
   comparer: ComparePage,
   assistant: AssistantPage,
   entrainement: TrainingPage,
+  evaluation: EvaluationPage,
   parametres: SettingsPage,
 };
 
