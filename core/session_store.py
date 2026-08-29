@@ -19,6 +19,11 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
+# Réparation des doubles-encodages UTF-8 → Latin-1 → UTF-8 à la lecture des
+# contenus persistés (voir ia/agent/encoding.py). Fonction impure, sans autres
+# imports que la stdlib, donc aucun risque d'import circulaire avec ``ia.*``.
+from ia.agent.encoding import repair_utf8_mojibake
+
 AGENT_SESSION_PATH = os.getenv(
     "AGENT_SESSION_PATH", os.path.join("experiments", "agent_sessions.db")
 )
@@ -86,7 +91,11 @@ class SessionStore:
     def _session_row(row):
         if row is None:
             return None
-        return dict(zip(("id", "title", "model", "created_at", "updated_at"), row))
+        data = dict(zip(("id", "title", "model", "created_at", "updated_at"), row))
+        # Réparation des doublons d'encodage éventuels persistés avant la
+        # correction de la cause racine (voir ia/agent/encoding.py).
+        data["title"] = repair_utf8_mojibake(data.get("title") or "")
+        return data
 
     @staticmethod
     def _message_row(row):
@@ -94,6 +103,7 @@ class SessionStore:
             return None
         data = dict(zip(("id", "session_id", "role", "content", "tool_calls_json",
                          "created_at"), row))
+        data["content"] = repair_utf8_mojibake(data.get("content") or "")
         try:
             data["tool_calls"] = json.loads(data.pop("tool_calls_json") or "[]")
         except ValueError:
@@ -313,7 +323,9 @@ class SessionStore:
                 ).fetchone()
             finally:
                 conn.close()
-        return str(row[0]) if row else ""
+        if not row:
+            return ""
+        return repair_utf8_mojibake(str(row[0]))
 
     def delete_memory(self, key: str) -> None:
         """Supprime une entrée de mémoire (nettoyage / tests)."""

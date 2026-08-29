@@ -230,3 +230,31 @@ def test_ask_no_history_without_session(client, monkeypatch):
     resp = client.post("/api/agent/ask", headers=HEADERS, json={"prompt": "salut"})
     assert resp.status_code == 200
     assert captured["history"] == []
+
+
+def test_store_repairs_mojibake_on_read():
+    """Un contenu persisté en mojibake (UTF-8 relu Latin-1) doit être relu
+    corrigé — aussi bien dans les messages que dans le titre et la mémoire."""
+    import tempfile
+
+    path = os.path.join(tempfile.gettempdir(), "tt_sessions_mojibake.db")
+    if os.path.exists(path):
+        os.remove(path)
+    store = session_store.SessionStore(path)
+
+    expected = "Bonjour, tête désolée. À l'aide !"
+    mojibake = expected.encode("utf-8").decode("latin-1")
+
+    sid = store.create_session(title=mojibake)["id"]
+    store.append_message(sid, "user", "salut")
+    store.append_message(sid, "assistant", mojibake)
+    store.save_memory("global", mojibake)
+
+    # Lecture corrige automatiquement.
+    assert store.get_messages(sid)[1]["content"] == expected
+    assert store.get_session(sid)["title"] == expected
+    assert store.get_memory("global") == expected
+
+    # Un texte Latin-1 légitime n'est pas altéré.
+    store.append_message(sid, "assistant", "café coração")
+    assert store.get_messages(sid)[-1]["content"] == "café coração"

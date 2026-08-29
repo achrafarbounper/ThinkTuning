@@ -39,6 +39,10 @@ import requests
 # Extraction des balises <think> inline : repli quand le serveur Ollama ne
 # sépare pas lui-même la réflexion dans le champ « message.thinking ».
 from .thinking import extract_thinking
+# Réparation conservatrice des doubles-encodages UTF-8 → Latin-1 → UTF-8
+# (voir ia/agent/encoding.py). Appliquée en dernier recours sur le contenu
+# final quand un provider renvoie du texte déjà relu en Latin-1.
+from .encoding import repair_utf8_mojibake
 
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
@@ -345,7 +349,15 @@ class LLMClient:
         content_parts: list[str] = []
         thinking_parts: list[str] = []
         try:
-            for line in resp.iter_lines(decode_unicode=True):
+            # `iter_lines()` (SANS decode_unicode) renvoie les octets bruts du
+            # flux. On conserve la normalisation UTF-8 MAÎTRISÉE dans
+            # `_parse_chunk` : certains providers (Ollama sans charset, ou
+            # `application/x-ndjson`) font renvoyer des `bytes` par
+            # `iter_lines(decode_unicode=True)`, d'autres les décodent déjà en
+            # Latin-1/ISO-8859-1 — ce qui produit EXACTEMENT le double
+            # encodage « tÃªte » vu dans le dashboard. En exigeant les bytes,
+            # `_parse_chunk` possède toujours le décodage UTF-8.
+            for line in resp.iter_lines():
                 if not line:
                     continue
                 chunk = _parse_chunk(line)
@@ -377,15 +389,15 @@ class LLMClient:
         finally:
             resp.close()
 
-        content = "".join(content_parts)
-        thinking = "".join(thinking_parts).strip()
+        content = repair_utf8_mojibake("".join(content_parts))
+        thinking = repair_utf8_mojibake("".join(thinking_parts).strip())
 
         # Repli : des serveurs anciens (ou des modèles qui ignorent le
         # paramètre « think ») laissent les balises <think> inline dans le
         # contenu au lieu du champ « message.thinking ».
         content, inline_thinking = extract_thinking(content)
         parts = [part for part in (inline_thinking, thinking) if part]
-        self.last_thinking = "\n\n".join(parts)
+        self.last_thinking = repair_utf8_mojibake("\n\n".join(parts))
 
         logger.info(
             "llm_response status=%d elapsed_ms=%.0f content_chars=%d thinking_chars=%d",
