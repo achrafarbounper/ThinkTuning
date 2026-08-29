@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 from api.dependencies.auth import require_api_key
 from core.agent_cache import ask_agent_detailed_streaming, list_llm_models
 from core.session_store import get_session_store
+from ia.agent.encoding import repair_utf8_mojibake
 
 router = APIRouter(prefix="/api", tags=["AI Chat"])
 
@@ -77,18 +78,23 @@ def _build_prompt(req: ChatRequest) -> str:
 
     AgentCore.run() est mono-tour : on rejoue les derniers échanges en tête
     de prompt pour donner un minimum de contexte conversationnel à l'agent.
+
+    Chaque contenu est au préalable normalisé via ``repair_utf8_mojibake`` :
+    sans cela, un historique vieillissant déjà corrompu resservirait des
+    caractères cassés au LLM, qui les réémettrait (double encodage cumulatif).
     """
     recent = req.history[-MAX_HISTORY_TURNS * 2 :]
     if not recent:
-        return req.message
+        return repair_utf8_mojibake(req.message)
     transcript = "\n".join(
-        f"{'Utilisateur' if msg.role == 'user' else 'Assistant'} : {msg.content}"
+        f"{'Utilisateur' if msg.role == 'user' else 'Assistant'} : "
+        f"{repair_utf8_mojibake(msg.content)}"
         for msg in recent
     )
     return (
         "Historique récent de la conversation :\n"
         f"{transcript}\n\n"
-        f"Nouvelle question de l'utilisateur : {req.message}"
+        f"Nouvelle question de l'utilisateur : {repair_utf8_mojibake(req.message)}"
     )
 
 
@@ -150,13 +156,14 @@ def ai_chat(req: ChatRequest, _: bool = Depends(require_api_key)) -> StreamingRe
                 # (contrat historique préservé).
                 on_thinking=_emit_thinking if req.enable_thinking else None,
             )
-            _emit_answer(result["answer"])
+            answer = repair_utf8_mojibake(result["answer"])
+            _emit_answer(answer)
             # Persistance best-effort de l'échange dans la session demandée.
             if req.session_id:
                 try:
                     store = get_session_store()
-                    store.append_message(req.session_id, "user", req.message)
-                    store.append_message(req.session_id, "assistant", result["answer"])
+                    store.append_message(req.session_id, "user", repair_utf8_mojibake(req.message))
+                    store.append_message(req.session_id, "assistant", answer)
                 except Exception:  # pragma: no cover - persistance optionnelle
                     pass
         except HTTPException as exc:  # panne réseau déjà traduite par agent_cache

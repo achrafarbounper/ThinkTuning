@@ -12,6 +12,10 @@ sentiment_project/
 ├── data_loader.py     # Chargement du dataset multilingue + application de l'augmentation
 ├── train.py            # Fine-tuning de XLM-RoBERTa sur le dataset augmenté
 ├── predict.py         # Inférence sur de nouveaux textes
+├── dashboard/          # Interface web React + Vite (analyse, assistant IA, entraînement…)
+├── api/                # API FastAPI (routes, middlewares, auth par clé)
+├── core/               # Stores SQLite, versionnage des modèles, cache predictor
+├── ia/                 # Agent IA (Ollama/OpenRouter) + outils sandboxés
 └── requirements.txt
 ```
 
@@ -213,11 +217,12 @@ Comportement de `merge_reviewed_data.py` :
 python predict.py "Ce produit est fantastique, je recommande !"
 ```
 
-Comment l'utiliser
+### Comment l'utiliser
 
-Place api.py à la racine du projet (au même niveau que train.py, configs/, src/), puis :
+L'API FastAPI vit dans le module `api.main` (au même niveau que `train.py`,
+`configs/`, `src/`). Installez les dépendances, puis lancez le serveur :
 
-bash
+```bash
 pip install fastapi "uvicorn[standard]"
 # Linux/macOS
 export API_KEY="change-me-super-secret"
@@ -225,39 +230,50 @@ export RATE_LIMIT_PER_MINUTE="60"
 # Windows PowerShell
 # $env:API_KEY="change-me-super-secret"
 # $env:RATE_LIMIT_PER_MINUTE="60"
-uvicorn api:app --reload --host 0.0.0.0 --port 8000
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
 
 La doc interactive s'ouvre sur http://localhost:8000/docs.
 
 API_KEY est obligatoire même en local. Les routes sensibles exigent l'en-tête X-API-Key. Exemple :
-bash
-curl -H "X-API-Key: change-me-super-secret" http://localhost:8000/models
 
-Protection contre les abus
+```bash
+curl -H "X-API-Key: change-me-super-secret" http://localhost:8000/models
+```
+
+### Protection contre les abus
+
 - Les endpoints POST /predict et /predict/batch sont protégés par un rate limit configurable via la variable d'environnement RATE_LIMIT_PER_MINUTE (par défaut 60 requêtes/minute par client IP).
 - Si la limite est dépassée, l'API répond avec un 429 Too Many Requests et envoie l'en-tête Retry-After (en secondes).
 - La logique est implémentée en Python avec un token bucket simple, sans dépendance externe.
 
-Lancer un entraînement
-bash
+### Lancer un entraînement
+
+```bash
 curl -X POST http://localhost:8000/train \
   -H "Content-Type: application/json" \
   -d '{"max_per_lang": 500, "epochs": 2, "batch_size": 8}'
+```
 
 → répond immédiatement avec un job_id.
 
-Suivre la progression
-bash
+### Suivre la progression
+
+```bash
 curl http://localhost:8000/train/status/<job_id>
+```
 
 → step te dit où en est l'entraînement (loading_dataset, training, saving_model, etc.) et status passe à completed ou failed.
 
-Prédire
-bash
+### Prédire
+
+```bash
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
   -d '{"texts": ["Ce produit est fantastique !", "This is terrible."]}'
-Détails d'implémentation à connaître
+```
+
+### Détails d'implémentation à connaître
 /train ne bloque jamais : l'entraînement tourne dans un thread séparé, l'API répond en millisecondes.
 Le Predictor est mis en cache en mémoire — il n'est chargé qu'une fois, au premier appel à /predict, et automatiquement invalidé/rechargé quand un entraînement se termine (ou manuellement via /predict/reload).
 Le registre des jobs est en mémoire (dict Python) — parfait pour du dev/local, mais si tu déploies en multi-worker (plusieurs process uvicorn) ou que tu redémarres le service, il faudrait passer à un store partagé (Redis, base de données). Dis-moi si c'est ton cas, je peux adapter.
@@ -508,6 +524,78 @@ Doc interactive : http://localhost:8000/docs. Notes :
 
 - `psycopg2-binary` (déjà dans requirements.txt) n'est requis que pour `postgres_query`.
 - Tests offline de tous ces outils : `pytest tests/test_agent_tools.py tests/test_agent_api.py tests/test_agent_logging.py -v`.
+
+## Dashboard (interface web React)
+
+Le projet embarque une interface web complète dans `dashboard/`, construite
+avec **React 19 + Vite + TypeScript**. Elle interagit avec l'API FastAPI
+(`/api/*`) et permet de piloter tout le pipeline sans ligne de commande.
+
+Pages disponibles (navigation par hachage `#/…`) :
+
+| Page | Rôle |
+|---|---|
+| **Tableau de bord** | Vue d'ensemble : statut API/modèle, jobs actifs, versions entraînées |
+| **Analyse** | Prédiction de sentiment FR/EN — unitaire (texte par ligne) ou par lot (CSV), historique local |
+| **Comparer** | Soumet le même texte à deux versions de modèles côte à côte (sentiment + confiance) |
+| **Assistant IA** | Chat façon Copilot en streaming SSE (`POST /api/ai`) avec réflexion, blocs d'outils et sessions |
+| **Entraînement** | Formulaire de fine-tuning (`POST /train`) + suivi temps réel du job (poll 4 s) + historique |
+| **Paramètres** | Connexion API (URL + `X-API-Key`) et configuration du provider LLM (Ollama / OpenRouter) |
+
+### Lancement en développement
+
+```bash
+# Terminal 1 — API FastAPI
+venv\Scripts\python -m uvicorn api.main:app --reload --port 8000
+
+# Terminal 2 — frontend (Vite dev server)
+cd dashboard
+npm install
+npm run dev            # http://localhost:5173
+```
+
+Le proxy Vite transfère `/api/*` vers `http://localhost:8000`
+(voir `dashboard/vite.config.js`), donc `fetch("/api/…")` fonctionne tel quel.
+
+### Lancement en production (Docker)
+
+Le Dockerfile racine construit le dashboard puis le sert via **nginx** dans le
+service `app` du `docker-compose.yml` (port hôte `8080`) ; nginx inverse-proxy
+les appels `/api/*` vers uvicorn (même conteneur) :
+
+```bash
+docker compose build
+docker compose --profile app up -d
+# Dashboard  → http://localhost:8080
+# API        → http://localhost:8000  (doc interactive : /docs)
+```
+
+### Scripts npm
+
+| Commande             | Rôle                                  |
+| -------------------- | ------------------------------------- |
+| `npm run dev`        | Serveur de développement Vite (HMR)   |
+| `npm run build`      | Build de production dans `dist/`      |
+| `npm run preview`    | Prévisualise le build de production   |
+| `npm run lint`       | ESLint (JS et TS/TSX)                 |
+| `npm run typecheck`  | Vérification TypeScript (`tsc`)       |
+
+### Authentification
+
+L'API exige un en-tête `X-API-Key` (sauf endpoints publics comme `/health`). Le
+dashboard la résout dans cet ordre :
+
+1. la configuration persistée en `localStorage` (champ « API_KEY côté serveur »
+   du formulaire Paramètres) ;
+2. la variable d'environnement Vite `VITE_API_KEY` (`dashboard/.env.local`,
+   ex. `VITE_API_KEY=dev-local-api-key`).
+
+Sans clé, le backend répond `401` et le message s'affiche dans l'interface.
+
+> Notes — le `dashboard/README.md` documente l'interface de chat en détail
+> (streaming SSE, retombée JSON, contrat `POST /api/ai`), et
+> `dashboard/TRAIN_JOB_TRACKER.md` explique le suivi temps réel des jobs
+> d'entraînement.
 
 ## Docker
 docker compose build

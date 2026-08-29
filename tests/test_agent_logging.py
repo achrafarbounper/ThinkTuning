@@ -190,6 +190,37 @@ def test_llm_client_parses_bytes_lines_when_no_charset(monkeypatch):
     assert client.call([{"role": "user", "content": "bonjour"}]) == "réponse de bytes"
 
 
+def test_llm_client_repairs_latin1_mojibake_str_lines(monkeypatch):
+    """Double encodage : si un provider/proxy renvoie déjà le flux décodé en
+    Latin-1 (chaîne ``str`` mojibake), ``call()`` doit réparer le contenu
+    final. Avant la correction, ce texte sortait cassé (« tÃªte ») et partait
+    tel quel au dashboard ET en base.
+    """
+    from ia.agent.llm_client import LLMClient
+
+    # Contenu français correct, puis son mojibake Latin-1 (comme si requests
+    # avait choisi iso-8859-1) : « Bonjour, tête désolée. À l'aide ! »
+    expected = "Bonjour, tête désolée. À l'aide !"
+    mojibake = expected.encode("utf-8").decode("latin-1")
+
+    class FakeResp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def iter_lines(self, decode_unicode=False):
+            yield '{"message": {"content": "%s"}, "done": true}' % mojibake
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("requests.post", lambda url, json=None, timeout=None, stream=False: FakeResp())
+    client = LLMClient("http://ollama.test/api/chat", "llama3.1:8b", timeout=5)
+    assert client.call([{"role": "user", "content": "bonjour"}]) == expected
+    assert client.last_thinking == ""
+
+
 def test_llm_client_logs_timeout_as_error(caplog, monkeypatch):
     from ia.agent import llm_client as llm_module
 
