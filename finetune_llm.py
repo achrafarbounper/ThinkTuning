@@ -255,6 +255,10 @@ def main() -> None:
     train_dataset = build_tokenized_dataset(train_dataset, tokenizer, args.max_seq_length)
     eval_dataset = build_tokenized_dataset(eval_dataset, tokenizer, args.max_seq_length)
 
+    # warmup_ratio was removed in transformers 5.x ; convertir en warmup_steps.
+    steps_per_epoch = max(1, len(train_dataset) // (args.batch_size * args.gradient_accumulation_steps))
+    warmup_steps = int(steps_per_epoch * args.epochs * args.warmup_ratio)
+
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         per_device_train_batch_size=args.batch_size,
@@ -264,11 +268,11 @@ def main() -> None:
         weight_decay=args.weight_decay,
         num_train_epochs=args.epochs,
         lr_scheduler_type=args.lr_scheduler_type,
-        warmup_ratio=args.warmup_ratio,
+        warmup_steps=warmup_steps,
         logging_steps=args.logging_steps,
         save_steps=args.save_steps,
         eval_steps=args.eval_steps,
-        evaluation_strategy="steps" if args.validation_file or len(eval_dataset) > 0 else "no",
+        eval_strategy="steps" if args.validation_file or len(eval_dataset) > 0 else "no",
         save_strategy="steps",
         load_best_model_at_end=(bool(args.validation_file) or len(eval_dataset) > 0),
         metric_for_best_model="loss",
@@ -286,7 +290,7 @@ def main() -> None:
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset if len(eval_dataset) > 0 else None,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
     )
 
