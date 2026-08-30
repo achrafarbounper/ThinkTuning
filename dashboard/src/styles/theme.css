@@ -86,6 +86,7 @@ textarea { width: 100%; resize: vertical; }
 }
 .tt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .tt-btn-primary { background: var(--tt-accent); color: #0b0e11; }
+.tt-btn-ghost { background: rgba(255,255,255,0.08); color: var(--tt-text); }
 .tt-btn-primary:hover:not(:disabled) { opacity: 0.85; }
 .tt-btn-ghost { background: transparent; border: 1px solid var(--tt-panel-border); color: var(--tt-text-dim); }
 .tt-btn-ghost:hover { color: var(--tt-text); }
@@ -113,7 +114,33 @@ textarea { width: 100%; resize: vertical; }
 .tt-tag-status-cancelled { background: rgba(139,148,163,0.18); color: var(--tt-text-dim); }
 
 .tt-results { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.tt-result-row { display: grid; grid-template-columns: 90px 1fr 90px; align-items: center; gap: 10px; }
+.tt-result-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.tt-result-main {
+  display: grid;
+  grid-template-columns: 90px 1fr 80px auto;
+  align-items: center;
+  gap: 10px;
+}
+.tt-explain-btn { font-size: 0.75rem; padding: 4px 10px; white-space: nowrap; }
+.tt-explain-inline { margin-top: 2px; padding: 8px 10px; }
+.tt-explain-cell {
+  padding: 0 !important;
+  border-top: none;
+  background: rgba(255, 255, 255, 0.03);
+}
+.tt-explain-cell .tt-explain,
+.tt-explain-cell .tt-hint {
+  margin-top: 0;
+  display: block;
+}
 .tt-result-text { font-size: 0.85rem; }
 .tt-confidence { display: block; height: 6px; background: #0d1117; border-radius: 4px; overflow: hidden; }
 .tt-confidence-fill { display: block; height: 100%; }
