@@ -413,6 +413,38 @@ export class SentimentApiClient {
     });
   }
 
+  // -- /drift ------------------------------------------------------------------
+
+  /**
+   * Détection de dérive entre deux batches, via deux fichiers CSV uploadés.
+   * Retourne {method, drift_score, p_value, threshold, drift_detected,
+   * distribution_a, distribution_b, n_a, n_b}.
+   */
+  driftCsv({ fileA, fileB, textColumn = "text", threshold, method, model } = {}) {
+    const form = new FormData();
+    form.append("file_a", fileA);
+    form.append("file_b", fileB);
+    form.append("text_column", textColumn);
+    if (threshold !== undefined && threshold !== "") form.append("threshold", threshold);
+    if (method) form.append("method", method);
+    return this._requestMultipart("/drift", {
+      formData: form,
+      query: model ? { model } : undefined,
+    });
+  }
+
+  /** Détection de dérive entre deux listes de textes (mode JSON). */
+  driftTexts({ textsA, textsB, threshold, method, model } = {}) {
+    const body = { texts_a: textsA, texts_b: textsB };
+    if (threshold !== undefined && threshold !== "") body.threshold = threshold;
+    if (method) body.method = method;
+    return this._request("/drift", {
+      method: "POST",
+      body,
+      query: model ? { model } : undefined,
+    });
+  }
+
   reloadPredictor(model) {
     return this._request("/predict/reload", {
       method: "POST",

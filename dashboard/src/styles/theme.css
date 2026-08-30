@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --tt-bg: #0b0e11;
   --tt-panel: #12161c;
   --tt-panel-border: #1e242c;
@@ -573,3 +573,78 @@ textarea { width: 100%; resize: vertical; }
   .tt-cmp-head-bars { display: none; }
 }
 
+
+/* --- Page Dérive (POST /drift) --------------------------------------------- */
+
+.tt-drift-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.tt-drift-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.tt-drift-setting-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.tt-drift-setting-hint {
+  font-size: 0.78rem;
+  opacity: 0.65;
+  line-height: 1.35;
+}
+
+.tt-drift-setting-hint.tt-hint-error {
+  opacity: 1;
+}
+
+.tt-drift-setting input[aria-invalid="true"] {
+  border-color: var(--tt-danger, #f2545b);
+}
+
+@media (max-width: 720px) {
+  .tt-drift-settings {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tt-drift-modes {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tt-drift-mode--active {
+  border-color: currentColor;
+  font-weight: 600;
+}
+
+.tt-drift-dist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tt-drift-dist-row {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr 3.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tt-drift-dist-label {
+  font-size: 0.85rem;
+}
+
+.tt-drift-dist-value {
+  text-align: right;
+}
