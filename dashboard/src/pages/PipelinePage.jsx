@@ -12,7 +12,6 @@ import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
 import PipelineJobTracker from "../components/PipelineJobTracker";
 
-const JOBS_POLL_MS = 15000;
 const PIPELINE_POLL_MS = 4000;
 
 const STEP_LABELS = {
@@ -94,8 +93,29 @@ export default function PipelinePage() {
   }, [client, pushLog, jobsStatusFilter, jobsLimit, jobsOffset]);
 
   useEffect(() => {
-    refreshJobs();
-  }, [refreshJobs]);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const result = await client.listPipelineJobs({
+          status: jobsStatusFilter || undefined,
+          limit: jobsLimit,
+          offset: jobsOffset,
+        });
+        if (!cancelled) {
+          setJobs(result.items);
+          setJobsTotal(result.total);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          pushLog("error", `Historique des jobs pipeline indisponible : ${err.message}`);
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, pushLog, jobsStatusFilter, jobsLimit, jobsOffset]);
 
   useEffect(() => {
     if (!models.length && !modelsError) refreshModels();
