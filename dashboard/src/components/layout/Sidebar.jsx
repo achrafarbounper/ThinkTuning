@@ -67,6 +67,16 @@ const MENU_ITEMS = [
     ),
   },
   {
+    id: "derive",
+    label: "Dérive",
+    hint: "Drift entre deux batches",
+    icon: (
+      <Icon>
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+      </Icon>
+    ),
+  },
+  {
     id: "assistant",
     label: "Assistant IA",
     hint: "Chat en streaming",

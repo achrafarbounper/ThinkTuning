@@ -16,12 +16,14 @@ import AssistantPage from "./pages/AssistantPage";
 import TrainingPage from "./pages/TrainingPage";
 import EvaluationPage from "./pages/EvaluationPage";
 import SettingsPage from "./pages/SettingsPage";
+import DriftPage from "./pages/DriftPage";
 
 /** Table de routage : identifiant de menu → composant de page. */
 const ROUTES = {
   dashboard: HomePage,
   analyse: SentimentPage,
   comparer: ComparePage,
+  derive: DriftPage,
   assistant: AssistantPage,
   entrainement: TrainingPage,
   evaluation: EvaluationPage,
