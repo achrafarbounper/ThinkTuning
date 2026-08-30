@@ -99,6 +99,20 @@ const MENU_ITEMS = [
     ),
   },
   {
+    id: "pipeline",
+    label: "Pipeline LLM",
+    hint: "Label → filtrage → LoRA",
+    icon: (
+      <Icon>
+        <line x1="4" y1="6" x2="12" y2="6" />
+        <line x1="4" y1="12" x2="20" y2="12" />
+        <line x1="4" y1="18" x2="16" y2="18" />
+        <circle cx="20" cy="6" r="1.5" />
+        <circle cx="16" cy="18" r="1.5" />
+      </Icon>
+    ),
+  },
+  {
     id: "evaluation",
     label: "Évaluation",
     hint: "Confusion & comparaison",

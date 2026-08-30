@@ -112,3 +112,39 @@ class ModelVersion(BaseModel):
     path: str
     created_at: Optional[float] = None
     active: bool = False
+class ModelVersion(BaseModel):
+    name: str
+    path: str
+    created_at: Optional[float] = None
+    active: bool = False
+
+
+class PipelineRequest(BaseModel):
+    """Paramètres du pipeline end-to-end : labeling (label_dataset) +
+    filtrage par confidence + fine-tuning LLM (finetune_llm).
+
+    Les champs optionnels à None signifient « utiliser la valeur par défaut
+    du script cible » (aucun argument correspondant n'est transmis).
+    """
+    # --- Étape labeling + filtrage (label_dataset.py) ---
+    input_path: str
+    labeled_output: Optional[str] = None
+    model_path: Optional[str] = None
+    text_column: str = "text"
+    min_confidence: float = 0.7
+    label_batch_size: int = 32
+    # --- Étape fine-tuning (finetune_llm.py) ---
+    output_dir: Optional[str] = None
+    base_model: Optional[str] = None
+    validation_file: Optional[str] = None
+    epochs: Optional[int] = None
+    finetune_batch_size: Optional[int] = None
+    gradient_accumulation_steps: Optional[int] = None
+    learning_rate: Optional[float] = None
+    max_seq_length: Optional[int] = None
+    lora_r: Optional[int] = None
+    lora_alpha: Optional[int] = None
+    lora_dropout: Optional[float] = None
+    target_modules: Optional[str] = None
+    use_qlora: bool = True
+    seed: int = 42
