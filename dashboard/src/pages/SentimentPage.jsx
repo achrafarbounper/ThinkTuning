@@ -8,7 +8,7 @@
  * - historique local des prédictions.
  */
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
 
@@ -36,6 +36,15 @@ export default function SentimentPage() {
   const [predictLoading, setPredictLoading] = useState(false);
   const [predictError, setPredictError] = useState(null);
 
+  // Explication LLM d'une prédiction unitaire (POST /explain, OpenRouter).
+  const [explainState, setExplainState] = useState(null);
+
+  // Explication LLM d'une ligne de la prédiction par lot (POST /explain).
+  const [batchExplainState, setBatchExplainState] = useState(null);
+
+  // Explication LLM d'une ligne de l'historique (POST /explain).
+  const [historyExplainState, setHistoryExplainState] = useState(null);
+
   const [batchFile, setBatchFile] = useState(null);
   const [batchColumn, setBatchColumn] = useState("text");
   const [batchFormat, setBatchFormat] = useState("json");
@@ -54,6 +63,8 @@ export default function SentimentPage() {
 
     setPredictLoading(true);
     setPredictError(null);
+    setExplainState(null);
+    setHistoryExplainState(null);
     try {
       const { results } = await client.predict(texts, activeModel || undefined);
       setPredictResults(results);
@@ -65,16 +76,56 @@ export default function SentimentPage() {
     }
   };
 
+  // -- Explication LLM d'une prédiction unitaire ------------------------------
+  const handleExplain = async (text) => {
+    setExplainState({ text, loading: true, result: null, error: null });
+    try {
+      const result = await client.explain({ text });
+      setExplainState({ text, loading: false, result, error: null });
+    } catch (err) {
+      setExplainState({ text, loading: false, result: null, error: err.message });
+    }
+  };
+
+  // -- Explication LLM d'une ligne de prédiction par lot ----------------------
+  const handleBatchExplain = async (index) => {
+    const row = batchResults && batchResults[index];
+    if (!row) return;
+    setBatchExplainState({ index, loading: true, result: null, error: null });
+    try {
+      const result = await client.explain({ text: row.text });
+      setBatchExplainState({ index, loading: false, result, error: null });
+    } catch (err) {
+      setBatchExplainState({ index, loading: false, result: null, error: err.message });
+    }
+  };
+
+  // -- Explication LLM d'une ligne de l'historique -----------------------------
+  const handleHistoryExplain = async (index) => {
+    const pred = predictionsHistory && predictionsHistory[index];
+    if (!pred) return;
+    setHistoryExplainState({ index, loading: true, result: null, error: null });
+    try {
+      const result = await client.explain({ text: pred.text });
+      setHistoryExplainState({ index, loading: false, result, error: null });
+    } catch (err) {
+      setHistoryExplainState({ index, loading: false, result: null, error: err.message });
+    }
+  };
+
   // -- Prédiction batch CSV -----------------------------------------------------
   const handleBatchSubmit = async (e) => {
     e.preventDefault();
     if (!batchFile) {
       setBatchError("Sélectionnez un fichier CSV.");
       return;
+
     }
     setBatchLoading(true);
     setBatchError(null);
     setBatchResults(null);
+    setBatchExplainState(null);
+    setHistoryExplainState(null);
     try {
       if (batchFormat === "csv") {
         const blob = await client.predictBatchCsv({
@@ -152,20 +203,46 @@ export default function SentimentPage() {
           {predictError && <p className="tt-hint tt-hint-error">{predictError}</p>}
           {predictResults && (
             <ul className="tt-results">
-              {predictResults.map((r, i) => (
-                <li key={i} className="tt-result-row">
-                  <span className={`tt-badge tt-badge-${r.sentiment}`}>
-                    {SENTIMENT_LABELS[r.sentiment] || r.sentiment}
-                  </span>
-                  <span className="tt-result-text">{r.text}</span>
-                  <span className="tt-confidence" title={`${(r.confidence * 100).toFixed(1)}%`}>
-                    <span
-                      className={`tt-confidence-fill tt-fill-${r.sentiment}`}
-                      style={{ width: `${Math.round(r.confidence * 100)}%` }}
-                    />
-                  </span>
-                </li>
-              ))}
+              {predictResults.map((r, i) => {
+                const isExplaining = explainState?.text === r.text && explainState?.loading;
+                const showExplain =
+                  explainState?.text === r.text && !explainState?.loading;
+                return (
+                  <li key={i} className="tt-result-row">
+                    <div className="tt-result-main">
+                      <span className={`tt-badge tt-badge-${r.sentiment}`}>
+                        {SENTIMENT_LABELS[r.sentiment] || r.sentiment}
+                      </span>
+                      <span className="tt-result-text">{r.text}</span>
+                      <span className="tt-confidence" title={`${(r.confidence * 100).toFixed(1)}%`}>
+                        <span
+                          className={`tt-confidence-fill tt-fill-${r.sentiment}`}
+                          style={{ width: `${Math.round(r.confidence * 100)}%` }}
+                        />
+                      </span>
+                      <button
+                        type="button"
+                        className="tt-btn tt-btn-ghost tt-explain-btn"
+                        onClick={() => handleExplain(r.text)}
+                        disabled={isExplaining}
+                        title="Expliquer cette prédiction via l'agent IA (OpenRouter)"
+                      >
+                        {isExplaining ? "Analyse…" : "Expliquer"}
+                      </button>
+                    </div>
+
+                    {showExplain && (
+                      <div className="tt-explain tt-explain-inline">
+                        {explainState.error ? (
+                          <p className="tt-hint tt-hint-error">{explainState.error}</p>
+                        ) : (
+                          <p>{explainState.result?.explanation}</p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
 
@@ -201,20 +278,55 @@ export default function SentimentPage() {
                   <th>Texte</th>
                   <th>Sentiment</th>
                   <th>Confiance</th>
+                  <th>Expliquer</th>
                 </tr>
               </thead>
               <tbody>
-                {batchResults.slice(0, 20).map((r, i) => (
-                  <tr key={i}>
-                    <td className="tt-td-text">{r.text}</td>
-                    <td>
-                      <span className={`tt-badge tt-badge-${r.sentiment}`}>
-                        {SENTIMENT_LABELS[r.sentiment] || r.sentiment}
-                      </span>
-                    </td>
-                    <td className="tt-mono">{(r.confidence * 100).toFixed(1)}%</td>
-                  </tr>
-                ))}
+                {batchResults.slice(0, 20).map((r, i) => {
+                  const isBatchExplaining =
+                    batchExplainState?.index === i && batchExplainState?.loading;
+                  const showBatchExplain =
+                    batchExplainState?.index === i && !batchExplainState?.loading;
+                  return (
+                    <React.Fragment key={i}>
+                      <tr>
+                        <td className="tt-td-text">{r.text}</td>
+                        <td>
+                          <span className={`tt-badge tt-badge-${r.sentiment}`}>
+                            {SENTIMENT_LABELS[r.sentiment] || r.sentiment}
+                          </span>
+                        </td>
+                        <td className="tt-mono">{(r.confidence * 100).toFixed(1)}%</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="tt-btn tt-btn-ghost tt-explain-btn"
+                            onClick={() => handleBatchExplain(i)}
+                            disabled={isBatchExplaining}
+                            title="Expliquer cette prédiction via l'agent IA (OpenRouter)"
+                          >
+                            {isBatchExplaining ? "Analyse…" : "Expliquer"}
+                          </button>
+                        </td>
+                      </tr>
+                      {showBatchExplain && (
+                        <tr>
+                          <td colSpan={4} className="tt-explain-cell">
+                            {batchExplainState.error ? (
+                              <span className="tt-hint tt-hint-error">
+                                {batchExplainState.error}
+                              </span>
+                            ) : (
+                              <span className="tt-explain tt-explain-inline">
+                                {batchExplainState.result?.explanation}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -236,7 +348,7 @@ export default function SentimentPage() {
                 className="tt-input-small"
                 title="Nombre maximum de prédictions à conserver"
               />
-              <button className="tt-btn tt-btn-ghost" onClick={clearHistory} type="button">
+              <button className="tt-btn tt-btn-ghost" onClick={() => { clearHistory(); setHistoryExplainState(null); }} type="button">
                 Effacer
               </button>
               <button
@@ -259,22 +371,50 @@ export default function SentimentPage() {
                   <th>Texte</th>
                   <th>Sentiment</th>
                   <th>Confiance</th>
+                  <th>Expliquer</th>
                 </tr>
               </thead>
               <tbody>
                 {predictionsHistory.slice(0, 50).map((pred, idx) => (
-                  <tr key={idx}>
-                    <td className="tt-mono tt-history-time">
-                      {new Date(pred.timestamp).toLocaleString()}
-                    </td>
-                    <td className="tt-history-text">{pred.text}</td>
-                    <td>
-                      <span className={`tt-badge tt-badge-${pred.sentiment}`}>
-                        {SENTIMENT_LABELS[pred.sentiment] || pred.sentiment}
-                      </span>
-                    </td>
-                    <td className="tt-mono">{(pred.confidence * 100).toFixed(1)}%</td>
-                  </tr>
+                  <React.Fragment key={idx}>
+                    <tr>
+                      <td className="tt-mono tt-history-time">
+                        {new Date(pred.timestamp).toLocaleString()}
+                      </td>
+                      <td className="tt-history-text">{pred.text}</td>
+                      <td>
+                        <span className={`tt-badge tt-badge-${pred.sentiment}`}>
+                          {SENTIMENT_LABELS[pred.sentiment] || pred.sentiment}
+                        </span>
+                      </td>
+                      <td className="tt-mono">{(pred.confidence * 100).toFixed(1)}%</td>
+                      <td>
+                        <button
+                          className="tt-btn tt-btn-ghost tt-explain-btn"
+                          onClick={() => handleHistoryExplain(idx)}
+                          disabled={historyExplainState?.index === idx && historyExplainState?.loading}
+                          type="button"
+                        >
+                          {historyExplainState?.index === idx && historyExplainState?.loading ? "..." : "Expliquer"}
+                        </button>
+                      </td>
+                    </tr>
+                    {historyExplainState?.index === idx && (
+                      <tr>
+                        <td colSpan={5} className="tt-explain-cell">
+                          {historyExplainState.error ? (
+                            <span className="tt-hint tt-hint-error">
+                              {historyExplainState.error}
+                            </span>
+                          ) : (
+                            <span className="tt-explain tt-explain-inline">
+                              {historyExplainState.result?.explanation}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

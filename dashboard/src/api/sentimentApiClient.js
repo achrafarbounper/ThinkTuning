@@ -420,6 +420,19 @@ export class SentimentApiClient {
     });
   }
 
+  // -- /explain ----------------------------------------------------------------
+
+  /**
+   * Génère une explication en langage naturel de la prédiction d'un texte
+   * (via l'agent IA / provider OpenRouter) : {sentiment, confidence, explanation}.
+   */
+  explain({ text, model } = {}) {
+    return this._request("/explain", {
+      method: "POST",
+      body: model ? { text, model } : { text },
+    });
+  }
+
   // -- /train -----------------------------------------------------------------
 
   startTraining(payload) {
