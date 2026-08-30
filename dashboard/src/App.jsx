@@ -17,6 +17,7 @@ import TrainingPage from "./pages/TrainingPage";
 import EvaluationPage from "./pages/EvaluationPage";
 import SettingsPage from "./pages/SettingsPage";
 import DriftPage from "./pages/DriftPage";
+import PipelinePage from "./pages/PipelinePage";
 
 /** Table de routage : identifiant de menu → composant de page. */
 const ROUTES = {
@@ -26,6 +27,7 @@ const ROUTES = {
   derive: DriftPage,
   assistant: AssistantPage,
   entrainement: TrainingPage,
+  pipeline: PipelinePage,
   evaluation: EvaluationPage,
   parametres: SettingsPage,
 };

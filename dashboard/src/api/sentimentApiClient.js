@@ -102,6 +102,15 @@ export const TRAIN_STEPS = [
   "done",
 ];
 
+/** Ordre des étapes du pipeline end-to-end (core/pipeline_runner.py). */
+export const PIPELINE_STEPS = [
+  "queued",
+  "labeling",
+  "filtering",
+  "finetuning",
+  "done",
+];
+
 /**
  * Charge les paramètres agent depuis localStorage.
  * @returns {Object} config agent
@@ -483,6 +492,29 @@ export class SentimentApiClient {
 
     listTrainingJobs({ status, limit, offset } = {}) {
     return this._request("/train/jobs", {
+      query: { status, limit, offset },
+    });
+  }
+
+  // -- /pipeline ---------------------------------------------------------------
+
+  /** Lance le pipeline end-to-end (labeling -> filtering -> fine-tuning LLM). */
+  startPipeline(payload) {
+    return this._request("/pipeline", { method: "POST", body: payload });
+  }
+
+  getPipelineStatus(jobId) {
+    return this._request(`/pipeline/status/${encodeURIComponent(jobId)}`);
+  }
+
+  cancelPipeline(jobId) {
+    return this._request(`/pipeline/cancel/${encodeURIComponent(jobId)}`, {
+      method: "POST",
+    });
+  }
+
+  listPipelineJobs({ status, limit, offset } = {}) {
+    return this._request("/pipeline/jobs", {
       query: { status, limit, offset },
     });
   }

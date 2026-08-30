@@ -24,3 +24,5 @@ pyarrow>=14.0.0
 requests>=2.32.0
 # Agent IA : driver PostgreSQL pour l'outil postgres_query (ia/tools/database_tools.py)
 psycopg2-binary>=2.9.9
+# Pipeline end-to-end : chargement du fichier de configuration --config (pipeline.py)
+pyyaml>=6.0

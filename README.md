@@ -89,6 +89,32 @@ très limitée.
 2 epochs), comptez de l'ordre de 20 à 60 minutes selon votre machine. Pour aller
 plus vite pendant les tests, réduisez encore `--max_per_lang` (ex: 200).
 
+## Pipeline end-to-end en une commande (SCRUM-39)
+
+`pipeline.py` enchaîne automatiquement **labeling DistilBERT → filtrage par
+confidence → fine-tuning LLM (LoRA/QLoRA)** :
+
+```bash
+# CLI seule
+python pipeline.py --input data/unlabeled.csv --output_dir runs/lora_model \
+    --min_confidence 0.8 --epochs 2
+
+# Avec un fichier de configuration YAML (CLI > YAML > défauts)
+python pipeline.py --input data/unlabeled.csv --output_dir runs/lora_model \
+    --config pipeline.example.yaml
+```
+
+Le JSONL Alpaca intermédiaire (défaut : `runs/pipeline_<timestamp>/labeled.jsonl`)
+n'est exporté qu'avec les prédictions au-dessus de `--min_confidence`. Si aucun
+record ne dépasse le seuil, le fine-tuning n'est pas lancé (exit 1).
+
+Côté dashboard, la page **« Pipeline LLM »** (`#/pipeline`) pilote le même
+pipeline via l'API : `POST /pipeline` (job 202), `GET /pipeline/status/{job_id}`,
+`POST /pipeline/cancel/{job_id}` et `GET /pipeline/jobs`, avec suivi temps réel
+des étapes (labeling → filtering → finetuning) et historique des jobs.
+
+
+
 ## Boucle d'active learning complète
 
 Le pipeline ferme la boucle « entraîner → détecter les incertitudes → corriger
