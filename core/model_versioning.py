@@ -1,9 +1,11 @@
 # project/core/model_versioning.py
 
 import os
-import sys
 import json
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 MODEL_ROOT = os.path.join("experiments", "models")
 MODELS_ROOT = MODEL_ROOT
@@ -12,6 +14,7 @@ MODEL_FILES = ["model.pt", "pytorch_model.bin", "model.safetensors"]
 
 def list_model_versions() -> list[str]:
     os.makedirs(MODEL_ROOT, exist_ok=True)
+    logger.debug(f"list_model_versions : début | racine={MODEL_ROOT}")
     versions = []
 
     for name in os.listdir(MODEL_ROOT):
@@ -25,14 +28,17 @@ def list_model_versions() -> list[str]:
                 versions.append(name)
 
     versions.sort(reverse=True)
+    logger.debug(f"list_model_versions : terminé | {len(versions)} version(s) -> {versions}")
     return versions
 
 
 def resolve_model_dir(model_name: str | None = None) -> str:
+    logger.debug(f"resolve_model_dir : début | model_name={model_name}")
     if model_name:
         candidate = os.path.join(MODEL_ROOT, model_name)
         if not os.path.isdir(candidate):
             raise RuntimeError(f"Model version '{model_name}' not found.")
+        logger.debug(f"resolve_model_dir : terminé -> {candidate}")
         return candidate
 
     versions = list_model_versions()
@@ -42,7 +48,9 @@ def resolve_model_dir(model_name: str | None = None) -> str:
             f"{os.path.abspath(MODEL_ROOT)}. Train a model first (POST /train)."
         )
 
-    return os.path.join(MODEL_ROOT, versions[0])
+    selected = os.path.join(MODEL_ROOT, versions[0])
+    logger.debug(f"resolve_model_dir : dernière version -> {selected}")
+    return selected
 
 
 def resolve_model_path(model_arg: str | None = None) -> str:
@@ -57,24 +65,30 @@ def resolve_model_path(model_arg: str | None = None) -> str:
     Predictor lèvera alors sa propre erreur si le chemin est invalide. Seule
     l'absence totale de modèle (model_arg=None) lève FileNotFoundError.
     """
+    logger.debug(f"resolve_model_path : début | model_arg={model_arg}")
     if model_arg:
         # Chemin de dossier explicite (absolu ou relatif) -> tel quel.
         if os.path.isdir(model_arg):
+            logger.debug(f"resolve_model_path : terminé (dossier explicite) -> {model_arg}")
             return model_arg
         try:
-            return resolve_model_dir(model_arg)
+            resolved = resolve_model_dir(model_arg)
+            logger.debug(f"resolve_model_path : terminé -> {resolved}")
+            return resolved
         except RuntimeError:
             available = ", ".join(list_model_versions()[:5])
-            print(
+            logger.warning(
                 f"[warn] '{model_arg}' n'est ni un dossier existant ni une version "
                 f"de {MODEL_ROOT} (versions disponibles : {available or 'aucune'}). "
-                "Utilisé tel quel.",
-                file=sys.stderr,
+                "Utilisé tel quel."
             )
+            logger.debug(f"resolve_model_path : terminé (argument toléré) -> {model_arg}")
             return model_arg
 
     try:
-        return resolve_model_dir()
+        resolved = resolve_model_dir()
+        logger.debug(f"resolve_model_path : terminé -> {resolved}")
+        return resolved
     except RuntimeError as exc:
         raise FileNotFoundError(f"Aucun modèle disponible : {exc}")
 
@@ -122,8 +136,12 @@ def _save_trained_model(trainer, model_dir):
 
 
 def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at):
+    logger.info(
+        f"Sauvegarde du modèle | job_id={job_id} | {train_examples} train / {val_examples} val"
+    )
     os.makedirs(MODEL_ROOT, exist_ok=True)
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    logger.debug(f"Horodatage de la version : {timestamp}")
     model_dir = os.path.join(MODEL_ROOT, timestamp)
     os.makedirs(model_dir, exist_ok=True)
 
@@ -167,4 +185,5 @@ def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples,
     with open(os.path.join(model_dir, "training_report.json"), "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2, default=str)
 
+    logger.info(f"Version du modèle enregistrée -> {model_dir}")
     return model_dir

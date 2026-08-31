@@ -12,7 +12,10 @@ Compatible FR + EN via WordNet Open Multilingual (OMW).
 
 import random
 import re
+import logging
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_nltk_data():
@@ -83,6 +86,7 @@ def _get_synonyms(word: str, lang: str) -> List[str]:
 
     except Exception:
         # WordNet absent, corrompu, ou NLTK en mode zip cassé → on ne casse pas l'entraînement
+        logger.debug(f"_get_synonyms : échec WordNet pour '{word}' ({lang}) -> aucun synonyme")
         return []
 
 
@@ -93,6 +97,7 @@ def _get_synonyms(word: str, lang: str) -> List[str]:
 
 def synonym_replacement(words: List[str], lang: str, n: int = 1) -> List[str]:
     """Remplace n mots (hors stopwords et négations) par un de leurs synonymes."""
+    logger.debug(f"synonym_replacement : début | lang={lang}, n={n}")
     new_words = words.copy()
     protected = STOPWORDS.get(lang, set()) | NEGATION_WORDS.get(lang, set())
     candidates = [w for w in words if w.lower() not in protected]
@@ -108,11 +113,13 @@ def synonym_replacement(words: List[str], lang: str, n: int = 1) -> List[str]:
         if replaced >= n:
             break
 
+    logger.debug(f"synonym_replacement : terminé | {replaced} remplacement(s)")
     return new_words
 
 
 def random_insertion(words: List[str], lang: str, n: int = 1) -> List[str]:
     """Insère n synonymes de mots existants à des positions aléatoires."""
+    logger.debug(f"random_insertion : début | lang={lang}, n={n}")
     new_words = words.copy()
     protected = STOPWORDS.get(lang, set()) | NEGATION_WORDS.get(lang, set())
 
@@ -137,6 +144,7 @@ def random_insertion(words: List[str], lang: str, n: int = 1) -> List[str]:
             insert_pos = random.randint(0, len(new_words))
             new_words.insert(insert_pos, insert_word)
 
+    logger.debug(f"random_insertion : terminé -> {len(new_words)} mot(s)")
     return new_words
 
 
@@ -146,6 +154,7 @@ def random_swap(words: List[str], lang: str = "en", n: int = 1) -> List[str]:
     mots de négation (ex: "pas", "not") pour ne pas casser leur portée
     syntaxique et inverser le sentiment de la phrase.
     """
+    logger.debug(f"random_swap : début | lang={lang}, n={n}")
     new_words = words.copy()
     length = len(new_words)
     protected = NEGATION_WORDS.get(lang, set())
@@ -161,6 +170,7 @@ def random_swap(words: List[str], lang: str = "en", n: int = 1) -> List[str]:
         idx1, idx2 = random.sample(swappable_idx, 2)
         new_words[idx1], new_words[idx2] = new_words[idx2], new_words[idx1]
 
+    logger.debug(f"random_swap : terminé -> {len(new_words)} mot(s)")
     return new_words
 
 
@@ -169,6 +179,7 @@ def random_deletion(words: List[str], lang: str = "en", p: float = 0.1) -> List[
     Supprime chaque mot avec une probabilité p (garde au moins 1 mot).
     Les mots de négation sont protégés pour ne pas inverser le sentiment.
     """
+    logger.debug(f"random_deletion : début | lang={lang}, p={p}")
     if len(words) == 1:
         return words
 
@@ -180,6 +191,7 @@ def random_deletion(words: List[str], lang: str = "en", p: float = 0.1) -> List[
     if not new_words:
         return [random.choice(words)]
 
+    logger.debug(f"random_deletion : terminé -> {len(new_words)} mot(s)")
     return new_words
 
 
@@ -208,6 +220,10 @@ def recompose(
     # Tokenisation simple (mots + ponctuation)
     words = re.findall(r"\w+|[^\w\s]", text, re.UNICODE)
     num_words = len(words)
+    logger.debug(
+        f"recompose : début | {num_words} mots, lang={lang}, "
+        f"num_variants={num_variants}, alpha={alpha}"
+    )
     n = max(1, int(alpha * num_words))
 
     variants = set()
@@ -234,6 +250,7 @@ def recompose(
 
         attempts += 1
 
+    logger.debug(f"recompose : terminé -> {len(variants)} variante(s)")
     return list(variants)
 
 
@@ -242,12 +259,14 @@ def recompose(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
+
     examples = [
         ("Ce film était vraiment excellent, j'ai adoré chaque instant.", "fr"),
         ("This movie was absolutely terrible, I hated every minute.", "en"),
     ]
 
     for text, lang in examples:
-        print(f"\nOriginal ({lang}): {text}")
+        logger.info(f"\nOriginal ({lang}): {text}")
         for i, v in enumerate(recompose(text, lang=lang, num_variants=3), 1):
-            print(f"  Variante {i}: {v}")
+            logger.info(f"  Variante {i}: {v}")

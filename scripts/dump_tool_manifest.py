@@ -10,6 +10,7 @@ Usage : venv\\Scripts\\python.exe scripts\\dump_tool_manifest.py
 
 import inspect
 import json
+import logging
 from pathlib import Path
 
 import sys
@@ -18,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ia"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 _DESC_MAX_CHARS = 140
 
@@ -91,10 +94,12 @@ def build_manifest() -> dict:
 if __name__ == "__main__":
     import inspect
 
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
+
     out = Path(__file__).resolve().parents[1] / "ia" / "tools" / "tools_config.json"
     data = build_manifest()
     out.write_text(
         json.dumps({"tools": data}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"écrit {len(data)} outils -> {out}")
+    logger.info(f"écrit {len(data)} outils -> {out}")
