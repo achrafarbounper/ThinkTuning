@@ -55,7 +55,7 @@ function CellRect({ cx, cy, cellW, cellH, value, max, isCorrect }) {
         textAnchor="middle"
         fontSize={Math.min(16, cellW * 0.32)}
         fontWeight={600}
-        fill={value > 0 ? "#0b0e11" : "rgba(139,148,163,0.6)"}
+        fill={value > 0 ? "var(--tt-on-accent)" : "rgba(139,148,163,0.6)"}
       >
         {value}
       </text>

@@ -1,13 +1,28 @@
 :root {
-  --tt-bg: #0b0e11;
-  --tt-panel: #12161c;
+  /* --- Tokens de surface (une seule source de vérité) ---------------------- */
+  --tt-bg: #0b0e11;          /* fond applicatif */
+  --tt-surface-1: #12161c;   /* panneaux / cartes */
+  --tt-surface-2: #0d1117;   /* inputs, tracés de fond */
+  --tt-surface-3: #0e1217;   /* barre latérale */
+  --tt-panel: #12161c;       /* alias historique de --tt-surface-1 */
   --tt-panel-border: #1e242c;
+  --tt-border: #1e242c;      /* alias de --tt-panel-border */
+  --tt-ring: #5b8def;        /* focus visible unifié */
+  --tt-on-accent: #0b0e11;   /* texte sur fond accentué */
+
+  /* --- Couleurs sémantiques ------------------------------------------------ */
   --tt-text: #e7eaee;
   --tt-text-dim: #8b94a3;
   --tt-accent: #5b8def;
   --tt-negative: #f2545b;
   --tt-neutral: #f2b705;
   --tt-positive: #2fbf71;
+
+  /* --- Typo & espacement --------------------------------------------------- */
+  --tt-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --tt-radius-sm: 8px;
+  --tt-radius-md: 10px;
+  --tt-radius-lg: 12px;
 }
 .tt-root {
   background: var(--tt-bg);
@@ -37,7 +52,7 @@
   display: inline-flex; align-items: center; justify-content: center;
   width: 40px; height: 40px; border-radius: 10px;
   background: linear-gradient(135deg, var(--tt-accent), var(--tt-positive));
-  color: #0b0e11; font-weight: 700; font-family: "IBM Plex Mono", monospace;
+  color: var(--tt-on-accent); font-weight: 700; font-family: var(--tt-mono);
 }
 .tt-brand h1 { margin: 0; font-size: 1.3rem; font-weight: 600; }
 .tt-brand-sub { color: var(--tt-text-dim); font-weight: 400; }
@@ -74,7 +89,7 @@
 .tt-subtitle { font-size: 0.85rem; color: var(--tt-text-dim); margin: 12px 0 8px; }
 
 input, select, textarea {
-  background: #0d1117; border: 1px solid var(--tt-panel-border); color: var(--tt-text);
+  background: var(--tt-surface-2); border: 1px solid var(--tt-panel-border); color: var(--tt-text);
   border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 0.9rem;
 }
 textarea { width: 100%; resize: vertical; }
@@ -85,12 +100,12 @@ textarea { width: 100%; resize: vertical; }
   cursor: pointer; font-weight: 600; transition: opacity 0.15s ease;
 }
 .tt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.tt-btn-primary { background: var(--tt-accent); color: #0b0e11; }
+.tt-btn-primary { background: var(--tt-accent); color: var(--tt-on-accent); }
 .tt-btn-ghost { background: rgba(255,255,255,0.08); color: var(--tt-text); }
 .tt-btn-primary:hover:not(:disabled) { opacity: 0.85; }
 .tt-btn-ghost { background: transparent; border: 1px solid var(--tt-panel-border); color: var(--tt-text-dim); }
 .tt-btn-ghost:hover { color: var(--tt-text); }
-.tt-btn-danger { background: var(--tt-negative); color: #0b0e11; }
+.tt-btn-danger { background: var(--tt-negative); color: var(--tt-on-accent); }
 
 .tt-form { display: flex; flex-direction: column; gap: 10px; }
 .tt-form-inline { flex-direction: row; flex-wrap: wrap; align-items: center; }
@@ -142,7 +157,7 @@ textarea { width: 100%; resize: vertical; }
   display: block;
 }
 .tt-result-text { font-size: 0.85rem; }
-.tt-confidence { display: block; height: 6px; background: #0d1117; border-radius: 4px; overflow: hidden; }
+.tt-confidence { display: block; height: 6px; background: var(--tt-surface-2); border-radius: 4px; overflow: hidden; }
 .tt-confidence-fill { display: block; height: 100%; }
 
 .tt-badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; font-weight: 700; text-align: center; }
@@ -695,4 +710,68 @@ textarea { width: 100%; resize: vertical; }
 
 .tt-drift-dist-value {
   text-align: right;
+}
+/* --- Composants UI réutilisables ------------------------------------------ */
+
+/* Spinner (chargeur accessible) */
+.tt-spinner {
+  animation: tt-spin 0.8s linear infinite;
+}
+@keyframes tt-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tt-spinner {
+    animation-duration: 1.6s;
+  }
+}
+
+/* État vide réutilisable */
+.tt-empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--tt-panel-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--tt-text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.tt-empty__hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+
+/* Filet de sécurité d'erreur (error boundary) */
+.tt-error-boundary {
+  padding: 20px;
+  border: 1px solid var(--tt-negative);
+  border-radius: 12px;
+  background: rgba(242, 84, 91, 0.08);
+  color: var(--tt-text);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 1100px;
+}
+.tt-error-boundary__title {
+  margin: 0;
+  font-weight: 600;
+}
+.tt-error-boundary__detail {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--tt-text-dim);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  max-width: 100%;
+  overflow: auto;
 }

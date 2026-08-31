@@ -11,7 +11,7 @@
  * différence entre deux scrutations (polling auto, par défaut 15 s).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -27,6 +27,7 @@ import {
   YAxis,
 } from "recharts";
 import { useApp } from "../context/useApp";
+import { usePolling } from "../hooks/usePolling";
 import {
   parsePrometheusText,
   normalizeJsonProxy,
@@ -134,60 +135,57 @@ export default function MonitoringPage() {
     if (!next) prevRef.current = null; // re-baseline au retour (delta propre)
     setPaused(next);
   };
-useEffect(() => {
-    if (paused) return undefined;
 
-    let cancelled = false;
-    const scrape = async () => {
-      let raw;
-      let src = "texte";
+  // Scrutation Prometheus, stabilisée (useCallback) et pilotée par usePolling :
+  // pause auto quand l'onglet est masqué, interruption propre au démontage.
+  const scrape = useCallback(async () => {
+    let raw;
+    let src = "texte";
+    try {
       try {
-        try {
-          const text = await client.getMetricsRaw();
-          raw = parsePrometheusText(text);
-          if (!raw.counters.length && !raw.histograms.length) throw new Error("parse vide");
-        } catch {
-          raw = normalizeJsonProxy(await client.getMetricsJson());
-          src = "json";
-        }
-      } catch (err) {
-        if (!cancelled) setError(err && err.message ? err.message : String(err));
-        return;
+        const text = await client.getMetricsRaw();
+        raw = parsePrometheusText(text);
+        if (!raw.counters.length && !raw.histograms.length) throw new Error("parse vide");
+      } catch {
+        raw = normalizeJsonProxy(await client.getMetricsJson());
+        src = "json";
       }
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err));
+      return;
+    }
 
-      if (cancelled) return;
-      const agg = aggregateSnapshot(raw);
-      const delta = prevRef.current ? deltaSnapshots(prevRef.current, agg) : null;
+    const agg = aggregateSnapshot(raw);
+    const delta = prevRef.current ? deltaSnapshots(prevRef.current, agg) : null;
 
-      prevRef.current = agg;
-      setSource(src);
-      setLastScrapedAt(agg.scrapedAtMs);
-      setError(null);
+    prevRef.current = agg;
+    setSource(src);
+    setLastScrapedAt(agg.scrapedAtMs);
+    setError(null);
 
-      if (delta) {
-        setHistory((h) => {
-          const point = {
-            t: agg.scrapedAtMs,
-            requestsPerMin: delta.requestsPerMin,
-            requestDelta: delta.requestsTotal,
-            predictLatencyMs: delta.latencyPredict && delta.latencyPredict.count > 0 ? delta.latencyPredict.meanMs : null,
-            statuses: delta.requestsByStatus,
-            byPath: delta.requestsByPath,
-            latencyByPath: delta.latencyByPath,
-          };
-          const minT = agg.scrapedAtMs - WINDOW_MS;
-          return [...h, point].filter((p) => p.t >= minT);
-        });
-      }
-    };
+    if (delta) {
+      setHistory((h) => {
+        const point = {
+          t: agg.scrapedAtMs,
+          requestsPerMin: delta.requestsPerMin,
+          requestDelta: delta.requestsTotal,
+          predictLatencyMs: delta.latencyPredict && delta.latencyPredict.count > 0 ? delta.latencyPredict.meanMs : null,
+          statuses: delta.requestsByStatus,
+          byPath: delta.requestsByPath,
+          latencyByPath: delta.latencyByPath,
+        };
+        const minT = agg.scrapedAtMs - WINDOW_MS;
+        return [...h, point].filter((p) => p.t >= minT);
+      });
+    }
+  }, [client]);
 
-    scrape();
-    const id = setInterval(scrape, intervalSec * 1000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [client, intervalSec, paused]);
+  usePolling({
+    intervalMs: intervalSec * 1000,
+    immediate: true,
+    enabled: !paused,
+    tick: scrape,
+  });
 
   // Agrégats sur la fenêtre mobile (5 min) pour les cartes + distribution.
   const windowSummary = useMemo(() => {
@@ -411,12 +409,13 @@ const chartData = history.map((p) => ({ ...p, t: timeLabel(p.t) }));
                   <span className="tt-tag">5 dernières minutes</span>
                 </div>
                 <table className="tt-table">
+                  <caption className="sr-only">Activité par route sur les 5 dernières minutes</caption>
                   <thead>
                     <tr>
-                      <th>Méthode</th>
-                      <th>Route</th>
-                      <th>Requêtes</th>
-                      <th>Latence moyenne</th>
+                      <th scope="col">Méthode</th>
+                      <th scope="col">Route</th>
+                      <th scope="col">Requêtes</th>
+                      <th scope="col">Latence moyenne</th>
                     </tr>
                   </thead>
                   <tbody>

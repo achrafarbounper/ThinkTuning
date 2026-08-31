@@ -36,6 +36,13 @@ export const AGENT_SETTINGS_STORAGE_KEY = "thinktuning.agentSettings";
 export const AGENT_LAST_MODEL_STORAGE_KEY = "thinktuning.agentLastModel";
 export const AGENT_LAST_MODEL_DEFAULT = "";
 
+// --- Timeout réseau -----------------------------------------------------------
+
+/** Délai par défaut d'une requête JSON (30 s). */
+export const DEFAULT_TIMEOUT_MS = 30_000;
+/** Délai par défaut d'un upload multipart (60 s, fichiers CSV potentiellement lourds). */
+export const DEFAULT_MULTIPART_TIMEOUT_MS = 60_000;
+
 /**
  * Convertit des paramètres agent en camelCase (formulaire du dashboard) en
  * corps snake_case attendu par l'API (`/api/agent/settings` en PUT).
@@ -292,21 +299,28 @@ export class SentimentApiClient {
     return url;
   }
 
-  async _request(path, { method = "GET", body, query } = {}) {
+  async _request(path, { method = "GET", body, query, timeoutMs, signal } = {}) {
     const url = this._buildUrl(path, query);
     const init = { method, headers: this._headers(body !== undefined) };
     if (body !== undefined) init.body = JSON.stringify(body);
+
+    const { controller, cleanup } = this._startRequest(timeoutMs, signal);
+    init.signal = controller.signal;
 
     let response;
     try {
       response = await fetch(url, init);
     } catch (networkErr) {
       throw new ApiError(
-        `Impossible de joindre l'API à ${this.baseUrl} (${networkErr.message}). ` +
-          `Vérifiez l'URL, que le serveur tourne, et la config CORS.`,
+        this._networkErrorMessage(
+          networkErr,
+          controller.signal.reason === "timeout"
+        ),
         0,
         null
       );
+    } finally {
+      cleanup();
     }
 
     if (response.status === 204) return null;
@@ -331,19 +345,34 @@ export class SentimentApiClient {
     return payload;
   }
 
-  async _requestMultipart(path, { formData, query, expectBlob = false }) {
+  async _requestMultipart(path, { formData, query, expectBlob = false, timeoutMs, signal } = {}) {
     const url = this._buildUrl(path, query);
     const headers = this.apiKey ? { "X-API-Key": this.apiKey } : {};
 
+    const { controller, cleanup } = this._startRequest(
+      timeoutMs ?? DEFAULT_MULTIPART_TIMEOUT_MS,
+      signal
+    );
+
     let response;
     try {
-      response = await fetch(url, { method: "POST", headers, body: formData });
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: formData,
+        signal: controller.signal,
+      });
     } catch (networkErr) {
       throw new ApiError(
-        `Impossible de joindre l'API (${networkErr.message}).`,
+        this._networkErrorMessage(
+          networkErr,
+          controller.signal.reason === "timeout"
+        ),
         0,
         null
       );
+    } finally {
+      cleanup();
     }
 
     if (!response.ok) {
@@ -358,6 +387,42 @@ export class SentimentApiClient {
     }
 
     return expectBlob ? response.blob() : response.json();
+  }
+
+  /**
+   * Prépare un AbortController couplant un timeout interne et un éventuel
+   * signal fourni par l'appelant (annulation externe : bouton « Stop », etc.).
+   * Les deux relais partagent le même contrôleur ; la cause « timeout » est
+   * marquée dans `signal.reason` pour produire un message d'erreur distinct.
+   */
+  _startRequest(timeoutMs, signal) {
+    const controller = new AbortController();
+    const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    let timer = null;
+    if (timeout > 0) {
+      timer = window.setTimeout(() => controller.abort("timeout"), timeout);
+    }
+    const onExternalAbort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener("abort", onExternalAbort);
+    }
+    const cleanup = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      signal?.removeEventListener("abort", onExternalAbort);
+    };
+    return { controller, cleanup };
+  }
+
+  _networkErrorMessage(err, isTimeout) {
+    if (isTimeout) {
+      return `La requête a dépassé le délai autorisé (annulée). Réessayez.`;
+    }
+    if (err && err.name === "AbortError") {
+      return `La requête a été annulée.`;
+    }
+    return `Impossible de joindre l'API à ${this.baseUrl} (${err.message}). ` +
+      `Vérifiez l'URL, que le serveur tourne, et la config CORS.`;
   }
 
   // -- /health, /metrics (sans authentification) --------------------------

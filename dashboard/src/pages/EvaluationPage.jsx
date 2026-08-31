@@ -15,8 +15,7 @@ import ConfusionHeatmap from "../components/ConfusionHeatmap";
 import ConfusionExplanation from "../components/ConfusionExplanation";
 import ErrorLog from "../components/ErrorLog";
 import ModelComparisonPanel from "../components/ModelComparisonPanel";
-
-const SENTIMENT_LABELS_FR = { negative: "Négatif", neutral: "Neutre", positive: "Positif" };
+import { sentimentLabelCapitalized } from "../lib/sentiment";
 
 function useConfusion(client, model, limit = 300) {
   const [result, setResult] = useState({ status: "idle", data: null, error: null, forModel: null });
@@ -134,12 +133,15 @@ export default function EvaluationPage() {
                 </span>
               </div>
               <div className="tt-errlist">
-                {heat.data.errors_by_class.map((e) => (
-                  <span key={e.label} className="tt-errchip" title={`${SENTIMENT_LABELS_FR[e.label] || e.label}`}>
-                    {SENTIMENT_LABELS_FR[e.label] || e.label} :{" "}
-                    <strong>{e.errors}</strong>/{e.total}
-                  </span>
-                ))}
+                {heat.data.errors_by_class.map((e) => {
+                  const label = sentimentLabelCapitalized(e.label);
+                  return (
+                    <span key={e.label} className="tt-errchip" title={label}>
+                      {label} :{" "}
+                      <strong>{e.errors}</strong>/{e.total}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}

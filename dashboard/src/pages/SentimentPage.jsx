@@ -11,8 +11,7 @@
 import React, { useState } from "react";
 import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
-
-const SENTIMENT_LABELS = { negative: "négatif", neutral: "neutre", positive: "positif" };
+import { sentimentLabel } from "../lib/sentiment";
 
 export default function SentimentPage() {
   const {
@@ -211,7 +210,7 @@ export default function SentimentPage() {
                   <li key={i} className="tt-result-row">
                     <div className="tt-result-main">
                       <span className={`tt-badge tt-badge-${r.sentiment}`}>
-                        {SENTIMENT_LABELS[r.sentiment] || r.sentiment}
+                        {sentimentLabel(r.sentiment)}
                       </span>
                       <span className="tt-result-text">{r.text}</span>
                       <span className="tt-confidence" title={`${(r.confidence * 100).toFixed(1)}%`}>
@@ -273,11 +272,12 @@ export default function SentimentPage() {
           {batchError && <p className="tt-hint tt-hint-error">{batchError}</p>}
           {batchResults && (
             <table className="tt-table">
+              <caption className="sr-only">Résultats de prédiction par lot</caption>
               <thead>
                 <tr>
-                  <th>Texte</th>
-                  <th>Sentiment</th>
-                  <th>Confiance</th>
+                  <th scope="col">Texte</th>
+                  <th scope="col">Sentiment</th>
+                  <th scope="col">Confiance</th>
                   <th>Expliquer</th>
                 </tr>
               </thead>
@@ -293,7 +293,7 @@ export default function SentimentPage() {
                         <td className="tt-td-text">{r.text}</td>
                         <td>
                           <span className={`tt-badge tt-badge-${r.sentiment}`}>
-                            {SENTIMENT_LABELS[r.sentiment] || r.sentiment}
+                            {sentimentLabel(r.sentiment)}
                           </span>
                         </td>
                         <td className="tt-mono">{(r.confidence * 100).toFixed(1)}%</td>
@@ -365,13 +365,14 @@ export default function SentimentPage() {
             <p className="tt-hint">Aucune prédiction pour le moment.</p>
           ) : (
             <table className="tt-table tt-history-table">
+              <caption className="sr-only">Historique des prédictions</caption>
               <thead>
                 <tr>
-                  <th>Date/Heure</th>
-                  <th>Texte</th>
-                  <th>Sentiment</th>
-                  <th>Confiance</th>
-                  <th>Expliquer</th>
+                  <th scope="col">Date/Heure</th>
+                  <th scope="col">Texte</th>
+                  <th scope="col">Sentiment</th>
+                  <th scope="col">Confiance</th>
+                  <th scope="col">Expliquer</th>
                 </tr>
               </thead>
               <tbody>
@@ -384,7 +385,7 @@ export default function SentimentPage() {
                       <td className="tt-history-text">{pred.text}</td>
                       <td>
                         <span className={`tt-badge tt-badge-${pred.sentiment}`}>
-                          {SENTIMENT_LABELS[pred.sentiment] || pred.sentiment}
+                          {sentimentLabel(pred.sentiment)}
                         </span>
                       </td>
                       <td className="tt-mono">{(pred.confidence * 100).toFixed(1)}%</td>

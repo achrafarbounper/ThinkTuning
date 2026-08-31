@@ -662,7 +662,7 @@
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #0b0e11;
+  color: var(--tt-on-accent);
   background: var(--tt-neutral);
   border-radius: 999px;
   padding: 3px 10px;
@@ -719,7 +719,7 @@
 
 .approval-card__button--approve {
   background: var(--tt-positive);
-  color: #0b0e11;
+  color: var(--tt-on-accent);
 }
 
 .approval-card__button--reject {
