@@ -375,6 +375,16 @@ export class SentimentApiClient {
     return response.text();
   }
 
+  /** Endpoint proxy JSON de secours (voir api/routes/metrics.py). */
+  async getMetricsJson() {
+    const url = this._buildUrl("/metrics/json");
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new ApiError(`Erreur HTTP ${response.status} sur /metrics/json`, response.status);
+    }
+    return response.json();
+  }
+
   // -- /models --------------------------------------------------------------
 
   listModels() {

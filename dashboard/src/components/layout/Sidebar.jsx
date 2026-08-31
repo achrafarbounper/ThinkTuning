@@ -126,6 +126,21 @@ const MENU_ITEMS = [
     ),
   },
   {
+    id: "monitoring",
+    label: "Monitoring",
+    hint: "Métriques Prometheus live",
+    icon: (
+      <Icon>
+        <line x1="22" y1="12" x2="18" y2="12" />
+        <line x1="6" y1="12" x2="2" y2="12" />
+        <line x1="12" y1="6" x2="12" y2="2" />
+        <line x1="12" y1="22" x2="12" y2="18" />
+        <path d="M5 3 3 5M21 19l-2-2M5 21l-2-2M21 5l-2-2" />
+        <circle cx="12" cy="12" r="3" />
+      </Icon>
+    ),
+  },
+  {
     id: "parametres",
     label: "Paramètres",
     hint: "Connexion & préférences",

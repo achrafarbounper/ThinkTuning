@@ -574,7 +574,55 @@ textarea { width: 100%; resize: vertical; }
 }
 
 
-/* --- Page Dérive (POST /drift) --------------------------------------------- */
+/* --- Page Monitoring (métriques Prometheus) ------------------------------- */
+
+.tt-mon-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--tt-panel);
+  border: 1px solid var(--tt-panel-border);
+  border-radius: 12px;
+}
+
+.tt-mon-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--tt-text-dim);
+}
+
+.tt-mon-control select {
+  min-width: 110px;
+}
+
+.tt-mon-status {
+  margin: 0 0 0 auto;
+}
+
+.tt-mon-src {
+  color: var(--tt-accent);
+  font-style: italic;
+}
+
+.tt-mon-src-json {
+  color: var(--tt-neutral);
+}
+
+.tt-mon-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+}
+
+.tt-mon-tooltip-time {
+  color: var(--tt-text);
+  margin-bottom: 2px;
+}
 
 .tt-drift-settings {
   display: grid;
