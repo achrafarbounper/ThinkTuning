@@ -1,9 +1,16 @@
 import random
 
 import pandas as pd
+import pytest
 from datasets import Dataset
 
-from src.augmentation.eda import random_swap, random_deletion, recompose
+import src.augmentation.eda as eda
+from src.augmentation.eda import (
+    back_translation,
+    random_swap,
+    random_deletion,
+    recompose,
+)
 from src.dataset.loader import augment_dataset
 
 
@@ -122,3 +129,132 @@ def test_augment_dataset_class_augment_weights_only_selects_neutral():
     for row in augmented:
         if row["text"] not in original_texts:
             assert row["label"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Back-translation (SCRUM-44)
+# ---------------------------------------------------------------------------
+
+
+class _FakePipeline:
+    """Pipeline de traduction factice : renvoie une sortie fixe."""
+
+    def __init__(self, output: str):
+        self.output = output
+        self.calls = []
+
+    def __call__(self, text, **kwargs):
+        self.calls.append(text)
+        return [{"translation_text": self.output}]
+
+
+def test_back_translation_disabled_by_default(monkeypatch):
+    """Sans use_back_translation, aucun modèle de traduction n'est chargé."""
+    def _boom(*args, **kwargs):
+        raise AssertionError("Le modèle de traduction ne doit pas être chargé")
+
+    monkeypatch.setattr(eda, "_get_translation_pipeline", _boom)
+
+    random.seed(42)
+    variants = recompose("Bonjour le monde", lang="fr", num_variants=2, alpha=0.5)
+    assert len(variants) == 2
+
+
+def test_back_translation_fr_to_en_to_fr(monkeypatch):
+    """Le flux FR→EN puis EN→FR est appliqué dans le bon ordre."""
+    fwd = _FakePipeline("This movie was really great")
+    bwd = _FakePipeline("Ce film était vraiment génial")
+    monkeypatch.setattr(
+        eda, "_get_translation_pipeline",
+        lambda src, tgt: fwd if (src, tgt) == ("fr", "en") else bwd,
+    )
+
+    result = back_translation("Ce film était vraiment génial", lang="fr")
+    assert result == "Ce film était vraiment génial"
+    # FR→EN appelé avant EN→FR
+    assert fwd.calls == ["Ce film était vraiment génial"]
+    assert bwd.calls == ["This movie was really great"]
+
+
+def test_back_translation_en_to_fr_to_en(monkeypatch):
+    """Pour un texte anglais, le flux EN→FR puis FR→EN est appliqué."""
+    fwd = _FakePipeline("Ce film était vraiment mauvais")
+    bwd = _FakePipeline("This movie was really bad")
+    monkeypatch.setattr(
+        eda, "_get_translation_pipeline",
+        lambda src, tgt: fwd if (src, tgt) == ("en", "fr") else bwd,
+    )
+
+    result = back_translation("This movie was really bad", lang="en")
+    assert result == "This movie was really bad"
+    assert fwd.calls == ["This movie was really bad"]
+    assert bwd.calls == ["Ce film était vraiment mauvais"]
+
+
+def test_back_translation_short_text_unchanged(monkeypatch):
+    """Les textes trop courts ne sont pas traduits (peu fiable)."""
+    def _boom(*args, **kwargs):
+        raise AssertionError("Aucun modèle ne doit être chargé")
+
+    monkeypatch.setattr(eda, "_get_translation_pipeline", _boom)
+    assert back_translation("Super !", lang="fr") == "Super !"
+
+
+def test_back_translation_negation_not_lost(monkeypatch):
+    """Si la traduction perd la négation, le texte original est retenu."""
+    fwd = _FakePipeline("This movie is bad")  # "pas mauvais" -> "bad" : négation perdue
+    bwd = _FakePipeline("Ce film est mauvais")
+    monkeypatch.setattr(
+        eda, "_get_translation_pipeline",
+        lambda src, tgt: fwd if (src, tgt) == ("fr", "en") else bwd,
+    )
+
+    result = back_translation("Ce film n'est pas mauvais", lang="fr")
+    assert result == "Ce film n'est pas mauvais"
+
+
+def test_back_translation_negation_not_added(monkeypatch):
+    """Si la traduction introduit une négation absente du texte source,
+    le texte original est retenu (inversion de sentiment potentielle)."""
+    fwd = _FakePipeline("Ce n'est pas un bon film")
+    bwd = _FakePipeline("c'est pas un bon film du tout")
+    monkeypatch.setattr(
+        eda, "_get_translation_pipeline",
+        lambda src, tgt: fwd if (src, tgt) == ("fr", "en") else bwd,
+    )
+
+    result = back_translation("C'est un bon film du tout", lang="fr")
+    assert result == "C'est un bon film du tout"
+
+
+def test_back_translation_failure_falls_back_to_original(monkeypatch):
+    """Toute erreur (modèle indisponible, offline...) retombe sur l'original."""
+    def _boom(*args, **kwargs):
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr(eda, "_get_translation_pipeline", _boom)
+    text = "Ce film était vraiment excellent"
+    assert back_translation(text, lang="fr") == text
+
+
+def test_recompose_uses_back_translation_when_enabled(monkeypatch):
+    """Avec use_back_translation=True, la 1re variante vient de la BT."""
+    fwd = _FakePipeline("This movie was really great")
+    bwd = _FakePipeline("Ce film était vraiment excellent")
+    monkeypatch.setattr(
+        eda, "_get_translation_pipeline",
+        lambda src, tgt: fwd if (src, tgt) == ("fr", "en") else bwd,
+    )
+
+    random.seed(42)
+    variants = recompose(
+        "Ce film était vraiment génial",
+        lang="fr",
+        num_variants=3,
+        alpha=0.2,
+        use_back_translation=True,
+    )
+    # La variante de back-translation est présente parmi les variantes
+    assert "Ce film était vraiment excellent" in variants
+    assert fwd.calls, "Le pipeline FR→EN doit avoir été appelé"
+

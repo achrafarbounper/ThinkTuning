@@ -120,11 +120,13 @@ def run_training(job_id: str, req):
             raw_train,
             variants_per_example=req.variants_per_example,
             augment_fraction=req.augment_fraction,
+            use_back_translation=req.use_back_translation,
             class_augment_weights=req.class_augment_weights,
         )
         logger.info(
             f"Augmentation EDA : {len(augmented_train)} exemples "
-            f"(variants={req.variants_per_example}, fraction={req.augment_fraction})"
+            f"(variants={req.variants_per_example}, fraction={req.augment_fraction}, "
+            f"back_translation={req.use_back_translation})"
         )
 
         job.step = "building_dataloaders"

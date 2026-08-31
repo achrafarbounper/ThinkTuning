@@ -67,6 +67,7 @@ def main(args):
         raw_train,
         variants_per_example=args.variants_per_example,
         augment_fraction=args.augment_fraction,
+        use_back_translation=args.back_translation,
         class_augment_weights=cfg.get("class_augment_weights"),
     )
     logger.info(f"   -> {len(raw_train)} exemples originaux -> {len(augmented_train)} après recomposition")
@@ -97,6 +98,9 @@ if __name__ == "__main__":
     parser.add_argument("--max_per_lang", type=int, default=500)
     parser.add_argument("--augment_fraction", type=float, default=0.4)
     parser.add_argument("--variants_per_example", type=int, default=2)
+    parser.add_argument("--back_translation", action="store_true", default=False,
+                        help="Active la back-translation FR→EN→FR (Helsinki-NLP/opus-mt) "
+                             "dans l'augmentation EDA. Désactivée par défaut.")
     parser.add_argument("--class_augment_weights", type=json.loads, default=None,
                         help="JSON dict {label: poids} pour sur-échantillonner préférentiellement "
                              "certaines classes à l'augmentation (ex: '{\"1\": 3.0}'). "
