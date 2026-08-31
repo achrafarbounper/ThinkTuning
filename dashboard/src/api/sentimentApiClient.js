@@ -177,6 +177,11 @@ export class SentimentApiClient extends SentimentApiClientCore {
     });
   }
 
+  /** SCRUM-73 : historique des métriques par epoch d'un job (loss / F1 / accuracy). */
+  getTrainingHistory(jobId) {
+    return this._request(`/train/history/${encodeURIComponent(jobId)}`);
+  }
+
   // -- /pipeline ---------------------------------------------------------------
 
   /** Lance le pipeline end-to-end (labeling -> filtering -> fine-tuning LLM). */

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "../context/useApp";
 import TrainJobTracker from "../components/TrainJobTracker";
+import TrainingHistoryChart from "../components/TrainingHistoryChart";
 
 const JOBS_POLL_MS = 15000;
 const TRAIN_POLL_MS = 4000;
@@ -314,6 +315,15 @@ export default function TrainingPage() {
             onCancel={handleCancelTraining}
             cancelLoading={false}
           />
+
+          <div className="tt-history-section">
+            <h3 className="tt-subtitle">Courbes loss / F1 par version de modèle</h3>
+            <TrainingHistoryChart
+              jobs={jobs}
+              client={client}
+              pushLog={pushLog}
+            />
+          </div>
 
           <div className="tt-jobs-controls">
             <label className="tt-jobs-filter">

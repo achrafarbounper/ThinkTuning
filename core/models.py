@@ -107,6 +107,20 @@ class JobListResponse(BaseModel):
     offset: int
 
 
+class EpochMetric(BaseModel):
+    """Métriques d'entraînement pour une epoch (SCRUM-73)."""
+    epoch: int
+    loss: Optional[float] = None
+    f1_macro: Optional[float] = None
+    accuracy: Optional[float] = None
+
+
+class TrainHistoryResponse(BaseModel):
+    """Historique des métriques par epoch pour un job (GET /train/history/{job_id})."""
+    job_id: str
+    epochs: List[EpochMetric]
+
+
 class ModelVersion(BaseModel):
     name: str
     path: str

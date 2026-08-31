@@ -132,6 +132,9 @@ class Trainer:
                 "accuracy": float(metrics["accuracy"]),
                 "f1_macro": float(metrics["f1_macro"]),
             }
+            # SCRUM-73 : loss de validation par epoch (persistance + courbes)
+            if metrics.get("loss") is not None:
+                epoch_record["loss"] = float(metrics["loss"])
             self.epoch_metrics.append(epoch_record)
 
             f1 = metrics["f1_macro"]
@@ -242,6 +245,8 @@ class Trainer:
         logger.debug(f"_eval_epoch : début | {len(loader)} batch(s)")
         self.model.eval()
         preds, labels = [], []
+        total_loss = 0.0
+        n_examples = 0
 
         with torch.no_grad():
             for batch in tqdm(loader, desc="Eval"):
@@ -261,9 +266,17 @@ class Trainer:
                 logits = outputs.logits
                 preds.extend(logits.argmax(dim=-1).cpu().numpy())
                 labels.extend(batch["labels"].cpu().numpy())
+                # SCRUM-73 : loss de validation (même criterion pondéré que l'entraînement)
+                batch_loss = self.criterion(logits, batch["labels"])
+                total_loss += float(batch_loss.item()) * batch["labels"].size(0)
+                n_examples += batch["labels"].size(0)
 
         metrics = compute_metrics(preds, labels)
-        logger.info(f"Eval — Acc={metrics['accuracy']:.4f}  F1={metrics['f1_macro']:.4f}")
+        metrics["loss"] = total_loss / max(n_examples, 1)
+        logger.info(
+            f"Eval — Acc={metrics['accuracy']:.4f}  F1={metrics['f1_macro']:.4f}  "
+            f"Loss={metrics['loss']:.4f}"
+        )
         logger.debug(f"_eval_epoch : terminé -> {len(loader)} batch(s) évalués")
         return metrics
 
