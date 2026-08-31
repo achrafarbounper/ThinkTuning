@@ -24,6 +24,25 @@
   --tt-radius-md: 10px;
   --tt-radius-lg: 12px;
 }
+
+/* Placeholder de la sidebar pendant son lazy-load (Suspense) : réserve l'espace
+   (250px pleine hauteur, collée) dès le CSS critique pour éviter tout CLS, sans
+   attendre que le chunk Sidebar.css (chargé en différé) soit téléchargé. */
+.sidebar--loading {
+  width: 250px;
+  flex-shrink: 0;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  background: var(--tt-surface-3);
+}
+@media (max-width: 900px) {
+  .sidebar--loading {
+    width: 100%;
+    height: 64px;
+    position: static;
+  }
+}
 .tt-root {
   background: var(--tt-bg);
   color: var(--tt-text);

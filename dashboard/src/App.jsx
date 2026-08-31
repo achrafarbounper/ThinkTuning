@@ -8,8 +8,12 @@
 
 import { lazy, Suspense, useEffect, useState } from "react";
 import AppProvider from "./context/AppProvider";
-import Sidebar from "./components/layout/Sidebar";
 import { ErrorBoundary } from "./components/ui";
+
+// Sidebar chargé à la demande : prend en charge le CSS + les 10 icônes SVG
+// (~30 KB sortis du chemin critique). Un fallback réservant l'espace évite
+// toute reflow/CLS au swap.
+const Sidebar = lazy(() => import("./components/layout/Sidebar"));
 
 // Les pages sont chargées à la demande (code-splitting) : chaque page devient
 // un bundle distinct, tiré au premier affichage. Le bundle initial reste minimal.
@@ -64,7 +68,9 @@ export default function App() {
   return (
     <AppProvider>
       <div className="app-shell">
-        <Sidebar page={page} onNavigate={navigate} />
+        <Suspense fallback={<SidebarFallback />}>
+          <Sidebar page={page} onNavigate={navigate} />
+        </Suspense>
         <main className="app-main">
           <ErrorBoundary>
             <Suspense fallback={<PageFallback />}>
@@ -86,4 +92,12 @@ function PageFallback() {
       <div className="page-fallback__card" />
     </div>
   );
+}
+
+/**
+ * Réserve l'espace exact de la sidebar (250px pleine hauteur) pendant son
+ * chargement différé, afin d'éviter tout reflow/CLS au moment du swap.
+ */
+function SidebarFallback() {
+  return <aside className="sidebar sidebar--loading" aria-hidden="true" />;
 }

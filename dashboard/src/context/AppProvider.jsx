@@ -11,6 +11,10 @@ import { AppContext } from "./appContext";
 const DEFAULT_MAX_HISTORY = 20;
 const HEALTH_POLL_MS = 8000;
 const MODELS_POLL_MS = 15000;
+// Différage du premier poll hors du chemin critique : le /health (450–502 ms)
+// et le listModels ne bloquent plus le rendu initial ni le LCP.
+const HEALTH_FIRST_DELAY_MS = 2000;
+const MODELS_FIRST_DELAY_MS = 2500;
 const AGENT_DEFAULTS = {
   provider: "ollama",
   model: "",
@@ -84,12 +88,15 @@ export default function AppProvider({ children }) {
   }, [config]);
 
   // --- Polling santé & modèles (pause auto quand l'onglet est masqué) --------
+  // Le premier tick est différé (initialDelayMs) : /health et listModels sont
+  // sortis du chemin critique. Le rendu initial et le LCP ne bloquent plus sur
+  // ces requêtes non essentielles (auparavant immédiates = ~450–502 ms).
   const pollHealth = useCallback(async () => {
     try { const result = await client.getHealth(); setHealth(result); setHealthError(null); }
     catch (err) { setHealth(null); setHealthError(err.message); }
   }, [client]);
 
-  usePolling({ intervalMs: HEALTH_POLL_MS, immediate: true, tick: pollHealth });
+  usePolling({ intervalMs: HEALTH_POLL_MS, immediate: true, initialDelayMs: HEALTH_FIRST_DELAY_MS, tick: pollHealth });
 
   const refreshModels = useCallback(async () => {
     if (!config.apiKey) return;
@@ -99,9 +106,11 @@ export default function AppProvider({ children }) {
 
   // Le polling des modèles est purement informatif côté API key, on le met en
   // pause quand la clé est absente pour éviter un flot d'appels inutiles.
+  // Il est en plus différé (initialDelayMs) pour rester hors du chemin critique.
   usePolling({
     intervalMs: MODELS_POLL_MS,
     immediate: true,
+    initialDelayMs: MODELS_FIRST_DELAY_MS,
     enabled: Boolean(config.apiKey),
     tick: refreshModels,
   });
