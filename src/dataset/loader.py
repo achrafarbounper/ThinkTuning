@@ -439,6 +439,7 @@ def augment_dataset(
     augment_fraction: float = 0.5,
     seed: int = 42,
     deduplicate: bool = True,
+    use_back_translation: bool = False,
     class_augment_weights: Optional[Dict[int, float]] = None,
 ) -> Dataset:
     """
@@ -459,6 +460,8 @@ def augment_dataset(
         class_augment_weights: dict optionnel {label: poids} pour sur-échantillonner
             préférentiellement certaines classes (ex. {1: 3.0} pour surreprésenter
             la classe neutral). None => surpoids par défaut sur la classe neutral.
+        use_back_translation: active la back-translation (FR→EN→FR via
+            Helsinki-NLP/opus-mt) dans recompose(). Désactivée par défaut.
 
     Returns:
         Dataset augmenté
@@ -538,6 +541,7 @@ def augment_dataset(
             row["text"],
             lang=row["lang_code"],
             num_variants=variants_per_example,
+            use_back_translation=use_back_translation,
         )
 
         for v in variants:

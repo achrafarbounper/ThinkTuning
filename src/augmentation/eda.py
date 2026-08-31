@@ -6,6 +6,8 @@ Opérations :
   - Random Insertion (RI)
   - Random Swap (RS)
   - Random Deletion (RD)
+  - Back Translation (BT) : FR→EN puis EN→FR via Helsinki-NLP/opus-mt
+    (désactivée par défaut, activation via `use_back_translation`).
 
 Compatible FR + EN via WordNet Open Multilingual (OMW).
 """
@@ -196,6 +198,145 @@ def random_deletion(words: List[str], lang: str = "en", p: float = 0.1) -> List[
 
 
 # ---------------------------------------------------------------------------
+# Back Translation (BT) : FR→EN puis EN→FR via Helsinki-NLP/opus-mt
+# ---------------------------------------------------------------------------
+
+# Cache global des pipelines de traduction (chargés une seule fois par process).
+_TRANSLATION_PIPELINES = {}
+
+# Modèles Helsinki-NLP/opus-mt par paire de langues
+_MT_MODELS = {
+    ("fr", "en"): "Helsinki-NLP/opus-mt-fr-en",
+    ("en", "fr"): "Helsinki-NLP/opus-mt-en-fr",
+}
+
+
+def _get_translation_pipeline(src_lang: str, tgt_lang: str):
+    """Charge (et met en cache) le modèle opus-mt demandé.
+
+    transformers >= 5 a supprimé le pipeline "translation" (tâche générique
+    et tâches "translation_xx_to_yy") : on charge directement
+    AutoModelForSeq2SeqLM + AutoTokenizer et on expose un wrapper avec la
+    même interface que l'ancien pipeline (pipe(text)[0]["translation_text"]).
+    """
+    key = (src_lang, tgt_lang)
+    if key not in _TRANSLATION_PIPELINES:
+        model_name = _MT_MODELS.get(key)
+        if model_name is None:
+            raise ValueError(
+                f"Pas de modèle opus-mt pour la paire {src_lang}->{tgt_lang} "
+                f"(paires supportées : fr->en, en->fr)."
+            )
+        logger.info(f"Chargement du modèle de traduction {model_name}...")
+
+        try:
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+        except ImportError as exc:  # pragma: no cover - dépendance user-facing
+            raise ImportError(
+                "transformers est requis pour la back-translation. "
+                "Installez-le avec `pip install transformers torch sentencepiece`."
+            ) from exc
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        model.eval()
+
+        class _TranslationPipeline:
+            """Mini-pipeline compatible avec l'API pipe(text)[0]['translation_text']."""
+
+            def __call__(self, text: str, **kwargs) -> list:
+                inputs = tokenizer(
+                    text, return_tensors="pt", truncation=True, max_length=512
+                )
+                with __import__("torch").no_grad():
+                    output_ids = model.generate(**inputs)
+                translated = tokenizer.decode(
+                    output_ids[0], skip_special_tokens=True
+                )
+                return [{"translation_text": translated}]
+
+        _TRANSLATION_PIPELINES[key] = _TranslationPipeline()
+    return _TRANSLATION_PIPELINES[key]
+
+
+def _has_negation(text: str, lang: str) -> bool:
+    """True si le texte contient un mot de négation de la langue donnée."""
+    words = set(re.findall(r"\w+|n'", text.lower(), re.UNICODE))
+    return bool(words & NEGATION_WORDS.get(lang, set()))
+
+
+def back_translation(text: str, lang: str = "fr") -> str:
+    """
+    Augmente le texte par back-translation : traduction FR→EN puis EN→FR.
+
+    Pour un texte anglais (`lang="en"`), le chemin inverse est appliqué
+    (EN→FR puis FR→EN).
+
+    Protections contre les inversions de sentiment :
+      - les textes trop courts (< 3 mots) sont retournés inchangés (la
+        traduction machine y est peu fiable) ;
+      - la présence de négation est comparée avant/après : si la négation
+        disparaît ou apparaît au cours de l'aller-retour (ex. « pas mauvais »
+        → « bad »), le texte original est retourné tel quel ;
+      - toute erreur (modèle indisponible, offline, etc.) retombe sur le
+        texte original : la back-translation ne doit jamais casser un job
+        d'entraînement.
+    """
+    text = text.strip()
+    if not text:
+        return text
+
+    num_words = len(re.findall(r"\w+", text, re.UNICODE))
+    if num_words < 3:
+        logger.debug(
+            f"back_translation : texte trop court ({num_words} mots) -> inchangé"
+        )
+        return text
+
+    try:
+        if lang == "fr":
+            src, pivot = "fr", "en"
+        elif lang == "en":
+            src, pivot = "en", "fr"
+        else:
+            logger.warning(
+                f"back_translation : langue non supportée '{lang}' -> inchangé"
+            )
+            return text
+
+        had_negation_src = _has_negation(text, src)
+
+        pipe_fwd = _get_translation_pipeline(src, pivot)
+        pipe_bwd = _get_translation_pipeline(pivot, src)
+
+        translated = pipe_fwd(text)[0]["translation_text"]
+        back = pipe_bwd(translated)[0]["translation_text"].strip()
+
+        # Protection inversion de sentiment : la négation doit être préservée.
+        has_negation_back = _has_negation(back, src)
+        if had_negation_src != has_negation_back:
+            logger.debug(
+                "back_translation : négation non préservée -> texte original retenu"
+            )
+            return text
+
+        # Sécurité supplémentaire : résultat vide ou identique -> texte original
+        if not back or back == text:
+            return text
+
+        logger.debug(f"back_translation : terminé -> {back!r}")
+        return back
+
+    except Exception:
+        logger.warning(
+            "back_translation : échec (modèle indisponible, offline, ...) -> "
+            "texte original retenu",
+            exc_info=True,
+        )
+        return text
+
+
+# ---------------------------------------------------------------------------
 # Main recomposition function
 # ---------------------------------------------------------------------------
 
@@ -204,6 +345,7 @@ def recompose(
     lang: str = "fr",
     num_variants: int = 4,
     alpha: float = 0.1,
+    use_back_translation: bool = False,
 ) -> List[str]:
     """
     Recompose un texte en `num_variants` nouvelles versions.
@@ -213,6 +355,11 @@ def recompose(
         lang: "fr" ou "en"
         num_variants: nombre de variantes à générer
         alpha: intensité de l'augmentation (proportion de mots affectés)
+        use_back_translation: active l'opération back-translation (FR→EN→FR
+            via Helsinki-NLP/opus-mt). Désactivée par défaut (coûteuse : le
+            premier appel télécharge les modèles opus-mt). Quand elle est
+            activée, la première variante est produite par back-translation,
+            les suivantes par les opérations EDA classiques.
 
     Returns:
         Liste de textes recomposés
@@ -222,11 +369,19 @@ def recompose(
     num_words = len(words)
     logger.debug(
         f"recompose : début | {num_words} mots, lang={lang}, "
-        f"num_variants={num_variants}, alpha={alpha}"
+        f"num_variants={num_variants}, alpha={alpha}, "
+        f"use_back_translation={use_back_translation}"
     )
     n = max(1, int(alpha * num_words))
 
     variants = set()
+
+    if use_back_translation:
+        # La back-translation travaille sur le texte brut (pas les tokens) :
+        # le premier variant vient de là, le reste via les ops EDA classiques.
+        bt = back_translation(text, lang=lang)
+        if bt.strip() and bt.strip() != text.strip():
+            variants.add(bt.strip())
 
     operations = [
         lambda w: synonym_replacement(w, lang, n),

@@ -23,6 +23,9 @@ class TrainRequest(BaseModel):
     local_corrections_path: Optional[str] = None
     augment_fraction: float = 0.4
     variants_per_example: int = 2
+    # Back-translation FR→EN→FR via Helsinki-NLP/opus-mt : désactivée par
+    # défaut (téléchargement de modèles + coût CPU/GPU au premier appel).
+    use_back_translation: bool = True
     class_augment_weights: Optional[Dict[str, float]] = None
     epochs: Optional[int] = None
     batch_size: Optional[int] = None
@@ -43,6 +46,7 @@ class TrainRequest(BaseModel):
                     "local_corrections_path": None,
                     "augment_fraction": 0.4,
                     "variants_per_example": 2,
+                    "use_back_translation": False,
                     "class_augment_weights": {"0": 1.0, "1": 2.0, "2": 1.0},
                     "epochs": 3,
                     "batch_size": 16,
