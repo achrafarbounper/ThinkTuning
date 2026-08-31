@@ -27,6 +27,23 @@ def _safe_len(obj):
         return "n/a"
 
 
+def _persist_epoch_metrics(store, job_id: str, records):
+    """Persiste les métriques par epoch dans le SQLite existant (SCRUM-73).
+
+    Ne doit jamais faire échouer le job d'entraînement : les erreurs sont
+    seulement journalisées.
+    """
+    if not records:
+        return
+    try:
+        store.save_epoch_metrics(job_id, records)
+        logger.info(f"Métriques par epoch persistées | job_id={job_id} | {len(records)} epoch(s)")
+    except Exception:
+        logger.exception(
+            "Échec de la persistance des métriques par epoch | job_id=%s", job_id
+        )
+
+
 def get_cancel_event(job_id: str) -> threading.Event:
     return _job_cancel_events.setdefault(job_id, threading.Event())
 
@@ -153,6 +170,8 @@ def run_training(job_id: str, req):
                 f"Entraînement terminé | early_stopped={train_result.get('early_stopped', False)}, "
                 f"durée={train_result.get('training_duration_seconds')}s"
             )
+            # SCRUM-73 : persistance des métriques par epoch dans le SQLite existant.
+            _persist_epoch_metrics(store, job_id, train_result.get("epoch_metrics"))
 
         job.step = "saving_model"
         store[job_id] = job
@@ -176,6 +195,13 @@ def run_training(job_id: str, req):
         logger.exception("Échec du job d'entraînement")
         job.status = JobStatus.FAILED
         job.error = str(exc)
+        # SCRUM-73 : si l'échec survient pendant l'entraînement, persister
+        # les epochs déjà réalisées (si un trainer existe).
+        _trainer = locals().get("trainer")
+        if _trainer is not None:
+            _persist_epoch_metrics(
+                store, job_id, getattr(_trainer, "epoch_metrics", None) or []
+            )
 
     job.finished_at = time.time()
     store[job_id] = job

@@ -10,7 +10,14 @@ import time
 from api.dependencies.auth import require_api_key
 from core.job_store import get_job_store
 from core.trainer_runner import run_training, cancel_training
-from core.models import TrainRequest, TrainJob, JobStatus, JobListResponse
+from core.models import (
+    TrainRequest,
+    TrainJob,
+    JobStatus,
+    JobListResponse,
+    EpochMetric,
+    TrainHistoryResponse,
+)
 
 router = APIRouter(prefix="/train", tags=["Training"])
 
@@ -41,6 +48,24 @@ def get_training_status(job_id: str, _: bool = Depends(require_api_key)):
     if job is None:
         raise HTTPException(status_code=404, detail="job_id introuvable")
     return job
+
+
+@router.get("/history/{job_id}", response_model=TrainHistoryResponse)
+def get_training_history(job_id: str, _: bool = Depends(require_api_key)):
+    """Historique des métriques d'entraînement (loss / F1 / accuracy) par epoch.
+
+    SCRUM-73 : les métriques sont persistées dans le SQLite existant
+    (table ``train_metrics``) pendant l'entraînement. Un job connu mais
+    encore sans métriques renvoie une liste vide.
+    """
+    store = get_job_store()
+    if store.get(job_id) is None:
+        raise HTTPException(status_code=404, detail="job_id introuvable")
+    rows = store.get_job_metrics(job_id)
+    return TrainHistoryResponse(
+        job_id=job_id,
+        epochs=[EpochMetric(**row) for row in rows],
+    )
 
 
 @router.post("/cancel/{job_id}", response_model=TrainJob)

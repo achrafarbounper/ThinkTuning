@@ -794,3 +794,63 @@ textarea { width: 100%; resize: vertical; }
   max-width: 100%;
   overflow: auto;
 }
+
+/* --- SCRUM-73 : historique des runs (courbes loss / F1) --- */
+.tt-history-section {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--tt-border, #e5e7eb);
+}
+
+.tt-history-runs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tt-history-runs-label {
+  font-size: 0.85rem;
+  color: var(--tt-muted, #6b7280);
+}
+
+.tt-history-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--tt-border, #e5e7eb);
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tt-history-run-selected {
+  border-color: var(--tt-primary, #2563eb);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.tt-history-run-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tt-history-charts {
+  display: grid;
+  gap: 1.5rem;
+}
+
+@media (min-width: 960px) {
+  .tt-history-charts {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.tt-history-chart-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}

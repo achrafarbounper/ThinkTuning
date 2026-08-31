@@ -35,6 +35,18 @@ class PersistentJobStore(dict):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at)"
         )
+        # SCRUM-73 : métriques d'entraînement par epoch (loss / F1 / accuracy)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS train_metrics (
+                job_id TEXT NOT NULL,
+                epoch INTEGER NOT NULL,
+                loss REAL,
+                f1_macro REAL,
+                accuracy REAL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (job_id, epoch)
+            )
+        """)
         conn.commit()
         conn.close()
 
@@ -84,6 +96,62 @@ class PersistentJobStore(dict):
             job = TrainJob(**data)
             super().__setitem__(key, job)
             return job
+
+    def save_epoch_metrics(self, job_id: str, records):
+        """Persiste les métriques d'entraînement par epoch (SCRUM-73).
+
+        Args:
+            job_id: Identifiant du job d'entraînement.
+            records: Liste de dicts {epoch, accuracy, f1_macro[, loss]}.
+        """
+        if not records:
+            return
+        now = time.time()
+        conn = self._connect()
+        try:
+            conn.executemany(
+                """
+                INSERT INTO train_metrics (job_id, epoch, loss, f1_macro, accuracy, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_id, epoch) DO UPDATE SET
+                    loss = excluded.loss,
+                    f1_macro = excluded.f1_macro,
+                    accuracy = excluded.accuracy,
+                    updated_at = excluded.updated_at
+                """,
+                [
+                    (
+                        job_id,
+                        int(rec.get("epoch", 0)),
+                        float(rec["loss"]) if rec.get("loss") is not None else None,
+                        float(rec["f1_macro"]) if rec.get("f1_macro") is not None else None,
+                        float(rec["accuracy"]) if rec.get("accuracy") is not None else None,
+                        now,
+                    )
+                    for rec in records
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_job_metrics(self, job_id: str):
+        """Renvoie les métriques par epoch d'un job, triées par epoch croissant."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT job_id, epoch, loss, f1_macro, accuracy
+                FROM train_metrics WHERE job_id = ? ORDER BY epoch ASC
+                """,
+                (job_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {"job_id": jid, "epoch": ep, "loss": loss, "f1_macro": f1, "accuracy": acc}
+            for jid, ep, loss, f1, acc in rows
+        ]
 
     def list_jobs(self, status=None, limit=100, offset=0):
         """Renvoie les jobs paginés, filtrés par *status* et triés par
