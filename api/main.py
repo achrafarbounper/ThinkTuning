@@ -26,6 +26,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from api.routes import train, predict, maintenance, metrics, health, models, ai_chat, agent, sessions, evaluate, explain, drift, pipeline  # noqa: E402
+from core.scheduler import ensure_scheduler_started  # noqa: E402
 from api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
 from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
 from api.middlewares.metrics import request_metrics_middleware  # noqa: E402
@@ -69,3 +70,7 @@ app.include_router(evaluate.router)
 app.include_router(drift.router)
 app.include_router(explain.router)
 app.include_router(pipeline.router)
+
+# SCRUM-34 : démarre le scheduler APScheduler et recharge les planifications
+# d'entraînement persistées (table scheduled_jobs du SQLite existant).
+ensure_scheduler_started()

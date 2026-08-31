@@ -6,13 +6,17 @@ import logging
 
 from core.models import TrainJob, JobStatus
 from core.job_store import get_job_store
-from core.model_versioning import save_model_version
+from core.model_versioning import (
+    save_model_version,
+    resolve_model_dir,
+    MODEL_ROOT,
+)
 from src.dataset.loader import load_raw_dataset, augment_dataset
 from src.dataset.preprocess import create_dataloaders
 from src.model.distilbert import build_model
 from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from src.utils.flags import TEST_MODE
 import torch
 logger = logging.getLogger(__name__)
@@ -25,6 +29,49 @@ def _safe_len(obj):
         return len(obj)
     except TypeError:
         return "n/a"
+
+
+def load_source_f1(base_model_version: str):
+    """Lit le F1 macro du training_report.json d'une version source.
+
+    Garde-fou anti-régression : retourne le ``metrics.f1_macro`` de la version
+    ``experiments/models/<version>``, ou None si le rapport est absent,
+    illisible ou sans F1 (une version ancienne/incomplète ne doit jamais faire
+    échouer le job).
+    """
+    import json
+    import os
+
+    report_path = os.path.join(MODEL_ROOT, base_model_version, "training_report.json")
+    try:
+        with open(report_path, "r", encoding="utf-8") as fh:
+            report = json.load(fh)
+        f1 = (report.get("metrics") or {}).get("f1_macro")
+        return float(f1) if f1 is not None else None
+    except (OSError, ValueError, TypeError):
+        logger.warning(
+            "F1 source illisible pour la version %s (garde-fou anti-régression désactivé)",
+            base_model_version,
+        )
+        return None
+
+
+def check_regression(new_f1, source_f1, threshold: float = 0.0):
+    """Compare le F1 de la nouvelle version à celui de la version source.
+
+    Retourne un détail lisible si ``new_f1 < source_f1 - threshold``
+    (régression), sinon None. Les F1 indisponibles (None) ne déclenchent
+    jamais de régression.
+    """
+    if new_f1 is None or source_f1 is None:
+        return None
+    if float(new_f1) < float(source_f1) - threshold:
+        return (
+            f"F1 macro {float(new_f1):.4f} < F1 source {float(source_f1):.4f} "
+            f"(seuil {threshold:.4f}) : la nouvelle version régresse par rapport "
+            "à la version source. Envisagez de repartir de la version source."
+        )
+    return None
 
 
 def _persist_epoch_metrics(store, job_id: str, records):
@@ -156,6 +203,18 @@ def run_training(job_id: str, req):
             tokenizer = TinyTokenizer()
             model = TinyModel()
             logger.debug(f"Modèle chargé en mode test : TinyModel sur {cfg['device']}")
+        elif req.base_model_version:
+            # Continual training : reprise des poids + tokenizer d'une version
+            # précédente (experiments/models/<version>) au lieu du modèle de
+            # base. Le reste du pipeline est inchangé : le résultat est une
+            # nouvelle version chaînée sur l'ancienne (warm start).
+            base_dir = resolve_model_dir(req.base_model_version)
+            tokenizer = AutoTokenizer.from_pretrained(base_dir)
+            model = AutoModelForSequenceClassification.from_pretrained(base_dir)
+            logger.info(
+                f"Continual training : reprise depuis la version "
+                f"{req.base_model_version} -> {base_dir}"
+            )
         else:
             tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
             model = build_model(cfg)
@@ -187,6 +246,26 @@ def run_training(job_id: str, req):
             time.time(),
         )
         logger.info(f"Modèle sauvegardé -> {model_dir}")
+
+        # Garde-fou anti-régression (continual training) : comparer le F1
+        # macro de la nouvelle version à celui de la version source. Ne fait
+        # jamais échouer le job : on marque le job et on laisse la décision
+        # (garder / repartir de la source) à l'opérateur.
+        if req.base_model_version:
+            new_f1 = (getattr(trainer, "final_metrics", None) or {}).get("f1_macro")
+            source_f1 = load_source_f1(req.base_model_version)
+            detail = check_regression(new_f1, source_f1)
+            if detail:
+                job.regression = True
+                job.regression_detail = detail
+                logger.warning(f"Régression détectée | job_id={job_id} | {detail}")
+            else:
+                logger.info(
+                    "Garde-fou anti-régression OK | job_id=%s | f1=%s | f1_source=%s",
+                    job_id,
+                    new_f1,
+                    source_f1,
+                )
 
         job.model_path = model_dir
         job.status = JobStatus.COMPLETED

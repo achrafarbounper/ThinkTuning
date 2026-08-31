@@ -47,8 +47,81 @@ class PersistentJobStore(dict):
                 PRIMARY KEY (job_id, epoch)
             )
         """)
+        # SCRUM-34 : planifications d'entraînements récurrents (POST /train/schedule)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scheduled_jobs (
+                schedule_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
         conn.commit()
         conn.close()
+
+    # ------------------------------------------------------------------
+    # SCRUM-34 : planifications récurrentes
+    # ------------------------------------------------------------------
+    def save_schedule(self, schedule: dict):
+        """Persiste (ou met à jour) une planification récurrente.
+
+        ``schedule`` est un dict serializable (payload d'un ``ScheduledJob``).
+        """
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO scheduled_jobs (schedule_id, payload, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(schedule_id) DO UPDATE SET
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    schedule["schedule_id"],
+                    json.dumps(schedule),
+                    time.time(),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_schedules(self):
+        """Renvoie toutes les planifications persistées, triées par création."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT payload FROM scheduled_jobs ORDER BY updated_at ASC"
+            ).fetchall()
+        finally:
+            conn.close()
+        return [json.loads(payload) for (payload,) in rows]
+
+    def get_schedule(self, schedule_id: str):
+        """Renvoie la planification *schedule_id* ou None."""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT payload FROM scheduled_jobs WHERE schedule_id = ?",
+                (schedule_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return json.loads(row[0])
+
+    def delete_schedule(self, schedule_id: str) -> bool:
+        """Supprime une planification. Renvoie True si elle existait."""
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "DELETE FROM scheduled_jobs WHERE schedule_id = ?", (schedule_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return cur.rowcount > 0
 
     def _serialize_job(self, job: TrainJob) -> str:
         payload = job.model_dump()

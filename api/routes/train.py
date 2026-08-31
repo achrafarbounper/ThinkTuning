@@ -10,6 +10,7 @@ import time
 from api.dependencies.auth import require_api_key
 from core.job_store import get_job_store
 from core.trainer_runner import run_training, cancel_training
+from core import scheduler as schedule_manager
 from core.models import (
     TrainRequest,
     TrainJob,
@@ -17,6 +18,9 @@ from core.models import (
     JobListResponse,
     EpochMetric,
     TrainHistoryResponse,
+    ScheduleRequest,
+    ScheduledJob,
+    ScheduleListResponse,
 )
 
 router = APIRouter(prefix="/train", tags=["Training"])
@@ -97,3 +101,44 @@ def list_training_jobs(
         limit=limit,
         offset=offset,
     )
+
+
+# ---------------------------------------------------------------------------
+# SCRUM-34 : planification récurrente d'entraînements (cron-like, APScheduler)
+# ---------------------------------------------------------------------------
+
+@router.post("/schedule", response_model=ScheduledJob, status_code=202)
+def schedule_training(req: ScheduleRequest, _: bool = Depends(require_api_key)):
+    """Programme un entraînement récurrent.
+
+    - ``cron`` : expression cron à 5 champs, ex. ``"0 2 * * *"`` (chaque jour à 2h).
+    - ``interval_minutes`` : intervalle en minutes, ex. ``60`` (toutes les heures).
+
+    Exactement l'un des deux doit être fourni. La planification est persistée
+    dans le SQLite existant (table ``scheduled_jobs``) et rechargée au démarrage.
+    """
+    try:
+        schedule = schedule_manager.create_schedule(
+            cron=req.cron,
+            interval_minutes=req.interval_minutes,
+            train_request=req.train.model_dump(),
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    return ScheduledJob(**schedule)
+
+
+@router.get("/schedules", response_model=ScheduleListResponse)
+def list_training_schedules(_: bool = Depends(require_api_key)):
+    """Liste les planifications d'entraînement actives avec leur prochaine exécution."""
+    items = schedule_manager.list_schedules()
+    return ScheduleListResponse(total=len(items), items=[ScheduledJob(**s) for s in items])
+
+
+@router.delete("/schedules/{schedule_id}", status_code=204)
+def delete_training_schedule(schedule_id: str, _: bool = Depends(require_api_key)):
+    """Supprime une planification récurrente."""
+    deleted = schedule_manager.delete_schedule(schedule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="schedule_id introuvable")
+    return None
