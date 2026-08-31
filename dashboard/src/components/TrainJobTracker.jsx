@@ -112,6 +112,14 @@ export default function TrainJobTracker({
 
       {job.error && <p className="tt-hint tt-hint-error tt-job-error">{job.error}</p>}
 
+      {/* Garde-fou anti-régression (continual training) : la nouvelle version
+          a un F1 macro inférieur à celui de la version source. */}
+      {job.regression && (
+        <p className="tt-hint tt-hint-error tt-job-error">
+          ⚠ Régression détectée{job.regression_detail ? ` — ${job.regression_detail}` : ""}
+        </p>
+      )}
+
       {(job.status === "running" || job.status === "pending") && (
         <button
           className="tt-btn tt-btn-danger"

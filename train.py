@@ -79,8 +79,21 @@ def main(args):
     class_weights = compute_class_weights(augmented_train['label'])
 
     logger.info(f"6. Chargement du modèle {cfg['model_name']} sur {cfg['device']}...")
-    tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
-    model = build_model(cfg)
+    if args.base_model_version:
+        # Continual training : reprise des poids + tokenizer d'une version
+        # précédente (experiments/models/<version>) au lieu du modèle de base.
+        from core.model_versioning import resolve_model_dir
+
+        base_dir = resolve_model_dir(args.base_model_version)
+        tokenizer = AutoTokenizer.from_pretrained(base_dir)
+        model = AutoModelForSequenceClassification.from_pretrained(base_dir)
+        logger.info(
+            f"   Continual training : reprise depuis la version "
+            f"{args.base_model_version} -> {base_dir}"
+        )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
+        model = build_model(cfg)
 
     logger.info("7. Entraînement...")
     trainer = Trainer(model, cfg, class_weights=class_weights)
@@ -117,6 +130,10 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=None)
     parser.add_argument("--warmup_ratio", type=float, default=None)
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument("--base_model_version", type=str, default=None,
+                        help="Continual training : version existante dans experiments/models "
+                             "(ex: '20260819T151459Z') à partir de laquelle reprendre "
+                             "l'entraînement (poids + tokenizer) au lieu du modèle de base.")
     args = parser.parse_args()
 
     if args.num_workers is None:

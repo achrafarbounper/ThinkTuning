@@ -182,6 +182,29 @@ export class SentimentApiClient extends SentimentApiClientCore {
     return this._request(`/train/history/${encodeURIComponent(jobId)}`);
   }
 
+  // -- /train/schedules (SCRUM-34 : planification récurrente) -----------------
+
+  /**
+   * Programme un entraînement récurrent (POST /train/schedule).
+   * Payload : { train: {...}, cron?: "0 2 * * *", interval_minutes?: 60 }
+   * Retourne un ScheduledJob (schedule_id, next_run_at, trigger, ...).
+   */
+  scheduleTraining(payload) {
+    return this._request("/train/schedule", { method: "POST", body: payload });
+  }
+
+  /** Liste les planifications actives : { total, items: ScheduledJob[] }. */
+  listSchedules() {
+    return this._request("/train/schedules");
+  }
+
+  /** Supprime une planification récurrente. */
+  deleteSchedule(scheduleId) {
+    return this._request(`/train/schedules/${encodeURIComponent(scheduleId)}`, {
+      method: "DELETE",
+    });
+  }
+
   // -- /pipeline ---------------------------------------------------------------
 
   /** Lance le pipeline end-to-end (labeling -> filtering -> fine-tuning LLM). */
