@@ -270,7 +270,9 @@ def test_cli_main_runs_labeling_then_finetune(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(pipeline_cli, "run_labeling", fake_labeling)
     monkeypatch.setattr(pipeline_cli.subprocess, "run", fake_run)
-    monkeypatch.setattr(pipeline_cli.time, "strftime", lambda fmt: "20260101T000000Z")
+    # Variadique : le handler rich (ia/logging_setup) appelle time.strftime(fmt,
+    # t) pour afficher sa colonne temps ; la valeur retournée est identique.
+    monkeypatch.setattr(pipeline_cli.time, "strftime", lambda *a: "20260101T000000Z")
     argv = [
         "pipeline.py", "--input", "data.csv", "--output_dir", str(tmp_path / "out"),
         "--epochs", "1",

@@ -1,9 +1,12 @@
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
+
+logger = logging.getLogger(__name__)
 
 import torch
 from datasets import Dataset
@@ -194,6 +197,7 @@ def build_lora_config(target_modules: List[str], learning_rate: float) -> LoraCo
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     args = parse_args()
     set_seed(args.seed)
 
@@ -203,7 +207,7 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Loading dataset...")
+    logger.info("Loading dataset...")
     records = load_jsonl_records(args.train_file)
     train_dataset = Dataset.from_list(records)
 
@@ -215,16 +219,16 @@ def main() -> None:
         train_dataset = split["train"]
         eval_dataset = split["test"]
 
-    print(f"Train set: {len(train_dataset)} items")
-    print(f"Validation set: {len(eval_dataset)} items")
+    logger.info(f"Train set: {len(train_dataset)} items")
+    logger.info(f"Validation set: {len(eval_dataset)} items")
 
-    print("Loading tokenizer...")
+    logger.info("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=False)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    print("Loading base model...")
+    logger.info("Loading base model...")
     quant_config = build_quantization_config(args.use_qlora)
     model_kwargs = {"trust_remote_code": False}
     if quant_config is not None:
@@ -251,7 +255,7 @@ def main() -> None:
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    print("Tokenizing dataset...")
+    logger.info("Tokenizing dataset...")
     train_dataset = build_tokenized_dataset(train_dataset, tokenizer, args.max_seq_length)
     eval_dataset = build_tokenized_dataset(eval_dataset, tokenizer, args.max_seq_length)
 
@@ -294,26 +298,26 @@ def main() -> None:
         data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
     )
 
-    print("Start training...")
+    logger.info("Start training...")
     trainer.train()
 
-    print("Saving final adapter...")
+    logger.info("Saving final adapter...")
     trainer.save_model(str(output_dir))
     tokenizer.save_pretrained(str(output_dir))
 
     if args.push_to_hub:
-        print("Pushing model to the Hub...")
+        logger.info("Pushing model to the Hub...")
         trainer.push_to_hub(
             commit_message="Fine-tuning with LoRA / QLoRA",
             hub_model_id=args.hub_model_id or output_dir.name,
         )
 
-    print(f"Fine-tuning completed. Model saved in: {output_dir}")
+    logger.info(f"Fine-tuning completed. Model saved in: {output_dir}")
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("Interrupted by user.")
+        logger.warning("Interrupted by user.")
         sys.exit(130)

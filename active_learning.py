@@ -21,6 +21,7 @@ Usage :
 
 import argparse
 import csv
+import logging
 import os
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -28,6 +29,8 @@ from typing import Iterable, List, Optional
 from core.model_versioning import resolve_model_path
 from label_dataset import load_texts_from_file
 from src.inference.predictor import Predictor
+
+logger = logging.getLogger(__name__)
 
 # Incertitude maximale pour une classification à 3 classes : distribution
 # uniforme sur les 3 classes -> probabilité de la classe prédite = 1/3.
@@ -145,11 +148,11 @@ def main():
 
     texts = load_texts_from_file(args.input, text_column=args.text_column)
     if not texts:
-        print(f"Aucun texte trouvé dans {args.input}")
+        logger.warning(f"Aucun texte trouvé dans {args.input}")
         return
 
     model_dir = resolve_model_path(args.model_path)
-    print(f"Modèle utilisé : {model_dir}")
+    logger.info(f"Modèle utilisé : {model_dir}")
 
     records = select_uncertain_examples(
         texts,
@@ -159,8 +162,9 @@ def main():
     )
 
     write_manual_review_csv(records, args.output)
-    print(f"Exported {len(records)} examples to {args.output}")
+    logger.info(f"Exported {len(records)} examples to {args.output}")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     main()

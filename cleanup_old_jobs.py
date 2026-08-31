@@ -8,6 +8,7 @@ Exemples :
 """
 
 import argparse
+import logging
 import os
 import sys
 
@@ -15,8 +16,11 @@ os.environ.setdefault("API_KEY", os.getenv("API_KEY", "local-cleanup"))
 
 from api import cleanup_old_jobs
 
+logger = logging.getLogger(__name__)
+
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     parser = argparse.ArgumentParser(description="Supprime les jobs d'entraînement terminés et obsolètes.")
     parser.add_argument(
         "--db-path",
@@ -43,14 +47,14 @@ def main() -> int:
     )
 
     if args.dry_run:
-        print(f"[dry-run] {len(result['job_ids'])} jobs obsolètes détectés pour un seuil de {args.max_age_days} jours.")
+        logger.info(f"[dry-run] {len(result['job_ids'])} jobs obsolètes détectés pour un seuil de {args.max_age_days} jours.")
     else:
-        print(f"{result['deleted']} job(s) supprimé(s) pour un seuil de {args.max_age_days} jours.")
+        logger.info(f"{result['deleted']} job(s) supprimé(s) pour un seuil de {args.max_age_days} jours.")
 
     if result["job_ids"]:
-        print("job_ids:", ", ".join(result["job_ids"]))
+        logger.info("job_ids: " + ", ".join(result["job_ids"]))
     else:
-        print("Aucun job obsolète à supprimer.")
+        logger.info("Aucun job obsolète à supprimer.")
 
     return 0
 

@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 
 import torch
@@ -12,8 +13,11 @@ from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
 from api import TEST_MODE
 
+logger = logging.getLogger(__name__)
+
 
 def main(args):
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     cfg = load_config("configs/default.yaml")
 
     if args.max_length is not None:
@@ -46,46 +50,46 @@ def main(args):
     if TEST_MODE:
         cfg["device"] = "cpu"
 
-    print(f"1. Chargement du dataset multilingue (max {args.max_per_lang}/langue)...")
+    logger.info(f"1. Chargement du dataset multilingue (max {args.max_per_lang}/langue)...")
     if args.local_corrections_path:
-        print(f"   + corrections locales : {args.local_corrections_path}")
+        logger.info(f"   + corrections locales : {args.local_corrections_path}")
     raw = load_raw_dataset(
         max_per_lang=args.max_per_lang,
         local_corrections_path=args.local_corrections_path,
     )
 
-    print("2. Split train/val (avant augmentation, pour éviter la fuite)...")
+    logger.info("2. Split train/val (avant augmentation, pour éviter la fuite)...")
     split = raw.train_test_split(test_size=0.1, seed=42)
     raw_train, raw_val = split["train"], split["test"]
 
-    print(f"3. Recomposition (augmentation) sur le train uniquement — fraction={args.augment_fraction}...")
+    logger.info(f"3. Recomposition (augmentation) sur le train uniquement — fraction={args.augment_fraction}...")
     augmented_train = augment_dataset(
         raw_train,
         variants_per_example=args.variants_per_example,
         augment_fraction=args.augment_fraction,
         class_augment_weights=cfg.get("class_augment_weights"),
     )
-    print(f"   -> {len(raw_train)} exemples originaux -> {len(augmented_train)} après recomposition")
+    logger.info(f"   -> {len(raw_train)} exemples originaux -> {len(augmented_train)} après recomposition")
 
-    print("4. Création des DataLoaders...")
+    logger.info("4. Création des DataLoaders...")
     train_loader, val_loader = create_dataloaders(augmented_train, raw_val, cfg)
 
-    print("5. Calcul des poids des classes...")
+    logger.info("5. Calcul des poids des classes...")
     class_weights = compute_class_weights(augmented_train['label'])
 
-    print(f"6. Chargement du modèle {cfg['model_name']} sur {cfg['device']}...")
+    logger.info(f"6. Chargement du modèle {cfg['model_name']} sur {cfg['device']}...")
     tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
     model = build_model(cfg)
 
-    print("7. Entraînement...")
+    logger.info("7. Entraînement...")
     trainer = Trainer(model, cfg, class_weights=class_weights)
     trainer.train(train_loader, val_loader)
 
-    print("7. Sauvegarde du modèle final...")
+    logger.info("7. Sauvegarde du modèle final...")
     tokenizer.save_pretrained("sentiment_model_final")
     trainer.save("sentiment_model_final")
 
-    print("\nTerminé ! Modèle sauvegardé dans ./sentiment_model_final")
+    logger.info("\nTerminé ! Modèle sauvegardé dans ./sentiment_model_final")
 
 
 if __name__ == "__main__":
@@ -113,6 +117,6 @@ if __name__ == "__main__":
 
     if args.num_workers is None:
         args.num_workers = max(0, min(2, max(1, (os.cpu_count() or 1) // 2)))
-        print(f"Auto num_workers={args.num_workers} based on CPU cores")
+        logger.info(f"Auto num_workers={args.num_workers} based on CPU cores")
 
     main(args)

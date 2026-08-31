@@ -1,9 +1,12 @@
 import argparse
 import csv
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Iterable, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from core.model_versioning import resolve_model_path
 from src.inference.predictor import Predictor
@@ -136,6 +139,7 @@ def label_dataset(
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     parser = argparse.ArgumentParser(description="Label a dataset with DistilBERT sentiment predictions and export Alpaca JSONL.")
     parser.add_argument("--input", required=True, help="CSV/JSON/JSONL/TXT input file containing texts.")
     parser.add_argument("--output", required=True, help="Target JSONL file for Alpaca records.")
@@ -157,7 +161,7 @@ def main():
     args = parser.parse_args()
 
     model_dir = resolve_model_path(args.model_path)
-    print(f"Using model: {model_dir}")
+    logger.info(f"Using model: {model_dir}")
 
     records = label_dataset(
         input_path=args.input,
@@ -168,7 +172,7 @@ def main():
         batch_size=args.batch_size,
     )
 
-    print(f"Exported {len(records)} records to {args.output}")
+    logger.info(f"Exported {len(records)} records to {args.output}")
 
 
 if __name__ == "__main__":

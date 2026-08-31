@@ -1,8 +1,11 @@
 import argparse
 import csv
 import json
+import logging
 import random
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def load_jsonl(path: str):
@@ -43,6 +46,7 @@ def write_sample_csv(rows, output_path: str):
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     parser = argparse.ArgumentParser(description="Sample a random subset of generated labels for manual review.")
     parser.add_argument("--input", required=True, help="JSONL file with generated labels.")
     parser.add_argument("--sample_size", type=int, default=100, help="Size of the random sample.")
@@ -56,7 +60,7 @@ def main():
 
     sampled = sample_records(rows, args.sample_size, args.seed)
     write_sample_csv(sampled, args.output)
-    print(f"Sample created: {len(sampled)} rows -> {args.output}")
+    logger.info(f"Sample created: {len(sampled)} rows -> {args.output}")
 
 
 if __name__ == "__main__":

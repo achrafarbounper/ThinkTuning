@@ -7,6 +7,7 @@ Usage :
 """
 
 import argparse
+import logging
 import os
 
 import matplotlib
@@ -22,6 +23,8 @@ from src.dataset.preprocess import tokenize_dataset
 from src.utils.config import load_config
 from src.utils.metrics import compute_metrics
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
+
+logger = logging.getLogger(__name__)
 
 
 # Ordre des classes, aligné sur les labels 0, 1, 2 du dataset.
@@ -130,10 +133,10 @@ def _print_confusion_matrix(labels, preds, title):
 
     width = max(8, max(len(name) for name in LABEL_NAMES))
     header = " " * width + "  " + "  ".join(f"{name:>{width}}" for name in LABEL_NAMES)
-    print(f"\n{title}")
-    print(header)
+    logger.info(f"\n{title}")
+    logger.info(header)
     for name, row in zip(LABEL_NAMES, counts):
-        print(f"{name:>{width}}  " + "  ".join(f"{v:>{width}}" for v in row))
+        logger.info(f"{name:>{width}}  " + "  ".join(f"{v:>{width}}" for v in row))
     return cm
 
 
@@ -167,7 +170,7 @@ def plot_confusion_matrices(per_lang):
     save_path = os.path.join(OUTPUT_DIR, "confusion_matrices_by_lang.png")
     fig.savefig(save_path, bbox_inches="tight")
     plt.close(fig)
-    print(f"\n[Confusion] Figure sauvegardée : {save_path}")
+    logger.info(f"\n[Confusion] Figure sauvegardée : {save_path}")
 
     # Affichage interactif si un backend graphique est disponible (sinon ignoré).
     try:
@@ -184,7 +187,7 @@ def report_by_language(results):
     per_lang = segment_by_language(results)
 
     if not per_lang:
-        print("\nColonne 'lang_code' absente : pas de segmentation par langue possible.")
+        logger.warning("\nColonne 'lang_code' absente : pas de segmentation par langue possible.")
         return
 
     for lang in LANGUAGES:
@@ -193,9 +196,9 @@ def report_by_language(results):
         entry = per_lang[lang]
         metrics = compute_metrics(entry["preds"], entry["labels"])
         display = LANG_DISPLAY_NAMES.get(lang, lang)
-        print(f"\n=== Résultats {display} (n={entry['labels'].size}) ===")
-        print(f"Accuracy : {metrics['accuracy']:.4f}")
-        print(f"F1 macro : {metrics['f1_macro']:.4f}")
+        logger.info(f"\n=== Résultats {display} (n={entry['labels'].size}) ===")
+        logger.info(f"Accuracy : {metrics['accuracy']:.4f}")
+        logger.info(f"F1 macro : {metrics['f1_macro']:.4f}")
         _print_confusion_matrix(
             entry["labels"], entry["preds"],
             f"Matrice de confusion — {display}",
@@ -205,6 +208,7 @@ def report_by_language(results):
 
 
 def main(args):
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     # On réutilise le max_length de la config d'entraînement pour évaluer
     # avec exactement la même troncature qu'à l'entraînement : sinon le
     # modèle voit des séquences plus longues/complètes que celles vues
@@ -221,22 +225,22 @@ def main(args):
     # évite le décalage historique avec l'ancien MODEL_PATH codé en dur.
     model_path, model_label = select_model_path(args.model_name)
 
-    print(f"1. Chargement du dataset FR/EN (max {args.max_per_lang}/langue)...")
+    logger.info(f"1. Chargement du dataset FR/EN (max {args.max_per_lang}/langue)...")
     raw = load_raw_dataset(max_per_lang=args.max_per_lang)
 
-    print(f"2. Chargement du tokenizer et du modèle ({model_label})...")
+    logger.info(f"2. Chargement du tokenizer et du modèle ({model_label})...")
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
-    print(f"3. Tokenisation du dataset (max_length={max_length})...")
+    logger.info(f"3. Tokenisation du dataset (max_length={max_length})...")
     tokenized = tokenize_dataset(raw, tokenizer, max_length=max_length)
 
-    print("4. Évaluation...")
+    logger.info("4. Évaluation...")
     results = evaluate(model, tokenizer, tokenized, batch_size=args.batch_size)
 
-    print("\n=== Résultats globaux ===")
-    print(f"Accuracy : {results['accuracy']:.4f}")
-    print(f"F1 macro : {results['f1_macro']:.4f}")
+    logger.info("\n=== Résultats globaux ===")
+    logger.info(f"Accuracy : {results['accuracy']:.4f}")
+    logger.info(f"F1 macro : {results['f1_macro']:.4f}")
 
     # Métriques segmentées par langue + matrices de confusion FR / EN.
     report_by_language(results)

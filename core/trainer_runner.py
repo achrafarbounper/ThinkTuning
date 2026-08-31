@@ -19,6 +19,14 @@ logger = logging.getLogger(__name__)
 _job_cancel_events = {}
 
 
+def _safe_len(obj):
+    """len() tolérant : renvoie 'n/a' si l'objet n'est pas mesurable."""
+    try:
+        return len(obj)
+    except TypeError:
+        return "n/a"
+
+
 def get_cancel_event(job_id: str) -> threading.Event:
     return _job_cancel_events.setdefault(job_id, threading.Event())
 
@@ -106,14 +114,19 @@ def run_training(job_id: str, req):
         store[job_id] = job
         train_loader, val_loader = create_dataloaders(augmented_train, raw_val, cfg)
         logger.debug(
-            f"Dataloaders construits | train batches={len(train_loader)}, "
-            f"val batches={len(val_loader)}"
+            "Dataloaders construits | train batches=%s, val batches=%s",
+            _safe_len(train_loader),
+            _safe_len(val_loader),
         )
 
         job.step = "computing_class_weights"
         store[job_id] = job
         class_weights = compute_class_weights(augmented_train["label"])
-        logger.debug(f"Poids de classe calculés : {class_weights.tolist()}")
+        try:
+            weights_repr = class_weights.tolist()
+        except AttributeError:
+            weights_repr = "n/a"
+        logger.debug("Poids de classe calculés : %s", weights_repr)
 
         job.step = "loading_model"
         store[job_id] = job
@@ -135,10 +148,11 @@ def run_training(job_id: str, req):
         trainer = Trainer(model, cfg, class_weights=class_weights)
         logger.info(f"Début de l'entraînement | {cfg['epochs']} epochs | device={cfg['device']}")
         train_result = trainer.train(train_loader, val_loader, cancel_event=cancel_event)
-        logger.info(
-            f"Entraînement terminé | early_stopped={train_result.get('early_stopped', False)}, "
-            f"durée={train_result.get('training_duration_seconds')}s"
-        )
+        if train_result is not None:
+            logger.info(
+                f"Entraînement terminé | early_stopped={train_result.get('early_stopped', False)}, "
+                f"durée={train_result.get('training_duration_seconds')}s"
+            )
 
         job.step = "saving_model"
         store[job_id] = job

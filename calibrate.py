@@ -404,27 +404,27 @@ def main(args):
     # échouer immédiatement si la version demandée est invalide.
     model_path, model_label = select_model_path(args.model_name)
 
-    print(f"1. Chargement du dataset FR/EN (max {args.max_per_lang}/langue)...")
+    logger.info(f"1. Chargement du dataset FR/EN (max {args.max_per_lang}/langue)...")
     raw = load_raw_dataset(max_per_lang=args.max_per_lang)
 
-    print(f"2. Chargement du tokenizer et du modèle ({model_label})...")
+    logger.info(f"2. Chargement du tokenizer et du modèle ({model_label})...")
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
-    print(f"3. Tokenisation du dataset (max_length={max_length})...")
+    logger.info(f"3. Tokenisation du dataset (max_length={max_length})...")
     tokenized = tokenize_dataset(raw, tokenizer, max_length=max_length)
 
-    print("4. Collecte des logits...")
+    logger.info("4. Collecte des logits...")
     logits, labels = collect_logits(model, tokenizer, tokenized,
                                     batch_size=args.batch_size)
 
-    print("5. Analyse de la calibration (avant ajustement)...")
+    logger.info("5. Analyse de la calibration (avant ajustement)...")
     base = analyze(logits, labels, n_bins=args.n_bins, strategy=args.strategy,
                    temperature=1.0)
-    print("\n=== Calibration initiale (T=1.0) ===")
-    print(f"Accuracy         : {base['accuracy']:.4f}")
-    print(f"Confiance moyenne: {base['mean_confidence']:.4f}")
-    print(f"ECE              : {base['ece']:.4f} (seuil d'alerte : "
+    logger.info("\n=== Calibration initiale (T=1.0) ===")
+    logger.info(f"Accuracy         : {base['accuracy']:.4f}")
+    logger.info(f"Confiance moyenne: {base['mean_confidence']:.4f}")
+    logger.info(f"ECE              : {base['ece']:.4f} (seuil d'alerte : "
           f"{ECE_WARNING_THRESHOLD})")
 
     # Critère d'acceptation : avertissement dans les logs si ECE > 0.1.
@@ -433,7 +433,7 @@ def main(args):
     plot_path = os.path.join(output_dir, "calibration_curve.png")
     plot_reliability_diagram(base["prob_true"], base["prob_pred"], base["ece"],
                              plot_path)
-    print(f"[Calibration] Figure sauvegardée : {plot_path}")
+    logger.info(f"[Calibration] Figure sauvegardée : {plot_path}")
 
     report = {
         "model_name": model_label,
@@ -449,22 +449,22 @@ def main(args):
     # --- Temperature scaling post-hoc (optionnel) ------------------------- #
     temperature = None
     if args.temperature_scaling:
-        print("\n6. Ajustement de la température (minimisation NLL, LBFGS)...")
+        logger.info("\n6. Ajustement de la température (minimisation NLL, LBFGS)...")
         temperature = fit_temperature(logits, labels)
-        print(f"Température apprise : T = {temperature:.4f}")
+        logger.info(f"Température apprise : T = {temperature:.4f}")
     elif args.temperature is not None:
         temperature = float(args.temperature)
-        print(f"\n6. Application de la température imposée : T = {temperature:.4f}")
+        logger.info(f"\n6. Application de la température imposée : T = {temperature:.4f}")
 
     if temperature is not None:
         adjusted = analyze(logits, labels, n_bins=args.n_bins,
                            strategy=args.strategy, temperature=temperature)
-        print(f"\n=== Calibration après temperature scaling "
+        logger.info(f"\n=== Calibration après temperature scaling "
               f"(T={adjusted['temperature']:.4f}) ===")
-        print(f"Accuracy         : {adjusted['accuracy']:.4f} (inchangée : "
+        logger.info(f"Accuracy         : {adjusted['accuracy']:.4f} (inchangée : "
               f"l'argmax est invariant)")
-        print(f"Confiance moyenne: {adjusted['mean_confidence']:.4f}")
-        print(f"ECE              : {adjusted['ece']:.4f} (avant : {base['ece']:.4f})")
+        logger.info(f"Confiance moyenne: {adjusted['mean_confidence']:.4f}")
+        logger.info(f"ECE              : {adjusted['ece']:.4f} (avant : {base['ece']:.4f})")
 
         # Nouvelle vérification : le scaling suffit-il à repasser sous le seuil ?
         warn_if_miscalibrated(adjusted["ece"])
@@ -484,7 +484,7 @@ def main(args):
                                  adjusted["ece"], after_path,
                                  title="Diagramme de fiabilité (après scaling)",
                                  temperature=adjusted["temperature"])
-        print(f"[Calibration] Figure sauvegardée : {after_path}")
+        logger.info(f"[Calibration] Figure sauvegardée : {after_path}")
 
         report["after"] = _summary_block(adjusted)
     else:
@@ -494,13 +494,13 @@ def main(args):
         stale_after = os.path.join(output_dir, "calibration_curve_after.png")
         if os.path.exists(stale_after):
             os.remove(stale_after)
-            print(f"[Calibration] Artefact obsolète supprimé : {stale_after}")
+            logger.info(f"[Calibration] Artefact obsolète supprimé : {stale_after}")
 
     os.makedirs(output_dir, exist_ok=True)
     report_path = os.path.join(output_dir, "calibration_report.json")
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
-    print(f"[Calibration] Rapport sauvegardé : {report_path}")
+    logger.info(f"[Calibration] Rapport sauvegardé : {report_path}")
 
 
 if __name__ == "__main__":
