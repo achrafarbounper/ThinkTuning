@@ -6,8 +6,10 @@
  */
 
 import { useApp } from "../context/useApp";
-
-const SENTIMENT_LABELS = { negative: "négatif", neutral: "neutre", positive: "positif" };
+import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { EmptyState } from "../components/ui/EmptyState";
+import { formatTime } from "../lib/format";
 
 export default function HomePage({ onNavigate }) {
   const { config, health, healthError, models, modelsError, logs } = useApp();
@@ -52,9 +54,12 @@ export default function HomePage({ onNavigate }) {
       </header>
 
       <div className="page-body">
-        <div className="home-stats">
+        <div
+          className="home-stats"
+          aria-busy={(!health && !healthError) || (modelsError === null && models.length === 0)}
+        >
           {stats.map((s) => (
-            <section className="tt-panel home-stat" key={s.label}>
+            <Card className="home-stat" key={s.label}>
               <p className="home-stat__label">
                 {s.dot}
                 {s.label}
@@ -63,27 +68,24 @@ export default function HomePage({ onNavigate }) {
               <p className="home-stat__detail" title={s.detail}>
                 {s.detail}
               </p>
-            </section>
+            </Card>
           ))}
         </div>
 
-        <section className="tt-panel">
-          <div className="tt-panel-head">
-            <h2>Raccourcis</h2>
-          </div>
+        <Card title="Raccourcis">
           <div className="home-links">
-            <button type="button" className="tt-btn tt-btn-primary" onClick={() => onNavigate("analyse")}>
+            <Button variant="primary" onClick={() => onNavigate("analyse")}>
               Analyser un texte (FR/EN)
-            </button>
-            <button type="button" className="tt-btn tt-btn-ghost" onClick={() => onNavigate("assistant")}>
+            </Button>
+            <Button variant="ghost" onClick={() => onNavigate("assistant")}>
               Ouvrir l'assistant IA
-            </button>
-            <button type="button" className="tt-btn tt-btn-ghost" onClick={() => onNavigate("entrainement")}>
+            </Button>
+            <Button variant="ghost" onClick={() => onNavigate("entrainement")}>
               Lancer un entraînement
-            </button>
-            <button type="button" className="tt-btn tt-btn-ghost" onClick={() => onNavigate("parametres")}>
+            </Button>
+            <Button variant="ghost" onClick={() => onNavigate("parametres")}>
               Configurer l'API
-            </button>
+            </Button>
           </div>
           {!config.apiKey && (
             <p className="tt-hint">
@@ -91,26 +93,22 @@ export default function HomePage({ onNavigate }) {
               paramètres pour débloquer modèles, prédiction et entraînement.
             </p>
           )}
-        </section>
+        </Card>
 
-        <footer className="tt-panel">
-          <div className="tt-panel-head">
-            <h2>Activité récente</h2>
-          </div>
-          <ul className="home-logs">
-            {logs.map((l) => (
-              <li key={l.id} className={`tt-log-${l.type}`}>
-                <span className="tt-mono">{new Date(l.ts).toLocaleTimeString()}</span> {l.text}
-              </li>
-            ))}
-            {!logs.length && (
-              <li className="tt-hint">Aucun évènement pour le moment.</li>
-            )}
-          </ul>
-        </footer>
+        <Card title="Activité récente" as="footer">
+          {logs.length ? (
+            <ul className="home-logs">
+              {logs.map((l) => (
+                <li key={l.id} className={`tt-log-${l.type}`}>
+                  <span className="tt-mono">{formatTime(l.ts)}</span> {l.text}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState>Aucun évènement pour le moment.</EmptyState>
+          )}
+        </Card>
       </div>
     </>
   );
 }
-
-export { SENTIMENT_LABELS };

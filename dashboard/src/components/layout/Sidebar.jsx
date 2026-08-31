@@ -199,7 +199,10 @@ export default function Sidebar({ page, onNavigate }) {
         ))}
       </nav>
 
-      <div className="sidebar__footer">
+      <div
+        className="sidebar__footer"
+        aria-busy={!health && !healthError}
+      >
         <span className={healthDotClass} aria-hidden="true" />
         <span className="sidebar__footer-text" title={healthError || undefined}>
           {statusLabel}

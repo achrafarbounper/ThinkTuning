@@ -5,11 +5,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SentimentApiClient, agentSettingsPayload, normalizeAgentSettings, DEFAULT_BASE_URL } from "../api/sentimentApiClient";
+import { usePolling } from "../hooks/usePolling";
 import { AppContext } from "./appContext";
 
 const DEFAULT_MAX_HISTORY = 20;
 const HEALTH_POLL_MS = 8000;
 const MODELS_POLL_MS = 15000;
+// Différage du premier poll hors du chemin critique : le /health (450–502 ms)
+// et le listModels ne bloquent plus le rendu initial ni le LCP.
+const HEALTH_FIRST_DELAY_MS = 2000;
+const MODELS_FIRST_DELAY_MS = 2500;
 const AGENT_DEFAULTS = {
   provider: "ollama",
   model: "",
@@ -82,16 +87,16 @@ export default function AppProvider({ children }) {
     try { window.localStorage.setItem("thinktuning.apiConfig", JSON.stringify(config)); } catch { /* stockage indisponible */ }
   }, [config]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try { const result = await client.getHealth(); if (!cancelled) { setHealth(result); setHealthError(null); } }
-      catch (err) { if (!cancelled) { setHealth(null); setHealthError(err.message); } }
-    };
-    poll();
-    const i = setInterval(poll, HEALTH_POLL_MS);
-    return () => { cancelled = true; clearInterval(i); };
+  // --- Polling santé & modèles (pause auto quand l'onglet est masqué) --------
+  // Le premier tick est différé (initialDelayMs) : /health et listModels sont
+  // sortis du chemin critique. Le rendu initial et le LCP ne bloquent plus sur
+  // ces requêtes non essentielles (auparavant immédiates = ~450–502 ms).
+  const pollHealth = useCallback(async () => {
+    try { const result = await client.getHealth(); setHealth(result); setHealthError(null); }
+    catch (err) { setHealth(null); setHealthError(err.message); }
   }, [client]);
+
+  usePolling({ intervalMs: HEALTH_POLL_MS, immediate: true, initialDelayMs: HEALTH_FIRST_DELAY_MS, tick: pollHealth });
 
   const refreshModels = useCallback(async () => {
     if (!config.apiKey) return;
@@ -99,17 +104,16 @@ export default function AppProvider({ children }) {
     catch (err) { setModelsError(err.message); }
   }, [client, config.apiKey]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      if (!config.apiKey) return;
-      try { const list = await client.listModels(); if (!cancelled) { setModels(list); setModelsError(null); } }
-      catch (err) { if (!cancelled) setModelsError(err.message); }
-    };
-    load();
-        const i = setInterval(load, MODELS_POLL_MS);
-    return () => { cancelled = true; clearInterval(i); };
-  }, [client, config.apiKey]);
+  // Le polling des modèles est purement informatif côté API key, on le met en
+  // pause quand la clé est absente pour éviter un flot d'appels inutiles.
+  // Il est en plus différé (initialDelayMs) pour rester hors du chemin critique.
+  usePolling({
+    intervalMs: MODELS_POLL_MS,
+    immediate: true,
+    initialDelayMs: MODELS_FIRST_DELAY_MS,
+    enabled: Boolean(config.apiKey),
+    tick: refreshModels,
+  });
 
   const persistAgentSettings = useCallback((settings) => {
     saveAgentSettings(settings);

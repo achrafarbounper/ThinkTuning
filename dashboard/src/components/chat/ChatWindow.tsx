@@ -257,6 +257,9 @@ export function ChatWindow() {
 
   const listRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController>(null);
+  // Carte de validation (role="alertdialog") : le focus y est déplacé à son
+  // apparition pour que les technologies d'assistance et le clavier la détectent.
+  const approvalRef = useRef<HTMLDivElement>(null);
 
   // Miroir de l'état pour lire un historique à jour dans les callbacks asynchrones.
   // La synchronisation se fait dans un effet : muter une ref pendant le rendu
@@ -265,6 +268,13 @@ export function ChatWindow() {
   useEffect(() => {
     messagesRef.current = messages;
   });
+
+  // Focus la carte d'approbation quand elle apparaît (validation requise).
+  useEffect(() => {
+    if (pendingApproval && approvalRef.current) {
+      approvalRef.current.focus();
+    }
+  }, [pendingApproval]);
 
   // Scroll automatique vers le bas à chaque nouveau message / token,
   // uniquement si l'utilisateur n'a pas remonté manuellement la conversation.
@@ -971,7 +981,13 @@ export function ChatWindow() {
       )}
 
       {pendingApproval && (
-        <div className="approval-card" role="alertdialog" aria-label="Validation d'action requise">
+        <div
+          className="approval-card"
+          role="alertdialog"
+          aria-label="Validation d'action requise"
+          ref={approvalRef}
+          tabIndex={-1}
+        >
           <div className="approval-card__header">
             <span className="approval-card__badge">Validation requise</span>
             <code className="approval-card__tool">{pendingApproval.tool}</code>

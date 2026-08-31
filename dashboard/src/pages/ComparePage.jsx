@@ -10,8 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
-
-const SENTIMENT_LABELS = { negative: "négatif", neutral: "neutre", positive: "positif" };
+import { sentimentLabel } from "../lib/sentiment";
 
 /** Paires de sentiments franchement opposées (accord impossible). */
 const OPPOSED_PAIRS = new Set(["positive|negative", "negative|positive"]);
@@ -59,7 +58,7 @@ function ModelResultCard({ side, modelName, state }) {
       {state.status === "done" && state.result && (
         <div className="tt-compare-result">
           <span className={`tt-badge tt-badge-${state.result.sentiment}`}>
-            {SENTIMENT_LABELS[state.result.sentiment] || state.result.sentiment}
+            {sentimentLabel(state.result.sentiment)}
           </span>
           <span className="tt-mono tt-compare-conf-value">
             {(state.result.confidence * 100).toFixed(1)}%
@@ -117,8 +116,8 @@ export default function ComparePage() {
       identical,
       opposed: !identical && OPPOSED_PAIRS.has(`${a.sentiment}|${b.sentiment}`),
       confDiff: Math.abs(a.confidence - b.confidence),
-      sentimentA: SENTIMENT_LABELS[a.sentiment] || a.sentiment,
-      sentimentB: SENTIMENT_LABELS[b.sentiment] || b.sentiment,
+      sentimentA: sentimentLabel(a.sentiment),
+      sentimentB: sentimentLabel(b.sentiment),
     };
   }, [stateA, stateB]);
 

@@ -10,8 +10,8 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
+import { sentimentLabel } from "../lib/sentiment";
 
-const SENTIMENT_LABELS = { negative: "négatif", neutral: "neutre", positive: "positif" };
 const LABEL_ORDER = ["negative", "neutral", "positive"];
 /** Aide contextuelle affichée sous le sélecteur de méthode. */
 const METHOD_HINTS = {
@@ -52,7 +52,7 @@ function DistributionBar({ title, distribution, n }) {
           return (
             <div key={label} className="tt-drift-dist-row">
               <span className="tt-drift-dist-label">
-                {SENTIMENT_LABELS[label] || label}
+                {sentimentLabel(label)}
               </span>
               <span className="tt-confidence" title={`${pct}%`}>
                 <span

@@ -28,7 +28,7 @@
   flex-direction: column;
   gap: 18px;
   padding: 20px 14px;
-  background: #0e1217;
+  background: var(--tt-surface-3);
   border-right: 1px solid var(--tt-panel-border);
   position: sticky;
   top: 0;
@@ -51,9 +51,9 @@
   height: 38px;
   border-radius: 10px;
   background: linear-gradient(135deg, var(--tt-accent), var(--tt-positive));
-  color: #0b0e11;
+  color: var(--tt-on-accent);
   font-weight: 700;
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-family: var(--tt-mono);
   flex-shrink: 0;
 }
 
@@ -178,7 +178,50 @@
   max-width: 1100px;
 }
 
-/* Menu compact sur petits écrans : barre d'icônes horizontale en haut */
+/* --- Skeleton de chargement d'une page (Suspense) -------------------------- */
+
+.page-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1100px;
+}
+
+.page-fallback__bar {
+  height: 24px;
+  width: 40%;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #161b22 25%, #1e242c 50%, #161b22 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.page-fallback__card {
+  height: 120px;
+  border-radius: 12px;
+  border: 1px solid var(--tt-panel-border, #1e242c);
+  background: linear-gradient(90deg, #12161c 25%, #1a2028 50%, #12161c 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-fallback__bar,
+  .page-fallback__card {
+    animation: none;
+  }
+}
+
+/* --- Menu compact sur petits écrans : barre d'icônes horizontale en haut */
 @media (max-width: 900px) {
   .app-shell {
     flex-direction: column;

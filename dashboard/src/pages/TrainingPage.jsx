@@ -357,13 +357,14 @@ export default function TrainingPage() {
           </div>
 
           <table className="tt-table tt-jobs-table">
+            <caption className="sr-only">Historique des jobs d'entraînement</caption>
             <thead>
               <tr>
-                <th>Job</th>
-                <th>Statut</th>
-                <th>Étape</th>
-                <th>Démarré</th>
-                <th>Terminé</th>
+                <th scope="col">Job</th>
+                <th scope="col">Statut</th>
+                <th scope="col">Étape</th>
+                <th scope="col">Démarré</th>
+                <th scope="col">Terminé</th>
               </tr>
             </thead>
             <tbody>

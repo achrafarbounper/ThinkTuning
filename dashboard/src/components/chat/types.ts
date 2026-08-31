@@ -44,6 +44,11 @@ export interface ChatMessageData {
   thinking?: string;
   /** Vrai tant que la trace de réflexion est encore en cours d'émission. */
   thinkingStreaming?: boolean;
+  /**
+   * Appels d'outil émis par l'agent pendant un tour (mode Agent streaming),
+   * dans l'ordre d'exécution. Vide côté utilisateur ou hors mode Agent.
+   */
+  toolCalls?: ToolCallData[];
 }
 
 /** Corps JSON attendu par le backend : POST /api/ai */
