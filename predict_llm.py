@@ -1,8 +1,11 @@
 import argparse
 import json
+import logging
 import os
 import re
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -188,6 +191,7 @@ def load_texts(input_text: Optional[str], input_file: Optional[str]) -> List[str
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     args = parse_args()
 
     model = load_model(args.model_path, args.base_model)
@@ -197,7 +201,7 @@ def main() -> None:
     results = [predict_text(model, tokenizer, text, args.max_new_tokens) for text in texts]
 
     for result in results:
-        print(json.dumps({
+        logger.info(json.dumps({
             "text": result["text"],
             "sentiment": result["sentiment"],
             "confidence": round(float(result["confidence"]), 3),

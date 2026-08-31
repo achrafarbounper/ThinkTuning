@@ -1,6 +1,9 @@
 import argparse
 import csv
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def normalize(label):
@@ -54,6 +57,7 @@ def score_review(rows):
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     parser = argparse.ArgumentParser(description="Compute the quality score from a manually reviewed CSV.")
     parser.add_argument("--input", required=True, help="CSV created by manual review. It must contain text,predicted_label,manual_label,status.")
     args = parser.parse_args()
@@ -61,7 +65,7 @@ def main():
     data = load_review_csv(args.input)
     metrics = score_review(data)
 
-    print({
+    logger.info({
         "rows_evaluated": metrics["rows_evaluated"],
         "correct": metrics["correct"],
         "incorrect": metrics["incorrect"],

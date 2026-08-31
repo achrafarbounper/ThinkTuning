@@ -35,10 +35,13 @@ import argparse
 import csv
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from src.dataset.loader import LABEL_NAMES, load_local_dataset, load_raw_dataset
+
+logger = logging.getLogger(__name__)
 
 # Format attendu pour le CSV de review (généré par active_learning.py /
 # sample_for_review.py, complété manuellement).
@@ -260,6 +263,7 @@ def load_source_records(
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     parser = argparse.ArgumentParser(
         description=(
             "Réinjecte les corrections de manual_review_template.csv dans le jeu "
@@ -314,9 +318,9 @@ def main():
 
     rows = load_review_csv(args.review)
     corrections = extract_valid_corrections(rows)
-    print(f"Lignes de review : {len(rows)} | corrections valides : {len(corrections)}")
+    logger.info(f"Lignes de review : {len(rows)} | corrections valides : {len(corrections)}")
     if not corrections:
-        print(
+        logger.info(
             "Aucune ligne tranchée (colonne manual_label vide ou invalide) : "
             "rien à fusionner, seule la source dédupliquée sera exportée."
         )
@@ -335,13 +339,13 @@ def main():
     else:
         write_merged_jsonl(merged, args.output)
 
-    print(
+    logger.info(
         f"Fusion terminée : {stats['source_rows']} exemples sources "
         f"({stats['source_duplicates_removed']} doublons retirés), "
         f"{stats['corrected_existing']} labels corrigés, "
         f"{stats['appended_new']} exemples ajoutés."
     )
-    print(f"Exported {stats['final_rows']} examples to {args.output}")
+    logger.info(f"Exported {stats['final_rows']} examples to {args.output}")
 
 
 if __name__ == "__main__":

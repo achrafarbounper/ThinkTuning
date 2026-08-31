@@ -1,10 +1,13 @@
 import argparse
 import csv
 import json
+import logging
 import random
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 LABELS = ["negative", "neutral", "positive"]
@@ -164,7 +167,7 @@ def generate_sample_and_review(input_path: str, sample_size: int, seed: int, sam
 
     if sample_out:
         write_jsonl(sampled, sample_out)
-        print(f"Sample written to {sample_out} ({len(sampled)} rows)")
+        logger.info(f"Sample written to {sample_out} ({len(sampled)} rows)")
 
     if review_out:
         review_records = []
@@ -178,12 +181,13 @@ def generate_sample_and_review(input_path: str, sample_size: int, seed: int, sam
                 "status": "",
             })
         write_manual_review_csv(review_records, review_out)
-        print(f"Manual review CSV template written to {review_out}")
+        logger.info(f"Manual review CSV template written to {review_out}")
 
     return sampled
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     parser = argparse.ArgumentParser(description="Estimate weak supervision noise by comparing a sample of generated labels to manual review.")
     parser.add_argument("--input", required=True, help="JSONL file with generated labels (e.g. label_dataset output).")
     parser.add_argument("--gold", default=None, help="CSV or JSONL file with manual labels (columns: text,label or sentiment). Optional if only generating a sample and a review template.")
@@ -218,7 +222,7 @@ def main():
             raise ValueError(f"No manual labels loaded from {args.gold}")
 
         metrics = compare_labels(generated, gold, args.sample_size, args.seed)
-        print(json.dumps({
+        logger.info(json.dumps({
             "sample_size": metrics["sample_size"],
             "matches": metrics["matches"],
             "mismatches": metrics["mismatches"],
@@ -227,7 +231,7 @@ def main():
             "examples": metrics["mismatch_examples"],
         }, ensure_ascii=False, indent=2))
     else:
-        print(f"Sample generation complete. {len(sampled)} records available for manual review.")
+        logger.info(f"Sample generation complete. {len(sampled)} records available for manual review.")
 
 
 if __name__ == "__main__":

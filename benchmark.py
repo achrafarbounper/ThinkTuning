@@ -24,11 +24,14 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
 import sys
 import time
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -425,6 +428,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 
 def main(argv: Optional[List[str]] = None) -> dict:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     args = parse_args(argv)
 
     if args.device == "cpu":
@@ -514,7 +518,7 @@ def main(argv: Optional[List[str]] = None) -> dict:
                 "metrics": None,
                 "error": str(exc),
             }
-            print(f"[benchmark] LLM skipped, error: {exc}")
+            logger.warning(f"[benchmark] LLM skipped, error: {exc}")
 
     report = build_report(run_config, dataset_info, models)
     display_table(models)
@@ -525,7 +529,7 @@ def main(argv: Optional[List[str]] = None) -> dict:
     with out_path.open("w", encoding="utf-8") as handle:
         json.dump(report, handle, ensure_ascii=False, indent=2)
 
-    print(f"Rapport écrit : {out_path}")
+    logger.info(f"Rapport écrit : {out_path}")
     return report
 
 

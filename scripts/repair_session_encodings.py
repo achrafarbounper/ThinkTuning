@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -31,6 +32,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ia.agent.encoding import repair_utf8_mojibake  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 def _repaired_cells(conn: sqlite3.Connection):
@@ -70,7 +73,7 @@ def main() -> int:
 
     db_path = Path(args.db)
     if not db_path.exists():
-        print(f"[repair] Base introuvable : {db_path}")
+        logger.error(f"[repair] Base introuvable : {db_path}")
         return 2
 
     conn = sqlite3.connect(str(db_path))
@@ -82,28 +85,28 @@ def main() -> int:
     by_table: dict[str, int] = {}
     for table, col, pk, raw, fixed in cells:
         by_table[f"{table}.{col}"] = by_table.get(f"{table}.{col}", 0) + 1
-        print(f"  [{table}.{col}] id={pk!r}")
-        print(f"    avant : {raw[:120]!r}")
-        print(f"    après : {fixed[:120]!r}")
+        logger.info(f"  [{table}.{col}] id={pk!r}")
+        logger.info(f"    avant : {raw[:120]!r}")
+        logger.info(f"    après : {fixed[:120]!r}")
 
     total = len(cells)
-    print(f"\n[repair] {total} cellule(s) réparable(s) : {by_table or 'aucune'}")
+    logger.info(f"\n[repair] {total} cellule(s) réparable(s) : {by_table or 'aucune'}")
 
     if not args.apply:
-        print("[repair] dry-run : aucun changement écrit. Relancez avec --apply pour appliquer.")
+        logger.info("[repair] dry-run : aucun changement écrit. Relancez avec --apply pour appliquer.")
         return 0 if total else 0
 
     if total == 0:
-        print("[repair] Rien à faire.")
+        logger.info("[repair] Rien à faire.")
         return 0
 
     # Sauvegarde unique avant toute écriture.
     backup = db_path.with_suffix(db_path.suffix + ".bak")
     if not backup.exists():
         shutil.copy2(str(db_path), str(backup))
-        print(f"[repair] Sauvegarde créée : {backup}")
+        logger.info(f"[repair] Sauvegarde créée : {backup}")
     else:
-        print(f"[repair] Sauvegarde déjà présente (non écrasée) : {backup}")
+        logger.info(f"[repair] Sauvegarde déjà présente (non écrasée) : {backup}")
 
     conn = sqlite3.connect(str(db_path))
     try:
@@ -114,9 +117,10 @@ def main() -> int:
                 )
     finally:
         conn.close()
-    print(f"[repair] {total} cellule(s) réécrite(s).")
+    logger.info(f"[repair] {total} cellule(s) réécrite(s).")
     return 0
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     raise SystemExit(main())

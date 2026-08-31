@@ -16,6 +16,7 @@ Exemples :
 """
 
 import argparse
+import logging
 import os
 import subprocess
 import sys
@@ -23,6 +24,8 @@ import time
 
 from core.models import PipelineRequest
 from core.pipeline_runner import build_finetune_cmd, PROJECT_ROOT, run_labeling
+
+logger = logging.getLogger(__name__)
 
 
 def load_yaml_config(path: str) -> dict:
@@ -140,38 +143,52 @@ def merge_params(args: argparse.Namespace) -> PipelineRequest:
 
 
 def main() -> int:
+    # Même convention que api/main.py : on branche le handler console coloré
+    # (rich, cf. ia/logging_setup.py) pour afficher les logs du pipeline.
+    _ia_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ia")
+    if _ia_dir not in sys.path:
+        sys.path.insert(0, _ia_dir)
+    from logging_setup import setup_logging
+    setup_logging()
+
     args = build_parser().parse_args()
     params = merge_params(args)
 
     timestamp = time.strftime("%Y%m%dT%H%M%SZ")
     labeled_out = params.labeled_output or os.path.join("runs", f"pipeline_{timestamp}", "labeled.jsonl")
 
-    print("[pipeline] Étape 1/3 — Labeling + filtrage par confidence "
-          f"(min_confidence={params.min_confidence})")
+    logger.info(
+        "Étape 1/3 — Labeling + filtrage par confidence (min_confidence=%s)",
+        params.min_confidence,
+    )
     started = time.time()
     records = run_labeling(params, labeled_out)
-    print(f"[pipeline] {len(records)} record(s) conservé(s) -> {labeled_out} "
-          f"({time.time() - started:.1f}s)")
+    logger.info(
+        "%d record(s) conservé(s) -> %s (%.1fs)",
+        len(records), labeled_out, time.time() - started,
+    )
 
     if not records:
-        print(
-            "[pipeline] ERREUR : aucun record au-dessus du seuil de confidence. "
-            "Le fine-tuning n'est pas lancé. Baissez --min_confidence ou vérifiez l'entrée.",
-            file=sys.stderr,
+        logger.error(
+            "Aucun record au-dessus du seuil de confidence. "
+            "Le fine-tuning n'est pas lancé. Baissez --min_confidence "
+            "ou vérifiez l'entrée."
         )
         return 1
 
-    print("[pipeline] Étape 2/3 — Fine-tuning LLM (subprocess finetune_llm.py)")
+    logger.info("Étape 2/3 — Fine-tuning LLM (subprocess finetune_llm.py)")
     cmd = build_finetune_cmd(params, labeled_out, params.output_dir)
-    print("[pipeline] " + " ".join(cmd))
+    logger.info("Commande : %s", " ".join(cmd))
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
     if result.returncode != 0:
-        print(f"[pipeline] ERREUR : finetune_llm.py a échoué (code {result.returncode}).", file=sys.stderr)
+        logger.error(
+            "finetune_llm.py a échoué (code %s).", result.returncode
+        )
         return result.returncode or 1
 
-    print("[pipeline] Terminé.")
-    print(f"[pipeline] Dataset labelé : {labeled_out}")
-    print(f"[pipeline] Modèle LoRA    : {params.output_dir}")
+    logger.info("Terminé.")
+    logger.info("Dataset labelé : %s", labeled_out)
+    logger.info("Modèle LoRA    : %s", params.output_dir)
     return 0
 
 
@@ -179,5 +196,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        print("[pipeline] Interrompu par l'utilisateur.")
+        logger.warning("Interrompu par l'utilisateur.")
         sys.exit(130)

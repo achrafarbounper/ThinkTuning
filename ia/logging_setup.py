@@ -1,18 +1,22 @@
-"""Configuration centralisée des LOGS de l'agent IA — affichage terminal.
+"""Configuration centralisée des LOGS — affichage terminal (agent IA, pipeline…).
 
 Pourquoi ce module ?
-    Les loggers utilisés dans ia/ (`agent.*`, `tools.*`) n'ont aucun handler
-    par défaut : sans configuration, Python n'affiche que les WARNING+ via son
-    handler « last resort ». Cette fonction branche UN handler console unique,
-    coloré et lisible, qui affiche dans le terminal :
+    Les loggers utilisés dans ia/ (`agent.*`, `tools.*`) ou core/
+    (`thinktuning.pipeline_runner`) n'ont aucun handler par défaut : sans
+    configuration, Python n'affiche que les WARNING+ via son handler « last
+    resort ». Ces fonctions branchent UN handler console unique, coloré et
+    lisible, qui affiche dans le terminal :
 
         - l'heure, le niveau (coloré selon sa gravité) et le nom du logger ;
         - les durées mesurées par l'agent (appels LLM, exécution des tools) ;
+        - les étapes du pipeline (labeling → filtering → finetuning) ;
         - des tracebacks complets et mis en forme (rich) en cas d'échec.
 
     Utilisable depuis :
         - api/main.py           -> logs API + agent dans le terminal uvicorn ;
-        - n'importe quel script -> setup_agent_logging() avant d'utiliser l'agent ;
+        - pipeline.py           -> logs des étapes du pipeline end-to-end (CLI) ;
+        - n'importe quel script -> setup_logging() (ou setup_agent_logging())
+          avant de journaliser ;
         - directement en démo   -> python ia/logging_setup.py
 
 Niveau de log : variable d'environnement AGENT_LOG_LEVEL (DEBUG/INFO/WARNING/
@@ -97,12 +101,13 @@ def _build_console_handler():
     return handler
 
 
-def setup_agent_logging(level=None):
-    """Branche le handler console de l'agent sur le logger racine.
+def setup_logging(level=None):
+    """Branche le handler console coloré sur le logger racine.
 
-    À appeler UNE fois au démarrage (api/main.py le fait déjà). Le niveau peut
-    être passé explicitement (prioritaire) ou venir d'AGENT_LOG_LEVEL.
-    Retourne le handler installé (pratique pour les tests).
+    À appeler UNE fois au démarrage (api/main.py le fait déjà ; pipeline.py
+    l'appelle aussi). Le niveau peut être passé explicitement (prioritaire) ou
+    venir d'AGENT_LOG_LEVEL. Retourne le handler installé (pratique pour les
+    tests).
     """
     numeric_level = _resolve_level(level)
 
@@ -125,6 +130,12 @@ def setup_agent_logging(level=None):
         logging.getLogger(noisy).setLevel(max(numeric_level, logging.WARNING))
 
     return handler
+
+
+# Alias conservé pour compatibilité (api/main.py et les tests l'utilisent).
+# Le comportement est identique : même handler console, niveau via
+# AGENT_LOG_LEVEL par défaut.
+setup_agent_logging = setup_logging
 
 
 if __name__ == "__main__":  # démonstration du rendu terminal : python ia/logging_setup.py

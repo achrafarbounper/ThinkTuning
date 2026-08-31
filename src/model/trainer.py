@@ -1,4 +1,5 @@
 import os
+import logging
 
 import torch
 from torch import nn
@@ -9,6 +10,8 @@ from tqdm import tqdm
 from src.utils.metrics import compute_metrics
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def compute_class_weights(labels, num_classes=3):
@@ -24,13 +27,18 @@ def compute_class_weights(labels, num_classes=3):
         torch.Tensor de shape (num_classes,) à passer à nn.CrossEntropyLoss(weight=...)
     """
     labels = np.asarray(labels)
+    logger.debug(
+        f"compute_class_weights : début | {len(labels)} échantillons, {num_classes} classes"
+    )
     counts = np.bincount(labels, minlength=num_classes)
     counts = np.maximum(counts, 1)  # évite division par zéro si une classe est absente
 
     total = counts.sum()
     weights = total / (num_classes * counts)
 
-    return torch.tensor(weights, dtype=torch.float32)
+    result = torch.tensor(weights, dtype=torch.float32)
+    logger.debug(f"compute_class_weights : terminé -> shape={tuple(result.shape)}")
+    return result
 
 
 class TrainingCancelledError(RuntimeError):
@@ -70,6 +78,9 @@ class Trainer:
         self.criterion = nn.CrossEntropyLoss(weight=class_weights)
 
     def train(self, train_loader, val_loader, cancel_event=None):
+        logger.debug(
+            f"Trainer.train : début | epochs={self.cfg['epochs']}, device={self.device}"
+        )
         # Le nombre de "vrais" pas d'optimisation tient compte de l'accumulation
         steps_per_epoch = -(-len(train_loader) // self.grad_accum_steps)  # ceil division
         total_steps = steps_per_epoch * self.cfg["epochs"]
@@ -107,7 +118,7 @@ class Trainer:
         for epoch in range(self.cfg["epochs"]):
             if cancel_event is not None and cancel_event.is_set():
                 raise TrainingCancelledError("Training cancelled by user")
-            print(f"\n=== Epoch {epoch+1}/{self.cfg['epochs']} ===")
+            logger.info(f"\n=== Epoch {epoch+1}/{self.cfg['epochs']} ===")
             self._train_epoch(train_loader, cancel_event=cancel_event)
             if cancel_event is not None and cancel_event.is_set():
                 raise TrainingCancelledError("Training cancelled by user")
@@ -133,14 +144,14 @@ class Trainer:
                     k: v.detach().clone() for k, v in self.model.state_dict().items()
                 }
                 self.save("experiments/checkpoints/best_model.pt")
-                print(f"✔ Nouveau meilleur modèle (F1={f1:.4f}) sauvegardé.")
+                logger.info(f"✔ Nouveau meilleur modèle (F1={f1:.4f}) sauvegardé.")
             else:
                 epochs_without_improvement += 1
 
             # Early stopping : on arrête si le F1 de validation n'a pas progressé
             # pendant `patience` epochs consécutives (patience configurable).
             if patience > 0 and epochs_without_improvement >= patience:
-                print(
+                logger.info(
                     f"⏹ Early stopping : F1 non amélioré pendant {patience} epochs "
                     f"consécutives — arrêt à l'epoch {epoch + 1} "
                     f"(meilleur F1={best_f1:.4f} à l'epoch {best_epoch})."
@@ -157,7 +168,7 @@ class Trainer:
         if best_state is not None:
             self.model.load_state_dict(best_state)
             self.final_metrics = best_epoch_record
-            print(
+            logger.info(
                 f"↩ Meilleur checkpoint restauré (epoch {best_epoch}, F1={best_f1:.4f})."
             )
         else:
@@ -170,6 +181,11 @@ class Trainer:
         self.best_epoch = best_epoch
         self.best_f1 = float(best_f1)
 
+        logger.debug(
+            f"Trainer.train : terminé | {len(self.epoch_metrics)} epoch(s), "
+            f"early_stopped={early_stopped}, durée={self.training_duration_seconds}s"
+        )
+
         return {
             "epoch_metrics": self.epoch_metrics,
             "final_metrics": self.final_metrics,
@@ -178,6 +194,7 @@ class Trainer:
         }
 
     def _train_epoch(self, loader, cancel_event=None):
+        logger.debug(f"_train_epoch : début | {len(loader)} batch(s)")
         self.model.train()
         self.optimizer.zero_grad(set_to_none=True)
 
@@ -219,7 +236,10 @@ class Trainer:
                 self.scheduler.step()
                 self.optimizer.zero_grad(set_to_none=True)
 
+        logger.debug("_train_epoch : terminé")
+
     def _eval_epoch(self, loader, cancel_event=None):
+        logger.debug(f"_eval_epoch : début | {len(loader)} batch(s)")
         self.model.eval()
         preds, labels = [], []
 
@@ -243,7 +263,8 @@ class Trainer:
                 labels.extend(batch["labels"].cpu().numpy())
 
         metrics = compute_metrics(preds, labels)
-        print(f"Eval — Acc={metrics['accuracy']:.4f}  F1={metrics['f1_macro']:.4f}")
+        logger.info(f"Eval — Acc={metrics['accuracy']:.4f}  F1={metrics['f1_macro']:.4f}")
+        logger.debug(f"_eval_epoch : terminé -> {len(loader)} batch(s) évalués")
         return metrics
 
     def save(self, path):

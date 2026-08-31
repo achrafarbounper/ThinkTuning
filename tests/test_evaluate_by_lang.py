@@ -1,3 +1,4 @@
+import logging
 import os
 from types import SimpleNamespace
 
@@ -60,29 +61,31 @@ def test_segment_by_language_splits_fr_and_en():
     assert per_lang["en"]["labels"].size == 3
 
 
-def test_report_by_language_displays_confusion_matrices(capsys, tmp_path, monkeypatch):
+def test_report_by_language_displays_confusion_matrices(capsys, caplog, tmp_path, monkeypatch):
     results = _run_evaluate()
     monkeypatch.setattr("evaluate.OUTPUT_DIR", str(tmp_path))
 
-    report_by_language(results)
-    out = capsys.readouterr().out
+    with caplog.at_level(logging.INFO, logger="evaluate"):
+        report_by_language(results)
 
     # Deux matrices distinctes affichées : une pour FR, une pour EN.
-    assert "Français (FR)" in out
-    assert "Anglais (EN)" in out
-    assert "Matrice de confusion" in out
+    messages = [r.getMessage() for r in caplog.records if r.name == "evaluate"]
+    assert any("Français (FR)" in m for m in messages)
+    assert any("Anglais (EN)" in m for m in messages)
+    assert any("Matrice de confusion" in m for m in messages)
 
     # La figure ConfusionMatrixDisplay (FR + EN) est générée et sauvegardée.
     assert os.path.exists(os.path.join(str(tmp_path), "confusion_matrices_by_lang.png"))
 
 
-def test_report_by_language_handles_missing_lang(capsys):
+def test_report_by_language_handles_missing_lang(caplog):
     tokenizer = AutoTokenizer.from_pretrained("distilbert-base-multilingual-cased")
     dataset = _build_tokenized_with_lang().remove_columns(["lang_code"])
 
     results = evaluate(DummyModel(), tokenizer, dataset, batch_size=2)
     assert results["langs"] is None
 
-    report_by_language(results)
-    out = capsys.readouterr().out
-    assert "pas de segmentation par langue" in out
+    with caplog.at_level(logging.WARNING, logger="evaluate"):
+        report_by_language(results)
+
+    assert any("pas de segmentation par langue" in r.getMessage() for r in caplog.records if r.name == "evaluate")
