@@ -45,6 +45,86 @@ def _tensor_std(t):
         return 0.0
 
 
+def load_head_tensors(dirpath):
+    """Retourne les tenseurs de la tête de classification d'un dossier.
+
+    Returns:
+        dict {key: torch.Tensor} — vide si aucun poids lisible ou aucune
+        clé de tête de classification trouvée.
+    """
+    import torch
+
+    for fname in MODEL_WEIGHT_FILES:
+        fpath = os.path.join(dirpath, fname)
+        if not os.path.isfile(fpath) or os.path.getsize(fpath) <= 0:
+            continue
+        try:
+            if fname.endswith(".safetensors"):
+                from safetensors import safe_open
+
+                head = {}
+                with safe_open(fpath, framework="pt") as handle:
+                    for key in handle.keys():
+                        parts = key.split(".")
+                        if len(parts) == 2 and parts[0] in HEAD_CLASSIFIER_KEYS \
+                                and parts[1] == "weight":
+                            head[key] = handle.get_tensor(key)
+                return head
+            state = torch.load(fpath, map_location="cpu", weights_only=True)
+            if not isinstance(state, dict):
+                return {}
+            return {
+                key: value
+                for key, value in state.items()
+                if len(key.split(".")) == 2
+                and key.split(".")[0] in HEAD_CLASSIFIER_KEYS
+                and key.split(".")[1] == "weight"
+            }
+        except Exception:
+            return {}
+    return {}
+
+
+def head_matches_reference(dirpath, reference_state, atol=0.0):
+    """Vérifie que la tête persistée est strictement identique au modèle
+    entraîné en mémoire ( SCRUM : « le modèle persisté doit être strictement
+    identique au modèle entraîné » ).
+
+    Args:
+        dirpath: dossier contenant les poids sauvegardés.
+        reference_state: state_dict du modèle entraîné en mémoire (ou None).
+        atol: tolérance absolue (0.0 = égalité bit-exact).
+
+    Returns:
+        True si toutes les clés de tête sauvegardées correspondent
+        exactement (au bit près par défaut) au state_dict de référence.
+        False si une clé manque, diverge, ou si aucun tenseur de tête
+        n'est lisible côté disque.
+    """
+    if not reference_state:
+        return False
+    import torch
+
+    saved = load_head_tensors(dirpath)
+    if not saved:
+        return False
+    for key, tensor in saved.items():
+        if key not in reference_state:
+            return False
+        ref = reference_state[key]
+        try:
+            if not torch.allclose(
+                tensor.detach().cpu().float(),
+                ref.detach().cpu().float(),
+                atol=atol,
+                rtol=0.0,
+            ):
+                return False
+        except Exception:
+            return False
+    return True
+
+
 def _classifier_std(state_dict):
     for name_stem in HEAD_CLASSIFIER_KEYS:
         for key, value in state_dict.items():
@@ -56,36 +136,8 @@ def _classifier_std(state_dict):
     return 0.0
 
 
-def _load_head_state(dirpath):
-    import torch
-    for fname in MODEL_WEIGHT_FILES:
-        fpath = os.path.join(dirpath, fname)
-        if not os.path.isfile(fpath) or os.path.getsize(fpath) <= 0:
-            continue
-        try:
-            if fname.endswith(".safetensors"):
-                from safetensors import safe_open
-                with safe_open(fpath, framework="pt") as handle:
-                    head = {}
-                    for key in handle.keys():
-                        parts = key.split(".")
-                        if len(parts) == 2:
-                            if parts[0] in HEAD_CLASSIFIER_KEYS:
-                                if parts[1] == "weight":
-                                    head[key] = handle.get_tensor(key)
-                    return head if head else {}
-            else:
-                sd = torch.load(fpath, map_location="cpu", weights_only=True)
-                if isinstance(sd, dict):
-                    return sd
-                return {}
-        except Exception:
-            return {}
-    return {}
-
-
 def is_model_version_trained(dirpath):
-    state = _load_head_state(dirpath)
+    state = load_head_tensors(dirpath)
     if not state:
         return False
     if _classifier_std(state) > HEAD_CLASSIFIER_MIN_STD:
