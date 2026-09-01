@@ -18,6 +18,8 @@ def _coerce_config(cfg):
         "weight_decay",
         "warmup_ratio",
         "early_stopping_min_delta",
+        "label_smoothing",
+        "mixup_alpha",
     }
 
     for key in int_keys:
