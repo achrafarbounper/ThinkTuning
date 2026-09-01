@@ -163,7 +163,8 @@ def test_early_stopping_stops_and_restores_best_checkpoint():
     # F1 de validation en dégradation : seule l'epoch 1 « améliore » (0.5)
     f1_values = iter([0.5, 0.4, 0.3, 0.2, 0.1, 0.0])
 
-    def fake_eval_epoch(_loader, cancel_event=None):
+    def fake_eval_epoch(_loader, cancel_event=None, on_progress=None,
+                        epoch=None, epochs_total=None):
         return {"accuracy": 0.5, "f1_macro": next(f1_values)}
 
     trainer._eval_epoch = fake_eval_epoch
@@ -214,7 +215,8 @@ def test_early_stopping_disabled_by_default_runs_all_epochs():
     # F1 constant : sans patience configurée, l'entraînement va au bout
     f1_values = iter([0.5, 0.5, 0.5])
 
-    def fake_eval_epoch(_loader, cancel_event=None):
+    def fake_eval_epoch(_loader, cancel_event=None, on_progress=None,
+                        epoch=None, epochs_total=None):
         return {"accuracy": 0.5, "f1_macro": next(f1_values)}
 
     trainer._eval_epoch = fake_eval_epoch

@@ -182,6 +182,23 @@ export class SentimentApiClient extends SentimentApiClientCore {
     return this._request(`/train/history/${encodeURIComponent(jobId)}`);
   }
 
+  /**
+   * WebSocket GET /train/stream/{job_id} — métriques live pendant un
+   * entraînement (loss / F1 epoch par epoch). Usage interne au dashboard :
+   * le jeton (X-API-Key ou DASHBOARD_WS_TOKEN côté serveur) est passé en
+   * query param `?token=` car les navigateurs ne peuvent pas poser de header
+   * sur un WebSocket. Retourne l'URL complète à passer à `new WebSocket()`.
+   */
+  getTrainMetricsStreamUrl(jobId) {
+    const wsUrl = this.baseUrl
+      .replace(/^http/, "ws")
+      .replace(/^https/, "wss");
+    const params = new URLSearchParams();
+    if (this.apiKey) params.set("token", this.apiKey);
+    const qs = params.toString();
+    return `${wsUrl}/train/stream/${encodeURIComponent(jobId)}${qs ? `?${qs}` : ""}`;
+  }
+
   // -- /train/schedules (SCRUM-34 : planification récurrente) -----------------
 
   /**

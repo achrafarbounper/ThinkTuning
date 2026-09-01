@@ -211,6 +211,14 @@ textarea { width: 100%; resize: vertical; }
 .tt-tracker-error { color: var(--tt-negative); border-color: rgba(242,84,91,0.5); }
 .tt-tracker-error .tt-tracker-dot { background: var(--tt-negative); }
 
+/* Métriques live (WebSocket /train/stream/{job_id}) */
+.tt-metrics-stream { margin-top: 14px; }
+.tt-metrics-live { font-size: 0.82rem; color: var(--tt-text-dim); }
+.tt-metrics-live strong { color: var(--tt-text); }
+.tt-metrics-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; max-height: 240px; display: block; overflow-y: auto; }
+.tt-metrics-table th, .tt-metrics-table td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--tt-panel-border); }
+.tt-metrics-table th { color: var(--tt-text-dim); font-weight: 500; position: sticky; top: 0; }
+
 .tt-history-controls { display: flex; gap: 8px; align-items: center; }
 
 /* ContrÃ´les de pagination / filtrage de GET /train/jobs */
@@ -823,6 +831,7 @@ textarea { width: 100%; resize: vertical; }
   border: 1px solid var(--tt-border, #e5e7eb);
   border-radius: 999px;
   cursor: pointer;
+  -webkit-user-select: none; /* Safari */
   user-select: none;
 }
 

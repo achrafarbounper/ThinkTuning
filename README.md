@@ -637,6 +637,48 @@ docker compose --profile evaluate run --rm evaluate
 
 # Override rapide des hyperparamètres sans toucher le compose file
 docker compose run --rm train python train.py --max_per_lang 200 --epochs 1
+## Métriques d'entraînement en temps réel — WebSocket `/train/stream/{job_id}`
+
+> **Usage interne au dashboard uniquement — pas un endpoint public.**
+> Ce canal n'est pas protégé comme une API publique et ne doit pas être exposé
+> sur Internet (il ne transite jamais par le reverse proxy public).
+
+Pendant un entraînement, les métriques par epoch (loss de validation, F1
+macro, accuracy) sont persistées **dès la fin de chaque epoch** (upsert dans
+la table SQLite `train_metrics`) au lieu d'être écrites uniquement en fin de
+job. Le dashboard les suit via un WebSocket :
+
+```
+GET /train/stream/{job_id}?token=<DASHBOARD_WS_TOKEN ou API_KEY>
+```
+
+- **Auth** : les navigateurs ne peuvent pas poser de header sur un WebSocket,
+  le jeton est donc passé en query param `?token=` (même convention que
+  `/api/agent/ws`). Par défaut c'est la clé API ; pour un jeton dédié au
+  dashboard, définir la variable d'environnement `DASHBOARD_WS_TOKEN`.
+- **Protocole** (messages JSON) :
+  - `{"type": "epoch", "job_id", "epoch", "loss", "f1_macro", "accuracy"}`
+  - `{"type": "end", "status": "completed|failed|cancelled|unknown"}` — envoyé
+    juste avant la **fermeture propre** de la connexion.
+  - `{"type": "stalled", "last_epoch", "minutes"}` — job toujours `running`
+    mais aucun nouvel epoch depuis `TRAIN_STREAM_STALL_MINUTES` (défaut 5 min)
+    : le serveur ferme la connexion (worker mort / connexion zombie).
+  - `{"type": "error", "detail"}` — job introuvable (fermeture code 1008).
+- **Polling adaptatif** : les epochs déjà réalisées sont envoyées immédiatement
+  à la connexion (reconnexion en cours d'entraînement OK) ; tant que le job est
+  actif le serveur scrute le store toutes les 0,5 s ; dès que le statut est
+  terminal, événement `end` + fermeture — pas de connexion ouverte inutile.
+- **Architecture** : l'endpoint consomme une abstraction
+  `TrainingEventsSource` (`core/training_events.py`) dont l'implémentation
+  actuelle, `SQLitePollingEventsSource`, lit le SQLite partagé (compatible
+  multi-workers). Pour passer à une diffusion push (Redis pub/sub, NATS, ...)
+  plus tard, il suffit d'implémenter la même interface — l'endpoint ne change
+  pas.
+- **Dashboard** : le composant `TrainMetricsStream` (`dashboard/src/…`) se
+  connecte via `client.getTrainMetricsStreamUrl(jobId)` et affiche la loss et
+  le F1 epoch par epoch sous le suivi de job.
+
+## Notes
 
 ## Notes
 

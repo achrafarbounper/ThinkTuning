@@ -1,0 +1,388 @@
+........................................................................ [ 12%]
+........................................................................ [ 25%]
+........................................................................ [ 38%]
+........................................s............................... [ 50%]
+........................................................................ [ 63%]
+................F....................................................... [ 76%]
+..............F......................................................... [ 88%]
+.............................................................FF          [100%]
+================================== FAILURES ===================================
+____________________ test_train_status_predict_end_to_end _____________________
+
+client = <starlette.testclient.TestClient object at 0x000001F07C3C34D0>
+pipeline_mock = None
+
+    def test_train_status_predict_end_to_end(client, pipeline_mock):
+        """Cycle complet : POST /train -> polling /train/status -> POST /predict."""
+        # 1) Démarre un entraînement (dans un thread dédié).
+        resp = client.post(
+            "/train",
+            json={"max_per_lang": 6, "epochs": 1, "batch_size": 2},
+            headers=HEADERS,
+        )
+        assert resp.status_code == 202, resp.text
+        job_id = resp.json()["job_id"]
+        assert job_id
+    
+        # 2) L'entraînement part réellement dans un thread (comme en prod).
+        req = api.TrainRequest(max_per_lang=6, epochs=1, batch_size=2)
+        api_thread = threading.Thread(target=api._run_training, args=(job_id, req), daemon=True)
+        api_thread.start()
+    
+        # 3) Polling du statut jusqu'à un état terminal.
+        terminal = {"completed", "failed", "cancelled"}
+        final_status = None
+        for _ in range(200):
+            status_resp = client.get(f"/train/status/{job_id}", headers=HEADERS)
+            assert status_resp.status_code == 200, status_resp.text
+            body = status_resp.json()
+            if body["status"] in terminal:
+                final_status = body
+                break
+            time.sleep(0.05)
+        api_thread.join(timeout=5)
+    
+        assert final_status is not None, "L'entraînement n'a pas abouti à un état terminal"
+>       assert final_status["status"] == "completed", f"Échec entraînement: {final_status.get('error')}"
+E       AssertionError: Échec entraînement: FakeTrainer.train() got an unexpected keyword argument 'on_epoch_end'
+E       assert 'failed' == 'completed'
+E         
+E         - completed
+E         + failed
+
+tests\test_api_e2e.py:500: AssertionError
+---------------------------- Captured stdout call -----------------------------
+                    INFO     http_request method=POST path=/train status=202   \n                             duration_ms=109.243 client_ip=testclient          \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.848                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.699                \n                             client_ip=testclient                              \n[09/01/26 11:47:15] INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=3.534                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.669                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.399                \n                             client_ip=testclient                              \n                    INFO     D\xe9marrage de l'entra\xeenement |                     \n                             job_id=ff1e01d2-fb3e-47cf-abf0-17231dabea98 |     \n                             device=auto                                       \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.467                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.533                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=3.874                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.600                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.649                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.491                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=3.594                \n                             client_ip=testclient                              \n                    INFO     Dataset charg\xe9 | 6 exemples bruts                 \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.739                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.399                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.753                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=3.647                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.407                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.609                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.382                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=3.071                \n                             client_ip=testclient                              \n                    INFO     Augmentation EDA : 5 exemples (variants=2,        \n                             fraction=0.4, back_translation=True)              \n[09/01/26 11:47:16] INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.610                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.923                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.892                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.601                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.598                \n                             client_ip=testclient                              \n                    INFO     Mod\xe8le charg\xe9 : tiny-local-model sur cpu          \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=3.391                \n                             client_ip=testclient                              \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=1.946                \n                             client_ip=testclient                              \n                    INFO     D\xe9but de l'entra\xeenement | 1 epochs | device=cpu   \n                    ERROR    \xc9chec du job d'entra\xeenement                       \n                             \u250c\u2500\u2500\u2500\u2500\u2500\u2500 Traceback (most recent call last) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n                             \u2502 D:\\ThinkTuning\\core\\trainer_runner.py:385 in   \u2502\n                             \u2502 run_training                                   \u2502\n                             \u2502                                                \u2502\n                             \u2502   382 \u2502   \u2502   def _on_progress(info):          \u2502\n                             \u2502   383 \u2502   \u2502   \u2502   _update_batch_progress(store \u2502\n                             \u2502   384 \u2502   \u2502                                    \u2502\n                             \u2502 > 385 \u2502   \u2502   train_result = trainer.train(    \u2502\n                             \u2502   386 \u2502   \u2502   \u2502   train_loader,                \u2502\n                             \u2502   387 \u2502   \u2502   \u2502   val_loader,                  \u2502\n                             \u2502   388 \u2502   \u2502   \u2502   cancel_event=cancel_event,   \u2502\n                             \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                             TypeError: FakeTrainer.train() got an unexpected  \n                             keyword argument 'on_epoch_end'                   \n                    INFO     http_request method=GET                           \n                             path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231da\n                             bea98 status=200 duration_ms=2.952                \n                             client_ip=testclient                              \n                    INFO     D\xe9marrage de l'entra\xeenement |                     \n                             job_id=ff1e01d2-fb3e-47cf-abf0-17231dabea98 |     \n                             device=auto                                       \n[09/01/26 11:47:17] INFO     Dataset charg\xe9 | 6 exemples bruts                 \n[09/01/26 11:47:18] INFO     Augmentation EDA : 5 exemples (variants=2,        \n                             fraction=0.4, back_translation=True)              \n                    INFO     Mod\xe8le charg\xe9 : tiny-local-model sur cpu          \n                    INFO     D\xe9but de l'entra\xeenement | 1 epochs | device=cpu   \n                    ERROR    \xc9chec du job d'entra\xeenement                       \n                             \u250c\u2500\u2500\u2500\u2500\u2500\u2500 Traceback (most recent call last) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n                             \u2502 D:\\ThinkTuning\\core\\trainer_runner.py:385 in   \u2502\n                             \u2502 run_training                                   \u2502\n                             \u2502                                                \u2502\n                             \u2502   382 \u2502   \u2502   def _on_progress(info):          \u2502\n                             \u2502   383 \u2502   \u2502   \u2502   _update_batch_progress(store \u2502\n                             \u2502   384 \u2502   \u2502                                    \u2502\n                             \u2502 > 385 \u2502   \u2502   train_result = trainer.train(    \u2502\n                             \u2502   386 \u2502   \u2502   \u2502   train_loader,                \u2502\n                             \u2502   387 \u2502   \u2502   \u2502   val_loader,                  \u2502\n                             \u2502   388 \u2502   \u2502   \u2502   cancel_event=cancel_event,   \u2502\n                             \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                             TypeError: FakeTrainer.train() got an unexpected  \n                             keyword argument 'on_epoch_end'                   
+------------------------------ Captured log call ------------------------------
+INFO     thinktuning.api:metrics.py:51 http_request method=POST path=/train status=202 duration_ms=109.243 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.848 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.699 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=3.534 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.669 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.399 client_ip=testclient
+INFO     core.trainer_runner:trainer_runner.py:278 Démarrage de l'entraînement | job_id=ff1e01d2-fb3e-47cf-abf0-17231dabea98 | device=auto
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.467 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.533 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=3.874 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.600 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.649 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.491 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=3.594 client_ip=testclient
+INFO     core.trainer_runner:trainer_runner.py:306 Dataset chargé | 6 exemples bruts
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.739 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.399 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.753 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=3.647 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.407 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.609 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.382 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=3.071 client_ip=testclient
+INFO     core.trainer_runner:trainer_runner.py:321 Augmentation EDA : 5 exemples (variants=2, fraction=0.4, back_translation=True)
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.610 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.923 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.892 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.601 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.598 client_ip=testclient
+INFO     core.trainer_runner:trainer_runner.py:366 Modèle chargé : tiny-local-model sur cpu
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=3.391 client_ip=testclient
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=1.946 client_ip=testclient
+INFO     core.trainer_runner:trainer_runner.py:371 Début de l'entraînement | 1 epochs | device=cpu
+ERROR    core.trainer_runner:trainer_runner.py:438 Échec du job d'entraînement
+Traceback (most recent call last):
+  File "D:\ThinkTuning\core\trainer_runner.py", line 385, in run_training
+    train_result = trainer.train(
+        train_loader,
+    ...<3 lines>...
+        on_progress=_on_progress,
+    )
+TypeError: FakeTrainer.train() got an unexpected keyword argument 'on_epoch_end'
+INFO     thinktuning.api:metrics.py:51 http_request method=GET path=/train/status/ff1e01d2-fb3e-47cf-abf0-17231dabea98 status=200 duration_ms=2.952 client_ip=testclient
+INFO     core.trainer_runner:trainer_runner.py:278 Démarrage de l'entraînement | job_id=ff1e01d2-fb3e-47cf-abf0-17231dabea98 | device=auto
+INFO     core.trainer_runner:trainer_runner.py:306 Dataset chargé | 6 exemples bruts
+INFO     core.trainer_runner:trainer_runner.py:321 Augmentation EDA : 5 exemples (variants=2, fraction=0.4, back_translation=True)
+INFO     core.trainer_runner:trainer_runner.py:366 Modèle chargé : tiny-local-model sur cpu
+INFO     core.trainer_runner:trainer_runner.py:371 Début de l'entraînement | 1 epochs | device=cpu
+ERROR    core.trainer_runner:trainer_runner.py:438 Échec du job d'entraînement
+Traceback (most recent call last):
+  File "D:\ThinkTuning\core\trainer_runner.py", line 385, in run_training
+    train_result = trainer.train(
+        train_loader,
+    ...<3 lines>...
+        on_progress=_on_progress,
+    )
+TypeError: FakeTrainer.train() got an unexpected keyword argument 'on_epoch_end'
+_________________ test_train_request_rejects_negative_weights _________________
+
+    def test_train_request_rejects_negative_weights():
+        with pytest.raises(ValidationError) as err:
+            TrainRequest(class_augment_weights={"1": -0.5})
+>       assert "négatif" in str(err.value)
+E       assert 'négatif' in "1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids nÃ©gatif interdit pour le label 1 : ..._value={'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+E        +  where "1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids nÃ©gatif interdit pour le label 1 : ..._value={'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error" = str(1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids nÃ©gatif interdit pour le label 1 : -0....ut_value={'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error)
+E        +    where 1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids nÃ©gatif interdit pour le label 1 : -0....ut_value={'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error = <ExceptionInfo 1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids nÃ©gatif interdit pour l...{'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error tblen=2>.value
+
+tests\test_class_augment_weights_validation.py:43: AssertionError
+___________ test_early_stopping_stops_and_restores_best_checkpoint ____________
+
+    def test_early_stopping_stops_and_restores_best_checkpoint():
+        model = TinyTextModel()
+        cfg = _make_cfg(
+            epochs=6,
+            early_stopping_patience=3,
+            early_stopping_min_delta=0.0,
+        )
+        trainer = Trainer(model=model, cfg=cfg)
+    
+        sample = {
+            "input_ids": torch.tensor([1, 2, 3, 4], dtype=torch.long),
+            "attention_mask": torch.ones(4, dtype=torch.long),
+            "labels": torch.tensor(1, dtype=torch.long),
+        }
+        loader = DataLoader([sample], batch_size=1)
+    
+        # F1 de validation en dégradation : seule l'epoch 1 « améliore » (0.5)
+        f1_values = iter([0.5, 0.4, 0.3, 0.2, 0.1, 0.0])
+    
+        def fake_eval_epoch(_loader, cancel_event=None):
+            return {"accuracy": 0.5, "f1_macro": next(f1_values)}
+    
+        trainer._eval_epoch = fake_eval_epoch
+    
+        # L'enregistrement du checkpoint capture un cliché des poids "best"
+        saved_snapshot = {}
+    
+        def fake_save(self, path):
+            saved_snapshot["state"] = {
+                k: v.detach().clone() for k, v in self.model.state_dict().items()
+            }
+            saved_snapshot["path"] = path
+    
+        with patch.object(Trainer, "save", new=fake_save):
+>           result = trainer.train(loader, loader)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_trainer.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <src.model.trainer.Trainer object at 0x000001F0822BE3F0>
+train_loader = <torch.utils.data.dataloader.DataLoader object at 0x000001F079FE3C50>
+val_loader = <torch.utils.data.dataloader.DataLoader object at 0x000001F079FE3C50>
+cancel_event = None, on_epoch_end = None, on_progress = None
+
+    def train(self, train_loader, val_loader, cancel_event=None, on_epoch_end=None,
+              on_progress=None):
+        """Exécute la boucle d'entraînement complète.
+    
+        ``on_epoch_end`` : callback optionnel appelé après chaque epoch avec
+        l'enregistrement de métriques (dict). Utilisé par le runner pour
+        persister / diffuser les métriques en temps réel (WebSocket
+        /train/stream). Le callback ne doit JAMAIS faire échouer
+        l'entraînement : toute exception levée est avalée et journalisée.
+    
+        ``on_progress`` : callback optionnel appelé (throttle ~1×/s + sur le
+        dernier batch) à chaque batch des phases train/eval avec un dict :
+            {"phase": "train"|"eval", "epoch": N, "epochs_total": N,
+             "step": n, "total": N, "pct": float,
+             "rate_it_s": float, "elapsed": float, "eta": float}
+        (équivalent JSON de la ligne tqdm ``1/2 [00:07<00:07, 7.73s/it]``).
+        Toute exception est avalée : jamais de crash d'entraînement.
+        """
+        logger.debug(
+            f"Trainer.train : début | epochs={self.cfg['epochs']}, device={self.device}"
+        )
+        # Le nombre de "vrais" pas d'optimisation tient compte de l'accumulation
+        steps_per_epoch = -(-len(train_loader) // self.grad_accum_steps)  # ceil division
+        total_steps = steps_per_epoch * self.cfg["epochs"]
+        warmup_steps = int(total_steps * self.cfg["warmup_ratio"])
+    
+        self.scheduler = get_scheduler(
+            name="linear",
+            optimizer=self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps,
+        )
+    
+        self.epoch_metrics = []
+        self.final_metrics = {}
+        self.training_duration_seconds = None
+        self.train_examples = len(train_loader.dataset) if hasattr(train_loader, "dataset") else None
+        self.val_examples = len(val_loader.dataset) if hasattr(val_loader, "dataset") else None
+    
+        start_time = __import__("time").time()
+    
+        # Paramètres d'early stopping (désactivé si patience <= 0)
+        patience = int(self.cfg.get("early_stopping_patience", 0))
+        min_delta = float(self.cfg.get("early_stopping_min_delta", 0.0))
+    
+        # Suivi du meilleur checkpoint : on garde un cliché des poids pour le
+        # restaurer en fin d'entraînement (équivalent exact du checkpoint sauvé
+        # par self.save dans experiments/checkpoints/best_model.pt).
+        best_f1 = -1.0
+        best_epoch = None
+        best_epoch_record = None
+        best_state = None
+        epochs_without_improvement = 0
+        early_stopped = False
+    
+        for epoch in range(self.cfg["epochs"]):
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Training cancelled by user")
+            logger.info(f"\n=== Epoch {epoch+1}/{self.cfg['epochs']} ===")
+            self._train_epoch(
+                train_loader,
+                cancel_event=cancel_event,
+                on_progress=on_progress,
+                epoch=epoch + 1,
+                epochs_total=self.cfg["epochs"],
+            )
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Training cancelled by user")
+>           metrics = self._eval_epoch(
+                val_loader,
+                cancel_event=cancel_event,
+                on_progress=on_progress,
+                epoch=epoch + 1,
+                epochs_total=self.cfg["epochs"],
+            )
+E           TypeError: test_early_stopping_stops_and_restores_best_checkpoint.<locals>.fake_eval_epoch() got an unexpected keyword argument 'on_progress'
+
+src\model\trainer.py:148: TypeError
+---------------------------- Captured stdout call -----------------------------
+                    INFO                                                       
+                             === Epoch 1/6 ===                                 
+---------------------------- Captured stderr call -----------------------------
+\rTrain:   0%|          | 0/1 [00:00<?, ?it/s]\rTrain: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 1/1 [00:00<00:00, 11.48it/s]
+------------------------------ Captured log call ------------------------------
+INFO     src.model.trainer:trainer.py:138 
+=== Epoch 1/6 ===
+___________ test_early_stopping_disabled_by_default_runs_all_epochs ___________
+
+    def test_early_stopping_disabled_by_default_runs_all_epochs():
+        trainer = Trainer(model=TinyTextModel(), cfg=_make_cfg(epochs=3))
+    
+        sample = {
+            "input_ids": torch.tensor([1, 2, 3, 4], dtype=torch.long),
+            "attention_mask": torch.ones(4, dtype=torch.long),
+            "labels": torch.tensor(1, dtype=torch.long),
+        }
+        loader = DataLoader([sample], batch_size=1)
+    
+        # F1 constant : sans patience configurée, l'entraînement va au bout
+        f1_values = iter([0.5, 0.5, 0.5])
+    
+        def fake_eval_epoch(_loader, cancel_event=None):
+            return {"accuracy": 0.5, "f1_macro": next(f1_values)}
+    
+        trainer._eval_epoch = fake_eval_epoch
+    
+        with patch.object(Trainer, "save"):
+>           result = trainer.train(loader, loader)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_trainer.py:223: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <src.model.trainer.Trainer object at 0x000001F002EC1490>
+train_loader = <torch.utils.data.dataloader.DataLoader object at 0x000001F082383950>
+val_loader = <torch.utils.data.dataloader.DataLoader object at 0x000001F082383950>
+cancel_event = None, on_epoch_end = None, on_progress = None
+
+    def train(self, train_loader, val_loader, cancel_event=None, on_epoch_end=None,
+              on_progress=None):
+        """Exécute la boucle d'entraînement complète.
+    
+        ``on_epoch_end`` : callback optionnel appelé après chaque epoch avec
+        l'enregistrement de métriques (dict). Utilisé par le runner pour
+        persister / diffuser les métriques en temps réel (WebSocket
+        /train/stream). Le callback ne doit JAMAIS faire échouer
+        l'entraînement : toute exception levée est avalée et journalisée.
+    
+        ``on_progress`` : callback optionnel appelé (throttle ~1×/s + sur le
+        dernier batch) à chaque batch des phases train/eval avec un dict :
+            {"phase": "train"|"eval", "epoch": N, "epochs_total": N,
+             "step": n, "total": N, "pct": float,
+             "rate_it_s": float, "elapsed": float, "eta": float}
+        (équivalent JSON de la ligne tqdm ``1/2 [00:07<00:07, 7.73s/it]``).
+        Toute exception est avalée : jamais de crash d'entraînement.
+        """
+        logger.debug(
+            f"Trainer.train : début | epochs={self.cfg['epochs']}, device={self.device}"
+        )
+        # Le nombre de "vrais" pas d'optimisation tient compte de l'accumulation
+        steps_per_epoch = -(-len(train_loader) // self.grad_accum_steps)  # ceil division
+        total_steps = steps_per_epoch * self.cfg["epochs"]
+        warmup_steps = int(total_steps * self.cfg["warmup_ratio"])
+    
+        self.scheduler = get_scheduler(
+            name="linear",
+            optimizer=self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps,
+        )
+    
+        self.epoch_metrics = []
+        self.final_metrics = {}
+        self.training_duration_seconds = None
+        self.train_examples = len(train_loader.dataset) if hasattr(train_loader, "dataset") else None
+        self.val_examples = len(val_loader.dataset) if hasattr(val_loader, "dataset") else None
+    
+        start_time = __import__("time").time()
+    
+        # Paramètres d'early stopping (désactivé si patience <= 0)
+        patience = int(self.cfg.get("early_stopping_patience", 0))
+        min_delta = float(self.cfg.get("early_stopping_min_delta", 0.0))
+    
+        # Suivi du meilleur checkpoint : on garde un cliché des poids pour le
+        # restaurer en fin d'entraînement (équivalent exact du checkpoint sauvé
+        # par self.save dans experiments/checkpoints/best_model.pt).
+        best_f1 = -1.0
+        best_epoch = None
+        best_epoch_record = None
+        best_state = None
+        epochs_without_improvement = 0
+        early_stopped = False
+    
+        for epoch in range(self.cfg["epochs"]):
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Training cancelled by user")
+            logger.info(f"\n=== Epoch {epoch+1}/{self.cfg['epochs']} ===")
+            self._train_epoch(
+                train_loader,
+                cancel_event=cancel_event,
+                on_progress=on_progress,
+                epoch=epoch + 1,
+                epochs_total=self.cfg["epochs"],
+            )
+            if cancel_event is not None and cancel_event.is_set():
+                raise TrainingCancelledError("Training cancelled by user")
+>           metrics = self._eval_epoch(
+                val_loader,
+                cancel_event=cancel_event,
+                on_progress=on_progress,
+                epoch=epoch + 1,
+                epochs_total=self.cfg["epochs"],
+            )
+E           TypeError: test_early_stopping_disabled_by_default_runs_all_epochs.<locals>.fake_eval_epoch() got an unexpected keyword argument 'on_progress'
+
+src\model\trainer.py:148: TypeError
+---------------------------- Captured stdout call -----------------------------
+[09/01/26 11:48:33] INFO                                                       
+                             === Epoch 1/3 ===                                 
+---------------------------- Captured stderr call -----------------------------
+\rTrain:   0%|          | 0/1 [00:00<?, ?it/s]\rTrain: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 1/1 [00:00<00:00, 325.85it/s]
+------------------------------ Captured log call ------------------------------
+INFO     src.model.trainer:trainer.py:138 
+=== Epoch 1/3 ===
+============================== warnings summary ===============================
+tests/test_trainer.py::test_save_model_version_writes_training_report
+tests/test_trainer.py::test_save_model_version_writes_config_and_safetensors_weights
+  D:\ThinkTuning\core\model_versioning.py:143: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_api_e2e.py::test_train_status_predict_end_to_end - Assertio...
+FAILED tests/test_class_augment_weights_validation.py::test_train_request_rejects_negative_weights
+FAILED tests/test_trainer.py::test_early_stopping_stops_and_restores_best_checkpoint
+FAILED tests/test_trainer.py::test_early_stopping_disabled_by_default_runs_all_epochs
+4 failed, 562 passed, 1 skipped, 2 warnings in 114.74s (0:01:54)

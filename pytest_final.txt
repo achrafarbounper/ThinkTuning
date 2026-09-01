@@ -1,0 +1,18 @@
+........................................................................ [ 12%]
+........................................................................ [ 25%]
+........................................................................ [ 38%]
+........................................s............................... [ 50%]
+........................................................................ [ 63%]
+........................................................................ [ 76%]
+........................................................................ [ 88%]
+...............................................................          [100%]
+============================== warnings summary ===============================
+tests/test_api_e2e.py::test_train_status_predict_end_to_end
+tests/test_api_e2e.py::test_train_status_predict_end_to_end
+tests/test_trainer.py::test_save_model_version_writes_training_report
+tests/test_trainer.py::test_save_model_version_writes_config_and_safetensors_weights
+  D:\ThinkTuning\core\model_versioning.py:143: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+566 passed, 1 skipped, 4 warnings in 102.11s (0:01:42)
