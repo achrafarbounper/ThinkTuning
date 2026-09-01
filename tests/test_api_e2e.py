@@ -241,7 +241,8 @@ class FakeTrainer:
         self.train_examples = 12
         self.val_examples = 4
 
-    def train(self, train_loader, val_loader, cancel_event=None):
+    def train(self, train_loader, val_loader, cancel_event=None,
+              on_epoch_end=None, on_progress=None):
         # Mini-entraînement réel : une boucle forward/backward en mémoire
         # pour prouver qu'un vrai gradient fonctionne de bout en bout.
         optimizer = torch.optim.SGD(self.model.parameters(), lr=0.2)

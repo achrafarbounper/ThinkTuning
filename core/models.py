@@ -71,7 +71,7 @@ class TrainRequest(BaseModel):
     @field_validator("class_augment_weights")
     @classmethod
     def validate_class_augment_weights(cls, v: Optional[Dict[str, float]]) -> Optional[Dict[str, float]]:
-        """Rejette tÃ´t (HTTP 422) les clÃ©s non numÃ©riques et les poids nÃ©gatifs.
+        """Rejette tÃ´t (HTTP 422) les clÃ©s non numÃ©riques et les poids négatifs.
 
         Les clÃ©s 'additionalProp1', 'additionalProp2'... sont les placeholders
         gÃ©nÃ©rÃ©s par Swagger UI pour les dicts libres : elles arrivaient jusque
@@ -94,7 +94,7 @@ class TrainRequest(BaseModel):
                 ) from None
             if float(weight) < 0:
                 raise ValueError(
-                    f"Poids nÃ©gatif interdit pour le label {label} : {weight}. "
+                    f"Poids négatif interdit pour le label {label} : {weight}. "
                     "Les poids servent Ã  normaliser des probabilitÃ©s d'Ã©chantillonnage."
                 )
             cleaned[str(label)] = float(weight)
@@ -113,6 +113,31 @@ class TrainJob(BaseModel):
     # de la nouvelle version est inférieur à celui de la version source.
     regression: bool = False
     regression_detail: Optional[str] = None
+    # Avancement temps réel (batch-par-batch + état des étapes du pipeline).
+    # Dict sérialisé en JSON par le PersistentJobStore : aucune migration
+    # SQLite nécessaire. Structure :
+    #   {"step": "training",
+    #    "steps": {<step>: {"status": "done|active|pending|error"}},
+    #    "phase": "train|eval", "epoch": N, "epochs_total": N,
+    #    "batch": N, "batches_total": N, "batch_pct": float,
+    #    "global_pct": float, "rate_it_s": float, "eta": float}
+    progress: Optional[Dict] = None
+
+
+# Ordre canonique des étapes du pipeline d'entraînement (core/trainer_runner.py
+# et dashboard/src/api/jobSteps.js — à garder alignés).
+TRAIN_JOB_STEPS = [
+    "queued",
+    "loading_dataset",
+    "splitting_dataset",
+    "augmenting_dataset",
+    "building_dataloaders",
+    "computing_class_weights",
+    "loading_model",
+    "training",
+    "saving_model",
+    "done",
+]
 
 class JobListResponse(BaseModel):
     """RÃ©ponse paginÃ©e pour GET /train/jobs."""

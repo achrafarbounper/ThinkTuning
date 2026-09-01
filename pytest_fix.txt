@@ -1,0 +1,25 @@
+...........F...                                                          [100%]
+================================== FAILURES ===================================
+_________________ test_train_request_rejects_negative_weights _________________
+
+    def test_train_request_rejects_negative_weights():
+        with pytest.raises(ValidationError) as err:
+            TrainRequest(class_augment_weights={"1": -0.5})
+>       assert "n�gatif" in str(err.value)
+E       assert 'n�gatif' in "1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids négatif interdit pour le label 1 : ..._value={'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+E        +  where "1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids négatif interdit pour le label 1 : ..._value={'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error" = str(1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids négatif interdit pour le label 1 : -0....ut_value={'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error)
+E        +    where 1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids négatif interdit pour le label 1 : -0....ut_value={'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error = <ExceptionInfo 1 validation error for TrainRequest\nclass_augment_weights\n  Value error, Poids négatif interdit pour l...{'1': -0.5}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error tblen=2>.value
+
+tests\test_class_augment_weights_validation.py:43: AssertionError
+============================== warnings summary ===============================
+tests/test_trainer.py::test_save_model_version_writes_training_report
+tests/test_trainer.py::test_save_model_version_writes_config_and_safetensors_weights
+tests/test_api_e2e.py::test_train_status_predict_end_to_end
+tests/test_api_e2e.py::test_train_status_predict_end_to_end
+  D:\ThinkTuning\core\model_versioning.py:143: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_class_augment_weights_validation.py::test_train_request_rejects_negative_weights
+1 failed, 14 passed, 4 warnings in 20.38s

@@ -77,7 +77,24 @@ class Trainer:
             class_weights = class_weights.to(self.device)
         self.criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    def train(self, train_loader, val_loader, cancel_event=None):
+    def train(self, train_loader, val_loader, cancel_event=None, on_epoch_end=None,
+              on_progress=None):
+        """Exécute la boucle d'entraînement complète.
+
+        ``on_epoch_end`` : callback optionnel appelé après chaque epoch avec
+        l'enregistrement de métriques (dict). Utilisé par le runner pour
+        persister / diffuser les métriques en temps réel (WebSocket
+        /train/stream). Le callback ne doit JAMAIS faire échouer
+        l'entraînement : toute exception levée est avalée et journalisée.
+
+        ``on_progress`` : callback optionnel appelé (throttle ~1×/s + sur le
+        dernier batch) à chaque batch des phases train/eval avec un dict :
+            {"phase": "train"|"eval", "epoch": N, "epochs_total": N,
+             "step": n, "total": N, "pct": float,
+             "rate_it_s": float, "elapsed": float, "eta": float}
+        (équivalent JSON de la ligne tqdm ``1/2 [00:07<00:07, 7.73s/it]``).
+        Toute exception est avalée : jamais de crash d'entraînement.
+        """
         logger.debug(
             f"Trainer.train : début | epochs={self.cfg['epochs']}, device={self.device}"
         )
@@ -119,10 +136,22 @@ class Trainer:
             if cancel_event is not None and cancel_event.is_set():
                 raise TrainingCancelledError("Training cancelled by user")
             logger.info(f"\n=== Epoch {epoch+1}/{self.cfg['epochs']} ===")
-            self._train_epoch(train_loader, cancel_event=cancel_event)
+            self._train_epoch(
+                train_loader,
+                cancel_event=cancel_event,
+                on_progress=on_progress,
+                epoch=epoch + 1,
+                epochs_total=self.cfg["epochs"],
+            )
             if cancel_event is not None and cancel_event.is_set():
                 raise TrainingCancelledError("Training cancelled by user")
-            metrics = self._eval_epoch(val_loader, cancel_event=cancel_event)
+            metrics = self._eval_epoch(
+                val_loader,
+                cancel_event=cancel_event,
+                on_progress=on_progress,
+                epoch=epoch + 1,
+                epochs_total=self.cfg["epochs"],
+            )
 
             if cancel_event is not None and cancel_event.is_set():
                 raise TrainingCancelledError("Training cancelled by user")
@@ -136,6 +165,17 @@ class Trainer:
             if metrics.get("loss") is not None:
                 epoch_record["loss"] = float(metrics["loss"])
             self.epoch_metrics.append(epoch_record)
+
+            # Diffusion temps réel (WebSocket /train/stream) : notifier le
+            # callback après chaque epoch. Aucune exception ne doit casser
+            # l'entraînement.
+            if on_epoch_end is not None:
+                try:
+                    on_epoch_end(epoch_record)
+                except Exception:
+                    logger.exception(
+                        "on_epoch_end callback a échoué à l'epoch %s", epoch + 1
+                    )
 
             f1 = metrics["f1_macro"]
             if f1 > best_f1 + min_delta:
@@ -196,10 +236,47 @@ class Trainer:
             "early_stopped": early_stopped,
         }
 
-    def _train_epoch(self, loader, cancel_event=None):
+    def _emit_progress(self, on_progress, phase, epoch, epochs_total, step, total,
+                       t0, last_emit):
+        """Construit et déclenche le callback ``on_progress`` (throttle 1×/s).
+
+        Retourne le nouveau timestamp de dernier envoi (pour le throttle).
+        Toute exception du callback est avalée (jamais de crash d'entraînement).
+        """
+        if on_progress is None or total <= 0:
+            return last_emit
+        import time as _time
+        now = _time.time()
+        elapsed = max(now - t0, 1e-9)
+        is_last = step >= total
+        if not is_last and (now - last_emit) < 1.0:
+            return last_emit
+        rate = elapsed / step  # s/it, comme tqdm
+        info = {
+            "phase": phase,
+            "epoch": epoch,
+            "epochs_total": epochs_total,
+            "step": step,
+            "total": total,
+            "pct": round(100.0 * step / total, 1),
+            "rate_it_s": round(rate, 3),
+            "elapsed": round(elapsed, 2),
+            "eta": round((total - step) * rate, 2),
+        }
+        try:
+            on_progress(info)
+        except Exception:
+            logger.exception("on_progress callback a échoué (phase=%s)", phase)
+        return now
+
+    def _train_epoch(self, loader, cancel_event=None, on_progress=None,
+                     epoch=None, epochs_total=None):
         logger.debug(f"_train_epoch : début | {len(loader)} batch(s)")
         self.model.train()
         self.optimizer.zero_grad(set_to_none=True)
+        import time as _time
+        t0 = _time.time()
+        last_emit = 0.0
 
         for step, batch in enumerate(tqdm(loader, desc="Train")):
             if cancel_event is not None and cancel_event.is_set():
@@ -239,17 +316,26 @@ class Trainer:
                 self.scheduler.step()
                 self.optimizer.zero_grad(set_to_none=True)
 
+            last_emit = self._emit_progress(
+                on_progress, "train", epoch, epochs_total,
+                step + 1, len(loader), t0, last_emit,
+            )
+
         logger.debug("_train_epoch : terminé")
 
-    def _eval_epoch(self, loader, cancel_event=None):
+    def _eval_epoch(self, loader, cancel_event=None, on_progress=None,
+                    epoch=None, epochs_total=None):
         logger.debug(f"_eval_epoch : début | {len(loader)} batch(s)")
         self.model.eval()
         preds, labels = [], []
         total_loss = 0.0
         n_examples = 0
+        import time as _time
+        t0 = _time.time()
+        last_emit = 0.0
 
         with torch.no_grad():
-            for batch in tqdm(loader, desc="Eval"):
+            for step, batch in enumerate(tqdm(loader, desc="Eval")):
                 if cancel_event is not None and cancel_event.is_set():
                     raise TrainingCancelledError("Training cancelled by user")
                 batch = {
@@ -270,6 +356,10 @@ class Trainer:
                 batch_loss = self.criterion(logits, batch["labels"])
                 total_loss += float(batch_loss.item()) * batch["labels"].size(0)
                 n_examples += batch["labels"].size(0)
+                last_emit = self._emit_progress(
+                    on_progress, "eval", epoch, epochs_total,
+                    step + 1, len(loader), t0, last_emit,
+                )
 
         metrics = compute_metrics(preds, labels)
         metrics["loss"] = total_loss / max(n_examples, 1)

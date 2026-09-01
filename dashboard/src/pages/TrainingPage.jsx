@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "../context/useApp";
 import TrainJobTracker from "../components/TrainJobTracker";
+import TrainMetricsStream from "../components/TrainMetricsStream";
 import TrainingHistoryChart from "../components/TrainingHistoryChart";
 
 const JOBS_POLL_MS = 15000;
@@ -241,10 +242,26 @@ export default function TrainingPage() {
   }, [client, pushLog]);
 
   useEffect(() => {
-    refreshSchedules();
-    const interval = setInterval(refreshSchedules, SCHEDULES_POLL_MS);
-    return () => clearInterval(interval);
-  }, [refreshSchedules]);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const result = await client.listSchedules();
+        if (!cancelled) {
+          setSchedules(result.items || []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          pushLog("error", `Planifications indisponibles : ${err.message}`);
+        }
+      }
+    };
+    load();
+    const interval = setInterval(load, SCHEDULES_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [client, pushLog]);
 
   const handleCreateSchedule = async (e) => {
     e.preventDefault();
@@ -461,6 +478,9 @@ export default function TrainingPage() {
             onCancel={handleCancelTraining}
             cancelLoading={false}
           />
+
+          {/* -- Métriques live (WebSocket /train/stream/{job_id}) ---------- */}
+          <TrainMetricsStream jobId={currentJob?.job_id} />
 
           {/* -- Planification récurrente (SCRUM-34 : POST /train/schedule) --- */}
           <div className="tt-history-section">
