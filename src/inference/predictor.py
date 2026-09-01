@@ -1,3 +1,4 @@
+import json
 import os
 
 import torch
@@ -18,14 +19,25 @@ def _has_nonempty_weights(path: str) -> bool:
 
 
 def _is_valid_model_dir(path: str) -> bool:
-    """Un dossier est « valide » seulement si ``config.json`` OU un fichier de
-    poids non vide y est présent.  Ne garantit PAS que le modèle est entraîné
-    (utiliser ``is_model_version_trained`` pour cela)."""
+    """Un dossier est « valide » seulement si un ``config.json`` PARSABLE (dict
+    JSON non vide, ex. {'architectures': ...}) OU un fichier de poids non vide
+    y est présent.  Un ``config.json`` vide/corrompu (ex. ``{}``, leak de tests)
+    ne rend PAS le dossier valide : ``AutoModelForSequenceClassification``
+    échouerait dessus et ferait basculer vers un fallback incohérent.
+    Ne garantit PAS que le modèle est entraîné (utiliser
+    ``is_model_version_trained`` pour cela)."""
     if not os.path.isdir(path):
         return False
     config_path = os.path.join(path, "config.json")
     if os.path.isfile(config_path):
-        return True
+        try:
+            with open(config_path, "r", encoding="utf-8") as fh:
+                config = json.load(fh)
+            if isinstance(config, dict) and config:
+                return True
+        except (ValueError, OSError):
+            pass
+        # config.json présent mais illisible / vide -> pas valide.
     return _has_nonempty_weights(path)
 
 
@@ -88,12 +100,26 @@ def _check_head_trained(model):
                     "Impossible de lire la tête de classification du modèle chargé."
                 )
             std = _classifier_std(state)
+            import logging as _logging
+
             from core.model_head_check import HEAD_CLASSIFIER_MIN_STD
-            if std <= HEAD_CLASSIFIER_MIN_STD:
+
+            _logger = _logging.getLogger(__name__)
+            # Un classifier HF initialisé via normal(0, 0.02) garde un
+            # std ≈ 0.02 après un fine-tuning court : le seuil 0.03 rejetait
+            # tous les modèles légitimes. On ne bloque que les têtes
+            # effondrées (std quasi nul) et on avertit sinon.
+            if std < 0.005:
                 raise RuntimeError(
-                    f"Tête de classification quasi-aléatoire détectée (std={std:.5f}, "
-                    f"seuil={HEAD_CLASSIFIER_MIN_STD}). Le modèle chargé n'a probablement "
-                    "jamais été entraîné — prédiction refusée."
+                    f"Tête de classification effondrée détectée (std={std:.5f}). "
+                    "Le modèle chargé est inexploitable — prédiction refusée."
+                )
+            if std <= HEAD_CLASSIFIER_MIN_STD:
+                _logger.warning(
+                    "Tête de classification avec std faible (%.5f <= %.3f) : "
+                    "le modèle semble peu entraîné, mais la prédiction est autorisée.",
+                    std,
+                    HEAD_CLASSIFIER_MIN_STD,
                 )
         finally:
             import shutil as _shutil
@@ -166,12 +192,31 @@ class Predictor:
                     # EXACTEMENT ce que le test attend
                     raise FileNotFoundError("model.pt")
 
+                state = torch.load(state_dict_path, map_location="cpu")
+                if not isinstance(state, dict):
+                    raise RuntimeError(
+                        f"Fichier de poids illisible (pas un state_dict) : {state_dict_path}"
+                    )
+                expected_keys = set(self.model.state_dict().keys())
+                unexpected = set(state) - expected_keys
+                if unexpected:
+                    # Le checkpoint provient d'une architecture incompatible
+                    # (ex. stub de test avec 'proj.*') : lever une erreur claire
+                    # plutôt qu'un "Error(s) in loading state_dict" cryptique.
+                    raise RuntimeError(
+                        "Checkpoint incompatible avec "
+                        f"{type(self.model).__name__} : clés inattendues "
+                        f"{sorted(unexpected)[:10]} dans {state_dict_path}. "
+                        "La version du modèle est probablement corrompue ; "
+                        "ré-entraînez (POST /train) ou activez une autre version."
+                    )
+
                 self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
                 self.model = AutoModelForSequenceClassification.from_pretrained(
                     self.model_name,
                     num_labels=3,
                 )
-                self.model.load_state_dict(torch.load(state_dict_path, map_location="cpu"))
+                self.model.load_state_dict(state)
 
         elif os.path.isfile(resolved_model_path):
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)

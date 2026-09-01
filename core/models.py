@@ -257,3 +257,43 @@ class PipelineRequest(BaseModel):
     target_modules: Optional[str] = None
     use_qlora: bool = True
     seed: int = 42
+
+
+class CycleRequest(BaseModel):
+    """Requete du cycle complet Active Learning -> annotation -> retrain -> activation (SCRUM-55).
+
+    ``train`` : parametres d'entrainement optionnels (TrainRequest). Les champs
+    ``local_corrections_path`` et ``base_model_version`` sont ecrases par le
+    cycle (fusion des annotations / continual training depuis la version active).
+    """
+    auto_activate: bool = True
+    train: Optional[TrainRequest] = None
+
+
+class ActiveLearningRequest(BaseModel):
+    """Requete POST /active_learning : selection d'exemples incertains.
+
+    Fournir ``texts`` (liste explicite) et/ou ``dataset_path`` (JSONL/CSV avec
+    colonne ``text``). Par defaut, le dataset enrichi data/train_enriched.jsonl.
+    """
+    texts: Optional[List[str]] = None
+    dataset_path: Optional[str] = None
+    top_n: Optional[int] = 50
+    batch_size: int = 32
+    model_version: Optional[str] = None
+
+
+class AnnotateRequest(BaseModel):
+    """Requete POST /annotate : correction manuelle d'un exemple."""
+    text: str
+    label: str  # negative / neutral / positive (alias FR acceptes)
+    force: bool = False
+
+
+class AnnotateListResponse(BaseModel):
+    total: int
+    items: List[dict]
+
+
+class MergeAnnotationsResponse(BaseModel):
+    stats: dict

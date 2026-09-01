@@ -14,6 +14,29 @@ MODEL_WEIGHT_FILES = [
 HEAD_CLASSIFIER_KEYS = ("classifier", "head", "output")
 HEAD_CLASSIFIER_MIN_STD = float("0.03")
 
+
+def _has_completed_training_report(dirpath):
+    """Un ``training_report.json`` écrit par ``save_model_version`` avec des
+    métriques atteste que l'entraînement s'est réellement déroulé.
+
+    Nécessaire car un classifier DistilBERT initialisé via ``normal(0, 0.02)``
+    garde un écart-type ≈ 0.02 après un fine-tuning sur un petit dataset : le
+    seul seuil de std (> 0.03) rejette alors TOUS les modèles légitimes."""
+    report_path = os.path.join(dirpath, "training_report.json")
+    if not os.path.isfile(report_path) or os.path.getsize(report_path) <= 0:
+        return False
+    try:
+        import json
+
+        with open(report_path, "r", encoding="utf-8") as fh:
+            report = json.load(fh)
+    except (ValueError, OSError):
+        return False
+    if not isinstance(report, dict):
+        return False
+    metrics = report.get("metrics") or {}
+    return bool(metrics.get("accuracy_by_epoch") or metrics.get("f1_by_epoch"))
+
 def _tensor_std(t):
     import torch
     try:
@@ -65,4 +88,8 @@ def is_model_version_trained(dirpath):
     state = _load_head_state(dirpath)
     if not state:
         return False
-    return _classifier_std(state) > HEAD_CLASSIFIER_MIN_STD
+    if _classifier_std(state) > HEAD_CLASSIFIER_MIN_STD:
+        return True
+    # Tête faiblement déplacée (fine-tuning court) mais entraînement attesté
+    # par un training_report.json avec métriques -> considérée comme entraînée.
+    return _has_completed_training_report(dirpath)

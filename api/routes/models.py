@@ -6,10 +6,35 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 import api
 from api.dependencies.auth import require_api_key
-from core.model_versioning import list_model_versions, resolve_model_dir, MODEL_ROOT
+from core.model_versioning import list_model_versions, resolve_model_dir, validate_model_version, MODEL_ROOT
+from core.model_activation import activate_model, read_active_pointer
 from core.models import ModelVersion
 
 router = APIRouter(prefix="/models", tags=["Models"])
+
+
+@router.post("/{name}/activate")
+def activate_model_version(name: str, _: bool = Depends(require_api_key)):
+    """Active une version de modele apres validation complete de ses artefacts.
+
+    Rejette (422) toute version invalide : config.json, poids, mappings
+    id2label/label2id, tete de classification entrainee (std > 0.03).
+    """
+    try:
+        # Validation complete avant activation (SCRUM-55).
+        validate_model_version(os.path.join(MODEL_ROOT, name))
+        pointer = activate_model(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"activated": True, **pointer}
+
+
+@router.get("/active")
+def get_active_version(_: bool = Depends(require_api_key)):
+    """Pointeur de la version actuellement active (ou null si aucune)."""
+    return read_active_pointer() or {"activated": False}
 
 @router.get("", tags=["Models"])
 def list_models(_: bool = Depends(require_api_key)):

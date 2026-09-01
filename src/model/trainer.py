@@ -173,6 +173,10 @@ class Trainer:
                 "accuracy": float(metrics["accuracy"]),
                 "f1_macro": float(metrics["f1_macro"]),
             }
+            # F1 par classe (exigé par le rapport d'entraînement du cycle Active Learning).
+            f1_per_class = metrics.get("f1_per_class")
+            if f1_per_class:
+                epoch_record["f1_per_class"] = f1_per_class
             # SCRUM-73 : loss de validation par epoch (persistance + courbes)
             if metrics.get("loss") is not None:
                 epoch_record["loss"] = float(metrics["loss"])
