@@ -222,6 +222,64 @@ export class SentimentApiClient extends SentimentApiClientCore {
     });
   }
 
+  // -- /active_learning & /annotate (SCRUM-55 : cycle d'amélioration continue) --
+
+  /** Exemples les plus incertains (triés par proximité de la confiance à 1/3). */
+  getActiveLearning({ texts, datasetPath, topN = 50, batchSize = 32, modelVersion } = {}) {
+    return this._request("/active_learning", {
+      method: "POST",
+      body: {
+        texts: texts && texts.length ? texts : undefined,
+        dataset_path: datasetPath || undefined,
+        top_n: topN,
+        batch_size: batchSize,
+        model_version: modelVersion || undefined,
+      },
+    });
+  }
+
+  /** Enregistre une correction manuelle : { text, label, force? }. */
+  annotate({ text, label, force = false }) {
+    return this._request("/annotate", {
+      method: "POST",
+      body: { text, label, force },
+    });
+  }
+
+  /** Annotations stockées : { total, items }. */
+  listAnnotations({ limit = 100, offset = 0 } = {}) {
+    return this._request("/annotate/list", { query: { limit, offset } });
+  }
+
+  /** Fusionne les annotations dans le dataset d'entraînement. */
+  mergeAnnotations() {
+    return this._request("/annotate/merge", { method: "POST" });
+  }
+
+  /** Lance le cycle complet (202 → job asynchrone TrainJob). */
+  startActiveLearningCycle(payload = {}) {
+    return this._request("/active_learning/cycle", { method: "POST", body: payload });
+  }
+
+  /** Statut du job de cycle. */
+  getActiveLearningCycleStatus(jobId) {
+    return this._request(
+      `/active_learning/cycle/status/${encodeURIComponent(jobId)}`
+    );
+  }
+
+  /** Active une version de modèle (422 si artefacts invalides). */
+  activateModel(name) {
+    return this._request(`/models/${encodeURIComponent(name)}/activate`, {
+      method: "POST",
+    });
+  }
+
+  /** Pointeur de la version active. */
+  getActiveModel() {
+    return this._request("/models/active");
+  }
+
   // -- /pipeline ---------------------------------------------------------------
 
   /** Lance le pipeline end-to-end (labeling -> filtering -> fine-tuning LLM). */

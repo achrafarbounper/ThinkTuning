@@ -111,3 +111,108 @@ button:focus-visible {
   font-style: italic;
 }
 
+
+/* --- Page Annotation (SCRUM-55) ------------------------------------------ */
+
+.annot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+
+.annot-count {
+  color: var(--tt-text-muted, #6b7280);
+  font-size: 0.9rem;
+}
+
+.annot-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.annot-card {
+  border: 1px solid var(--tt-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  background: var(--tt-surface, #fff);
+}
+
+.annot-card--done {
+  opacity: 0.6;
+}
+
+.annot-card__text {
+  margin: 0 0 0.25rem;
+  font-weight: 500;
+}
+
+.annot-card__meta {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--tt-text-muted, #6b7280);
+}
+
+.annot-card__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.annot-btn {
+  border: 1px solid var(--tt-border, #d1d5db);
+  border-radius: 6px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  background: transparent;
+  font-size: 0.85rem;
+}
+
+.annot-btn:disabled {
+  cursor: default;
+}
+
+.annot-btn--negative:hover,
+.annot-btn--negative.annot-btn--selected {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+.annot-btn--neutral:hover,
+.annot-btn--neutral.annot-btn--selected {
+  background: #e5e7eb;
+  border-color: #6b7280;
+}
+
+.annot-btn--positive:hover,
+.annot-btn--positive.annot-btn--selected {
+  background: #dcfce7;
+  border-color: #22c55e;
+}
+
+.annot-cycle,
+.annot-stored {
+  border: 1px solid var(--tt-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+}
+
+.annot-activation {
+  background: var(--tt-surface-alt, #f9fafb);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+.tt-error {
+  color: #dc2626;
+}
+
+.tt-warning {
+  color: #d97706;
+}
+

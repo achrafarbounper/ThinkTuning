@@ -48,6 +48,19 @@ def resolve_model_dir(model_name: str | None = None) -> str:
             f"{os.path.abspath(MODEL_ROOT)}. Train a model first (POST /train)."
         )
 
+    # Pointeur de version active (SCRUM-55) : prioritaire sur la derniere version.
+    # Import paresseux pour eviter une dependance circulaire (model_activation
+    # importe MODEL_ROOT / list_model_versions depuis ce module).
+    try:
+        from core.model_activation import get_active_model_dir
+
+        active_dir = get_active_model_dir()
+        if active_dir and os.path.isdir(active_dir):
+            logger.debug(f"resolve_model_dir : version active -> {active_dir}")
+            return active_dir
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Pointeur actif indisponible (%s) ; repli sur la derniere version.", exc)
+
     selected = os.path.join(MODEL_ROOT, versions[0])
     logger.debug(f"resolve_model_dir : dernière version -> {selected}")
     return selected
@@ -213,6 +226,114 @@ def _save_trained_model(trainer, model_dir):
         shutil.rmtree(tmp_dir)
 
 
+def write_label_mappings(trainer, model_dir):
+    """Ecrit id2label.json / label2id.json dans le dossier versionne (SCRUM-55).
+
+    Sources prioritaires : la config du trainer, sinon le model config HF.
+    """
+    labels = None
+    cfg = getattr(trainer, "cfg", None) or {}
+    if isinstance(cfg, dict) and isinstance(cfg.get("id2label"), dict):
+        labels = {int(k): str(v) for k, v in cfg["id2label"].items()}
+    if not labels:
+        model = getattr(trainer, "model", None)
+        hf_cfg = getattr(model, "config", None)
+        id2label = getattr(hf_cfg, "id2label", None) if hf_cfg is not None else None
+        if id2label:
+            labels = {int(k): str(v) for k, v in id2label.items()}
+    if not labels:
+        logger.warning("write_label_mappings : aucun mapping de labels disponible.")
+        return False
+    if all(isinstance(k, int) for k in labels.keys()):
+        id2label = {int(k): str(v) for k, v in labels.items()}
+    else:
+        # mapping nom -> int fourni
+        id2label = {int(v): str(k) for k, v in labels.items()}
+    label2id = {v: k for k, v in id2label.items()}
+    with open(os.path.join(model_dir, "id2label.json"), "w", encoding="utf-8") as fh:
+        json.dump({str(k): v for k, v in id2label.items()}, fh, indent=2, ensure_ascii=False)
+    with open(os.path.join(model_dir, "label2id.json"), "w", encoding="utf-8") as fh:
+        json.dump(label2id, fh, indent=2, ensure_ascii=False)
+    logger.info("Mappings de labels ecrits dans %s", model_dir)
+    return True
+
+
+def _ensure_state_dict_pt(trainer, model_dir):
+    """Persiste model_state_dict.pt si aucun fichier de poids lisible n'existe deja."""
+    if any(
+        os.path.isfile(os.path.join(model_dir, f)) and os.path.getsize(os.path.join(model_dir, f)) > 0
+        for f in MODEL_FILES
+    ):
+        return
+    model = getattr(trainer, "model", None)
+    if model is None:
+        return
+    import torch
+
+    torch.save(model.state_dict(), os.path.join(model_dir, "model_state_dict.pt"))
+    logger.info("model_state_dict.pt ecrit dans %s", model_dir)
+
+
+def validate_model_version(version_dir: str) -> dict:
+    """Valide les artefacts d'une version (SCRUM-55).
+
+    Verifications :
+      - config.json present et parsable ;
+      - un fichier de poids non vide (model.safetensors / model_state_dict.pt / ...) ;
+      - id2label.json / label2id.json presents et coherents ;
+      - tete de classification entrainee (ecart-type > 0.03).
+
+    Leve ``ValueError`` si une verification echoue ; retourne un resume sinon.
+    """
+    version_dir = os.path.abspath(version_dir)
+    errors = []
+    if not os.path.isdir(version_dir):
+        raise ValueError(f"Dossier de version inexistant : {version_dir}.")
+
+    config_path = os.path.join(version_dir, "config.json")
+    if not os.path.isfile(config_path):
+        errors.append("config.json absent")
+    else:
+        try:
+            with open(config_path, "r", encoding="utf-8") as fh:
+                json.load(fh)
+        except Exception as exc:
+            errors.append(f"config.json illisible : {exc}")
+
+    if not any(
+        os.path.isfile(os.path.join(version_dir, f)) and os.path.getsize(os.path.join(version_dir, f)) > 0
+        for f in MODEL_FILES
+    ):
+        errors.append("aucun fichier de poids non vide")
+
+    id2label_path = os.path.join(version_dir, "id2label.json")
+    label2id_path = os.path.join(version_dir, "label2id.json")
+    if not (os.path.isfile(id2label_path) and os.path.isfile(label2id_path)):
+        errors.append("id2label.json / label2id.json absents")
+    else:
+        try:
+            with open(id2label_path, "r", encoding="utf-8") as fh:
+                id2label = json.load(fh)
+            with open(label2id_path, "r", encoding="utf-8") as fh:
+                label2id = json.load(fh)
+            if {v for v in id2label.values()} != set(label2id.keys()):
+                errors.append("id2label / label2id incoherents")
+        except Exception as exc:
+            errors.append(f"mappings illisibles : {exc}")
+
+    from core.model_head_check import is_model_version_trained
+
+    if not is_model_version_trained(version_dir):
+        errors.append("tete de classification non entrainee (ecart-type <= 0.03) ou poids illisibles")
+
+    if errors:
+        raise ValueError(
+            f"Version invalide ({version_dir}) : " + "; ".join(errors) + "."
+        )
+    logger.info("Version validee : %s", version_dir)
+    return {"version_dir": version_dir, "valid": True}
+
+
 def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at):
     logger.info(
         f"Sauvegarde du modèle | job_id={job_id} | {train_examples} train / {val_examples} val"
@@ -231,6 +352,10 @@ def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples,
     # trouvent aucun modèle chargeable — POST /train produisait donc des
     # versions inutilisables par /predict.
     _save_trained_model(trainer, model_dir)
+
+    # Artefacts SCRUM-55 : mappings id2label/label2id + state_dict de secours.
+    write_label_mappings(trainer, model_dir)
+    _ensure_state_dict_pt(trainer, model_dir)
 
     # Configuration d'entraînement (copie json-safe).
     hyperparameters = _json_safe(dict(getattr(trainer, "cfg", {}) or {}))

@@ -27,6 +27,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const DriftPage = lazy(() => import("./pages/DriftPage"));
 const PipelinePage = lazy(() => import("./pages/PipelinePage"));
 const MonitoringPage = lazy(() => import("./pages/MonitoringPage"));
+const AnnotationPage = lazy(() => import("./pages/AnnotationPage"));
 
 /** Table de routage : identifiant de menu → composant de page. */
 const ROUTES = {
@@ -37,6 +38,7 @@ const ROUTES = {
   assistant: AssistantPage,
   entrainement: TrainingPage,
   pipeline: PipelinePage,
+  annotation: AnnotationPage,
   evaluation: EvaluationPage,
   monitoring: MonitoringPage,
   parametres: SettingsPage,
