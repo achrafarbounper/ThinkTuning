@@ -1,16 +1,16 @@
 :root {
-  /* --- Tokens de surface (une seule source de vérité) ---------------------- */
+  /* --- Tokens de surface (une seule source de vÃ©ritÃ©) ---------------------- */
   --tt-bg: #0b0e11;          /* fond applicatif */
   --tt-surface-1: #12161c;   /* panneaux / cartes */
-  --tt-surface-2: #0d1117;   /* inputs, tracés de fond */
-  --tt-surface-3: #0e1217;   /* barre latérale */
+  --tt-surface-2: #0d1117;   /* inputs, tracÃ©s de fond */
+  --tt-surface-3: #0e1217;   /* barre latÃ©rale */
   --tt-panel: #12161c;       /* alias historique de --tt-surface-1 */
   --tt-panel-border: #1e242c;
   --tt-border: #1e242c;      /* alias de --tt-panel-border */
-  --tt-ring: #5b8def;        /* focus visible unifié */
-  --tt-on-accent: #0b0e11;   /* texte sur fond accentué */
+  --tt-ring: #5b8def;        /* focus visible unifiÃ© */
+  --tt-on-accent: #0b0e11;   /* texte sur fond accentuÃ© */
 
-  /* --- Couleurs sémantiques ------------------------------------------------ */
+  /* --- Couleurs sÃ©mantiques ------------------------------------------------ */
   --tt-text: #e7eaee;
   --tt-text-dim: #8b94a3;
   --tt-accent: #5b8def;
@@ -25,9 +25,9 @@
   --tt-radius-lg: 12px;
 }
 
-/* Placeholder de la sidebar pendant son lazy-load (Suspense) : réserve l'espace
-   (250px pleine hauteur, collée) dès le CSS critique pour éviter tout CLS, sans
-   attendre que le chunk Sidebar.css (chargé en différé) soit téléchargé. */
+/* Placeholder de la sidebar pendant son lazy-load (Suspense) : rÃ©serve l'espace
+   (250px pleine hauteur, collÃ©e) dÃ¨s le CSS critique pour Ã©viter tout CLS, sans
+   attendre que le chunk Sidebar.css (chargÃ© en diffÃ©rÃ©) soit tÃ©lÃ©chargÃ©. */
 .sidebar--loading {
   width: 250px;
   flex-shrink: 0;
@@ -211,7 +211,7 @@ textarea { width: 100%; resize: vertical; }
 .tt-tracker-error { color: var(--tt-negative); border-color: rgba(242,84,91,0.5); }
 .tt-tracker-error .tt-tracker-dot { background: var(--tt-negative); }
 
-/* Métriques live (WebSocket /train/stream/{job_id}) */
+/* MÃ©triques live (WebSocket /train/stream/{job_id}) */
 .tt-metrics-stream { margin-top: 14px; }
 .tt-metrics-live { font-size: 0.82rem; color: var(--tt-text-dim); }
 .tt-metrics-live strong { color: var(--tt-text); }
@@ -221,7 +221,7 @@ textarea { width: 100%; resize: vertical; }
 
 .tt-history-controls { display: flex; gap: 8px; align-items: center; }
 
-/* ContrÃ´les de pagination / filtrage de GET /train/jobs */
+/* ContrÃÂ´les de pagination / filtrage de GET /train/jobs */
 .tt-jobs-controls { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 18px; }
 .tt-jobs-filter { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--tt-text-dim); }
 .tt-jobs-filter .tt-select { width: auto; min-width: 120px; }
@@ -246,7 +246,7 @@ textarea { width: 100%; resize: vertical; }
 
 /* --- Page Comparer ------------------------------------------------------------ */
 
-/* Sélecteurs A / B avec bouton d'inversion entre les deux. */
+/* SÃ©lecteurs A / B avec bouton d'inversion entre les deux. */
 .tt-compare-selectors {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -259,7 +259,7 @@ textarea { width: 100%; resize: vertical; }
   font-size: 1rem;
 }
 
-/* Résultats côte à côte : deux colonnes desktop, empilées sur mobile. */
+/* RÃ©sultats cÃ´te Ã  cÃ´te : deux colonnes desktop, empilÃ©es sur mobile. */
 .tt-compare-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -287,7 +287,7 @@ textarea { width: 100%; resize: vertical; }
   flex-wrap: wrap;
 }
 
-/* Bandeau indicateur de divergence entre les deux modèles. */
+/* Bandeau indicateur de divergence entre les deux modÃ¨les. */
 .tt-compare-verdict {
   display: flex;
   align-items: center;
@@ -333,7 +333,7 @@ textarea { width: 100%; resize: vertical; }
   }
 }
 
-/* --- Page Évaluation ------------------------------------------------------ */
+/* --- Page Ãvaluation ------------------------------------------------------ */
 
 .tt-eval { display: flex; flex-direction: column; gap: 18px; }
 
@@ -393,7 +393,7 @@ textarea { width: 100%; resize: vertical; }
 .tt-heat-ok { color: var(--tt-positive) !important; }
 .tt-heat-err { color: var(--tt-negative) !important; }
 
-/* Pied de la heatmap : légende + erreurs par classe */
+/* Pied de la heatmap : lÃ©gende + erreurs par classe */
 .tt-eval-footer {
 
 /* Explication automatique de la matrice */
@@ -416,7 +416,7 @@ textarea { width: 100%; resize: vertical; }
 .tt-explain-ok { color: var(--tt-positive); }
 .tt-explain-ok strong { color: var(--tt-positive); }
 
-/* Journal des erreurs (liste défilante) */
+/* Journal des erreurs (liste dÃ©filante) */
 .tt-errlog {
   margin-top: 16px;
   border-top: 1px solid var(--tt-panel-border);
@@ -535,7 +535,7 @@ textarea { width: 100%; resize: vertical; }
 .tt-cmp-side-loading { color: var(--tt-text-dim); font-weight: 500; }
 .tt-cmp-side-error { color: var(--tt-negative); font-weight: 500; }
 
-/* En-tête de colonnes */
+/* En-tÃªte de colonnes */
 .tt-cmp-head {
   display: grid;
   grid-template-columns: 170px 1fr auto;
@@ -551,7 +551,7 @@ textarea { width: 100%; resize: vertical; }
 .tt-cmp-head-bars { text-align: center; }
 .tt-cmp-head-values { display: flex; gap: 10px; align-items: center; }
 
-/* Ligne = une métrique */
+/* Ligne = une mÃ©trique */
 .tt-cmp-row {
   display: grid;
   grid-template-columns: 170px 1fr auto;
@@ -596,7 +596,7 @@ textarea { width: 100%; resize: vertical; }
   box-shadow: 0 0 8px currentColor;
 }
 
-/* Badges de valeurs + différence */
+/* Badges de valeurs + diffÃ©rence */
 .tt-cmp-values { display: flex; gap: 8px; align-items: center; }
 .tt-cmp-values .tt-badge {
   min-width: 52px;
@@ -616,7 +616,7 @@ textarea { width: 100%; resize: vertical; }
 }
 
 
-/* --- Page Monitoring (métriques Prometheus) ------------------------------- */
+/* --- Page Monitoring (mÃ©triques Prometheus) ------------------------------- */
 
 .tt-mon-controls {
   display: flex;
@@ -738,7 +738,7 @@ textarea { width: 100%; resize: vertical; }
 .tt-drift-dist-value {
   text-align: right;
 }
-/* --- Composants UI réutilisables ------------------------------------------ */
+/* --- Composants UI rÃ©utilisables ------------------------------------------ */
 
 /* Spinner (chargeur accessible) */
 .tt-spinner {
@@ -755,7 +755,7 @@ textarea { width: 100%; resize: vertical; }
   }
 }
 
-/* État vide réutilisable */
+/* Ãtat vide rÃ©utilisable */
 .tt-empty {
   margin: 0;
   padding: 16px;
@@ -773,7 +773,7 @@ textarea { width: 100%; resize: vertical; }
   opacity: 0.7;
 }
 
-/* Filet de sécurité d'erreur (error boundary) */
+/* Filet de sÃ©curitÃ© d'erreur (error boundary) */
 .tt-error-boundary {
   padding: 20px;
   border: 1px solid var(--tt-negative);
@@ -865,7 +865,7 @@ textarea { width: 100%; resize: vertical; }
 }
 
 /* ------------------------------------------------------------------------
-   Sanity & nettoyage des mod�les (SCRUM-74) � ModelSanityPanel
+   Sanity & nettoyage des modèles (SCRUM-74)  ModelSanityPanel
    ------------------------------------------------------------------------ */
 .tt-sanity-actions {
   display: flex;

@@ -1,27 +1,17 @@
 /**
- * clientCore.js
+ * clientCore.ts
  * ---------------------------------------------------------------------
  * Cœur HTTP minimal et « critique » du client API ThinkTuning.
  *
  * C'est la SEULE partie indispensable au premier rendu : toute l'application
  * consomme ce transport (fetch) dès le montage (via AppProvider). Le reste du
- * client (endpoints métier) vit dans sentimentApiClient.js, et les helpers
+ * client (endpoints métier) vit dans sentimentApiClient.ts, et les helpers
  * agent + étapes de jobs dans des modules dédiés : cela maintient petit le
  * bundle initial chargé sur le chemin critique.
- *
- * Exposé ici :
- *   - ApiError                   (erreur HTTP normalisée)
- *   - DEFAULT_BASE_URL           (base lue depuis VITE_API_URL)
- *   - DEFAULT_TIMEOUT_MS         (30 s, JSON)
- *   - DEFAULT_MULTIPART_TIMEOUT_MS (60 s, uploads CSV)
- *   - SentimentApiClientCore     (transport : _request, _requestMultipart, …)
  */
 
-export const DEFAULT_BASE_URL =
-  (typeof import.meta !== "undefined" &&
-    import.meta.env &&
-    import.meta.env.VITE_API_URL) ??
-  "http://localhost:8000";
+export const DEFAULT_BASE_URL: string =
+  import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 // --- Timeout réseau -----------------------------------------------------------
 
@@ -30,8 +20,21 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 /** Délai par défaut d'un upload multipart (60 s, fichiers CSV potentiellement lourds). */
 export const DEFAULT_MULTIPART_TIMEOUT_MS = 60_000;
 
+export interface ApiConfig {
+  baseUrl?: string;
+  apiKey?: string;
+}
+
+export type QueryParams = Record<
+  string,
+  string | number | boolean | undefined | null
+>;
+
 export class ApiError extends Error {
-  constructor(message, status, detail) {
+  status: number;
+  detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -39,57 +42,79 @@ export class ApiError extends Error {
   }
 }
 
+export interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  query?: QueryParams;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+interface MultipartOptions {
+  formData: FormData;
+  query?: QueryParams;
+  expectBlob?: boolean;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 /**
  * Classe « natte » du transport HTTP : en-têtes, construction d'URL, requêtes
  * JSON et multipart avec timeout + support d'annulation externe (AbortSignal).
- * Les endpoints métier l'étendent (voir sentimentApiClient.js).
+ * Les endpoints métier l'étendent (voir sentimentApiClient.ts).
  */
 export class SentimentApiClientCore {
-  constructor({ baseUrl = DEFAULT_BASE_URL, apiKey = "" } = {}) {
+  baseUrl: string;
+  apiKey: string;
+
+  constructor({ baseUrl = DEFAULT_BASE_URL, apiKey = "" }: ApiConfig = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.apiKey = apiKey || "";
   }
 
-  setConfig({ baseUrl, apiKey } = {}) {
+  setConfig({ baseUrl, apiKey }: ApiConfig = {}): void {
     if (baseUrl !== undefined) this.baseUrl = baseUrl.replace(/\/+$/, "");
     if (apiKey !== undefined) this.apiKey = apiKey;
   }
 
-  _headers(isJson) {
-    const headers = {};
+  _headers(isJson: boolean): Record<string, string> {
+    const headers: Record<string, string> = {};
     if (isJson) headers["Content-Type"] = "application/json";
     if (this.apiKey) headers["X-API-Key"] = this.apiKey;
     return headers;
   }
 
-  _buildUrl(path, query) {
+  _buildUrl(path: string, query?: QueryParams): string {
     let url = `${this.baseUrl}${path}`;
     if (query) {
       const entries = Object.entries(query).filter(
         ([, v]) => v !== undefined && v !== null && v !== ""
-      );
+      ) as [string, string][];
       if (entries.length) {
         url += `?${new URLSearchParams(entries).toString()}`;
       }
     }
     return url;
   }
-
-  async _request(path, { method = "GET", body, query, timeoutMs, signal } = {}) {
+  async _request<T = unknown>(
+    path: string,
+    options: RequestOptions = {}
+  ): Promise<T | null> {
+    const { method = "GET", body, query, timeoutMs, signal } = options;
     const url = this._buildUrl(path, query);
-    const init = { method, headers: this._headers(body !== undefined) };
+    const init: RequestInit = { method, headers: this._headers(body !== undefined) };
     if (body !== undefined) init.body = JSON.stringify(body);
 
     const { controller, cleanup } = this._startRequest(timeoutMs, signal);
     init.signal = controller.signal;
 
-    let response;
+    let response: Response;
     try {
       response = await fetch(url, init);
     } catch (networkErr) {
       throw new ApiError(
         this._networkErrorMessage(
-          networkErr,
+          networkErr instanceof Error ? networkErr : new Error(String(networkErr)),
           controller.signal.reason === "timeout"
         ),
         0,
@@ -103,12 +128,12 @@ export class SentimentApiClientCore {
 
     const contentType = response.headers.get("content-type") || "";
     const isJson = contentType.includes("application/json");
-    const payload = isJson
+    const payload: unknown = isJson
       ? await response.json().catch(() => null)
       : await response.text();
 
     if (!response.ok) {
-      const detail = isJson && payload ? payload.detail : payload;
+      const detail = isJson && payload ? (payload as { detail?: unknown }).detail : payload;
       throw new ApiError(
         typeof detail === "string" && detail
           ? detail
@@ -118,19 +143,24 @@ export class SentimentApiClientCore {
       );
     }
 
-    return payload;
+    return payload as T;
   }
 
-  async _requestMultipart(path, { formData, query, expectBlob = false, timeoutMs, signal } = {}) {
+  async _requestMultipart<T = unknown>(
+    path: string,
+    { formData, query, expectBlob = false, timeoutMs, signal }: MultipartOptions
+  ): Promise<T> {
     const url = this._buildUrl(path, query);
-    const headers = this.apiKey ? { "X-API-Key": this.apiKey } : {};
+    const headers: Record<string, string> = this.apiKey
+      ? { "X-API-Key": this.apiKey }
+      : {};
 
     const { controller, cleanup } = this._startRequest(
       timeoutMs ?? DEFAULT_MULTIPART_TIMEOUT_MS,
       signal
     );
 
-    let response;
+    let response: Response;
     try {
       response = await fetch(url, {
         method: "POST",
@@ -141,7 +171,7 @@ export class SentimentApiClientCore {
     } catch (networkErr) {
       throw new ApiError(
         this._networkErrorMessage(
-          networkErr,
+          networkErr instanceof Error ? networkErr : new Error(String(networkErr)),
           controller.signal.reason === "timeout"
         ),
         0,
@@ -152,17 +182,21 @@ export class SentimentApiClientCore {
     }
 
     if (!response.ok) {
-      let detail = `Erreur HTTP ${response.status} sur ${path}`;
+      let detail: unknown = `Erreur HTTP ${response.status} sur ${path}`;
       try {
-        const errPayload = await response.json();
-        detail = errPayload.detail || detail;
+        const errPayload: { detail?: unknown } = await response.json();
+        detail = errPayload.detail ?? detail;
       } catch {
         /* réponse non-JSON, on garde le message générique */
       }
-      throw new ApiError(detail, response.status, detail);
+      throw new ApiError(
+        typeof detail === "string" ? detail : `Erreur HTTP ${response.status} sur ${path}`,
+        response.status,
+        detail
+      );
     }
 
-    return expectBlob ? response.blob() : response.json();
+    return (expectBlob ? response.blob() : response.json()) as Promise<T>;
   }
 
   /**
@@ -171,10 +205,13 @@ export class SentimentApiClientCore {
    * Les deux relais partagent le même contrôleur ; la cause « timeout » est
    * marquée dans `signal.reason` pour produire un message d'erreur distinct.
    */
-  _startRequest(timeoutMs, signal) {
+  _startRequest(
+    timeoutMs: number | undefined,
+    signal?: AbortSignal
+  ): { controller: AbortController; cleanup: () => void } {
     const controller = new AbortController();
     const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    let timer = null;
+    let timer: number | null = null;
     if (timeout > 0) {
       timer = window.setTimeout(() => controller.abort("timeout"), timeout);
     }
@@ -190,11 +227,11 @@ export class SentimentApiClientCore {
     return { controller, cleanup };
   }
 
-  _networkErrorMessage(err, isTimeout) {
+  _networkErrorMessage(err: Error, isTimeout: boolean): string {
     if (isTimeout) {
       return `La requête a dépassé le délai autorisé (annulée). Réessayez.`;
     }
-    if (err && err.name === "AbortError") {
+    if (err.name === "AbortError") {
       return `La requête a été annulée.`;
     }
     return `Impossible de joindre l'API à ${this.baseUrl} (${err.message}). ` +

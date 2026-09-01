@@ -1,5 +1,5 @@
 /**
- * jobSteps.js
+ * jobSteps.ts
  * ---------------------------------------------------------------------
  * Ordres canoniques des étapes de progression côté serveur.
  *
@@ -7,13 +7,10 @@
  * PipelineJobTracker) pour rester alignés sur le vrai pipeline serveur au lieu
  * d'une barre inventée. Module minuscule et NON critique : il n'est importé
  * que par les pages/ composants lazy, donc jamais au premier rendu.
- *
- * Chaque tableau est la copie de l'ordre réel renvoyé par api.py /
- * core/pipeline_runner.py.
  */
 
 /** Ordre réel des étapes traversées par _run_training() dans api.py. */
-export const TRAIN_STEPS = [
+export const TRAIN_STEPS: readonly string[] = [
   "queued",
   "loading_dataset",
   "splitting_dataset",
@@ -24,13 +21,13 @@ export const TRAIN_STEPS = [
   "training",
   "saving_model",
   "done",
-];
+] as const;
 
 /** Ordre des étapes du pipeline end-to-end (core/pipeline_runner.py). */
-export const PIPELINE_STEPS = [
+export const PIPELINE_STEPS: readonly string[] = [
   "queued",
   "labeling",
   "filtering",
   "finetuning",
   "done",
-];
+] as const;

@@ -102,7 +102,7 @@ export default function ModelSanityPanel({ client, models = [], onModelsChanged,
     try {
       const names = models.map((m) => m.name);
       for (const name of names) {
-        await checkOne(name); // eslint-disable-line no-await-in-loop
+        await checkOne(name);  
       }
       pushLog("info", "Analyse terminée : " + names.length + " version(s) vérifiée(s).");
     } finally {
@@ -140,7 +140,7 @@ export default function ModelSanityPanel({ client, models = [], onModelsChanged,
     try {
       let deleted = 0;
       for (const m of broken) {
-        if (await deleteOneSilent(m.name)) deleted += 1; // eslint-disable-line no-await-in-loop
+        if (await deleteOneSilent(m.name)) deleted += 1;  
       }
       pushLog("info", "Nettoyage terminé : " + deleted + "/" + broken.length + " supprimée(s).");
       onModelsChanged?.();

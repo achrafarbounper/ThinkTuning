@@ -11,6 +11,7 @@
 import React, { useState } from "react";
 import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
+import { useExplain } from "../hooks/useExplain";
 import { sentimentLabel } from "../lib/sentiment";
 
 export default function SentimentPage() {
@@ -35,14 +36,10 @@ export default function SentimentPage() {
   const [predictLoading, setPredictLoading] = useState(false);
   const [predictError, setPredictError] = useState(null);
 
-  // Explication LLM d'une prédiction unitaire (POST /explain, OpenRouter).
-  const [explainState, setExplainState] = useState(null);
-
-  // Explication LLM d'une ligne de la prédiction par lot (POST /explain).
-  const [batchExplainState, setBatchExplainState] = useState(null);
-
-  // Explication LLM d'une ligne de l'historique (POST /explain).
-  const [historyExplainState, setHistoryExplainState] = useState(null);
+  // Explications LLM (POST /explain) : un hook unifié au lieu de 3 états dupliqués.
+  const explainUnit = useExplain(client);
+  const explainBatch = useExplain(client);
+  const explainHistory = useExplain(client);
 
   const [batchFile, setBatchFile] = useState(null);
   const [batchColumn, setBatchColumn] = useState("text");
@@ -62,8 +59,8 @@ export default function SentimentPage() {
 
     setPredictLoading(true);
     setPredictError(null);
-    setExplainState(null);
-    setHistoryExplainState(null);
+    explainUnit.reset();
+    explainHistory.reset();
     try {
       const { results } = await client.predict(texts, activeModel || undefined);
       setPredictResults(results);
@@ -76,40 +73,25 @@ export default function SentimentPage() {
   };
 
   // -- Explication LLM d'une prédiction unitaire ------------------------------
-  const handleExplain = async (text) => {
-    setExplainState({ text, loading: true, result: null, error: null });
-    try {
-      const result = await client.explain({ text });
-      setExplainState({ text, loading: false, result, error: null });
-    } catch (err) {
-      setExplainState({ text, loading: false, result: null, error: err.message });
-    }
+  const handleExplain = (text) => {
+    void explainUnit.run(text);
   };
 
   // -- Explication LLM d'une ligne de prédiction par lot ----------------------
-  const handleBatchExplain = async (index) => {
+  const handleBatchExplain = (index) => {
     const row = batchResults && batchResults[index];
     if (!row) return;
-    setBatchExplainState({ index, loading: true, result: null, error: null });
-    try {
-      const result = await client.explain({ text: row.text });
-      setBatchExplainState({ index, loading: false, result, error: null });
-    } catch (err) {
-      setBatchExplainState({ index, loading: false, result: null, error: err.message });
-    }
+    void explainBatch.run(row.text);
   };
 
-  // -- Explication LLM d'une ligne de l'historique -----------------------------
-  const handleHistoryExplain = async (index) => {
+  // -- Explication LLM d'une ligne de l'historique ----------------------------
+  // On passe par le texte (identifiant stable) plutôt que l'index : les
+  // nouvelles prédictions s'insèrent en tête de l'historique et décaleraient
+  // les index (bug latent de l'ancienne version).
+  const handleHistoryExplain = (index) => {
     const pred = predictionsHistory && predictionsHistory[index];
     if (!pred) return;
-    setHistoryExplainState({ index, loading: true, result: null, error: null });
-    try {
-      const result = await client.explain({ text: pred.text });
-      setHistoryExplainState({ index, loading: false, result, error: null });
-    } catch (err) {
-      setHistoryExplainState({ index, loading: false, result: null, error: err.message });
-    }
+    void explainHistory.run(pred.text);
   };
 
   // -- Prédiction batch CSV -----------------------------------------------------
@@ -123,8 +105,8 @@ export default function SentimentPage() {
     setBatchLoading(true);
     setBatchError(null);
     setBatchResults(null);
-    setBatchExplainState(null);
-    setHistoryExplainState(null);
+    explainBatch.reset();
+    explainHistory.reset();
     try {
       if (batchFormat === "csv") {
         const blob = await client.predictBatchCsv({
@@ -203,9 +185,10 @@ export default function SentimentPage() {
           {predictResults && (
             <ul className="tt-results">
               {predictResults.map((r, i) => {
-                const isExplaining = explainState?.text === r.text && explainState?.loading;
+                const isExplaining =
+                  explainUnit.state.text === r.text && explainUnit.state.loading;
                 const showExplain =
-                  explainState?.text === r.text && !explainState?.loading;
+                  explainUnit.state.text === r.text && !explainUnit.state.loading;
                 return (
                   <li key={i} className="tt-result-row">
                     <div className="tt-result-main">
@@ -232,10 +215,10 @@ export default function SentimentPage() {
 
                     {showExplain && (
                       <div className="tt-explain tt-explain-inline">
-                        {explainState.error ? (
-                          <p className="tt-hint tt-hint-error">{explainState.error}</p>
+                        {explainUnit.state.error ? (
+                          <p className="tt-hint tt-hint-error">{explainUnit.state.error}</p>
                         ) : (
-                          <p>{explainState.result?.explanation}</p>
+                          <p>{explainUnit.state.result}</p>
                         )}
                       </div>
                     )}
@@ -284,9 +267,9 @@ export default function SentimentPage() {
               <tbody>
                 {batchResults.slice(0, 20).map((r, i) => {
                   const isBatchExplaining =
-                    batchExplainState?.index === i && batchExplainState?.loading;
+                    explainBatch.state.text === r.text && explainBatch.state.loading;
                   const showBatchExplain =
-                    batchExplainState?.index === i && !batchExplainState?.loading;
+                    explainBatch.state.text === r.text && !explainBatch.state.loading;
                   return (
                     <React.Fragment key={i}>
                       <tr>
@@ -312,13 +295,13 @@ export default function SentimentPage() {
                       {showBatchExplain && (
                         <tr>
                           <td colSpan={4} className="tt-explain-cell">
-                            {batchExplainState.error ? (
+                            {explainBatch.state.error ? (
                               <span className="tt-hint tt-hint-error">
-                                {batchExplainState.error}
+                                {explainBatch.state.error}
                               </span>
                             ) : (
                               <span className="tt-explain tt-explain-inline">
-                                {batchExplainState.result?.explanation}
+                                {explainBatch.state.result}
                               </span>
                             )}
                           </td>
@@ -348,7 +331,7 @@ export default function SentimentPage() {
                 className="tt-input-small"
                 title="Nombre maximum de prédictions à conserver"
               />
-              <button className="tt-btn tt-btn-ghost" onClick={() => { clearHistory(); setHistoryExplainState(null); }} type="button">
+              <button className="tt-btn tt-btn-ghost" onClick={() => { clearHistory(); explainHistory.reset(); }} type="button">
                 Effacer
               </button>
               <button
@@ -393,23 +376,23 @@ export default function SentimentPage() {
                         <button
                           className="tt-btn tt-btn-ghost tt-explain-btn"
                           onClick={() => handleHistoryExplain(idx)}
-                          disabled={historyExplainState?.index === idx && historyExplainState?.loading}
+                          disabled={explainHistory.state.text === pred.text && explainHistory.state.loading}
                           type="button"
                         >
-                          {historyExplainState?.index === idx && historyExplainState?.loading ? "..." : "Expliquer"}
+                          {explainHistory.state.text === pred.text && explainHistory.state.loading ? "..." : "Expliquer"}
                         </button>
                       </td>
                     </tr>
-                    {historyExplainState?.index === idx && (
+                    {explainHistory.state.text === pred.text && !explainHistory.state.loading && (
                       <tr>
                         <td colSpan={5} className="tt-explain-cell">
-                          {historyExplainState.error ? (
+                          {explainHistory.state.error ? (
                             <span className="tt-hint tt-hint-error">
-                              {historyExplainState.error}
+                              {explainHistory.state.error}
                             </span>
                           ) : (
                             <span className="tt-explain tt-explain-inline">
-                              {historyExplainState.result?.explanation}
+                              {explainHistory.state.result}
                             </span>
                           )}
                         </td>

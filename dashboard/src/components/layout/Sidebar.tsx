@@ -1,15 +1,18 @@
 /**
  * Sidebar — menu de navigation latéral du dashboard ThinkTuning.
  *
- * Navigation par hachage (#/analyse, #/assistant…) gérée dans App.jsx :
- * `page` est l'identifiant actif, `onNavigate(id)` met à jour l'URL.
+ * Navigation par hachage (#/analyse, #/assistant…) gérée dans App.tsx :
+ * `page` est l'identifiant actif. Les items sont de vrais liens <a href> :
+ * navigation native (retour navigateur, ouverture dans un onglet) et
+ * sémantique correcte pour les lecteurs d'écran.
  * L'état de santé de l'API (contexte) est affiché en bas du menu.
  */
 
+import type { ReactNode } from "react";
 import { useApp } from "../../context/useApp";
 import "./Sidebar.css";
 
-function Icon({ children }) {
+function Icon({ children }: { children: ReactNode }) {
   return (
     <svg
       className="sidebar__icon"
@@ -26,7 +29,14 @@ function Icon({ children }) {
   );
 }
 
-const MENU_ITEMS = [
+interface MenuItem {
+  id: string;
+  label: string;
+  hint: string;
+  icon: ReactNode;
+}
+
+const MENU_ITEMS: MenuItem[] = [
   {
     id: "dashboard",
     label: "Tableau de bord",
@@ -163,8 +173,14 @@ const MENU_ITEMS = [
     ),
   },
 ];
+interface SidebarProps {
+  /** Identifiant de la page active. */
+  page: string;
+  /** Conservé pour compatibilité (l'anchor fait la navigation). */
+  onNavigate?: (id: string) => void;
+}
 
-export default function Sidebar({ page, onNavigate }) {
+export default function Sidebar({ page }: SidebarProps) {
   const { health, healthError } = useApp();
 
   const healthDotClass = healthError
@@ -193,11 +209,10 @@ export default function Sidebar({ page, onNavigate }) {
 
       <nav className="sidebar__nav" aria-label="Navigation principale">
         {MENU_ITEMS.map((item) => (
-          <button
+          <a
             key={item.id}
-            type="button"
+            href={`#/${item.id}`}
             className={`sidebar__item${page === item.id ? " sidebar__item--active" : ""}`}
-            onClick={() => onNavigate(item.id)}
             aria-current={page === item.id ? "page" : undefined}
             title={item.label}
           >
@@ -206,14 +221,11 @@ export default function Sidebar({ page, onNavigate }) {
               <span className="sidebar__item-label">{item.label}</span>
               <span className="sidebar__item-hint">{item.hint}</span>
             </span>
-          </button>
+          </a>
         ))}
       </nav>
 
-      <div
-        className="sidebar__footer"
-        aria-busy={!health && !healthError}
-      >
+      <div className="sidebar__footer" aria-busy={!health && !healthError}>
         <span className={healthDotClass} aria-hidden="true" />
         <span className="sidebar__footer-text" title={healthError || undefined}>
           {statusLabel}
