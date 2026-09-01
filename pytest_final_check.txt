@@ -1,0 +1,906 @@
+....FF...............                                                    [100%]
+================================== FAILURES ===================================
+______________________ test_delete_invalid_name_rejected ______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002D830C3ECF0>
+tmp_path = WindowsPath('C:/Users/achra/AppData/Local/Temp/pytest-of-achra/pytest-397/test_delete_invalid_name_rejec0')
+
+    def test_delete_invalid_name_rejected(monkeypatch, tmp_path):
+        monkeypatch.setattr("api.routes.models.MODEL_ROOT", str(tmp_path / "models"))
+    
+        response = client.delete("/models/..%2F..%2Fetc", headers={"X-API-Key": "test-key"})
+    
+>       assert response.status_code == 422, response.text
+E       AssertionError: {"detail":"Not Found"}
+E       assert 404 == 422
+E        +  where 404 = <Response [404 Not Found]>.status_code
+
+tests\test_model_cleanup.py:103: AssertionError
+---------------------------- Captured stdout call -----------------------------
+                    INFO     http_request method=DELETE path=/models/../../etc 
+                             status=404 duration_ms=63.969 client_ip=testclient
+------------------------------ Captured log call ------------------------------
+INFO     thinktuning.api:metrics.py:51 http_request method=DELETE path=/models/../../etc status=404 duration_ms=63.969 client_ip=testclient
+____________________ test_delete_broken_directory_allowed _____________________
+  + Exception Group Traceback (most recent call last):
+  |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 81, in collapse_excgroups
+  |     yield
+  |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 192, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |                ~~~~~~~~~~~~~~~~~~~~~~~^^
+  |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 815, in __aexit__
+  |     raise BaseExceptionGroup(
+  |         "unhandled errors in a TaskGroup", self._exceptions
+  |     ) from None
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\_pytest\runner.py", line 361, in from_call
+    |     result: TResult | None = func()
+    |                              ~~~~^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\_pytest\runner.py", line 250, in <lambda>
+    |     lambda: runtest_hook(item=item, **kwds),
+    |             ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    |     return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+    |            ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    |     return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+    |            ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_callers.py", line 167, in _multicall
+    |     raise exception
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_callers.py", line 139, in _multicall
+    |     teardown.throw(exception)
+    |     ~~~~~~~~~~~~~~^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\_pytest\logging.py", line 865, in pytest_runtest_call
+    |     yield
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_callers.py", line 139, in _multicall
+    |     teardown.throw(exception)
+    |     ~~~~~~~~~~~~~~^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\_pytest\capture.py", line 900, in pytest_runtest_call
+    |     return (yield)
+    |             ^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_callers.py", line 139, in _multicall
+    |     teardown.throw(exception)
+    |     ~~~~~~~~~~~~~~^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\_pytest\skipping.py", line 268, in pytest_runtest_call
+    |     return (yield)
+    |             ^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    |     res = hook_impl.function(*args)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\_pytest\runner.py", line 184, in pytest_runtest_call
+    |     item.runtest()
+    |     ~~~~~~~~~~~~^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\_pytest\python.py", line 1707, in runtest
+    |     self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+    |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_hooks.py", line 512, in __call__
+    |     return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+    |            ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    |     return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+    |            ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_callers.py", line 167, in _multicall
+    |     raise exception
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\pluggy\_callers.py", line 121, in _multicall
+    |     res = hook_impl.function(*args)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\_pytest\python.py", line 167, in pytest_pyfunc_call
+    |     result = testfunction(**testargs)
+    |   File "D:\ThinkTuning\tests\test_model_cleanup.py", line 121, in test_delete_broken_directory_allowed
+    |     response = client.delete("/models/20260101T000000Z", headers={"X-API-Key": "test-key"})
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\testclient.py", line 635, in delete
+    |     return super().delete(
+    |            ~~~~~~~~~~~~~~^
+    |         url,
+    |         ^^^^
+    |     ...<6 lines>...
+    |         extensions=extensions,
+    |         ^^^^^^^^^^^^^^^^^^^^^^
+    |     )
+    |     ^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 1251, in delete
+    |     return self.request(
+    |            ~~~~~~~~~~~~^
+    |         "DELETE",
+    |         ^^^^^^^^^
+    |     ...<7 lines>...
+    |         extensions=extensions,
+    |         ^^^^^^^^^^^^^^^^^^^^^^
+    |     )
+    |     ^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\testclient.py", line 445, in request
+    |     return super().request(
+    |            ~~~~~~~~~~~~~~~^
+    |         method,
+    |         ^^^^^^^
+    |     ...<11 lines>...
+    |         extensions=extensions,
+    |         ^^^^^^^^^^^^^^^^^^^^^^
+    |     )
+    |     ^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 825, in request
+    |     return self.send(request, auth=auth, follow_redirects=follow_redirects)
+    |            ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 914, in send
+    |     response = self._send_handling_auth(
+    |         request,
+    |     ...<2 lines>...
+    |         history=[],
+    |     )
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 942, in _send_handling_auth
+    |     response = self._send_handling_redirects(
+    |         request,
+    |         follow_redirects=follow_redirects,
+    |         history=history,
+    |     )
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 979, in _send_handling_redirects
+    |     response = self._send_single_request(request)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 1014, in _send_single_request
+    |     response = transport.handle_request(request)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\testclient.py", line 348, in handle_request
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\testclient.py", line 345, in handle_request
+    |     portal.call(self.app, scope, receive, send)
+    |     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\from_thread.py", line 338, in call
+    |     return cast(T_Retval, self.start_task_soon(func, *args).result())
+    |                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+    |   File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py", line 456, in result
+    |     return self.__get_result()
+    |            ~~~~~~~~~~~~~~~~~^^
+    |   File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    |     raise self._exception
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\from_thread.py", line 263, in _call_func
+    |     retval = await retval_or_awaitable
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\applications.py", line 1163, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    |     with recv_stream, send_stream, collapse_excgroups():
+    |                                    ~~~~~~~~~~~~~~~~~~^^
+    |   File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    |     self.gen.throw(value)
+    |     ~~~~~~~~~~~~~~^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\api\middlewares\metrics.py", line 31, in request_metrics_middleware
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    |     with recv_stream, send_stream, collapse_excgroups():
+    |                                    ~~~~~~~~~~~~~~~~~~^^
+    |   File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    |     self.gen.throw(value)
+    |     ~~~~~~~~~~~~~~^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\api\middlewares\rate_limit.py", line 88, in rate_limit_middleware
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    |     with recv_stream, send_stream, collapse_excgroups():
+    |                                    ~~~~~~~~~~~~~~~~~~^^
+    |   File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    |     self.gen.throw(value)
+    |     ~~~~~~~~~~~~~~^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\api\middlewares\maintenance.py", line 42, in maintenance_mode_middleware
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\cors.py", line 88, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 2734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1780, in handle
+    |     await self.original_router.handle(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 2789, in handle
+    |     await included_router._handle_selected(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1800, in _handle_selected
+    |     await original_route.handle(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1279, in handle
+    |     await app(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 158, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 144, in app
+    |     response = await f(request)
+    |                ^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 706, in app
+    |     raw_response = await run_endpoint_function(
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |     ...<3 lines>...
+    |     )
+    |     ^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 354, in run_endpoint_function
+    |     return await run_in_threadpool(dependant.call, **values)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\concurrency.py", line 32, in run_in_threadpool
+    |     return await anyio.to_thread.run_sync(func)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |         func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |     )
+    |     ^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    |     result = context.run(func, *args)
+    |   File "D:\ThinkTuning\api\routes\models.py", line 135, in delete_model_version
+    |     predictor = get_predictor(name)
+    |   File "D:\ThinkTuning\tests\test_model_cleanup.py", line 115, in fake_get_predictor
+    |     raise HTTPException(status_code=503, detail="Aucun modèle disponible")
+    |           ^^^^^^^^^^^^^
+    | NameError: name 'HTTPException' is not defined. Did you mean: 'BaseException'?
+    +------------------------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\ThinkTuning\tests\test_model_cleanup.py", line 121, in test_delete_broken_directory_allowed
+    response = client.delete("/models/20260101T000000Z", headers={"X-API-Key": "test-key"})
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\testclient.py", line 635, in delete
+    return super().delete(
+           ~~~~~~~~~~~~~~^
+        url,
+        ^^^^
+    ...<6 lines>...
+        extensions=extensions,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 1251, in delete
+    return self.request(
+           ~~~~~~~~~~~~^
+        "DELETE",
+        ^^^^^^^^^
+    ...<7 lines>...
+        extensions=extensions,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\testclient.py", line 445, in request
+    return super().request(
+           ~~~~~~~~~~~~~~~^
+        method,
+        ^^^^^^^
+    ...<11 lines>...
+        extensions=extensions,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 914, in send
+    response = self._send_handling_auth(
+        request,
+    ...<2 lines>...
+        history=[],
+    )
+  File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+        request,
+        follow_redirects=follow_redirects,
+        history=history,
+    )
+  File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+  File "D:\ThinkTuning\venv\Lib\site-packages\httpx\_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\testclient.py", line 348, in handle_request
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\testclient.py", line 345, in handle_request
+    portal.call(self.app, scope, receive, send)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\anyio\from_thread.py", line 338, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "D:\ThinkTuning\venv\Lib\site-packages\anyio\from_thread.py", line 263, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\api\middlewares\metrics.py", line 31, in request_metrics_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\api\middlewares\rate_limit.py", line 88, in rate_limit_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\api\middlewares\maintenance.py", line 42, in maintenance_mode_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\cors.py", line 88, in __call__
+    await self.app(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 2734, in app
+    await route.handle(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1780, in handle
+    await self.original_router.handle(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 2789, in handle
+    await included_router._handle_selected(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1800, in _handle_selected
+    await original_route.handle(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1279, in handle
+    await app(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 158, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 144, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 706, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 354, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    result = context.run(func, *args)
+  File "D:\ThinkTuning\api\routes\models.py", line 135, in delete_model_version
+    predictor = get_predictor(name)
+  File "D:\ThinkTuning\tests\test_model_cleanup.py", line 115, in fake_get_predictor
+    raise HTTPException(status_code=503, detail="Aucun modèle disponible")
+          ^^^^^^^^^^^^^
+NameError: name 'HTTPException' is not defined. Did you mean: 'BaseException'?
+
+The above exception was the direct cause of the following exception:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002D830C14E50>
+tmp_path = WindowsPath('C:/Users/achra/AppData/Local/Temp/pytest-of-achra/pytest-397/test_delete_broken_directory_a0')
+
+    def test_delete_broken_directory_allowed(monkeypatch, tmp_path):
+        """Un dossier illisible (modèle non chargeable) -> verdict model_unavailable
+        et suppression autorisée (cas d'usage principal du nettoyage)."""
+        root = str(tmp_path / "models")
+        version_dir = _make_version(root, "20260101T000000Z", files=("config.json",))
+    
+        from fastapi import HTTPException as _HTTPException
+    
+        def fake_get_predictor(name=None):
+            raise HTTPException(status_code=503, detail="Aucun modèle disponible")
+    
+        monkeypatch.setattr("api.routes.models.MODEL_ROOT", root)
+        monkeypatch.setattr("api.routes.models.get_predictor", fake_get_predictor)
+        monkeypatch.setattr("api.routes.models.is_active", lambda name: False)
+    
+>       response = client.delete("/models/20260101T000000Z", headers={"X-API-Key": "test-key"})
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_model_cleanup.py:121: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:635: in delete
+    return super().delete(
+venv\Lib\site-packages\httpx\_client.py:1251: in delete
+    return self.request(
+venv\Lib\site-packages\starlette\testclient.py:445: in request
+    return super().request(
+venv\Lib\site-packages\httpx\_client.py:825: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\httpx\_client.py:914: in send
+    response = self._send_handling_auth(
+venv\Lib\site-packages\httpx\_client.py:942: in _send_handling_auth
+    response = self._send_handling_redirects(
+venv\Lib\site-packages\httpx\_client.py:979: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\httpx\_client.py:1014: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\testclient.py:348: in handle_request
+    raise exc
+venv\Lib\site-packages\starlette\testclient.py:345: in handle_request
+    portal.call(self.app, scope, receive, send)
+venv\Lib\site-packages\anyio\from_thread.py:338: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:263: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\fastapi\applications.py:1163: in __call__
+    await super().__call__(scope, receive, send)
+venv\Lib\site-packages\starlette\applications.py:90: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\errors.py:186: in __call__
+    raise exc
+venv\Lib\site-packages\starlette\middleware\errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+venv\Lib\site-packages\starlette\middleware\base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ^^^^^^^^^^^^^^^^^^^^
+C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py:162: in __exit__
+    self.gen.throw(value)
+venv\Lib\site-packages\starlette\_utils.py:87: in collapse_excgroups
+    raise exc
+venv\Lib\site-packages\starlette\middleware\base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api\middlewares\metrics.py:31: in request_metrics_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\middleware\base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+venv\Lib\site-packages\starlette\middleware\base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv\Lib\site-packages\starlette\middleware\base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ^^^^^^^^^^^^^^^^^^^^
+C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py:162: in __exit__
+    self.gen.throw(value)
+venv\Lib\site-packages\starlette\_utils.py:87: in collapse_excgroups
+    raise exc
+venv\Lib\site-packages\starlette\middleware\base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api\middlewares\rate_limit.py:88: in rate_limit_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\middleware\base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+venv\Lib\site-packages\starlette\middleware\base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv\Lib\site-packages\starlette\middleware\base.py:191: in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ^^^^^^^^^^^^^^^^^^^^
+C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py:162: in __exit__
+    self.gen.throw(value)
+venv\Lib\site-packages\starlette\_utils.py:87: in collapse_excgroups
+    raise exc
+venv\Lib\site-packages\starlette\middleware\base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api\middlewares\maintenance.py:42: in maintenance_mode_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\middleware\base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+venv\Lib\site-packages\starlette\middleware\base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+venv\Lib\site-packages\starlette\middleware\cors.py:88: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:660: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:2734: in app
+    await route.handle(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:1780: in handle
+    await self.original_router.handle(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:2789: in handle
+    await included_router._handle_selected(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:1800: in _handle_selected
+    await original_route.handle(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:1279: in handle
+    await app(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:158: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\routing.py:144: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\fastapi\routing.py:706: in app
+    raw_response = await run_endpoint_function(
+venv\Lib\site-packages\fastapi\routing.py:354: in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\concurrency.py:32: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\anyio\to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+venv\Lib\site-packages\anyio\_backends\_asyncio.py:2641: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+venv\Lib\site-packages\anyio\_backends\_asyncio.py:1033: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+api\routes\models.py:135: in delete_model_version
+    predictor = get_predictor(name)
+                ^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = '20260101T000000Z'
+
+    def fake_get_predictor(name=None):
+>       raise HTTPException(status_code=503, detail="Aucun modèle disponible")
+              ^^^^^^^^^^^^^
+E       NameError: name 'HTTPException' is not defined
+
+tests\test_model_cleanup.py:115: NameError
+---------------------------- Captured stdout call -----------------------------
+                    ERROR    http_request method=DELETE                        \n                             path=/models/20260101T000000Z status=500          \n                             duration_ms=1.773 client_ip=testclient            \n                             \u250c\u2500\u2500\u2500\u2500\u2500\u2500 Traceback (most recent call last) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\_utils.py:81 in collapse_excgroups           \u2502\n                             \u2502                                                \u2502\n                             \u2502    78 @contextmanager                          \u2502\n                             \u2502    79 def collapse_excgroups() -> Generator[No \u2502\n                             \u2502    80 \u2502   try:                                 \u2502\n                             \u2502 >  81 \u2502   \u2502   yield                            \u2502\n                             \u2502    82 \u2502   except BaseException as exc:         \u2502\n                             \u2502    83 \u2502   \u2502   if has_exceptiongroups:  # pragm \u2502\n                             \u2502    84 \u2502   \u2502   \u2502   while isinstance(exc, BaseEx \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:192 in __call__           \u2502\n                             \u2502                                                \u2502\n                             \u2502   189 \u2502   \u2502   streams: anyio.create_memory_obj \u2502\n                             \u2502       anyio.create_memory_object_stream()      \u2502\n                             \u2502   190 \u2502   \u2502   send_stream, recv_stream = strea \u2502\n                             \u2502   191 \u2502   \u2502   with recv_stream, send_stream, c \u2502\n                             \u2502 > 192 \u2502   \u2502   \u2502   async with anyio.create_task \u2502\n                             \u2502   193 \u2502   \u2502   \u2502   \u2502   response = await self.di \u2502\n                             \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope, wr \u2502\n                             \u2502   195 \u2502   \u2502   \u2502   \u2502   response_sent.set()      \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\anyio\\_b \u2502\n                             \u2502 ackends\\_asyncio.py:815 in __aexit__           \u2502\n                             \u2502                                                \u2502\n                             \u2502    812 \u2502   \u2502   \u2502   \u2502   \u2502   # added to self._ex \u2502\n                             \u2502    813 \u2502   \u2502   \u2502   \u2502   \u2502   # chaining and avoi \u2502\n                             \u2502    814 \u2502   \u2502   \u2502   \u2502   \u2502   # for each nesting  \u2502\n                             \u2502 >  815 \u2502   \u2502   \u2502   \u2502   \u2502   raise BaseException \u2502\n                             \u2502    816 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   "unhandled erro \u2502\n                             \u2502    817 \u2502   \u2502   \u2502   \u2502   \u2502   ) from None         \u2502\n                             \u2502    818 \u2502   \u2502   \u2502   \u2502   elif exc_val:           \u2502\n                             \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                             ExceptionGroup: unhandled errors in a TaskGroup (1\n                             sub-exception)                                    \n                                                                               \n                             \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Sub-exception #1 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n                             \u2502 \u250c\u2500\u2500\u2500\u2500 Traceback (most recent call last) \u2500\u2500\u2500\u2500\u2500\u2510 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\api\\middlewares\\metrics.py: \u2502 \u2502\n                             \u2502 \u2502 31 in request_metrics_middleware           \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   28 \u2502   client_ip = request.client.host i \u2502 \u2502\n                             \u2502 \u2502   29 \u2502                                     \u2502 \u2502\n                             \u2502 \u2502   30 \u2502   try:                              \u2502 \u2502\n                             \u2502 \u2502 > 31 \u2502   \u2502   response = await call_next(re \u2502 \u2502\n                             \u2502 \u2502   32 \u2502   except Exception:                 \u2502 \u2502\n                             \u2502 \u2502   33 \u2502   \u2502   duration = time.perf_counter( \u2502 \u2502\n                             \u2502 \u2502   34 \u2502   \u2502   status_code = 500             \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:168 in call_next  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   165 \u2502   \u2502   \u2502   \u2502   \u2502   # propagated as  \u2502 \u2502\n                             \u2502 \u2502   166 \u2502   \u2502   \u2502   \u2502   \u2502   # to prevent `an \u2502 \u2502\n                             \u2502 \u2502   167 \u2502   \u2502   \u2502   \u2502   \u2502   # context.       \u2502 \u2502\n                             \u2502 \u2502 > 168 \u2502   \u2502   \u2502   \u2502   \u2502   raise app_exc fr \u2502 \u2502\n                             \u2502 \u2502   169 \u2502   \u2502   \u2502   \u2502   raise RuntimeError(" \u2502 \u2502\n                             \u2502 \u2502   170 \u2502   \u2502   \u2502                            \u2502 \u2502\n                             \u2502 \u2502   171 \u2502   \u2502   \u2502   assert message["type"] = \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:144 in coro       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   141 \u2502   \u2502   \u2502   \u2502                        \u2502 \u2502\n                             \u2502 \u2502   142 \u2502   \u2502   \u2502   \u2502   with send_stream:    \u2502 \u2502\n                             \u2502 \u2502   143 \u2502   \u2502   \u2502   \u2502   \u2502   try:             \u2502 \u2502\n                             \u2502 \u2502 > 144 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   await self.a \u2502 \u2502\n                             \u2502 \u2502   145 \u2502   \u2502   \u2502   \u2502   \u2502   except Exception \u2502 \u2502\n                             \u2502 \u2502   146 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   app_exc = ex \u2502 \u2502\n                             \u2502 \u2502   147                                      \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:191 in __call__   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   188 \u2502   \u2502                                \u2502 \u2502\n                             \u2502 \u2502   189 \u2502   \u2502   streams: anyio.create_memory \u2502 \u2502\n                             \u2502 \u2502       anyio.create_memory_object_stream()  \u2502 \u2502\n                             \u2502 \u2502   190 \u2502   \u2502   send_stream, recv_stream = s \u2502 \u2502\n                             \u2502 \u2502 > 191 \u2502   \u2502   with recv_stream, send_strea \u2502 \u2502\n                             \u2502 \u2502   192 \u2502   \u2502   \u2502   async with anyio.create_ \u2502 \u2502\n                             \u2502 \u2502   193 \u2502   \u2502   \u2502   \u2502   response = await sel \u2502 \u2502\n                             \u2502 \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 C:\\Users\\achra\\AppData\\Local\\Programs\\Pyth \u2502 \u2502\n                             \u2502 \u2502 on\\Python313\\Lib\\contextlib.py:162 in      \u2502 \u2502\n                             \u2502 \u2502 __exit__                                   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   159 \u2502   \u2502   \u2502   \u2502   # tell if we get the \u2502 \u2502\n                             \u2502 \u2502   160 \u2502   \u2502   \u2502   \u2502   value = typ()        \u2502 \u2502\n                             \u2502 \u2502   161 \u2502   \u2502   \u2502   try:                     \u2502 \u2502\n                             \u2502 \u2502 > 162 \u2502   \u2502   \u2502   \u2502   self.gen.throw(value \u2502 \u2502\n                             \u2502 \u2502   163 \u2502   \u2502   \u2502   except StopIteration as  \u2502 \u2502\n                             \u2502 \u2502   164 \u2502   \u2502   \u2502   \u2502   # Suppress StopItera \u2502 \u2502\n                             \u2502 \u2502   165 \u2502   \u2502   \u2502   \u2502   # was passed to thro \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\_utils.py:87 in collapse_excgroups   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502    84 \u2502   \u2502   \u2502   while isinstance(exc, Ba \u2502 \u2502\n                             \u2502 \u2502    85 \u2502   \u2502   \u2502   \u2502   exc = exc.exceptions \u2502 \u2502\n                             \u2502 \u2502    86 \u2502   \u2502                                \u2502 \u2502\n                             \u2502 \u2502 >  87 \u2502   \u2502   raise exc                    \u2502 \u2502\n                             \u2502 \u2502    88                                      \u2502 \u2502\n                             \u2502 \u2502    89                                      \u2502 \u2502\n                             \u2502 \u2502    90 def get_route_path(scope: Scope) ->  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:193 in __call__   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   190 \u2502   \u2502   send_stream, recv_stream = s \u2502 \u2502\n                             \u2502 \u2502   191 \u2502   \u2502   with recv_stream, send_strea \u2502 \u2502\n                             \u2502 \u2502   192 \u2502   \u2502   \u2502   async with anyio.create_ \u2502 \u2502\n                             \u2502 \u2502 > 193 \u2502   \u2502   \u2502   \u2502   response = await sel \u2502 \u2502\n                             \u2502 \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope \u2502 \u2502\n                             \u2502 \u2502   195 \u2502   \u2502   \u2502   \u2502   response_sent.set()  \u2502 \u2502\n                             \u2502 \u2502   196 \u2502   \u2502   \u2502   \u2502   recv_stream.close()  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\api\\middlewares\\rate_limit. \u2502 \u2502\n                             \u2502 \u2502 py:88 in rate_limit_middleware             \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   85 \u2502   \u2502   \u2502   media_type="application/j \u2502 \u2502\n                             \u2502 \u2502   86 \u2502   \u2502   \u2502   headers={"Retry-After": s \u2502 \u2502\n                             \u2502 \u2502   87 \u2502   \u2502   )                             \u2502 \u2502\n                             \u2502 \u2502 > 88 \u2502   return await call_next(request)   \u2502 \u2502\n                             \u2502 \u2502   89                                       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:168 in call_next  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   165 \u2502   \u2502   \u2502   \u2502   \u2502   # propagated as  \u2502 \u2502\n                             \u2502 \u2502   166 \u2502   \u2502   \u2502   \u2502   \u2502   # to prevent `an \u2502 \u2502\n                             \u2502 \u2502   167 \u2502   \u2502   \u2502   \u2502   \u2502   # context.       \u2502 \u2502\n                             \u2502 \u2502 > 168 \u2502   \u2502   \u2502   \u2502   \u2502   raise app_exc fr \u2502 \u2502\n                             \u2502 \u2502   169 \u2502   \u2502   \u2502   \u2502   raise RuntimeError(" \u2502 \u2502\n                             \u2502 \u2502   170 \u2502   \u2502   \u2502                            \u2502 \u2502\n                             \u2502 \u2502   171 \u2502   \u2502   \u2502   assert message["type"] = \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:144 in coro       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   141 \u2502   \u2502   \u2502   \u2502                        \u2502 \u2502\n                             \u2502 \u2502   142 \u2502   \u2502   \u2502   \u2502   with send_stream:    \u2502 \u2502\n                             \u2502 \u2502   143 \u2502   \u2502   \u2502   \u2502   \u2502   try:             \u2502 \u2502\n                             \u2502 \u2502 > 144 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   await self.a \u2502 \u2502\n                             \u2502 \u2502   145 \u2502   \u2502   \u2502   \u2502   \u2502   except Exception \u2502 \u2502\n                             \u2502 \u2502   146 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   app_exc = ex \u2502 \u2502\n                             \u2502 \u2502   147                                      \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:191 in __call__   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   188 \u2502   \u2502                                \u2502 \u2502\n                             \u2502 \u2502   189 \u2502   \u2502   streams: anyio.create_memory \u2502 \u2502\n                             \u2502 \u2502       anyio.create_memory_object_stream()  \u2502 \u2502\n                             \u2502 \u2502   190 \u2502   \u2502   send_stream, recv_stream = s \u2502 \u2502\n                             \u2502 \u2502 > 191 \u2502   \u2502   with recv_stream, send_strea \u2502 \u2502\n                             \u2502 \u2502   192 \u2502   \u2502   \u2502   async with anyio.create_ \u2502 \u2502\n                             \u2502 \u2502   193 \u2502   \u2502   \u2502   \u2502   response = await sel \u2502 \u2502\n                             \u2502 \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 C:\\Users\\achra\\AppData\\Local\\Programs\\Pyth \u2502 \u2502\n                             \u2502 \u2502 on\\Python313\\Lib\\contextlib.py:162 in      \u2502 \u2502\n                             \u2502 \u2502 __exit__                                   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   159 \u2502   \u2502   \u2502   \u2502   # tell if we get the \u2502 \u2502\n                             \u2502 \u2502   160 \u2502   \u2502   \u2502   \u2502   value = typ()        \u2502 \u2502\n                             \u2502 \u2502   161 \u2502   \u2502   \u2502   try:                     \u2502 \u2502\n                             \u2502 \u2502 > 162 \u2502   \u2502   \u2502   \u2502   self.gen.throw(value \u2502 \u2502\n                             \u2502 \u2502   163 \u2502   \u2502   \u2502   except StopIteration as  \u2502 \u2502\n                             \u2502 \u2502   164 \u2502   \u2502   \u2502   \u2502   # Suppress StopItera \u2502 \u2502\n                             \u2502 \u2502   165 \u2502   \u2502   \u2502   \u2502   # was passed to thro \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\_utils.py:87 in collapse_excgroups   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502    84 \u2502   \u2502   \u2502   while isinstance(exc, Ba \u2502 \u2502\n                             \u2502 \u2502    85 \u2502   \u2502   \u2502   \u2502   exc = exc.exceptions \u2502 \u2502\n                             \u2502 \u2502    86 \u2502   \u2502                                \u2502 \u2502\n                             \u2502 \u2502 >  87 \u2502   \u2502   raise exc                    \u2502 \u2502\n                             \u2502 \u2502    88                                      \u2502 \u2502\n                             \u2502 \u2502    89                                      \u2502 \u2502\n                             \u2502 \u2502    90 def get_route_path(scope: Scope) ->  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:193 in __call__   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   190 \u2502   \u2502   send_stream, recv_stream = s \u2502 \u2502\n                             \u2502 \u2502   191 \u2502   \u2502   with recv_stream, send_strea \u2502 \u2502\n                             \u2502 \u2502   192 \u2502   \u2502   \u2502   async with anyio.create_ \u2502 \u2502\n                             \u2502 \u2502 > 193 \u2502   \u2502   \u2502   \u2502   response = await sel \u2502 \u2502\n                             \u2502 \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope \u2502 \u2502\n                             \u2502 \u2502   195 \u2502   \u2502   \u2502   \u2502   response_sent.set()  \u2502 \u2502\n                             \u2502 \u2502   196 \u2502   \u2502   \u2502   \u2502   recv_stream.close()  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\api\\middlewares\\maintenance \u2502 \u2502\n                             \u2502 \u2502 .py:42 in maintenance_mode_middleware      \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   39 \u2502   \u2502   \u2502   media_type="application/j \u2502 \u2502\n                             \u2502 \u2502   40 \u2502   \u2502   \u2502   headers={"Retry-After": " \u2502 \u2502\n                             \u2502 \u2502   41 \u2502   \u2502   )                             \u2502 \u2502\n                             \u2502 \u2502 > 42 \u2502   return await call_next(request)   \u2502 \u2502\n                             \u2502 \u2502   43                                       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:168 in call_next  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   165 \u2502   \u2502   \u2502   \u2502   \u2502   # propagated as  \u2502 \u2502\n                             \u2502 \u2502   166 \u2502   \u2502   \u2502   \u2502   \u2502   # to prevent `an \u2502 \u2502\n                             \u2502 \u2502   167 \u2502   \u2502   \u2502   \u2502   \u2502   # context.       \u2502 \u2502\n                             \u2502 \u2502 > 168 \u2502   \u2502   \u2502   \u2502   \u2502   raise app_exc fr \u2502 \u2502\n                             \u2502 \u2502   169 \u2502   \u2502   \u2502   \u2502   raise RuntimeError(" \u2502 \u2502\n                             \u2502 \u2502   170 \u2502   \u2502   \u2502                            \u2502 \u2502\n                             \u2502 \u2502   171 \u2502   \u2502   \u2502   assert message["type"] = \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\base.py:144 in coro       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   141 \u2502   \u2502   \u2502   \u2502                        \u2502 \u2502\n                             \u2502 \u2502   142 \u2502   \u2502   \u2502   \u2502   with send_stream:    \u2502 \u2502\n                             \u2502 \u2502   143 \u2502   \u2502   \u2502   \u2502   \u2502   try:             \u2502 \u2502\n                             \u2502 \u2502 > 144 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   await self.a \u2502 \u2502\n                             \u2502 \u2502   145 \u2502   \u2502   \u2502   \u2502   \u2502   except Exception \u2502 \u2502\n                             \u2502 \u2502   146 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   app_exc = ex \u2502 \u2502\n                             \u2502 \u2502   147                                      \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\cors.py:88 in __call__    \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502    85 \u2502   \u2502   origin = headers.get("origin \u2502 \u2502\n                             \u2502 \u2502    86 \u2502   \u2502                                \u2502 \u2502\n                             \u2502 \u2502    87 \u2502   \u2502   if origin is None:           \u2502 \u2502\n                             \u2502 \u2502 >  88 \u2502   \u2502   \u2502   await self.app(scope, re \u2502 \u2502\n                             \u2502 \u2502    89 \u2502   \u2502   \u2502   return                   \u2502 \u2502\n                             \u2502 \u2502    90 \u2502   \u2502                                \u2502 \u2502\n                             \u2502 \u2502    91 \u2502   \u2502   if method == "OPTIONS" and " \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\middleware\\exceptions.py:63 in       \u2502 \u2502\n                             \u2502 \u2502 __call__                                   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   60 \u2502   \u2502   else:                         \u2502 \u2502\n                             \u2502 \u2502   61 \u2502   \u2502   \u2502   conn = WebSocket(scope, r \u2502 \u2502\n                             \u2502 \u2502   62 \u2502   \u2502                                 \u2502 \u2502\n                             \u2502 \u2502 > 63 \u2502   \u2502   await wrap_app_handling_excep \u2502 \u2502\n                             \u2502 \u2502   64 \u2502                                     \u2502 \u2502\n                             \u2502 \u2502   65 \u2502   async def http_exception(self, re \u2502 \u2502\n                             \u2502 \u2502   66 \u2502   \u2502   assert isinstance(exc, HTTPEx \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\_exception_handler.py:53 in          \u2502 \u2502\n                             \u2502 \u2502 wrapped_app                                \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   50 \u2502   \u2502   \u2502   \u2502   handler = _lookup_exc \u2502 \u2502\n                             \u2502 \u2502   51 \u2502   \u2502   \u2502                             \u2502 \u2502\n                             \u2502 \u2502   52 \u2502   \u2502   \u2502   if handler is None:       \u2502 \u2502\n                             \u2502 \u2502 > 53 \u2502   \u2502   \u2502   \u2502   raise exc             \u2502 \u2502\n                             \u2502 \u2502   54 \u2502   \u2502   \u2502                             \u2502 \u2502\n                             \u2502 \u2502   55 \u2502   \u2502   \u2502   if response_started:      \u2502 \u2502\n                             \u2502 \u2502   56 \u2502   \u2502   \u2502   \u2502   raise RuntimeError("C \u2502 \u2502\n                             \u2502 \u2502      started.") from exc                   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\_exception_handler.py:42 in          \u2502 \u2502\n                             \u2502 \u2502 wrapped_app                                \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   39 \u2502   \u2502   \u2502   await send(message)       \u2502 \u2502\n                             \u2502 \u2502   40 \u2502   \u2502                                 \u2502 \u2502\n                             \u2502 \u2502   41 \u2502   \u2502   try:                          \u2502 \u2502\n                             \u2502 \u2502 > 42 \u2502   \u2502   \u2502   await app(scope, receive, \u2502 \u2502\n                             \u2502 \u2502   43 \u2502   \u2502   except Exception as exc:      \u2502 \u2502\n                             \u2502 \u2502   44 \u2502   \u2502   \u2502   handler = None            \u2502 \u2502\n                             \u2502 \u2502   45                                       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\middleware\\asyncexitstack.py:18 in     \u2502 \u2502\n                             \u2502 \u2502 __call__                                   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   15 \u2502   async def __call__(self, scope: S \u2502 \u2502\n                             \u2502 \u2502   16 \u2502   \u2502   async with AsyncExitStack() a \u2502 \u2502\n                             \u2502 \u2502   17 \u2502   \u2502   \u2502   scope[self.context_name]  \u2502 \u2502\n                             \u2502 \u2502 > 18 \u2502   \u2502   \u2502   await self.app(scope, rec \u2502 \u2502\n                             \u2502 \u2502   19                                       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\routing.py:660 in __call__           \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   657 \u2502   \u2502   """                          \u2502 \u2502\n                             \u2502 \u2502   658 \u2502   \u2502   The main entry point to the  \u2502 \u2502\n                             \u2502 \u2502   659 \u2502   \u2502   """                          \u2502 \u2502\n                             \u2502 \u2502 > 660 \u2502   \u2502   await self.middleware_stack( \u2502 \u2502\n                             \u2502 \u2502   661 \u2502                                    \u2502 \u2502\n                             \u2502 \u2502   662 \u2502   async def app(self, scope: Scope \u2502 \u2502\n                             \u2502 \u2502   663 \u2502   \u2502   assert scope["type"] in ("ht \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:2734 in app                 \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   2731 \u2502   \u2502   \u2502   match, child_scope = ro \u2502 \u2502\n                             \u2502 \u2502   2732 \u2502   \u2502   \u2502   if match == Match.FULL: \u2502 \u2502\n                             \u2502 \u2502   2733 \u2502   \u2502   \u2502   \u2502   scope.update(child_ \u2502 \u2502\n                             \u2502 \u2502 > 2734 \u2502   \u2502   \u2502   \u2502   await route.handle( \u2502 \u2502\n                             \u2502 \u2502   2735 \u2502   \u2502   \u2502   \u2502   return              \u2502 \u2502\n                             \u2502 \u2502   2736 \u2502   \u2502   \u2502   if match == Match.PARTI \u2502 \u2502\n                             \u2502 \u2502   2737 \u2502   \u2502   \u2502   \u2502   partial = (route, c \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:1780 in handle              \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   1777 \u2502                                   \u2502 \u2502\n                             \u2502 \u2502   1778 \u2502   async def handle(self, scope: S \u2502 \u2502\n                             \u2502 \u2502   1779 \u2502   \u2502   _get_fastapi_scope(scope)[_ \u2502 \u2502\n                             \u2502 \u2502 > 1780 \u2502   \u2502   await self.original_router. \u2502 \u2502\n                             \u2502 \u2502   1781 \u2502                                   \u2502 \u2502\n                             \u2502 \u2502   1782 \u2502   async def _handle_selected(     \u2502 \u2502\n                             \u2502 \u2502   1783 \u2502   \u2502   self, scope: Scope, receive \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:2789 in handle              \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   2786 \u2502   \u2502   \u2502   isinstance(included_rou \u2502 \u2502\n                             \u2502 \u2502   2787 \u2502   \u2502   \u2502   and included_router.ori \u2502 \u2502\n                             \u2502 \u2502   2788 \u2502   \u2502   ):                          \u2502 \u2502\n                             \u2502 \u2502 > 2789 \u2502   \u2502   \u2502   await included_router._ \u2502 \u2502\n                             \u2502 \u2502   2790 \u2502   \u2502   \u2502   return                  \u2502 \u2502\n                             \u2502 \u2502   2791 \u2502   \u2502   await self.app(scope, recei \u2502 \u2502\n                             \u2502 \u2502   2792                                     \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:1800 in _handle_selected    \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   1797 \u2502   \u2502   \u2502   original_route = effect \u2502 \u2502\n                             \u2502 \u2502   1798 \u2502   \u2502   \u2502   if isinstance(original_ \u2502 \u2502\n                             \u2502 \u2502   1799 \u2502   \u2502   \u2502   \u2502   scope["route"] = or \u2502 \u2502\n                             \u2502 \u2502 > 1800 \u2502   \u2502   \u2502   \u2502   await original_rout \u2502 \u2502\n                             \u2502 \u2502   1801 \u2502   \u2502   \u2502   \u2502   return              \u2502 \u2502\n                             \u2502 \u2502   1802 \u2502   \u2502   await route.handle(scope, r \u2502 \u2502\n                             \u2502 \u2502   1803                                     \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:1279 in handle              \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   1276 \u2502   \u2502   \u2502   \u2502   app = request_respo \u2502 \u2502\n                             \u2502 \u2502   1277 \u2502   \u2502   \u2502   finally:                \u2502 \u2502\n                             \u2502 \u2502   1278 \u2502   \u2502   \u2502   \u2502   _effective_route_co \u2502 \u2502\n                             \u2502 \u2502 > 1279 \u2502   \u2502   \u2502   await app(scope, receiv \u2502 \u2502\n                             \u2502 \u2502   1280 \u2502   \u2502   \u2502   return                  \u2502 \u2502\n                             \u2502 \u2502   1281 \u2502   \u2502   await super().handle(scope, \u2502 \u2502\n                             \u2502 \u2502   1282                                     \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:158 in app                  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502    155 \u2502   \u2502   \u2502   \u2502   )                   \u2502 \u2502\n                             \u2502 \u2502    156 \u2502   \u2502                               \u2502 \u2502\n                             \u2502 \u2502    157 \u2502   \u2502   # Same as in Starlette      \u2502 \u2502\n                             \u2502 \u2502 >  158 \u2502   \u2502   await wrap_app_handling_exc \u2502 \u2502\n                             \u2502 \u2502    159 \u2502                                   \u2502 \u2502\n                             \u2502 \u2502    160 \u2502   return app                      \u2502 \u2502\n                             \u2502 \u2502    161                                     \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\_exception_handler.py:53 in          \u2502 \u2502\n                             \u2502 \u2502 wrapped_app                                \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   50 \u2502   \u2502   \u2502   \u2502   handler = _lookup_exc \u2502 \u2502\n                             \u2502 \u2502   51 \u2502   \u2502   \u2502                             \u2502 \u2502\n                             \u2502 \u2502   52 \u2502   \u2502   \u2502   if handler is None:       \u2502 \u2502\n                             \u2502 \u2502 > 53 \u2502   \u2502   \u2502   \u2502   raise exc             \u2502 \u2502\n                             \u2502 \u2502   54 \u2502   \u2502   \u2502                             \u2502 \u2502\n                             \u2502 \u2502   55 \u2502   \u2502   \u2502   if response_started:      \u2502 \u2502\n                             \u2502 \u2502   56 \u2502   \u2502   \u2502   \u2502   raise RuntimeError("C \u2502 \u2502\n                             \u2502 \u2502      started.") from exc                   \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\_exception_handler.py:42 in          \u2502 \u2502\n                             \u2502 \u2502 wrapped_app                                \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   39 \u2502   \u2502   \u2502   await send(message)       \u2502 \u2502\n                             \u2502 \u2502   40 \u2502   \u2502                                 \u2502 \u2502\n                             \u2502 \u2502   41 \u2502   \u2502   try:                          \u2502 \u2502\n                             \u2502 \u2502 > 42 \u2502   \u2502   \u2502   await app(scope, receive, \u2502 \u2502\n                             \u2502 \u2502   43 \u2502   \u2502   except Exception as exc:      \u2502 \u2502\n                             \u2502 \u2502   44 \u2502   \u2502   \u2502   handler = None            \u2502 \u2502\n                             \u2502 \u2502   45                                       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:144 in app                  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502    141 \u2502   \u2502   \u2502   \u2502   scope["fastapi_inne \u2502 \u2502\n                             \u2502 \u2502    142 \u2502   \u2502   \u2502   \u2502   async with AsyncExi \u2502 \u2502\n                             \u2502 \u2502    143 \u2502   \u2502   \u2502   \u2502   \u2502   scope["fastapi_ \u2502 \u2502\n                             \u2502 \u2502 >  144 \u2502   \u2502   \u2502   \u2502   \u2502   response = awai \u2502 \u2502\n                             \u2502 \u2502    145 \u2502   \u2502   \u2502   \u2502   await response(scop \u2502 \u2502\n                             \u2502 \u2502    146 \u2502   \u2502   \u2502   \u2502   # Continues customi \u2502 \u2502\n                             \u2502 \u2502    147 \u2502   \u2502   \u2502   \u2502   response_awaited =  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:706 in app                  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502    703 \u2502   \u2502   \u2502   \u2502   response = actual_r \u2502 \u2502\n                             \u2502 \u2502    704 \u2502   \u2502   \u2502   \u2502   response.headers.ra \u2502 \u2502\n                             \u2502 \u2502    705 \u2502   \u2502   \u2502   else:                   \u2502 \u2502\n                             \u2502 \u2502 >  706 \u2502   \u2502   \u2502   \u2502   raw_response = awai \u2502 \u2502\n                             \u2502 \u2502    707 \u2502   \u2502   \u2502   \u2502   \u2502   dependant=depen \u2502 \u2502\n                             \u2502 \u2502    708 \u2502   \u2502   \u2502   \u2502   \u2502   values=solved_r \u2502 \u2502\n                             \u2502 \u2502    709 \u2502   \u2502   \u2502   \u2502   \u2502   is_coroutine=is \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fast \u2502 \u2502\n                             \u2502 \u2502 api\\routing.py:354 in                      \u2502 \u2502\n                             \u2502 \u2502 run_endpoint_function                      \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502    351 \u2502   if is_coroutine:                \u2502 \u2502\n                             \u2502 \u2502    352 \u2502   \u2502   return await dependant.call \u2502 \u2502\n                             \u2502 \u2502    353 \u2502   else:                           \u2502 \u2502\n                             \u2502 \u2502 >  354 \u2502   \u2502   return await run_in_threadp \u2502 \u2502\n                             \u2502 \u2502    355                                     \u2502 \u2502\n                             \u2502 \u2502    356                                     \u2502 \u2502\n                             \u2502 \u2502    357 def _build_response_args(           \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\star \u2502 \u2502\n                             \u2502 \u2502 lette\\concurrency.py:32 in                 \u2502 \u2502\n                             \u2502 \u2502 run_in_threadpool                          \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   29                                       \u2502 \u2502\n                             \u2502 \u2502   30 async def run_in_threadpool(func: Cal \u2502 \u2502\n                             \u2502 \u2502      T:                                    \u2502 \u2502\n                             \u2502 \u2502   31 \u2502   func = functools.partial(func, *a \u2502 \u2502\n                             \u2502 \u2502 > 32 \u2502   return await anyio.to_thread.run_ \u2502 \u2502\n                             \u2502 \u2502   33                                       \u2502 \u2502\n                             \u2502 \u2502   34                                       \u2502 \u2502\n                             \u2502 \u2502   35 class _StopIteration(Exception):      \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\anyi \u2502 \u2502\n                             \u2502 \u2502 o\\to_thread.py:65 in run_sync              \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   62 \u2502   \u2502   \u2502   stacklevel=2,             \u2502 \u2502\n                             \u2502 \u2502   63 \u2502   \u2502   )                             \u2502 \u2502\n                             \u2502 \u2502   64 \u2502                                     \u2502 \u2502\n                             \u2502 \u2502 > 65 \u2502   return await get_async_backend(). \u2502 \u2502\n                             \u2502 \u2502   66 \u2502   \u2502   func, args, abandon_on_cancel \u2502 \u2502\n                             \u2502 \u2502   67 \u2502   )                                 \u2502 \u2502\n                             \u2502 \u2502   68                                       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\anyi \u2502 \u2502\n                             \u2502 \u2502 o\\_backends\\_asyncio.py:2641 in            \u2502 \u2502\n                             \u2502 \u2502 run_sync_in_worker_thread                  \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   2638 \u2502   \u2502   \u2502   \u2502   \u2502   worker_scope =  \u2502 \u2502\n                             \u2502 \u2502   2639 \u2502   \u2502   \u2502   \u2502                       \u2502 \u2502\n                             \u2502 \u2502   2640 \u2502   \u2502   \u2502   \u2502   worker.queue.put_no \u2502 \u2502\n                             \u2502 \u2502 > 2641 \u2502   \u2502   \u2502   \u2502   return await future \u2502 \u2502\n                             \u2502 \u2502   2642 \u2502                                   \u2502 \u2502\n                             \u2502 \u2502   2643 \u2502   @classmethod                    \u2502 \u2502\n                             \u2502 \u2502   2644 \u2502   def check_cancelled(cls) -> Non \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\anyi \u2502 \u2502\n                             \u2502 \u2502 o\\_backends\\_asyncio.py:1033 in run        \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   1030 \u2502   \u2502   \u2502   \u2502   \u2502   exception: Base \u2502 \u2502\n                             \u2502 \u2502   1031 \u2502   \u2502   \u2502   \u2502   \u2502   threadlocals.cu \u2502 \u2502\n                             \u2502 \u2502   1032 \u2502   \u2502   \u2502   \u2502   \u2502   try:            \u2502 \u2502\n                             \u2502 \u2502 > 1033 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   result = co \u2502 \u2502\n                             \u2502 \u2502   1034 \u2502   \u2502   \u2502   \u2502   \u2502   except BaseExce \u2502 \u2502\n                             \u2502 \u2502   1035 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   exception = \u2502 \u2502\n                             \u2502 \u2502   1036 \u2502   \u2502   \u2502   \u2502   \u2502   finally:        \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\api\\routes\\models.py:135 in \u2502 \u2502\n                             \u2502 \u2502 delete_model_version                       \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   132 \u2502                                    \u2502 \u2502\n                             \u2502 \u2502   133 \u2502   # Sanity check comportemental su \u2502 \u2502\n                             \u2502 \u2502   134 \u2502   try:                             \u2502 \u2502\n                             \u2502 \u2502 > 135 \u2502   \u2502   predictor = get_predictor(na \u2502 \u2502\n                             \u2502 \u2502   136 \u2502   \u2502   report = run_model_sanity(pr \u2502 \u2502\n                             \u2502 \u2502   137 \u2502   \u2502   verdict = report["verdict"]  \u2502 \u2502\n                             \u2502 \u2502   138 \u2502   \u2502   detail = report["detail"]    \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502 D:\\ThinkTuning\\tests\\test_model_cleanup.py \u2502 \u2502\n                             \u2502 \u2502 :115 in fake_get_predictor                 \u2502 \u2502\n                             \u2502 \u2502                                            \u2502 \u2502\n                             \u2502 \u2502   112 \u2502   from fastapi import HTTPExceptio \u2502 \u2502\n                             \u2502 \u2502   113 \u2502                                    \u2502 \u2502\n                             \u2502 \u2502   114 \u2502   def fake_get_predictor(name=None \u2502 \u2502\n                             \u2502 \u2502 > 115 \u2502   \u2502   raise HTTPException(status_c \u2502 \u2502\n                             \u2502 \u2502   116 \u2502                                    \u2502 \u2502\n                             \u2502 \u2502   117 \u2502   monkeypatch.setattr("api.routes. \u2502 \u2502\n                             \u2502 \u2502   118 \u2502   monkeypatch.setattr("api.routes. \u2502 \u2502\n                             \u2502 \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518 \u2502\n                             \u2502 NameError: name 'HTTPException' is not defined \u2502\n                             \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                                                                               \n                             The above exception was the direct cause of the   \n                             following exception:                              \n                                                                               \n                             \u250c\u2500\u2500\u2500\u2500\u2500\u2500 Traceback (most recent call last) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n                             \u2502 D:\\ThinkTuning\\api\\middlewares\\metrics.py:31   \u2502\n                             \u2502 in request_metrics_middleware                  \u2502\n                             \u2502                                                \u2502\n                             \u2502   28 \u2502   client_ip = request.client.host if re \u2502\n                             \u2502   29 \u2502                                         \u2502\n                             \u2502   30 \u2502   try:                                  \u2502\n                             \u2502 > 31 \u2502   \u2502   response = await call_next(reques \u2502\n                             \u2502   32 \u2502   except Exception:                     \u2502\n                             \u2502   33 \u2502   \u2502   duration = time.perf_counter() -  \u2502\n                             \u2502   34 \u2502   \u2502   status_code = 500                 \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:168 in call_next          \u2502\n                             \u2502                                                \u2502\n                             \u2502   165 \u2502   \u2502   \u2502   \u2502   \u2502   # propagated as a ca \u2502\n                             \u2502   166 \u2502   \u2502   \u2502   \u2502   \u2502   # to prevent `anyio. \u2502\n                             \u2502   167 \u2502   \u2502   \u2502   \u2502   \u2502   # context.           \u2502\n                             \u2502 > 168 \u2502   \u2502   \u2502   \u2502   \u2502   raise app_exc from a \u2502\n                             \u2502   169 \u2502   \u2502   \u2502   \u2502   raise RuntimeError("No r \u2502\n                             \u2502   170 \u2502   \u2502   \u2502                                \u2502\n                             \u2502   171 \u2502   \u2502   \u2502   assert message["type"] == "h \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:144 in coro               \u2502\n                             \u2502                                                \u2502\n                             \u2502   141 \u2502   \u2502   \u2502   \u2502                            \u2502\n                             \u2502   142 \u2502   \u2502   \u2502   \u2502   with send_stream:        \u2502\n                             \u2502   143 \u2502   \u2502   \u2502   \u2502   \u2502   try:                 \u2502\n                             \u2502 > 144 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   await self.app(s \u2502\n                             \u2502   145 \u2502   \u2502   \u2502   \u2502   \u2502   except Exception as  \u2502\n                             \u2502   146 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   app_exc = exc    \u2502\n                             \u2502   147                                          \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:191 in __call__           \u2502\n                             \u2502                                                \u2502\n                             \u2502   188 \u2502   \u2502                                    \u2502\n                             \u2502   189 \u2502   \u2502   streams: anyio.create_memory_obj \u2502\n                             \u2502       anyio.create_memory_object_stream()      \u2502\n                             \u2502   190 \u2502   \u2502   send_stream, recv_stream = strea \u2502\n                             \u2502 > 191 \u2502   \u2502   with recv_stream, send_stream, c \u2502\n                             \u2502   192 \u2502   \u2502   \u2502   async with anyio.create_task \u2502\n                             \u2502   193 \u2502   \u2502   \u2502   \u2502   response = await self.di \u2502\n                             \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope, wr \u2502\n                             \u2502                                                \u2502\n                             \u2502 C:\\Users\\achra\\AppData\\Local\\Programs\\Python\\P \u2502\n                             \u2502 ython313\\Lib\\contextlib.py:162 in __exit__     \u2502\n                             \u2502                                                \u2502\n                             \u2502   159 \u2502   \u2502   \u2502   \u2502   # tell if we get the sam \u2502\n                             \u2502   160 \u2502   \u2502   \u2502   \u2502   value = typ()            \u2502\n                             \u2502   161 \u2502   \u2502   \u2502   try:                         \u2502\n                             \u2502 > 162 \u2502   \u2502   \u2502   \u2502   self.gen.throw(value)    \u2502\n                             \u2502   163 \u2502   \u2502   \u2502   except StopIteration as exc: \u2502\n                             \u2502   164 \u2502   \u2502   \u2502   \u2502   # Suppress StopIteration \u2502\n                             \u2502   165 \u2502   \u2502   \u2502   \u2502   # was passed to throw(). \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\_utils.py:87 in collapse_excgroups           \u2502\n                             \u2502                                                \u2502\n                             \u2502    84 \u2502   \u2502   \u2502   while isinstance(exc, BaseEx \u2502\n                             \u2502    85 \u2502   \u2502   \u2502   \u2502   exc = exc.exceptions[0]  \u2502\n                             \u2502    86 \u2502   \u2502                                    \u2502\n                             \u2502 >  87 \u2502   \u2502   raise exc                        \u2502\n                             \u2502    88                                          \u2502\n                             \u2502    89                                          \u2502\n                             \u2502    90 def get_route_path(scope: Scope) -> str: \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:193 in __call__           \u2502\n                             \u2502                                                \u2502\n                             \u2502   190 \u2502   \u2502   send_stream, recv_stream = strea \u2502\n                             \u2502   191 \u2502   \u2502   with recv_stream, send_stream, c \u2502\n                             \u2502   192 \u2502   \u2502   \u2502   async with anyio.create_task \u2502\n                             \u2502 > 193 \u2502   \u2502   \u2502   \u2502   response = await self.di \u2502\n                             \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope, wr \u2502\n                             \u2502   195 \u2502   \u2502   \u2502   \u2502   response_sent.set()      \u2502\n                             \u2502   196 \u2502   \u2502   \u2502   \u2502   recv_stream.close()      \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\api\\middlewares\\rate_limit.py:8 \u2502\n                             \u2502 8 in rate_limit_middleware                     \u2502\n                             \u2502                                                \u2502\n                             \u2502   85 \u2502   \u2502   \u2502   media_type="application/json" \u2502\n                             \u2502   86 \u2502   \u2502   \u2502   headers={"Retry-After": str(w \u2502\n                             \u2502   87 \u2502   \u2502   )                                 \u2502\n                             \u2502 > 88 \u2502   return await call_next(request)       \u2502\n                             \u2502   89                                           \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:168 in call_next          \u2502\n                             \u2502                                                \u2502\n                             \u2502   165 \u2502   \u2502   \u2502   \u2502   \u2502   # propagated as a ca \u2502\n                             \u2502   166 \u2502   \u2502   \u2502   \u2502   \u2502   # to prevent `anyio. \u2502\n                             \u2502   167 \u2502   \u2502   \u2502   \u2502   \u2502   # context.           \u2502\n                             \u2502 > 168 \u2502   \u2502   \u2502   \u2502   \u2502   raise app_exc from a \u2502\n                             \u2502   169 \u2502   \u2502   \u2502   \u2502   raise RuntimeError("No r \u2502\n                             \u2502   170 \u2502   \u2502   \u2502                                \u2502\n                             \u2502   171 \u2502   \u2502   \u2502   assert message["type"] == "h \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:144 in coro               \u2502\n                             \u2502                                                \u2502\n                             \u2502   141 \u2502   \u2502   \u2502   \u2502                            \u2502\n                             \u2502   142 \u2502   \u2502   \u2502   \u2502   with send_stream:        \u2502\n                             \u2502   143 \u2502   \u2502   \u2502   \u2502   \u2502   try:                 \u2502\n                             \u2502 > 144 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   await self.app(s \u2502\n                             \u2502   145 \u2502   \u2502   \u2502   \u2502   \u2502   except Exception as  \u2502\n                             \u2502   146 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   app_exc = exc    \u2502\n                             \u2502   147                                          \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:191 in __call__           \u2502\n                             \u2502                                                \u2502\n                             \u2502   188 \u2502   \u2502                                    \u2502\n                             \u2502   189 \u2502   \u2502   streams: anyio.create_memory_obj \u2502\n                             \u2502       anyio.create_memory_object_stream()      \u2502\n                             \u2502   190 \u2502   \u2502   send_stream, recv_stream = strea \u2502\n                             \u2502 > 191 \u2502   \u2502   with recv_stream, send_stream, c \u2502\n                             \u2502   192 \u2502   \u2502   \u2502   async with anyio.create_task \u2502\n                             \u2502   193 \u2502   \u2502   \u2502   \u2502   response = await self.di \u2502\n                             \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope, wr \u2502\n                             \u2502                                                \u2502\n                             \u2502 C:\\Users\\achra\\AppData\\Local\\Programs\\Python\\P \u2502\n                             \u2502 ython313\\Lib\\contextlib.py:162 in __exit__     \u2502\n                             \u2502                                                \u2502\n                             \u2502   159 \u2502   \u2502   \u2502   \u2502   # tell if we get the sam \u2502\n                             \u2502   160 \u2502   \u2502   \u2502   \u2502   value = typ()            \u2502\n                             \u2502   161 \u2502   \u2502   \u2502   try:                         \u2502\n                             \u2502 > 162 \u2502   \u2502   \u2502   \u2502   self.gen.throw(value)    \u2502\n                             \u2502   163 \u2502   \u2502   \u2502   except StopIteration as exc: \u2502\n                             \u2502   164 \u2502   \u2502   \u2502   \u2502   # Suppress StopIteration \u2502\n                             \u2502   165 \u2502   \u2502   \u2502   \u2502   # was passed to throw(). \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\_utils.py:87 in collapse_excgroups           \u2502\n                             \u2502                                                \u2502\n                             \u2502    84 \u2502   \u2502   \u2502   while isinstance(exc, BaseEx \u2502\n                             \u2502    85 \u2502   \u2502   \u2502   \u2502   exc = exc.exceptions[0]  \u2502\n                             \u2502    86 \u2502   \u2502                                    \u2502\n                             \u2502 >  87 \u2502   \u2502   raise exc                        \u2502\n                             \u2502    88                                          \u2502\n                             \u2502    89                                          \u2502\n                             \u2502    90 def get_route_path(scope: Scope) -> str: \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:193 in __call__           \u2502\n                             \u2502                                                \u2502\n                             \u2502   190 \u2502   \u2502   send_stream, recv_stream = strea \u2502\n                             \u2502   191 \u2502   \u2502   with recv_stream, send_stream, c \u2502\n                             \u2502   192 \u2502   \u2502   \u2502   async with anyio.create_task \u2502\n                             \u2502 > 193 \u2502   \u2502   \u2502   \u2502   response = await self.di \u2502\n                             \u2502   194 \u2502   \u2502   \u2502   \u2502   await response(scope, wr \u2502\n                             \u2502   195 \u2502   \u2502   \u2502   \u2502   response_sent.set()      \u2502\n                             \u2502   196 \u2502   \u2502   \u2502   \u2502   recv_stream.close()      \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\api\\middlewares\\maintenance.py: \u2502\n                             \u2502 42 in maintenance_mode_middleware              \u2502\n                             \u2502                                                \u2502\n                             \u2502   39 \u2502   \u2502   \u2502   media_type="application/json" \u2502\n                             \u2502   40 \u2502   \u2502   \u2502   headers={"Retry-After": "3600 \u2502\n                             \u2502   41 \u2502   \u2502   )                                 \u2502\n                             \u2502 > 42 \u2502   return await call_next(request)       \u2502\n                             \u2502   43                                           \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:168 in call_next          \u2502\n                             \u2502                                                \u2502\n                             \u2502   165 \u2502   \u2502   \u2502   \u2502   \u2502   # propagated as a ca \u2502\n                             \u2502   166 \u2502   \u2502   \u2502   \u2502   \u2502   # to prevent `anyio. \u2502\n                             \u2502   167 \u2502   \u2502   \u2502   \u2502   \u2502   # context.           \u2502\n                             \u2502 > 168 \u2502   \u2502   \u2502   \u2502   \u2502   raise app_exc from a \u2502\n                             \u2502   169 \u2502   \u2502   \u2502   \u2502   raise RuntimeError("No r \u2502\n                             \u2502   170 \u2502   \u2502   \u2502                                \u2502\n                             \u2502   171 \u2502   \u2502   \u2502   assert message["type"] == "h \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\base.py:144 in coro               \u2502\n                             \u2502                                                \u2502\n                             \u2502   141 \u2502   \u2502   \u2502   \u2502                            \u2502\n                             \u2502   142 \u2502   \u2502   \u2502   \u2502   with send_stream:        \u2502\n                             \u2502   143 \u2502   \u2502   \u2502   \u2502   \u2502   try:                 \u2502\n                             \u2502 > 144 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   await self.app(s \u2502\n                             \u2502   145 \u2502   \u2502   \u2502   \u2502   \u2502   except Exception as  \u2502\n                             \u2502   146 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   app_exc = exc    \u2502\n                             \u2502   147                                          \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\cors.py:88 in __call__            \u2502\n                             \u2502                                                \u2502\n                             \u2502    85 \u2502   \u2502   origin = headers.get("origin")   \u2502\n                             \u2502    86 \u2502   \u2502                                    \u2502\n                             \u2502    87 \u2502   \u2502   if origin is None:               \u2502\n                             \u2502 >  88 \u2502   \u2502   \u2502   await self.app(scope, receiv \u2502\n                             \u2502    89 \u2502   \u2502   \u2502   return                       \u2502\n                             \u2502    90 \u2502   \u2502                                    \u2502\n                             \u2502    91 \u2502   \u2502   if method == "OPTIONS" and "acce \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\middleware\\exceptions.py:63 in __call__      \u2502\n                             \u2502                                                \u2502\n                             \u2502   60 \u2502   \u2502   else:                             \u2502\n                             \u2502   61 \u2502   \u2502   \u2502   conn = WebSocket(scope, recei \u2502\n                             \u2502   62 \u2502   \u2502                                     \u2502\n                             \u2502 > 63 \u2502   \u2502   await wrap_app_handling_exception \u2502\n                             \u2502   64 \u2502                                         \u2502\n                             \u2502   65 \u2502   async def http_exception(self, reques \u2502\n                             \u2502   66 \u2502   \u2502   assert isinstance(exc, HTTPExcept \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\_exception_handler.py:53 in wrapped_app      \u2502\n                             \u2502                                                \u2502\n                             \u2502   50 \u2502   \u2502   \u2502   \u2502   handler = _lookup_excepti \u2502\n                             \u2502   51 \u2502   \u2502   \u2502                                 \u2502\n                             \u2502   52 \u2502   \u2502   \u2502   if handler is None:           \u2502\n                             \u2502 > 53 \u2502   \u2502   \u2502   \u2502   raise exc                 \u2502\n                             \u2502   54 \u2502   \u2502   \u2502                                 \u2502\n                             \u2502   55 \u2502   \u2502   \u2502   if response_started:          \u2502\n                             \u2502   56 \u2502   \u2502   \u2502   \u2502   raise RuntimeError("Caugh \u2502\n                             \u2502      started.") from exc                       \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\_exception_handler.py:42 in wrapped_app      \u2502\n                             \u2502                                                \u2502\n                             \u2502   39 \u2502   \u2502   \u2502   await send(message)           \u2502\n                             \u2502   40 \u2502   \u2502                                     \u2502\n                             \u2502   41 \u2502   \u2502   try:                              \u2502\n                             \u2502 > 42 \u2502   \u2502   \u2502   await app(scope, receive, sen \u2502\n                             \u2502   43 \u2502   \u2502   except Exception as exc:          \u2502\n                             \u2502   44 \u2502   \u2502   \u2502   handler = None                \u2502\n                             \u2502   45                                           \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 middleware\\asyncexitstack.py:18 in __call__    \u2502\n                             \u2502                                                \u2502\n                             \u2502   15 \u2502   async def __call__(self, scope: Scope \u2502\n                             \u2502   16 \u2502   \u2502   async with AsyncExitStack() as st \u2502\n                             \u2502   17 \u2502   \u2502   \u2502   scope[self.context_name] = st \u2502\n                             \u2502 > 18 \u2502   \u2502   \u2502   await self.app(scope, receive \u2502\n                             \u2502   19                                           \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\routing.py:660 in __call__                   \u2502\n                             \u2502                                                \u2502\n                             \u2502   657 \u2502   \u2502   """                              \u2502\n                             \u2502   658 \u2502   \u2502   The main entry point to the Rout \u2502\n                             \u2502   659 \u2502   \u2502   """                              \u2502\n                             \u2502 > 660 \u2502   \u2502   await self.middleware_stack(scop \u2502\n                             \u2502   661 \u2502                                        \u2502\n                             \u2502   662 \u2502   async def app(self, scope: Scope, re \u2502\n                             \u2502   663 \u2502   \u2502   assert scope["type"] in ("http", \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:2734 in app                         \u2502\n                             \u2502                                                \u2502\n                             \u2502   2731 \u2502   \u2502   \u2502   match, child_scope = route. \u2502\n                             \u2502   2732 \u2502   \u2502   \u2502   if match == Match.FULL:     \u2502\n                             \u2502   2733 \u2502   \u2502   \u2502   \u2502   scope.update(child_scop \u2502\n                             \u2502 > 2734 \u2502   \u2502   \u2502   \u2502   await route.handle(scop \u2502\n                             \u2502   2735 \u2502   \u2502   \u2502   \u2502   return                  \u2502\n                             \u2502   2736 \u2502   \u2502   \u2502   if match == Match.PARTIAL a \u2502\n                             \u2502   2737 \u2502   \u2502   \u2502   \u2502   partial = (route, child \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:1780 in handle                      \u2502\n                             \u2502                                                \u2502\n                             \u2502   1777 \u2502                                       \u2502\n                             \u2502   1778 \u2502   async def handle(self, scope: Scope \u2502\n                             \u2502   1779 \u2502   \u2502   _get_fastapi_scope(scope)[_FAST \u2502\n                             \u2502 > 1780 \u2502   \u2502   await self.original_router.hand \u2502\n                             \u2502   1781 \u2502                                       \u2502\n                             \u2502   1782 \u2502   async def _handle_selected(         \u2502\n                             \u2502   1783 \u2502   \u2502   self, scope: Scope, receive: Re \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:2789 in handle                      \u2502\n                             \u2502                                                \u2502\n                             \u2502   2786 \u2502   \u2502   \u2502   isinstance(included_router, \u2502\n                             \u2502   2787 \u2502   \u2502   \u2502   and included_router.origina \u2502\n                             \u2502   2788 \u2502   \u2502   ):                              \u2502\n                             \u2502 > 2789 \u2502   \u2502   \u2502   await included_router._hand \u2502\n                             \u2502   2790 \u2502   \u2502   \u2502   return                      \u2502\n                             \u2502   2791 \u2502   \u2502   await self.app(scope, receive,  \u2502\n                             \u2502   2792                                         \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:1800 in _handle_selected            \u2502\n                             \u2502                                                \u2502\n                             \u2502   1797 \u2502   \u2502   \u2502   original_route = effective_ \u2502\n                             \u2502   1798 \u2502   \u2502   \u2502   if isinstance(original_rout \u2502\n                             \u2502   1799 \u2502   \u2502   \u2502   \u2502   scope["route"] = origin \u2502\n                             \u2502 > 1800 \u2502   \u2502   \u2502   \u2502   await original_route.ha \u2502\n                             \u2502   1801 \u2502   \u2502   \u2502   \u2502   return                  \u2502\n                             \u2502   1802 \u2502   \u2502   await route.handle(scope, recei \u2502\n                             \u2502   1803                                         \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:1279 in handle                      \u2502\n                             \u2502                                                \u2502\n                             \u2502   1276 \u2502   \u2502   \u2502   \u2502   app = request_response( \u2502\n                             \u2502   1277 \u2502   \u2502   \u2502   finally:                    \u2502\n                             \u2502   1278 \u2502   \u2502   \u2502   \u2502   _effective_route_contex \u2502\n                             \u2502 > 1279 \u2502   \u2502   \u2502   await app(scope, receive, s \u2502\n                             \u2502   1280 \u2502   \u2502   \u2502   return                      \u2502\n                             \u2502   1281 \u2502   \u2502   await super().handle(scope, rec \u2502\n                             \u2502   1282                                         \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:158 in app                          \u2502\n                             \u2502                                                \u2502\n                             \u2502    155 \u2502   \u2502   \u2502   \u2502   )                       \u2502\n                             \u2502    156 \u2502   \u2502                                   \u2502\n                             \u2502    157 \u2502   \u2502   # Same as in Starlette          \u2502\n                             \u2502 >  158 \u2502   \u2502   await wrap_app_handling_excepti \u2502\n                             \u2502    159 \u2502                                       \u2502\n                             \u2502    160 \u2502   return app                          \u2502\n                             \u2502    161                                         \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\_exception_handler.py:53 in wrapped_app      \u2502\n                             \u2502                                                \u2502\n                             \u2502   50 \u2502   \u2502   \u2502   \u2502   handler = _lookup_excepti \u2502\n                             \u2502   51 \u2502   \u2502   \u2502                                 \u2502\n                             \u2502   52 \u2502   \u2502   \u2502   if handler is None:           \u2502\n                             \u2502 > 53 \u2502   \u2502   \u2502   \u2502   raise exc                 \u2502\n                             \u2502   54 \u2502   \u2502   \u2502                                 \u2502\n                             \u2502   55 \u2502   \u2502   \u2502   if response_started:          \u2502\n                             \u2502   56 \u2502   \u2502   \u2502   \u2502   raise RuntimeError("Caugh \u2502\n                             \u2502      started.") from exc                       \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\_exception_handler.py:42 in wrapped_app      \u2502\n                             \u2502                                                \u2502\n                             \u2502   39 \u2502   \u2502   \u2502   await send(message)           \u2502\n                             \u2502   40 \u2502   \u2502                                     \u2502\n                             \u2502   41 \u2502   \u2502   try:                              \u2502\n                             \u2502 > 42 \u2502   \u2502   \u2502   await app(scope, receive, sen \u2502\n                             \u2502   43 \u2502   \u2502   except Exception as exc:          \u2502\n                             \u2502   44 \u2502   \u2502   \u2502   handler = None                \u2502\n                             \u2502   45                                           \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:144 in app                          \u2502\n                             \u2502                                                \u2502\n                             \u2502    141 \u2502   \u2502   \u2502   \u2502   scope["fastapi_inner_as \u2502\n                             \u2502    142 \u2502   \u2502   \u2502   \u2502   async with AsyncExitSta \u2502\n                             \u2502    143 \u2502   \u2502   \u2502   \u2502   \u2502   scope["fastapi_func \u2502\n                             \u2502 >  144 \u2502   \u2502   \u2502   \u2502   \u2502   response = await f( \u2502\n                             \u2502    145 \u2502   \u2502   \u2502   \u2502   await response(scope, r \u2502\n                             \u2502    146 \u2502   \u2502   \u2502   \u2502   # Continues customizati \u2502\n                             \u2502    147 \u2502   \u2502   \u2502   \u2502   response_awaited = True \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:706 in app                          \u2502\n                             \u2502                                                \u2502\n                             \u2502    703 \u2502   \u2502   \u2502   \u2502   response = actual_respo \u2502\n                             \u2502    704 \u2502   \u2502   \u2502   \u2502   response.headers.raw.ex \u2502\n                             \u2502    705 \u2502   \u2502   \u2502   else:                       \u2502\n                             \u2502 >  706 \u2502   \u2502   \u2502   \u2502   raw_response = await ru \u2502\n                             \u2502    707 \u2502   \u2502   \u2502   \u2502   \u2502   dependant=dependant \u2502\n                             \u2502    708 \u2502   \u2502   \u2502   \u2502   \u2502   values=solved_resul \u2502\n                             \u2502    709 \u2502   \u2502   \u2502   \u2502   \u2502   is_coroutine=is_cor \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\fastapi\\ \u2502\n                             \u2502 routing.py:354 in run_endpoint_function        \u2502\n                             \u2502                                                \u2502\n                             \u2502    351 \u2502   if is_coroutine:                    \u2502\n                             \u2502    352 \u2502   \u2502   return await dependant.call(**v \u2502\n                             \u2502    353 \u2502   else:                               \u2502\n                             \u2502 >  354 \u2502   \u2502   return await run_in_threadpool( \u2502\n                             \u2502    355                                         \u2502\n                             \u2502    356                                         \u2502\n                             \u2502    357 def _build_response_args(               \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\starlett \u2502\n                             \u2502 e\\concurrency.py:32 in run_in_threadpool       \u2502\n                             \u2502                                                \u2502\n                             \u2502   29                                           \u2502\n                             \u2502   30 async def run_in_threadpool(func: Callabl \u2502\n                             \u2502      T:                                        \u2502\n                             \u2502   31 \u2502   func = functools.partial(func, *args, \u2502\n                             \u2502 > 32 \u2502   return await anyio.to_thread.run_sync \u2502\n                             \u2502   33                                           \u2502\n                             \u2502   34                                           \u2502\n                             \u2502   35 class _StopIteration(Exception):          \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\anyio\\to \u2502\n                             \u2502 _thread.py:65 in run_sync                      \u2502\n                             \u2502                                                \u2502\n                             \u2502   62 \u2502   \u2502   \u2502   stacklevel=2,                 \u2502\n                             \u2502   63 \u2502   \u2502   )                                 \u2502\n                             \u2502   64 \u2502                                         \u2502\n                             \u2502 > 65 \u2502   return await get_async_backend().run_ \u2502\n                             \u2502   66 \u2502   \u2502   func, args, abandon_on_cancel=aba \u2502\n                             \u2502   67 \u2502   )                                     \u2502\n                             \u2502   68                                           \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\anyio\\_b \u2502\n                             \u2502 ackends\\_asyncio.py:2641 in                    \u2502\n                             \u2502 run_sync_in_worker_thread                      \u2502\n                             \u2502                                                \u2502\n                             \u2502   2638 \u2502   \u2502   \u2502   \u2502   \u2502   worker_scope = scop \u2502\n                             \u2502   2639 \u2502   \u2502   \u2502   \u2502                           \u2502\n                             \u2502   2640 \u2502   \u2502   \u2502   \u2502   worker.queue.put_nowait \u2502\n                             \u2502 > 2641 \u2502   \u2502   \u2502   \u2502   return await future     \u2502\n                             \u2502   2642 \u2502                                       \u2502\n                             \u2502   2643 \u2502   @classmethod                        \u2502\n                             \u2502   2644 \u2502   def check_cancelled(cls) -> None:   \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\venv\\Lib\\site-packages\\anyio\\_b \u2502\n                             \u2502 ackends\\_asyncio.py:1033 in run                \u2502\n                             \u2502                                                \u2502\n                             \u2502   1030 \u2502   \u2502   \u2502   \u2502   \u2502   exception: BaseExce \u2502\n                             \u2502   1031 \u2502   \u2502   \u2502   \u2502   \u2502   threadlocals.curren \u2502\n                             \u2502   1032 \u2502   \u2502   \u2502   \u2502   \u2502   try:                \u2502\n                             \u2502 > 1033 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   result = contex \u2502\n                             \u2502   1034 \u2502   \u2502   \u2502   \u2502   \u2502   except BaseExceptio \u2502\n                             \u2502   1035 \u2502   \u2502   \u2502   \u2502   \u2502   \u2502   exception = exc \u2502\n                             \u2502   1036 \u2502   \u2502   \u2502   \u2502   \u2502   finally:            \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\api\\routes\\models.py:135 in     \u2502\n                             \u2502 delete_model_version                           \u2502\n                             \u2502                                                \u2502\n                             \u2502   132 \u2502                                        \u2502\n                             \u2502   133 \u2502   # Sanity check comportemental sur ce \u2502\n                             \u2502   134 \u2502   try:                                 \u2502\n                             \u2502 > 135 \u2502   \u2502   predictor = get_predictor(name)  \u2502\n                             \u2502   136 \u2502   \u2502   report = run_model_sanity(predic \u2502\n                             \u2502   137 \u2502   \u2502   verdict = report["verdict"]      \u2502\n                             \u2502   138 \u2502   \u2502   detail = report["detail"]        \u2502\n                             \u2502                                                \u2502\n                             \u2502 D:\\ThinkTuning\\tests\\test_model_cleanup.py:115 \u2502\n                             \u2502 in fake_get_predictor                          \u2502\n                             \u2502                                                \u2502\n                             \u2502   112 \u2502   from fastapi import HTTPException as \u2502\n                             \u2502   113 \u2502                                        \u2502\n                             \u2502   114 \u2502   def fake_get_predictor(name=None):   \u2502\n                             \u2502 > 115 \u2502   \u2502   raise HTTPException(status_code= \u2502\n                             \u2502   116 \u2502                                        \u2502\n                             \u2502   117 \u2502   monkeypatch.setattr("api.routes.mode \u2502\n                             \u2502   118 \u2502   monkeypatch.setattr("api.routes.mode \u2502\n                             \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                             NameError: name 'HTTPException' is not defined    
+------------------------------ Captured log call ------------------------------
+ERROR    thinktuning.api:metrics.py:37 http_request method=DELETE path=/models/20260101T000000Z status=500 duration_ms=1.773 client_ip=testclient
+  + Exception Group Traceback (most recent call last):
+  |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 81, in collapse_excgroups
+  |     yield
+  |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 192, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |                ~~~~~~~~~~~~~~~~~~~~~~~^^
+  |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 815, in __aexit__
+  |     raise BaseExceptionGroup(
+  |         "unhandled errors in a TaskGroup", self._exceptions
+  |     ) from None
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "D:\ThinkTuning\api\middlewares\metrics.py", line 31, in request_metrics_middleware
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    |     with recv_stream, send_stream, collapse_excgroups():
+    |                                    ~~~~~~~~~~~~~~~~~~^^
+    |   File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    |     self.gen.throw(value)
+    |     ~~~~~~~~~~~~~~^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\api\middlewares\rate_limit.py", line 88, in rate_limit_middleware
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    |     with recv_stream, send_stream, collapse_excgroups():
+    |                                    ~~~~~~~~~~~~~~~~~~^^
+    |   File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    |     self.gen.throw(value)
+    |     ~~~~~~~~~~~~~~^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\api\middlewares\maintenance.py", line 42, in maintenance_mode_middleware
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\cors.py", line 88, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 2734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1780, in handle
+    |     await self.original_router.handle(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 2789, in handle
+    |     await included_router._handle_selected(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1800, in _handle_selected
+    |     await original_route.handle(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1279, in handle
+    |     await app(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 158, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 144, in app
+    |     response = await f(request)
+    |                ^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 706, in app
+    |     raw_response = await run_endpoint_function(
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |     ...<3 lines>...
+    |     )
+    |     ^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 354, in run_endpoint_function
+    |     return await run_in_threadpool(dependant.call, **values)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\starlette\concurrency.py", line 32, in run_in_threadpool
+    |     return await anyio.to_thread.run_sync(func)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |         func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |     )
+    |     ^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    |     result = context.run(func, *args)
+    |   File "D:\ThinkTuning\api\routes\models.py", line 135, in delete_model_version
+    |     predictor = get_predictor(name)
+    |   File "D:\ThinkTuning\tests\test_model_cleanup.py", line 115, in fake_get_predictor
+    |     raise HTTPException(status_code=503, detail="Aucun modèle disponible")
+    |           ^^^^^^^^^^^^^
+    | NameError: name 'HTTPException' is not defined. Did you mean: 'BaseException'?
+    +------------------------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\ThinkTuning\api\middlewares\metrics.py", line 31, in request_metrics_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\api\middlewares\rate_limit.py", line 88, in rate_limit_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 191, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\achra\AppData\Local\Programs\Python\Python313\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_utils.py", line 87, in collapse_excgroups
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\api\middlewares\maintenance.py", line 42, in maintenance_mode_middleware
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\cors.py", line 88, in __call__
+    await self.app(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 2734, in app
+    await route.handle(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1780, in handle
+    await self.original_router.handle(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 2789, in handle
+    await included_router._handle_selected(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1800, in _handle_selected
+    await original_route.handle(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 1279, in handle
+    await app(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 158, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 144, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 706, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\ThinkTuning\venv\Lib\site-packages\fastapi\routing.py", line 354, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\starlette\concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\ThinkTuning\venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    result = context.run(func, *args)
+  File "D:\ThinkTuning\api\routes\models.py", line 135, in delete_model_version
+    predictor = get_predictor(name)
+  File "D:\ThinkTuning\tests\test_model_cleanup.py", line 115, in fake_get_predictor
+    raise HTTPException(status_code=503, detail="Aucun modèle disponible")
+          ^^^^^^^^^^^^^
+NameError: name 'HTTPException' is not defined. Did you mean: 'BaseException'?
+============================== warnings summary ===============================
+api\main.py:85
+  D:\ThinkTuning\api\main.py:85: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+venv\Lib\site-packages\fastapi\applications.py:4681
+  D:\ThinkTuning\venv\Lib\site-packages\fastapi\applications.py:4681: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_model_cleanup.py::test_delete_invalid_name_rejected - Asser...
+FAILED tests/test_model_cleanup.py::test_delete_broken_directory_allowed - Na...
+2 failed, 19 passed, 2 warnings in 34.07s

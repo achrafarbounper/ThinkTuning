@@ -75,3 +75,36 @@ app.include_router(active_learning.router)
 # SCRUM-34 : démarre le scheduler APScheduler et recharge les planifications
 # d'entraînement persistées (table scheduled_jobs du SQLite existant).
 ensure_scheduler_started()
+
+
+# SCRUM-74 : sanity check comportemental du modèle au démarrage de l'API.
+# Exécute Predictor.predict() sur un jeu fixe de phrases FR/EN polarisées
+# afin de détecter un modèle non entraîné / un fallback base model. L'API
+# reste démarrée (disponibilité de /health/model-sanity et de l'outillage),
+# mais l'état est loggé en ERROR et exposé via l'endpoint de santé.
+@app.on_event("startup")
+def run_startup_model_sanity():
+    import logging
+
+    from core.model_sanity import run_model_sanity, VERDICT_OK
+    from core.predictor_cache import get_predictor
+
+    _logger = logging.getLogger(__name__)
+    try:
+        predictor = get_predictor()
+        report = run_model_sanity(predictor)
+        if report["verdict"] == VERDICT_OK:
+            _logger.info("Sanity check modèle au démarrage : %s", report["detail"])
+        else:
+            _logger.error(
+                "Sanity check modèle au démarrage ÉCHOUÉ [%s] : %s",
+                report["verdict"],
+                report["detail"],
+            )
+    except Exception as exc:
+        # Aucun modèle disponible au démarrage (ex. premier lancement Docker)
+        # ou échec du check : non bloquant, l'état reste visible via
+        # GET /health/model-sanity.
+        _logger.warning(
+            "Sanity check modèle au démarrage indisponible : %s", exc
+        )

@@ -12,6 +12,7 @@ import { useApp } from "../context/useApp";
 import TrainJobTracker from "../components/TrainJobTracker";
 import TrainMetricsStream from "../components/TrainMetricsStream";
 import TrainingHistoryChart from "../components/TrainingHistoryChart";
+import ModelSanityPanel from "../components/ModelSanityPanel";
 
 const JOBS_POLL_MS = 15000;
 const TRAIN_POLL_MS = 4000;
@@ -680,6 +681,14 @@ export default function TrainingPage() {
             </tbody>
           </table>
         </section>
+
+        {/* Santé & nettoyage du répertoire experiments/models (SCRUM-74) */}
+        <ModelSanityPanel
+          client={client}
+          models={models}
+          onModelsChanged={refreshModels}
+          pushLog={pushLog}
+        />
       </div>
     </>
   );

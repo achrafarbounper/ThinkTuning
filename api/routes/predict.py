@@ -106,7 +106,24 @@ async def predict_batch(
 @router.post("/predict/reload")
 def reload_model(_: bool = Depends(require_api_key)):
     reload_predictor()
-    return {"status": "reloaded"}
+
+    # SCRUM-74 : sanity check après rechargement — on refuse de confirmer le
+    # rechargement avec un modèle non entraîné / fallback (erreur explicite).
+    from core.model_sanity import run_model_sanity, VERDICT_OK
+
+    report = run_model_sanity(api._get_predictor())
+    if report["verdict"] != VERDICT_OK:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "reload_rejected",
+                "verdict": report["verdict"],
+                "detail": report["detail"],
+                "min_confidence": report["min_confidence"],
+                "accuracy": report["accuracy"],
+            },
+        )
+    return {"status": "reloaded", "sanity": report["verdict"]}
 
 
 # ---------------------------
