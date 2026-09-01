@@ -35,11 +35,15 @@ export default function TrainingHistoryChart({ jobs = [], client, pushLog }) {
   const [selectedIds, setSelectedIds] = useState([]);
   // Historiques chargés : { [job_id]: [{epoch, loss, f1_macro}] }
   const [histories, setHistories] = useState({});
-  const [loading, setLoading] = useState(false);
+  // État dérivé : on charge tant qu'un run sélectionné n'a pas son historique.
+  const loading = selectedIds.some((id) => !histories[id]);
 
-  // Garde la sélection cohérente quand la liste des jobs évolue :
-  // pré-sélectionne le dernier run terminé si rien n'est sélectionné.
-  useEffect(() => {
+  // Garde la sélection cohérente quand la liste des jobs évolue : ajustement
+  // pendant le rendu (pattern officiel « deriving state from props »), sans
+  // effet ni rendu en cascade.
+  const [prevCompleted, setPrevCompleted] = useState(completedJobs);
+  if (prevCompleted !== completedJobs) {
+    setPrevCompleted(completedJobs);
     setSelectedIds((prev) => {
       const valid = prev.filter((id) =>
         completedJobs.some((job) => job.job_id === id)
@@ -47,7 +51,7 @@ export default function TrainingHistoryChart({ jobs = [], client, pushLog }) {
       if (valid.length) return valid;
       return completedJobs.length ? [completedJobs[0].job_id] : [];
     });
-  }, [completedJobs]);
+  }
 
   // Charge l'historique des runs sélectionnés (une seule fois par run).
   useEffect(() => {
@@ -56,7 +60,6 @@ export default function TrainingHistoryChart({ jobs = [], client, pushLog }) {
     if (!missing.length) return undefined;
     let cancelled = false;
 
-    setLoading(true);
     Promise.all(
       missing.map((jobId) =>
         client
@@ -79,7 +82,6 @@ export default function TrainingHistoryChart({ jobs = [], client, pushLog }) {
         for (const { jobId, epochs } of results) next[jobId] = epochs;
         return next;
       });
-      setLoading(false);
     });
 
     return () => {

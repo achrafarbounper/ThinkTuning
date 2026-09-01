@@ -1,20 +1,15 @@
 /**
- * sentimentApiClient.js
+ * sentimentApiClient.ts
  * ---------------------------------------------------------------------
  * Barrel (point d'entrée) du client API ThinkTuning.
  *
- * Rôle : offrir l'API publique historique à tous les consommateurs (
- * `import { SentimentApiClient, agentSettingsPayload, ... } from
- * "../api/sentimentApiClient"`) tout en hébergeant la classe complète du
- * client, rapport sur le cœur de transport et les modules non critiques :
+ * Rôle : offrir l'API publique historique à tous les consommateurs tout en
+ * hébergeant la classe complète du client, adossée au cœur de transport et
+ * aux modules non critiques :
  *
- *   - clientCore.js      → transport HTTP critique (ApiError, _request, …)
- *   - agentSettings.js   → helpers assistant IA (settings, storage, /agent)
- *   - jobSteps.js        → ordres d'étapes (TRAIN_STEPS, PIPELINE_STEPS)
- *
- * La classe `SentimentApiClient` étend le cœur avec tous les endpoints métier.
- * Les re-exports ci-dessous garantissent la rétro-compatibilité intégrale des
- * imports existants.
+ *   - clientCore.ts      → transport HTTP critique (ApiError, _request, …)
+ *   - agentSettings.ts   → helpers assistant IA (settings, storage, /agent)
+ *   - jobSteps.ts        → ordres d'étapes (TRAIN_STEPS, PIPELINE_STEPS)
  */
 
 import { SentimentApiClientCore, ApiError } from "./clientCore";
@@ -26,6 +21,39 @@ export {
   DEFAULT_MULTIPART_TIMEOUT_MS,
   ApiError,
 } from "./clientCore";
+
+/** Entrée de `/models/details`. */
+export interface ModelVersion {
+  name: string;
+  active?: boolean;
+  [key: string]: unknown;
+}
+
+/** Réponse de `/health`. */
+export interface ApiHealth {
+  model_available?: boolean;
+  active_jobs?: number;
+  [key: string]: unknown;
+}
+
+/** Réponse de `/predict` : un résultat par texte. */
+export interface PredictionResult {
+  text: string;
+  sentiment: string;
+  confidence: number;
+  /** Estampille ajoutée côté front à l'entrée dans l'historique. */
+  timestamp?: number;
+  [key: string]: unknown;
+}
+
+/** Réponse de `/explain`. */
+export interface Explanation {
+  sentiment?: string;
+  confidence?: number;
+  explanation?: string;
+  [key: string]: unknown;
+}
+
 /**
  * Client API complet : étend le transport (clientCore) avec tous les endpoints
  * métier du backend FastAPI. Instancié une fois dans le contexte (AppProvider).
@@ -33,11 +61,11 @@ export {
 export class SentimentApiClient extends SentimentApiClientCore {
   // -- /health, /metrics (sans authentification) --------------------------
 
-  getHealth() {
-    return this._request("/health");
+  getHealth(): Promise<ApiHealth | null> {
+    return this._request<ApiHealth>("/health");
   }
 
-  async getMetricsRaw() {
+  async getMetricsRaw(): Promise<string> {
     const url = this._buildUrl("/metrics");
     const response = await fetch(url);
     if (!response.ok) {
@@ -47,7 +75,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /** Endpoint proxy JSON de secours (voir api/routes/metrics.py). */
-  async getMetricsJson() {
+  async getMetricsJson(): Promise<unknown> {
     const url = this._buildUrl("/metrics/json");
     const response = await fetch(url);
     if (!response.ok) {
@@ -58,21 +86,19 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   // -- /models --------------------------------------------------------------
 
-  listModels() {
-    return this._request("/models/details");
+  listModels(): Promise<ModelVersion[] | null> {
+    return this._request<ModelVersion[]>("/models/details");
   }
 
   // -- /evaluate ------------------------------------------------------------
 
-  getConfusion({ model, limit } = {}) {
-    return this._request("/evaluate/confusion", {
-      query: { model, limit },
-    });
+  getConfusion({ model, limit }: { model?: string; limit?: number } = {}) {
+    return this._request("/evaluate/confusion", { query: { model, limit } });
   }
 
   // -- /predict ---------------------------------------------------------------
 
-  predict(texts, model) {
+  predict(texts: string[], model?: string): Promise<{ results?: PredictionResult[] } | null> {
     return this._request("/predict", {
       method: "POST",
       body: { texts },
@@ -80,9 +106,13 @@ export class SentimentApiClient extends SentimentApiClientCore {
     });
   }
 
-  predictBatchJson({ file, textColumn = "text", model } = {}) {
+  predictBatchJson({
+    file,
+    textColumn = "text",
+    model,
+  }: { file?: File; textColumn?: string; model?: string } = {}) {
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", file!);
     form.append("text_column", textColumn);
     form.append("response_format", "json");
     return this._requestMultipart("/predict/batch", {
@@ -91,9 +121,13 @@ export class SentimentApiClient extends SentimentApiClientCore {
     });
   }
 
-  predictBatchCsv({ file, textColumn = "text", model } = {}) {
+  predictBatchCsv({
+    file,
+    textColumn = "text",
+    model,
+  }: { file?: File; textColumn?: string; model?: string } = {}) {
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", file!);
     form.append("text_column", textColumn);
     form.append("response_format", "csv");
     return this._requestMultipart("/predict/batch", {
@@ -102,20 +136,29 @@ export class SentimentApiClient extends SentimentApiClientCore {
       query: model ? { model } : undefined,
     });
   }
-
   // -- /drift ------------------------------------------------------------------
 
-  /**
-   * Détection de dérive entre deux batches, via deux fichiers CSV uploadés.
-   * Retourne {method, drift_score, p_value, threshold, drift_detected,
-   * distribution_a, distribution_b, n_a, n_b}.
-   */
-  driftCsv({ fileA, fileB, textColumn = "text", threshold, method, model } = {}) {
+  /** Détection de dérive entre deux batches, via deux fichiers CSV uploadés. */
+  driftCsv({
+    fileA,
+    fileB,
+    textColumn = "text",
+    threshold,
+    method,
+    model,
+  }: {
+    fileA?: File;
+    fileB?: File;
+    textColumn?: string;
+    threshold?: number | string;
+    method?: string;
+    model?: string;
+  } = {}) {
     const form = new FormData();
-    form.append("file_a", fileA);
-    form.append("file_b", fileB);
+    form.append("file_a", fileA!);
+    form.append("file_b", fileB!);
     form.append("text_column", textColumn);
-    if (threshold !== undefined && threshold !== "") form.append("threshold", threshold);
+    if (threshold !== undefined && threshold !== "") form.append("threshold", String(threshold));
     if (method) form.append("method", method);
     return this._requestMultipart("/drift", {
       formData: form,
@@ -124,8 +167,20 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /** Détection de dérive entre deux listes de textes (mode JSON). */
-  driftTexts({ textsA, textsB, threshold, method, model } = {}) {
-    const body = { texts_a: textsA, texts_b: textsB };
+  driftTexts({
+    textsA,
+    textsB,
+    threshold,
+    method,
+    model,
+  }: {
+    textsA?: string[];
+    textsB?: string[];
+    threshold?: number | string;
+    method?: string;
+    model?: string;
+  } = {}) {
+    const body: Record<string, unknown> = { texts_a: textsA, texts_b: textsB };
     if (threshold !== undefined && threshold !== "") body.threshold = threshold;
     if (method) body.method = method;
     return this._request("/drift", {
@@ -135,7 +190,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     });
   }
 
-  reloadPredictor(model) {
+  reloadPredictor(model?: string) {
     return this._request("/predict/reload", {
       method: "POST",
       query: model ? { model } : undefined,
@@ -148,8 +203,8 @@ export class SentimentApiClient extends SentimentApiClientCore {
    * Génère une explication en langage naturel de la prédiction d'un texte
    * (via l'agent IA / provider OpenRouter) : {sentiment, confidence, explanation}.
    */
-  explain({ text, model } = {}) {
-    return this._request("/explain", {
+  explain({ text, model }: { text: string; model?: string } = { text: "" }) {
+    return this._request<Explanation>("/explain", {
       method: "POST",
       body: model ? { text, model } : { text },
     });
@@ -157,56 +212,46 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   // -- /train -----------------------------------------------------------------
 
-  startTraining(payload) {
+  startTraining(payload: unknown) {
     return this._request("/train", { method: "POST", body: payload });
   }
 
-  getTrainingStatus(jobId) {
+  getTrainingStatus(jobId: string) {
     return this._request(`/train/status/${encodeURIComponent(jobId)}`);
   }
 
-  cancelTraining(jobId) {
+  cancelTraining(jobId: string) {
     return this._request(`/train/cancel/${encodeURIComponent(jobId)}`, {
       method: "POST",
     });
   }
 
-  listTrainingJobs({ status, limit, offset } = {}) {
-    return this._request("/train/jobs", {
-      query: { status, limit, offset },
-    });
+  listTrainingJobs({ status, limit, offset }: { status?: string; limit?: number; offset?: number } = {}) {
+    return this._request("/train/jobs", { query: { status, limit, offset } });
   }
 
   /** SCRUM-73 : historique des métriques par epoch d'un job (loss / F1 / accuracy). */
-  getTrainingHistory(jobId) {
+  getTrainingHistory(jobId: string) {
     return this._request(`/train/history/${encodeURIComponent(jobId)}`);
   }
 
   /**
    * WebSocket GET /train/stream/{job_id} — métriques live pendant un
-   * entraînement (loss / F1 epoch par epoch). Usage interne au dashboard :
-   * le jeton (X-API-Key ou DASHBOARD_WS_TOKEN côté serveur) est passé en
-   * query param `?token=` car les navigateurs ne peuvent pas poser de header
-   * sur un WebSocket. Retourne l'URL complète à passer à `new WebSocket()`.
+   * entraînement (loss / F1 epoch par epoch). Retourne l'URL complète à passer
+   * à `new WebSocket()` (le jeton passe en query `?token=`, les navigateurs ne
+   * pouvant pas poser de header sur un WebSocket).
    */
-  getTrainMetricsStreamUrl(jobId) {
-    const wsUrl = this.baseUrl
-      .replace(/^http/, "ws")
-      .replace(/^https/, "wss");
+  getTrainMetricsStreamUrl(jobId: string): string {
+    const wsUrl = this.baseUrl.replace(/^http/, "ws").replace(/^https/, "wss");
     const params = new URLSearchParams();
     if (this.apiKey) params.set("token", this.apiKey);
     const qs = params.toString();
     return `${wsUrl}/train/stream/${encodeURIComponent(jobId)}${qs ? `?${qs}` : ""}`;
   }
-
   // -- /train/schedules (SCRUM-34 : planification récurrente) -----------------
 
-  /**
-   * Programme un entraînement récurrent (POST /train/schedule).
-   * Payload : { train: {...}, cron?: "0 2 * * *", interval_minutes?: 60 }
-   * Retourne un ScheduledJob (schedule_id, next_run_at, trigger, ...).
-   */
-  scheduleTraining(payload) {
+  /** Programme un entraînement récurrent (POST /train/schedule). */
+  scheduleTraining(payload: unknown) {
     return this._request("/train/schedule", { method: "POST", body: payload });
   }
 
@@ -216,16 +261,28 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /** Supprime une planification récurrente. */
-  deleteSchedule(scheduleId) {
+  deleteSchedule(scheduleId: string) {
     return this._request(`/train/schedules/${encodeURIComponent(scheduleId)}`, {
       method: "DELETE",
     });
   }
 
-  // -- /active_learning & /annotate (SCRUM-55 : cycle d'amélioration continue) --
+  // -- /active_learning & /annotate (SCRUM-55) --------------------------------
 
   /** Exemples les plus incertains (triés par proximité de la confiance à 1/3). */
-  getActiveLearning({ texts, datasetPath, topN = 50, batchSize = 32, modelVersion } = {}) {
+  getActiveLearning({
+    texts,
+    datasetPath,
+    topN = 50,
+    batchSize = 32,
+    modelVersion,
+  }: {
+    texts?: string[];
+    datasetPath?: string;
+    topN?: number;
+    batchSize?: number;
+    modelVersion?: string;
+  } = {}) {
     return this._request("/active_learning", {
       method: "POST",
       body: {
@@ -239,11 +296,8 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /** Enregistre une correction manuelle : { text, label, force? }. */
-  annotate({ text, label, force = false }) {
-    return this._request("/annotate", {
-      method: "POST",
-      body: { text, label, force },
-    });
+  annotate({ text, label, force = false }: { text: string; label: string; force?: boolean }) {
+    return this._request("/annotate", { method: "POST", body: { text, label, force } });
   }
 
   /** Annotations stockées : { total, items }. */
@@ -257,19 +311,17 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /** Lance le cycle complet (202 → job asynchrone TrainJob). */
-  startActiveLearningCycle(payload = {}) {
+  startActiveLearningCycle(payload: unknown = {}) {
     return this._request("/active_learning/cycle", { method: "POST", body: payload });
   }
 
   /** Statut du job de cycle. */
-  getActiveLearningCycleStatus(jobId) {
-    return this._request(
-      `/active_learning/cycle/status/${encodeURIComponent(jobId)}`
-    );
+  getActiveLearningCycleStatus(jobId: string) {
+    return this._request(`/active_learning/cycle/status/${encodeURIComponent(jobId)}`);
   }
 
   /** Active une version de modèle (422 si artefacts invalides). */
-  activateModel(name) {
+  activateModel(name: string) {
     return this._request(`/models/${encodeURIComponent(name)}/activate`, {
       method: "POST",
     });
@@ -286,15 +338,21 @@ export class SentimentApiClient extends SentimentApiClientCore {
    * { verdict, detail, accuracy, results } : on le retourne comme un rapport
    * plutôt que de lever, pour simplifier l'affichage dans l'IHM.
    */
-  async getModelSanity(model) {
+  async getModelSanity(model?: string) {
     try {
-      const report = await this._request("/health/model-sanity", {
+      const report = (await this._request("/health/model-sanity", {
         query: model ? { model_name: model } : undefined,
-      });
+      })) as Record<string, unknown> | null;
       return { ...report, httpStatus: 200 };
     } catch (err) {
-      if (err instanceof ApiError && err.status === 503 && err.detail?.verdict) {
-        return { ...err.detail, httpStatus: 503 };
+      if (
+        err instanceof ApiError &&
+        err.status === 503 &&
+        typeof err.detail === "object" &&
+        err.detail !== null &&
+        "verdict" in err.detail
+      ) {
+        return { ...(err.detail as object), httpStatus: 503 };
       }
       throw err;
     }
@@ -304,33 +362,29 @@ export class SentimentApiClient extends SentimentApiClientCore {
    * Supprime une version de modèle défaillante (DELETE /models/{name}).
    * Refus 409 si version active, 422 si le sanity check est « ok ».
    */
-  deleteModel(name) {
-    return this._request(`/models/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-    });
+  deleteModel(name: string) {
+    return this._request(`/models/${encodeURIComponent(name)}`, { method: "DELETE" });
   }
 
   // -- /pipeline ---------------------------------------------------------------
 
   /** Lance le pipeline end-to-end (labeling -> filtering -> fine-tuning LLM). */
-  startPipeline(payload) {
+  startPipeline(payload: unknown) {
     return this._request("/pipeline", { method: "POST", body: payload });
   }
 
-  getPipelineStatus(jobId) {
+  getPipelineStatus(jobId: string) {
     return this._request(`/pipeline/status/${encodeURIComponent(jobId)}`);
   }
 
-  cancelPipeline(jobId) {
+  cancelPipeline(jobId: string) {
     return this._request(`/pipeline/cancel/${encodeURIComponent(jobId)}`, {
       method: "POST",
     });
   }
 
-  listPipelineJobs({ status, limit, offset } = {}) {
-    return this._request("/pipeline/jobs", {
-      query: { status, limit, offset },
-    });
+  listPipelineJobs({ status, limit, offset }: { status?: string; limit?: number; offset?: number } = {}) {
+    return this._request("/pipeline/jobs", { query: { status, limit, offset } });
   }
 }
 

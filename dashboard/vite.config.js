@@ -21,7 +21,7 @@ export default defineConfig({
         // ATTENTION : ne pas ajouter de chunk nommé pour recharts ni de
         // catch-all "vendor" — Rollup les attribuerait au graphe de l'entrée et
         // les "modulepreload"-rait au démarrage (~+119 KB gzip inutiles).
-        manualChunks(id, { getModuleInfo }) {
+        manualChunks(id) {
           // On n'isole QUE React (le très gros gain : le monolithique de ~2,7 MB
           // se réduit à ~56 KB gzip). Recharts et les autres node_modules restent
           // dans leurs chunks naturels (par page lazy), donc ils ne sont PAS

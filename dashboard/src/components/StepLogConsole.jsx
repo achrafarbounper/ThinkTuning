@@ -14,7 +14,7 @@ const LEVEL_CLASS = {
   DEBUG: "tt-log-debug",
 };
 
-export default function StepLogConsole({ logs, stepLabels = {}, currentStep }) {
+export default function StepLogConsole({ logs, stepLabels = {} }) {
   const [filter, setFilter] = useState("all"); // "all" | étape courante uniquement
   const listRef = useRef(null);
 

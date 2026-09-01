@@ -6,7 +6,7 @@
  * rester fonctionnelle au rechargement, sans dépendance externe.
  */
 
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
 import AppProvider from "./context/AppProvider";
 import { ErrorBoundary } from "./components/ui";
 
@@ -30,7 +30,7 @@ const MonitoringPage = lazy(() => import("./pages/MonitoringPage"));
 const AnnotationPage = lazy(() => import("./pages/AnnotationPage"));
 
 /** Table de routage : identifiant de menu → composant de page. */
-const ROUTES = {
+const ROUTES: Record<string, ComponentType<{ onNavigate?: (id: string) => void }>> = {
   dashboard: HomePage,
   analyse: SentimentPage,
   comparer: ComparePage,
@@ -42,16 +42,17 @@ const ROUTES = {
   evaluation: EvaluationPage,
   monitoring: MonitoringPage,
   parametres: SettingsPage,
-};
+} as unknown as Record<string, ComponentType<{ onNavigate?: (id: string) => void }>>;
 
 /** Lit la page active depuis l'URL (#/xxx), avec repli sur le tableau de bord. */
-function pageFromHash() {
+function pageFromHash(): string {
   const id = window.location.hash.replace(/^#\/?/, "");
   return ROUTES[id] ? id : "dashboard";
 }
 
 export default function App() {
   const [page, setPage] = useState(pageFromHash);
+  const mainRef = useRef<HTMLElement>(null);
 
   // Synchronise l'état si l'utilisateur modifie le hachage (retour navigateur…).
   useEffect(() => {
@@ -60,20 +61,34 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const navigate = (id) => {
+  const navigate = (id: string) => {
     window.location.hash = `/${id}`;
     setPage(id);
   };
+
+  // Au changement de « page » : déplace le focus sur <main> pour que les
+  // lecteurs d'écran annoncent la nouvelle vue (WCAG 2.4.3 — focus order).
+  useEffect(() => {
+    mainRef.current?.focus({ preventScroll: true });
+  }, [page]);
 
   const ActivePage = ROUTES[page];
 
   return (
     <AppProvider>
+      <a className="skip-link" href="#contenu">
+        Aller au contenu
+      </a>
       <div className="app-shell">
         <Suspense fallback={<SidebarFallback />}>
           <Sidebar page={page} onNavigate={navigate} />
         </Suspense>
-        <main className="app-main">
+        <main
+          id="contenu"
+          className="app-main"
+          ref={mainRef}
+          tabIndex={-1}
+        >
           <ErrorBoundary>
             <Suspense fallback={<PageFallback />}>
               <ActivePage onNavigate={navigate} />
