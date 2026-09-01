@@ -68,6 +68,87 @@ def test_train_epoch_uses_criterion_with_logits_and_labels():
     trainer.scheduler.step.assert_called_once()
 
 
+def test_label_smoothing_epsilon_is_used_in_criterion():
+    """Le label smoothing epsilon configurable est passé au CrossEntropyLoss."""
+    trainer = Trainer(
+        model=TinyTextModel(),
+        cfg=_make_cfg(label_smoothing=0.2, mixup_alpha=0.0),
+    )
+    assert trainer.criterion.label_smoothing == 0.2
+    assert torch.nn.CrossEntropyLoss().reduction == trainer.criterion.reduction
+
+
+def test_label_smoothing_defaults_to_zero():
+    """Par défaut (clé absente), aucun label smoothing n'est appliqué."""
+    trainer = Trainer(model=TinyTextModel(), cfg=_make_cfg())
+    assert trainer.criterion.label_smoothing == 0.0
+
+
+def test_mixup_disabled_calls_criterion_once():
+    """Mixup désactivé (alpha=0) : la loss du batch permuté n'est pas calculée."""
+    model = TinyTextModel()
+    model.proj.weight.data.zero_()
+    model.proj.bias.data.zero_()
+
+    trainer = Trainer(model=model, cfg=_make_cfg(mixup_alpha=0.0))
+    trainer.scheduler = MagicMock()
+
+    sample = {
+        "input_ids": torch.tensor([[1, 2, 3, 4]], dtype=torch.long),
+        "attention_mask": torch.ones((1, 4), dtype=torch.long),
+        "labels": torch.tensor([1], dtype=torch.long),
+    }
+    loader = DataLoader([sample], batch_size=1)
+
+    criterion = MagicMock(return_value=torch.tensor(1.0, requires_grad=True))
+    trainer.criterion = criterion
+
+    trainer._train_epoch(loader)
+
+    criterion.assert_called_once()
+    assert len(criterion.call_args.args) == 2
+    assert trainer.mixup_alpha == 0.0
+
+
+def test_mixup_enabled_combines_two_criterion_calls():
+    """Mixup activé : la loss combine vrai batch + batch permuté (2 appels)."""
+    model = TinyTextModel()
+    model.proj.weight.data.zero_()
+    model.proj.bias.data.zero_()
+
+    # alpha=1.0 => Beta(1,1)=uniforme => lam ∈ [0.5, 1.0] après max(lam,1-lam)
+    trainer = Trainer(model=model, cfg=_make_cfg(mixup_alpha=1.0))
+    trainer.scheduler = MagicMock()
+    assert trainer.mixup_alpha == 1.0
+
+    samples = [
+        {"input_ids": torch.tensor([[1, 2, 3, 4]], dtype=torch.long),
+         "attention_mask": torch.ones((1, 4), dtype=torch.long),
+         "labels": torch.tensor([i], dtype=torch.long)}
+        for i in range(3)
+    ]
+    loader = DataLoader(samples, batch_size=3)
+    batch = next(iter(loader))
+    original_labels = batch["labels"]
+
+    criterion = MagicMock(
+        return_value=torch.tensor(0.5, requires_grad=True)
+    )
+    trainer.criterion = criterion
+
+    with patch.dict("src.model.trainer.np.random.__dict__",
+                    {"beta": lambda a, b: 0.7}):
+        trainer._train_epoch(loader)
+
+    # 2 appels : vrai batch + batch permuté
+    assert criterion.call_count == 2
+    first_logits, first_labels = criterion.call_args_list[0].args
+    second_logits, second_labels = criterion.call_args_list[1].args
+    assert torch.equal(first_logits, second_logits)
+    # Le 2e appel reçoit la même batch de labels réordonnée (permutation)
+    assert sorted(second_labels.tolist()) == sorted(original_labels.tolist())
+
+
 class DummyTokenizer:
     def save_pretrained(self, path):
         os.makedirs(path, exist_ok=True)

@@ -17,6 +17,14 @@ early_stopping_min_delta: 0.0
 device: auto
 gradient_clip: 1.0
 
+# Régularisation pendant l'entraînement (dans _train_epoch)
+# Epsilon du label smoothing (0.0 = désactivé). Utilisé via
+# nn.CrossEntropyLoss(label_smoothing=epsilon).
+label_smoothing: 0.1
+# Paramètre alpha de la distribution Beta de Mixup (0.0 = désactivé).
+# Mixup combine la loss sur les vrais labels et sur un batch permuté.
+mixup_alpha: 0.4
+
 num_workers: 0
 
 # Pondération des classes lors de la sélection des exemples à augmenter

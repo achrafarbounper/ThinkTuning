@@ -72,10 +72,22 @@ class Trainer:
 
         self.scheduler = None
         
+        # Label smoothing (régularisation) : epsilon configurable dans
+        # default.yaml. 0.0 = désactivé. Passé directement à la CrossEntropyLoss
+        # (compatible avec weight=... pour l'équilibrage des classes).
+        label_smoothing = float(cfg.get("label_smoothing", 0.0))
         # Utiliser les poids de classe si fournis
         if class_weights is not None:
             class_weights = class_weights.to(self.device)
-        self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+        self.criterion = nn.CrossEntropyLoss(
+            weight=class_weights, label_smoothing=label_smoothing
+        )
+
+        # Mixup (régularisation) : alpha de la distribution Beta (0.0 = désactivé).
+        # Combiné avec les token IDs discrets, on applique un "mixup au niveau de
+        # la loss" : la loss est calculée à la fois sur les vrais labels et sur un
+        # batch permuté, puis pondérée par lam ~ Beta(alpha, alpha).
+        self.mixup_alpha = float(cfg.get("mixup_alpha", 0.0))
 
     def train(self, train_loader, val_loader, cancel_event=None, on_epoch_end=None,
               on_progress=None):
@@ -300,7 +312,20 @@ class Trainer:
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                 )
-                loss = self.criterion(outputs.logits, labels) / self.grad_accum_steps
+                # Mixup optionnel (au niveau de la loss, adapté aux token IDs
+                # discrets) : si activé (mixup_alpha > 0) et que le batch permet
+                # une permutation, on pondère la loss entre les vrais labels et
+                # ceux d'un batch permuté par lam ~ Beta(alpha, alpha).
+                if self.mixup_alpha > 0 and labels.shape[0] > 1:
+                    lam = float(np.random.beta(self.mixup_alpha, self.mixup_alpha))
+                    lam = max(lam, 1 - lam)  # favorise le composant "vrai"
+                    perm = torch.randperm(labels.shape[0], device=labels.device)
+                    loss = (
+                        lam * self.criterion(outputs.logits, labels)
+                        + (1 - lam) * self.criterion(outputs.logits, labels[perm])
+                    ) / self.grad_accum_steps
+                else:
+                    loss = self.criterion(outputs.logits, labels) / self.grad_accum_steps
 
             loss.backward()
 
