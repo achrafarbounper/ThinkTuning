@@ -119,12 +119,17 @@ def _json_safe(value):
     return str(value)
 
 
-def _validate_saved_model(model_dir):
-    """Vérifie qu'un modèle sauvegardé est exploitable.
+def _validate_saved_model(model_dir, trainer=None):
+    """Vérifie qu'un modèle sauvegardé est exploitable ET fidèle au modèle
+    entraîné en mémoire.
 
     Lève ``RuntimeError`` si :
       - aucun fichier de poids non vide n'est présent ;
-      - la tête de classification est quasi-aléatoire (jamais entraînée).
+      - la tête de classification est quasi-aléatoire ET qu'aucun
+        entraînement n'est attesté (training_report.json avec métriques) ;
+      - ``trainer`` est fourni et la tête persistée DIVERGE des poids du
+        modèle en mémoire (le modèle sauvegardé ne serait pas celui qui a
+        été entraîné).
     """
     # 1. Fichier de poids non vide présent ?
     weight_file = None
@@ -139,7 +144,9 @@ def _validate_saved_model(model_dir):
             f"Attendu l'un de : {MODEL_FILES}"
         )
 
-    # 2. Tête de classification réellement entraînée ?
+    # 2. Tête de classification réellement entraînée ? (heuristique std OU
+    #    attestation d'entraînement — une tête DistilBERT fine-tunée sur un
+    #    petit dataset garde std ≈ 0.02, cf. core/model_head_check.py.)
     from core.model_head_check import is_model_version_trained
 
     if not is_model_version_trained(model_dir):
@@ -147,6 +154,77 @@ def _validate_saved_model(model_dir):
             f"Échec de sauvegarde : la tête de classification de {model_dir} apparaît "
             "quasi-aléatoire (probablement jamais entraînée). "
             "Vérifie que le modèle entraîné est bien celui persisté."
+        )
+
+    # 3. Fidélité au modèle entraîné en mémoire : la tête persistée doit être
+    #    strictement identique à celle du modèle du trainer. Détecte une
+    #    réinstanciation / réinitialisation entre l'entraînement et la
+    #    persistance (le poids sur disque ne correspondrait plus au modèle
+    #    réellement entraîné).
+    if trainer is not None:
+        from core.model_head_check import head_matches_reference
+
+        model = getattr(trainer, "model", None)
+        try:
+            reference_state = model.state_dict() if model is not None else None
+        except Exception:
+            reference_state = None
+        if reference_state:
+            from core.model_head_check import load_head_tensors
+
+            saved_head = load_head_tensors(model_dir)
+            if saved_head and not head_matches_reference(model_dir, reference_state):
+                raise RuntimeError(
+                    f"Échec de sauvegarde : la tête de classification persistée dans "
+                    f"{model_dir} DIFFÈRE du modèle entraîné en mémoire. Le modèle "
+                    "sauvegardé ne correspond pas au modèle réellement entraîné "
+                    "(réinstanciation ou réinitialisation de la tête détectée)."
+                )
+
+
+def _write_training_attestation(trainer, tmp_dir):
+    """Écrit un ``training_report.json`` provisoire dans le temporaire.
+
+    Indispensable pour la validation : une tête DistilBERT fine-tunée sur un
+    petit dataset garde un écart-type ≈ 0.02 (valeur d'initialisation), le
+    seul seuil de std rejette donc des modèles légitimes. L'attestation par
+    métriques réelles de l'entraînement (epoch_metrics / final_metrics du
+    trainer) permet à ``is_model_version_trained`` de valider ces modèles.
+    Le rapport définitif est ensuite réécrit par ``save_model_version`` dans
+    le dossier final : ce fichier provisoire est seulement copié puis écrasé.
+
+    Ne lève jamais : en l'absence de métriques exploitables, aucun fichier
+    n'est écrit (la validation retombe alors sur la seule heuristique std).
+    """
+    try:
+        epoch_metrics = getattr(trainer, "epoch_metrics", None) or []
+        final_metrics = dict(getattr(trainer, "final_metrics", None) or {})
+        if not epoch_metrics and not final_metrics:
+            return
+        import json
+
+        report = {
+            "provisional": True,
+            "metrics": {
+                "accuracy_by_epoch": [
+                    entry.get("accuracy") for entry in epoch_metrics
+                    if isinstance(entry, dict) and entry.get("accuracy") is not None
+                ],
+                "f1_by_epoch": [
+                    entry.get("f1_macro") for entry in epoch_metrics
+                    if isinstance(entry, dict) and entry.get("f1_macro") is not None
+                ],
+            },
+        }
+        if final_metrics:
+            report["metrics"].update(_json_safe(final_metrics))
+        with open(
+            os.path.join(tmp_dir, "training_report.json"), "w", encoding="utf-8"
+        ) as fh:
+            json.dump(report, fh, indent=2, default=str)
+    except Exception:
+        logger.exception(
+            "Échec de l'écriture de l'attestation d'entraînement (non bloquant)"
         )
 
 
@@ -190,7 +268,12 @@ def _save_trained_model(trainer, model_dir):
 
     try:
         # --- 2. Validation (sur le temporaire, AVANT publication) -------------
-        _validate_saved_model(tmp_dir)
+        # a) Attestation d'entraînement : permet à la validation de valider
+        #    une tête légitimement fine-tunée dont le std reste ≈ 0.02.
+        _write_training_attestation(trainer, tmp_dir)
+        # b) Poids non vides, tête entraînée/attestée, et fidélité au modèle
+        #    en mémoire (équivalence stricte trainer <-> disque).
+        _validate_saved_model(tmp_dir, trainer=trainer)
 
         # --- 3. Publication des poids dans model_dir (fusion, pas écrasement) --
         # model_dir peut déjà contenir les fichiers du tokenizer (vocab.json,
@@ -351,7 +434,15 @@ def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples,
     # et le Predictor (qui exige config.json ou un fichier de poids) ne
     # trouvent aucun modèle chargeable — POST /train produisait donc des
     # versions inutilisables par /predict.
-    _save_trained_model(trainer, model_dir)
+    try:
+        _save_trained_model(trainer, model_dir)
+    except Exception:
+        # Ne pas laisser un dossier tokenizer-only sans poids : ce serait une
+        # « version » inexploitable (jamais listée mais confuse sur disque).
+        import shutil
+
+        shutil.rmtree(model_dir, ignore_errors=True)
+        raise
 
     # Artefacts SCRUM-55 : mappings id2label/label2id + state_dict de secours.
     write_label_mappings(trainer, model_dir)
