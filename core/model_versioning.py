@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_ROOT = os.path.join("experiments", "models")
 MODELS_ROOT = MODEL_ROOT
-MODEL_FILES = ["model.pt", "pytorch_model.bin", "model.safetensors"]
+MODEL_FILES = ["model.pt", "pytorch_model.bin", "model.safetensors", "model_state_dict.pt"]
 
 
 def list_model_versions() -> list[str]:
@@ -106,33 +106,111 @@ def _json_safe(value):
     return str(value)
 
 
+def _validate_saved_model(model_dir):
+    """Vérifie qu'un modèle sauvegardé est exploitable.
+
+    Lève ``RuntimeError`` si :
+      - aucun fichier de poids non vide n'est présent ;
+      - la tête de classification est quasi-aléatoire (jamais entraînée).
+    """
+    # 1. Fichier de poids non vide présent ?
+    weight_file = None
+    for fname in MODEL_FILES:
+        fpath = os.path.join(model_dir, fname)
+        if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
+            weight_file = fpath
+            break
+    if weight_file is None:
+        raise RuntimeError(
+            f"Échec de sauvegarde : aucun fichier de poids non vide dans {model_dir}. "
+            f"Attendu l'un de : {MODEL_FILES}"
+        )
+
+    # 2. Tête de classification réellement entraînée ?
+    from core.model_head_check import is_model_version_trained
+
+    if not is_model_version_trained(model_dir):
+        raise RuntimeError(
+            f"Échec de sauvegarde : la tête de classification de {model_dir} apparaît "
+            "quasi-aléatoire (probablement jamais entraînée). "
+            "Vérifie que le modèle entraîné est bien celui persisté."
+        )
+
+
 def _save_trained_model(trainer, model_dir):
     """Persiste les poids du modèle entraîné dans le dossier versionné.
 
-    - Préfère ``trainer.save(model_dir)`` : pour un modèle HuggingFace,
-      ``Trainer.save`` appelle ``model.save_pretrained`` qui écrit
-      ``config.json`` + ``model.safetensors`` ; pour un module torch pur,
-      il retombe sur ``model_state_dict.pt``.
-    - Sinon, utilise directement ``trainer.model`` avec le même contrat.
+    Stratégie atomique + validée :
+      1. Sauvegarde dans un dossier temporaire ``<model_dir>.tmp`` ;
+      2. Validation (poids non vide + tête entraînée) ;
+                  3. Fusion des poids validés dans ``<model_dir>`` (préserve le tokenizer) ;
+      4. Nettoyage du temporaire en cas d'échec.
+
+    Lève ``RuntimeError`` si la validation échoue — un modèle inexploitable
+    n'est JAMAIS publié dans ``experiments/models``.
     """
+    import shutil
+
+    tmp_dir = model_dir + ".tmp"
+    # Nettoyage d'un éventuel temporaire résiduel.
+    if os.path.isdir(tmp_dir):
+        shutil.rmtree(tmp_dir)
+
+    # --- 1. Sauvegarde dans le temporaire -----------------------------------
     save_fn = getattr(trainer, "save", None)
     if callable(save_fn):
-        save_fn(model_dir)
-        return
+        save_fn(tmp_dir)
+    else:
+        model = getattr(trainer, "model", None)
+        if model is None:
+            if os.path.isdir(tmp_dir):
+                shutil.rmtree(tmp_dir)
+            return
 
-    model = getattr(trainer, "model", None)
-    if model is None:
-        return
+        if hasattr(model, "save_pretrained"):
+            model.save_pretrained(tmp_dir)
+        else:
+            import torch
 
-    if hasattr(model, "save_pretrained"):
-        # Modèle HuggingFace : écrit config.json + model.safetensors.
-        model.save_pretrained(model_dir)
-        return
+            os.makedirs(tmp_dir, exist_ok=True)
+            torch.save(model.state_dict(), os.path.join(tmp_dir, "model_state_dict.pt"))
 
-    import torch
+    try:
+        # --- 2. Validation (sur le temporaire, AVANT publication) -------------
+        _validate_saved_model(tmp_dir)
 
-    state_dict_path = os.path.join(model_dir, "model_state_dict.pt")
-    torch.save(model.state_dict(), state_dict_path)
+        # --- 3. Publication des poids dans model_dir (fusion, pas écrasement) --
+        # model_dir peut déjà contenir les fichiers du tokenizer (vocab.json,
+        # tokenizer_config.json, special_tokens_map.json, …) écrits par
+        # save_model_version() via tokenizer.save_pretrained(model_dir) avant
+        # cet appel. Un remplacement par ``shutil.rmtree(model_dir)`` +
+        # ``os.rename(tmp_dir, model_dir)`` détruirait ces fichiers, laissant
+        # le dossier avec des poids mais sans tokenizer — /predict échouerait
+        # ensuite avec ``FileNotFoundError: vocab.json`` (et de même
+        # AutoTokenizer.from_pretrained échouerait en production).
+        #
+        # On propage donc les poids validés par fusion dans model_dir (en
+        # écrasant d'éventuelles versions précédentes des mêmes fichiers),
+        # puis on retire le temporaire.
+        os.makedirs(model_dir, exist_ok=True)
+        for entry in os.listdir(tmp_dir):
+            src = os.path.join(tmp_dir, entry)
+            dst = os.path.join(model_dir, entry)
+            if os.path.isdir(src):
+                if os.path.isdir(dst):
+                    shutil.rmtree(dst)
+                shutil.move(src, dst)
+            else:
+                shutil.copy2(src, dst)
+    except Exception:
+        # --- 4. Nettoyage sur échec -------------------------------------------
+        if os.path.isdir(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        raise
+
+    # --- 5. Nettoyage du temporaire après publication réussie -----------------
+    if os.path.isdir(tmp_dir):
+        shutil.rmtree(tmp_dir)
 
 
 def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at):

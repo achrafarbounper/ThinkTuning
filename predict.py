@@ -7,11 +7,14 @@ Usage :
 
 import logging
 import sys
+from core.model_versioning import resolve_model_path
 from src.inference.predictor import Predictor
 
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = "./sentiment_model_final"
+# Par défaut : dernière version valide dans experiments/models (résout aussi
+# l'ancien chemin ./sentiment_model_final vers experiments/models).
+MODEL_PATH = resolve_model_path(None)
 
 
 def main():
@@ -25,6 +28,7 @@ def main():
             "C'était correct, sans plus.",
         ]
 
+    logger.info(f"Modèle utilisé : {MODEL_PATH}")
     predictor = Predictor(MODEL_PATH)
     results = predictor.predict(texts)
 

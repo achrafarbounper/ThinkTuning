@@ -31,6 +31,8 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
+from core.model_versioning import resolve_model_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -372,8 +374,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--distilbert_path",
-        default="./sentiment_model_final",
-        help="Chemin vers le modèle DistilBERT (dossier ou state_dict).",
+        default=None,
+        help="Chemin vers le modèle DistilBERT (dossier ou state_dict). Défaut : dernière version dans experiments/models.",
     )
     parser.add_argument(
         "--llm_path",
@@ -484,9 +486,11 @@ def main(argv: Optional[List[str]] = None) -> dict:
     models: Dict[str, Dict] = {}
 
     # --- DistilBERT ---
-    if args.distilbert_path:
+    distilbert_path = resolve_model_path(args.distilbert_path)
+    logger.info(f"DistilBERT modèle : {distilbert_path}")
+    if distilbert_path:
         runner = create_distilbert_runner(
-            args.distilbert_path, args.device, args.batch_size
+            distilbert_path, args.device, args.batch_size
         )
         measured = measure_engine(runner, texts)
         metrics = compute_metrics(measured.pop("predicted_labels"), golds)

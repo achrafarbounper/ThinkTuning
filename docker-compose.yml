@@ -10,7 +10,6 @@ services:
     volumes:
       - ./configs:/app/configs
       - ./experiments:/app/experiments
-      - ./sentiment_model_final:/app/sentiment_model_final
       - hf-cache:/app/.cache
 
   predict:
@@ -19,7 +18,7 @@ services:
     container_name: thinktuning-predict
     command: ["python", "predict.py", "Ce produit est fantastique, je recommande !"]
     volumes:
-      - ./sentiment_model_final:/app/sentiment_model_final
+      - ./experiments:/app/experiments
       - hf-cache:/app/.cache
     profiles: ["predict"]
 
@@ -29,7 +28,7 @@ services:
     container_name: thinktuning-evaluate
     command: ["python", "evaluate.py", "--max_per_lang", "500"]
     volumes:
-      - ./sentiment_model_final:/app/sentiment_model_final
+      - ./experiments:/app/experiments
       - hf-cache:/app/.cache
     profiles: ["evaluate"]
 
@@ -53,7 +52,7 @@ services:
       - "8000:8000"
       - "8080:80"
     environment:
-      - MODEL_PATH=/app/sentiment_model_final
+      - MODEL_PATH=/app/experiments/models
       - API_KEY=${API_KEY}
       - JOB_STORE_PATH=/app/experiments/jobs.db
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173,http://localhost:3000}
@@ -65,7 +64,6 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
     volumes:
       - ./experiments:/app/experiments
-      - ./sentiment_model_final:/app/sentiment_model_final
       - hf-cache:/app/.cache
     profiles: ["app"]
 

@@ -50,7 +50,7 @@ RUN python -c "import nltk; [nltk.download(p, quiet=True) for p in ['wordnet', '
 
 # Copy backend code
 COPY . .
-RUN mkdir -p experiments/checkpoints sentiment_model_final
+RUN mkdir -p experiments/checkpoints
 
 # Copy frontend build into nginx
 COPY --from=frontend-build /app/dashboard/dist /usr/share/nginx/html
@@ -62,7 +62,7 @@ RUN rm -f /etc/nginx/sites-enabled/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Create necessary directories
-RUN mkdir -p /app/experiments /app/sentiment_model_final \
+RUN mkdir -p /app/experiments \
     && mkdir -p /var/log/supervisor \
     && mkdir -p /etc/nginx/conf.d
 
