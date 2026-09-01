@@ -14,9 +14,11 @@ class TinyTextModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.proj = torch.nn.Linear(4, 3)
+        self.classifier = torch.nn.Linear(3, 3)
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
-        logits = self.proj(input_ids.to(torch.float32))
+        h = self.proj(input_ids.to(torch.float32))
+        logits = self.classifier(h)
         return SimpleNamespace(logits=logits)
 
 
@@ -158,11 +160,19 @@ class _HFStyleModel:
     """Imite un PreTrainedModel HF : save_pretrained écrit config.json + model.safetensors."""
 
     def save_pretrained(self, path):
+        from safetensors.torch import save_file
+
         os.makedirs(path, exist_ok=True)
         with open(os.path.join(path, "config.json"), "w", encoding="utf-8") as fh:
             fh.write("{}")
-        with open(os.path.join(path, "model.safetensors"), "w", encoding="utf-8") as fh:
-            fh.write("")
+        # Modèle minimal avec tête de classification entraînée (std > 0)
+        # pour passer la validation _is_valid_model_dir de model_versioning.
+        cls_weight = torch.randn(3, 768)
+        cls_bias = torch.zeros(3)
+        save_file(
+            {"classifier.weight": cls_weight, "classifier.bias": cls_bias},
+            os.path.join(path, "model.safetensors"),
+        )
 
 
 def test_save_model_version_writes_training_report():

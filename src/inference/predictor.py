@@ -8,16 +8,25 @@ from src.utils.flags import TEST_MODE
 _DEFAULT_MAX_LENGTH = 128
 
 
+def _has_nonempty_weights(path: str) -> bool:
+    """Vérifie la présence d'un fichier de poids non vide dans ``path``."""
+    for fname in ("model.safetensors", "pytorch_model.bin", "model.pt", "model_state_dict.pt"):
+        fpath = os.path.join(path, fname)
+        if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
+            return True
+    return False
+
+
 def _is_valid_model_dir(path: str) -> bool:
+    """Un dossier est « valide » seulement si ``config.json`` OU un fichier de
+    poids non vide y est présent.  Ne garantit PAS que le modèle est entraîné
+    (utiliser ``is_model_version_trained`` pour cela)."""
     if not os.path.isdir(path):
         return False
     config_path = os.path.join(path, "config.json")
     if os.path.isfile(config_path):
         return True
-    return any(
-        os.path.isfile(os.path.join(path, name))
-        for name in ("model.safetensors", "pytorch_model.bin", "model.pt")
-    )
+    return _has_nonempty_weights(path)
 
 
 def _resolve_model_dir(model_path: str) -> str:
@@ -32,15 +41,68 @@ def _resolve_model_dir(model_path: str) -> str:
     if os.path.abspath(model_path) == os.path.abspath(legacy_default):
         model_root = os.path.join(repo_root, "experiments", "models")
         if os.path.isdir(model_root):
-            candidates = []
+            # Parcourt les versions par ordre décroissant et retient la première
+            # dont la tête de classification est réellement entraînée (et dont les
+            # poids sont non vides) — plutôt que le premier dossier avec un
+            # ``config.json``, qui peut cacher une tête aléatoire.
+            from core.model_head_check import is_model_version_trained
+
+            trained_candidates = []
+            fallback_candidates = []
             for entry in sorted(os.listdir(model_root), reverse=True):
                 candidate = os.path.join(model_root, entry)
-                if os.path.isdir(candidate) and _is_valid_model_dir(candidate):
-                    candidates.append(candidate)
-            if candidates:
-                return candidates[0]
+                if not os.path.isdir(candidate):
+                    continue
+                if not _has_nonempty_weights(candidate):
+                    continue
+                if is_model_version_trained(candidate):
+                    trained_candidates.append(candidate)
+                else:
+                    fallback_candidates.append(candidate)
+            if trained_candidates:
+                return trained_candidates[0]
+            if fallback_candidates:
+                return fallback_candidates[0]
 
     return model_path
+
+
+def _check_head_trained(model):
+    """Lève ``RuntimeError`` si la tête de classification du modèle chargé
+    apparaît quasi-aléatoire (probablement jamais entraînée).
+
+    Defense-in-depth : même avec un bon chemin, on refuse de prédire en
+    silencieux avec un modèle inexploitable (qui renverrait du `neutral`
+    universel, softmax ≈ uniforme)."""
+    try:
+        from core.model_head_check import _classifier_std, _load_head_state
+        import tempfile, os as _os
+
+        # On sauvegarde temporairement pour réutiliser le check basé sur fichiers.
+        tmp = tempfile.mkdtemp(prefix="tt_headcheck_")
+        try:
+            model.save_pretrained(tmp)
+            state = _load_head_state(tmp)
+            if not state:
+                raise RuntimeError(
+                    "Impossible de lire la tête de classification du modèle chargé."
+                )
+            std = _classifier_std(state)
+            from core.model_head_check import HEAD_CLASSIFIER_MIN_STD
+            if std <= HEAD_CLASSIFIER_MIN_STD:
+                raise RuntimeError(
+                    f"Tête de classification quasi-aléatoire détectée (std={std:.5f}, "
+                    f"seuil={HEAD_CLASSIFIER_MIN_STD}). Le modèle chargé n'a probablement "
+                    "jamais été entraîné — prédiction refusée."
+                )
+        finally:
+            import shutil as _shutil
+            _shutil.rmtree(tmp, ignore_errors=True)
+    except RuntimeError:
+        raise
+    except Exception:
+        # Si le check lui-même échoue, on ne bloque pas la prédiction.
+        pass
 
 
 def _resolve_default_max_length():
@@ -92,9 +154,15 @@ class Predictor:
                 self.tokenizer = AutoTokenizer.from_pretrained(resolved_model_path)
                 self.model = AutoModelForSequenceClassification.from_pretrained(resolved_model_path)
             except Exception:
-                # Fallback
-                state_dict_path = os.path.join(resolved_model_path, "model.pt")
-                if not os.path.exists(state_dict_path):
+                # Fallback : cherche un fichier de poids torch pur (.pt / .bin /
+                # model_state_dict.pt) et le charge dans un modèle HF neuf.
+                state_dict_path = None
+                for fname in ("model.pt", "model_state_dict.pt", "pytorch_model.bin"):
+                    candidate = os.path.join(resolved_model_path, fname)
+                    if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
+                        state_dict_path = candidate
+                        break
+                if state_dict_path is None:
                     # EXACTEMENT ce que le test attend
                     raise FileNotFoundError("model.pt")
 
@@ -117,6 +185,10 @@ class Predictor:
             raise FileNotFoundError(f"Model path not found: {resolved_model_path}")
 
         self.model.eval()
+
+        # Defense-in-depth : refuser un modèle dont la tête de classification
+        # est quasi-aléatoire (qui produirait du `neutral` universel).
+        _check_head_trained(self.model)
 
 
     def predict(self, texts):
