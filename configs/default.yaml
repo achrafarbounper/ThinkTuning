@@ -36,3 +36,10 @@ class_augment_weights:
   0: 1.0
   1: 2.0
   2: 1.0
+
+# Sanity check comportemental du modèle (SCRUM-74) : seuil minimal de
+# confidence. Si la confidence max du modèle reste sous ce seuil sur toutes
+# les phrases de référence FR/EN (softmax quasi uniforme ≈ 1/3), le modèle
+# est considéré non entraîné et l'API retourne une erreur explicite.
+# Surchargeable via la variable d'environnement MODEL_SANITY_MIN_CONFIDENCE.
+model_sanity_min_confidence: 0.4

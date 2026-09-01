@@ -280,6 +280,36 @@ export class SentimentApiClient extends SentimentApiClientCore {
     return this._request("/models/active");
   }
 
+  /**
+   * Sanity check comportemental d'une version de modèle.
+   * En cas de verdict défaillant, l'API renvoie 503 avec un body `detail`
+   * { verdict, detail, accuracy, results } : on le retourne comme un rapport
+   * plutôt que de lever, pour simplifier l'affichage dans l'IHM.
+   */
+  async getModelSanity(model) {
+    try {
+      const report = await this._request("/health/model-sanity", {
+        query: model ? { model_name: model } : undefined,
+      });
+      return { ...report, httpStatus: 200 };
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 503 && err.detail?.verdict) {
+        return { ...err.detail, httpStatus: 503 };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Supprime une version de modèle défaillante (DELETE /models/{name}).
+   * Refus 409 si version active, 422 si le sanity check est « ok ».
+   */
+  deleteModel(name) {
+    return this._request(`/models/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+  }
+
   // -- /pipeline ---------------------------------------------------------------
 
   /** Lance le pipeline end-to-end (labeling -> filtering -> fine-tuning LLM). */

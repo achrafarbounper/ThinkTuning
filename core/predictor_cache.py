@@ -54,3 +54,25 @@ def reload_predictor():
 
         _predictor = Predictor(model_dir)
         _predictor_path = model_dir
+
+
+def evict_cached_model(model_name: str | None = None) -> bool:
+    """Retire du cache le prédicteur correspondant à une version (si chargée).
+
+    Utilisé avant suppression d'un dossier de modèle afin de libérer les
+    fichiers ouverts (Windows verrouille les fichiers en cours d'utilisation).
+    Retourne True si une entrée de cache a été évacuée.
+    """
+    global _predictor, _predictor_path
+    with _predictor_lock:
+        if _predictor is None or _predictor_path is None:
+            return False
+        try:
+            model_dir = resolve_model_dir(model_name)
+        except RuntimeError:
+            return False
+        if os.path.abspath(model_dir or "") == os.path.abspath(_predictor_path):
+            _predictor = None
+            _predictor_path = None
+            return True
+        return False

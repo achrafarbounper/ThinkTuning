@@ -1,16 +1,26 @@
 # project/api/routes/models.py
 
 import os
+import re
 import json
+import shutil
+import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 import api
 from api.dependencies.auth import require_api_key
 from core.model_versioning import list_model_versions, resolve_model_dir, validate_model_version, MODEL_ROOT
-from core.model_activation import activate_model, read_active_pointer
+from core.model_activation import activate_model, read_active_pointer, is_active
+from core.model_sanity import run_model_sanity, VERDICT_OK
+from core.predictor_cache import get_predictor, evict_cached_model
 from core.models import ModelVersion
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/models", tags=["Models"])
+
+# Nom de version autorisé : caractères sûrs uniquement (anti path traversal).
+_VERSION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 @router.post("/{name}/activate")
@@ -91,3 +101,68 @@ def get_model_report(name: str, _: bool = Depends(require_api_key)):
 
     with open(report_path, "r", encoding="utf-8") as fh:
         return json.load(fh)
+
+
+@router.delete("/{name}")
+def delete_model_version(name: str, _: bool = Depends(require_api_key)):
+    """Supprime une version de modèle défaillante de experiments/models.
+
+    Le sanity check comportemental (run_model_sanity) décide de la suppression :
+      - verdict « untrained » / « fallback_base_model » (ou dossier illisible ->
+        « model_unavailable ») : le dossier est supprimé ;
+      - verdict « ok » (modèle sain) : refus 422 — un modèle sain ne se
+        supprime pas via cette route ;
+      - version active : refus 409, quel que soit le verdict.
+    """
+    if not _VERSION_NAME_RE.match(name) or ".." in name:
+        raise HTTPException(status_code=422, detail=f"Nom de version invalide : {name!r}")
+
+    version_dir = os.path.join(MODEL_ROOT, name)
+    if not os.path.isdir(version_dir):
+        raise HTTPException(status_code=404, detail=f"Version de modèle inconnue : {name}.")
+
+    if is_active(name):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"La version {name} est le modèle actif : désactivez-la ou "
+                "activez une autre version avant suppression."
+            ),
+        )
+
+    # Sanity check comportemental sur cette version précise.
+    try:
+        predictor = get_predictor(name)
+        report = run_model_sanity(predictor)
+        verdict = report["verdict"]
+        detail = report["detail"]
+        accuracy = report["accuracy"]
+    except HTTPException as exc:
+        # Dossier cassé / incomplet / modèle illisible -> « model_unavailable »,
+        # ce qui autorise le nettoyage (cas d'usage principal).
+        verdict = "model_unavailable"
+        detail = str(exc.detail)
+        accuracy = None
+
+    if verdict == VERDICT_OK:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"La version {name} est saine (sanity check ok) : suppression "
+                "refusée. Seules les versions défaillantes peuvent être nettoyées."
+            ),
+        )
+
+    # Libérer le prédicteur éventuellement chargé pour cette version, puis
+    # supprimer le dossier.
+    evict_cached_model(name)
+    shutil.rmtree(version_dir)
+    logger.info("Version de modèle supprimée : %s (verdict=%s)", name, verdict)
+
+    return {
+        "deleted": True,
+        "name": name,
+        "verdict": verdict,
+        "detail": detail,
+        "accuracy": accuracy,
+    }
