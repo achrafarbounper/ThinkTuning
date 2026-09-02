@@ -13,8 +13,8 @@ export interface CardProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   /** Élément(s) à droite de l'en-tête (badge, bouton, état…). */
   extra?: ReactNode;
   children: ReactNode;
-  /** Rendu en <section> (défaut) ou en <div>. */
-  as?: "section" | "div";
+  /** Rendu en <section> (défaut), <div> ou <footer>. */
+  as?: "section" | "div" | "footer";
 }
 
 export function Card({

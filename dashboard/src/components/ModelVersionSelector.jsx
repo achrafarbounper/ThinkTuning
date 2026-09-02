@@ -8,6 +8,15 @@
  *   - onModelChange: callback(modelName)
  *   - loading: boolean indicating if models are loading
  *   - label: libellé affiché au-dessus du dropdown ("Modèle A", "Modèle B"…)
+ *
+ * @typedef {import("../api/sentimentApiClient").ModelVersion} ModelVersion
+ * @param {{
+ *   models?: ModelVersion[];
+ *   activeModel?: string;
+ *   onModelChange?: (model: string) => void;
+ *   loading?: boolean;
+ *   label?: string;
+ * }} props
  */
 export default function ModelVersionSelector({
   models = [],

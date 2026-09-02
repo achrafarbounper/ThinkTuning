@@ -11,7 +11,11 @@ import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { formatTime } from "../lib/format";
 
-export default function HomePage({ onNavigate }) {
+interface HomePageProps {
+  onNavigate?: (id: string) => void;
+}
+
+export default function HomePage({ onNavigate }: HomePageProps) {
   const { config, health, healthError, models, modelsError, logs } = useApp();
 
   const healthDotClass = healthError
@@ -74,16 +78,16 @@ export default function HomePage({ onNavigate }) {
 
         <Card title="Raccourcis">
           <div className="home-links">
-            <Button variant="primary" onClick={() => onNavigate("analyse")}>
+            <Button variant="primary" onClick={() => onNavigate?.("analyse")}>
               Analyser un texte (FR/EN)
             </Button>
-            <Button variant="ghost" onClick={() => onNavigate("assistant")}>
+            <Button variant="ghost" onClick={() => onNavigate?.("assistant")}>
               Ouvrir l'assistant IA
             </Button>
-            <Button variant="ghost" onClick={() => onNavigate("entrainement")}>
+            <Button variant="ghost" onClick={() => onNavigate?.("entrainement")}>
               Lancer un entraînement
             </Button>
-            <Button variant="ghost" onClick={() => onNavigate("parametres")}>
+            <Button variant="ghost" onClick={() => onNavigate?.("parametres")}>
               Configurer l'API
             </Button>
           </div>

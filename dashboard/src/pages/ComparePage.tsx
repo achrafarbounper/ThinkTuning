@@ -7,13 +7,30 @@
  * Un indicateur visuel signale la divergence éventuelle entre modèles.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
 import { sentimentLabel } from "../lib/sentiment";
 
 /** Paires de sentiments franchement opposées (accord impossible). */
 const OPPOSED_PAIRS = new Set(["positive|negative", "negative|positive"]);
+
+interface CompareResult {
+  sentiment: string;
+  confidence: number;
+}
+
+type CompareState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "done"; result: CompareResult }
+  | { status: "error"; error: string };
+
+interface ModelResultCardProps {
+  side: string;
+  modelName: string;
+  state: CompareState;
+}
 
 function CheckIcon() {
   return (
@@ -35,7 +52,7 @@ function WarnIcon() {
 }
 
 /** Carte résultat d'un côté de la comparaison (Modèle A ou Modèle B). */
-function ModelResultCard({ side, modelName, state }) {
+function ModelResultCard({ side, modelName, state }: ModelResultCardProps) {
   return (
     <section
       className={`tt-panel tt-compare-card${
@@ -78,8 +95,8 @@ function ModelResultCard({ side, modelName, state }) {
   );
 }
 
-const IDLE = { status: "idle" };
-const LOADING = { status: "loading" };
+const IDLE: CompareState = { status: "idle" };
+const LOADING: CompareState = { status: "loading" };
 
 export default function ComparePage() {
   const { client, models, modelsError, refreshModels } = useApp();
@@ -87,8 +104,8 @@ export default function ComparePage() {
   const [modelA, setModelA] = useState("");
   const [modelB, setModelB] = useState("");
   const [text, setText] = useState("");
-  const [stateA, setStateA] = useState(IDLE);
-  const [stateB, setStateB] = useState(IDLE);
+  const [stateA, setStateA] = useState<CompareState>(IDLE);
+  const [stateB, setStateB] = useState<CompareState>(IDLE);
   const [comparing, setComparing] = useState(false);
 
   // Repli : recharge la liste des versions (GET /models) si le contexte,
@@ -123,7 +140,7 @@ export default function ComparePage() {
 
   // Prédiction simultanée : POST /predict?model=A et ?model=B en parallèle.
   // allSettled permet d'afficher un résultat même si un seul modèle échoue.
-  const handleCompare = async (e) => {
+  const handleCompare = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed || comparing || sameSelection) return;
@@ -138,13 +155,23 @@ export default function ComparePage() {
     ]);
 
     if (resA.status === "fulfilled") {
-      setStateA({ status: "done", result: resA.value.results[0] });
+      const first = resA.value?.results?.[0];
+      setStateA(
+        first
+          ? { status: "done", result: { sentiment: first.sentiment, confidence: first.confidence } }
+          : { status: "error", error: "Aucun résultat renvoyé." }
+      );
     } else {
       setStateA({ status: "error", error: resA.reason?.message || "Erreur inconnue." });
     }
 
     if (resB.status === "fulfilled") {
-      setStateB({ status: "done", result: resB.value.results[0] });
+      const first = resB.value?.results?.[0];
+      setStateB(
+        first
+          ? { status: "done", result: { sentiment: first.sentiment, confidence: first.confidence } }
+          : { status: "error", error: "Aucun résultat renvoyé." }
+      );
     } else {
       setStateB({ status: "error", error: resB.reason?.message || "Erreur inconnue." });
     }

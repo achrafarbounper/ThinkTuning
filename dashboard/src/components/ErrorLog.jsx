@@ -15,6 +15,12 @@ function truncate(text, max = 140) {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+/**
+ * @param {{
+ *   mistakes?: Array<Record<string, unknown>>;
+ *   maxShown?: number;
+ * }} props
+ */
 export default function ErrorLog({ mistakes = [], maxShown = 50 }) {
   const shown = mistakes.slice(0, maxShown);
 

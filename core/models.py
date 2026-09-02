@@ -30,7 +30,7 @@ class TrainRequest(BaseModel):
     variants_per_example: int = 2
     # Back-translation FRâ†’ENâ†’FR via Helsinki-NLP/opus-mt : dÃ©sactivÃ©e par
     # dÃ©faut (tÃ©lÃ©chargement de modÃ¨les + coÃ»t CPU/GPU au premier appel).
-    use_back_translation: bool = True
+    use_back_translation: bool = False
     class_augment_weights: Optional[Dict[str, float]] = None
     epochs: Optional[int] = None
     batch_size: Optional[int] = None
