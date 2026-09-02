@@ -35,6 +35,8 @@ SETTING_KEYS = (
     "ollama_url",
     "openrouter_url",
     "openrouter_api_key",
+    "hf_url",
+    "hf_api_key",
     "timeout_seconds",
     "context_length",
     "temperature",
@@ -46,6 +48,8 @@ VALEURS_PAR_DEFAUT = {
     "ollama_url": "",
     "openrouter_url": "",
     "openrouter_api_key": "",
+    "hf_url": "",
+    "hf_api_key": "",
     "timeout_seconds": None,
     "context_length": None,
     "temperature": None,
@@ -130,6 +134,16 @@ def reset_store_for_tests(path: str) -> AgentSettingsStore:
     return _store
 
 
+def _hf_key_entry(stored: dict) -> dict:
+    """Entrée de la clé HF : SQLite > env HF_API_KEY > env HF_TOKEN > défaut."""
+    if "hf_api_key" in stored:
+        return {"value": stored["hf_api_key"], "source": "sqlite"}
+    for env_key in ("HF_API_KEY", "HF_TOKEN"):
+        if (os.getenv(env_key) or "").strip():
+            return {"value": os.getenv(env_key).strip(), "source": "env"}
+    return {"value": "", "source": "default"}
+
+
 def get_agent_settings() -> dict:
     """Config effective avec sa source par clé.
 
@@ -156,6 +170,10 @@ def get_agent_settings() -> dict:
         "ollama_url": entry("ollama_url", "AGENT_OLLAMA_URL", ""),
         "openrouter_url": entry("openrouter_url", "AGENT_OPENROUTER_URL", ""),
         "openrouter_api_key": entry("openrouter_api_key", "OPENROUTER_API_KEY", ""),
+        # Clé Hugging Face : env HF_API_KEY en priorité, HF_TOKEN en repli
+        # (c'est le nom historique du jeton côté HF).
+        "hf_url": entry("hf_url", "AGENT_HF_URL", ""),
+        "hf_api_key": _hf_key_entry(stored),
         "timeout_seconds": entry("timeout_seconds", "AGENT_TIMEOUT_SECONDS", None),
         "context_length": entry("context_length", "AGENT_CONTEXT_LENGTH", None),
         "temperature": entry("temperature", None, None),
@@ -163,7 +181,7 @@ def get_agent_settings() -> dict:
     # Normalisation : l'env peut porter « OpenRouter » ; les chaînes sont
     # nettoyées pour que « » == non défini côté consommateurs.
     settings["provider"]["value"] = (settings["provider"]["value"] or "ollama").strip().lower()
-    for text_key in ("model", "ollama_url", "openrouter_url"):
+    for text_key in ("model", "ollama_url", "openrouter_url", "hf_url"):
         raw = settings[text_key]["value"]
         settings[text_key]["value"] = raw.strip() if isinstance(raw, str) else raw
     return settings
@@ -193,8 +211,8 @@ def validate_agent_settings(values: dict) -> list[str]:
     """Validation métier des valeurs avant sauvegarde (liste d'erreurs vide=ok)."""
     errors: list[str] = []
     provider = values.get("provider")
-    if provider is not None and provider not in ("ollama", "openrouter"):
-        errors.append("provider doit valoir 'ollama' ou 'openrouter'.")
+    if provider is not None and provider not in ("ollama", "openrouter", "hf"):
+        errors.append("provider doit valoir 'ollama', 'openrouter' ou 'hf'.")
 
     timeout = values.get("timeout_seconds")
     if timeout is not None:
@@ -243,5 +261,17 @@ def validate_agent_settings(values: dict) -> list[str]:
         # choisi est refusée : elle rendrait tout appel LLM impossible.
         errors.append(
             "openrouter_api_key ne peut pas être vide quand provider=openrouter."
+        )
+    hf_api_key = values.get("hf_api_key")
+    if (
+        provider == "hf"
+        and hf_api_key is not None
+        and isinstance(hf_api_key, str)
+        and not hf_api_key.strip()
+    ):
+        # Même règle qu'OpenRouter : une clé vide explicite rendrait tout
+        # appel LLM impossible côté Hugging Face Inference Providers.
+        errors.append(
+            "hf_api_key ne peut pas être vide quand provider=hf."
         )
     return errors

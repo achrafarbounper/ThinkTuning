@@ -41,6 +41,7 @@ from core.agent_cache import (
     TOOL_META,
     TOOLS,
     _openrouter_chat_url,
+    _hf_chat_url,
     agent_config,
     ask_agent_decision,
     ask_agent_decision_streaming,
@@ -206,11 +207,13 @@ class AgentSettingsUpdate(BaseModel):
     retour à la valeur par défaut du serveur.
     """
 
-    provider: Optional[str] = Field(None, description="« ollama » ou « openrouter ».")
+    provider: Optional[str] = Field(None, description="« ollama », « openrouter » ou « hf ».")
     model: Optional[str] = Field(None, max_length=200)
     ollama_url: Optional[str] = Field(None, max_length=500)
     openrouter_url: Optional[str] = Field(None, max_length=500)
     openrouter_api_key: Optional[str] = Field(None, max_length=300)
+    hf_url: Optional[str] = Field(None, max_length=500)
+    hf_api_key: Optional[str] = Field(None, max_length=300)
     timeout_seconds: Optional[float] = Field(None, ge=10, le=3600)
     context_length: Optional[int] = Field(None, ge=512, le=131072)
     temperature: Optional[float] = Field(None, ge=0, le=2)
@@ -223,6 +226,8 @@ class ConnectivityTestRequest(BaseModel):
     ollama_url: Optional[str] = None
     openrouter_url: Optional[str] = None
     openrouter_api_key: Optional[str] = None
+    hf_url: Optional[str] = None
+    hf_api_key: Optional[str] = None
 
 
 # --- Endpoints ----------------------------------------------------------------------
@@ -974,11 +979,14 @@ def _settings_payload() -> dict:
     values = {key: entry["value"] for key, entry in settings.items()}
     sources = {key: entry["source"] for key, entry in settings.items()}
     api_key = values.pop("openrouter_api_key") or ""
+    hf_api_key = values.pop("hf_api_key") or ""
     return {
         "settings": {
             **values,
             "has_openrouter_api_key": bool(api_key),
             "openrouter_api_key_masked": _mask_key(api_key),
+            "has_hf_api_key": bool(hf_api_key),
+            "hf_api_key_masked": _mask_key(hf_api_key),
         },
         "sources": sources,
     }
@@ -1054,6 +1062,17 @@ def test_agent_connectivity(
         ).strip()
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         success_detail = f"OpenRouter joignable sur {probe_url}"
+        hint = ""
+    elif provider == "hf":
+        url = (request.hf_url or "").strip() or cfg["hf_url"]
+        chat_url = _hf_chat_url(url)
+        base = chat_url[: -len("/chat/completions")].rstrip("/")
+        probe_url = f"{base}/models"
+        api_key = (
+            request.hf_api_key or cfg["hf_api_key"] or ""
+        ).strip()
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+        success_detail = f"Hugging Face joignable sur {probe_url}"
         hint = ""
     else:
         base_url = (request.ollama_url or "").strip() or cfg["ollama_url"]
