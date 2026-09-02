@@ -7,17 +7,45 @@
  * et méthode de calcul (KL divergence ou test du khi-deux).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
 import { sentimentLabel } from "../lib/sentiment";
 
 const LABEL_ORDER = ["negative", "neutral", "positive"];
 /** Aide contextuelle affichée sous le sélecteur de méthode. */
-const METHOD_HINTS = {
+const METHOD_HINTS: Record<string, string> = {
   kl: "Divergence de Kullback-Leibler entre les distributions des batchs A et B (en nats). Sensible aux labels présents dans un batch et absents de l autre.",
   chi2: "Test du khi-deux : compare les effectifs du batch B aux proportions observées dans le batch A. La dérive se juge sur la p-value.",
 };
+
+interface DriftDistribution {
+  [label: string]: number;
+}
+
+interface DriftResult {
+  drift_detected: boolean;
+  drift_score: number;
+  threshold: number;
+  method: string;
+  p_value?: number;
+  distribution_a?: DriftDistribution;
+  distribution_b?: DriftDistribution;
+  n_a?: number;
+  n_b?: number;
+}
+
+type DriftState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "done" }
+  | { status: "error"; error: string };
+
+interface DistributionBarProps {
+  title: string;
+  distribution?: DriftDistribution;
+  n?: number;
+}
 
 function CheckIcon() {
   return (
@@ -39,7 +67,7 @@ function WarnIcon() {
 }
 
 /** Barre de distribution par label pour un batch (A ou B). */
-function DistributionBar({ title, distribution, n }) {
+function DistributionBar({ title, distribution, n }: DistributionBarProps) {
   return (
     <section className="tt-panel">
       <div className="tt-panel-head">
@@ -69,23 +97,23 @@ function DistributionBar({ title, distribution, n }) {
   );
 }
 
-const IDLE = { status: "idle" };
-const LOADING = { status: "loading" };
+const IDLE: DriftState = { status: "idle" };
+const LOADING: DriftState = { status: "loading" };
 
 export default function DriftPage() {
   const { client, models, modelsError, refreshModels } = useApp();
 
-  const [mode, setMode] = useState("csv"); // "csv" | "textes"
-  const [fileA, setFileA] = useState(null);
-  const [fileB, setFileB] = useState(null);
+  const [mode, setMode] = useState<"csv" | "textes">("csv"); // "csv" | "textes"
+  const [fileA, setFileA] = useState<File | null>(null);
+  const [fileB, setFileB] = useState<File | null>(null);
   const [textColumn, setTextColumn] = useState("text");
   const [textsA, setTextsA] = useState("");
   const [textsB, setTextsB] = useState("");
   const [threshold, setThreshold] = useState("0.1");
   const [method, setMethod] = useState("kl");
   const [model, setModel] = useState("");
-  const [result, setResult] = useState(null);
-  const [state, setState] = useState(IDLE);
+  const [result, setResult] = useState<DriftResult | null>(null);
+  const [state, setState] = useState<DriftState>(IDLE);
 
   useEffect(() => {
     if (!models.length && !modelsError) refreshModels();
@@ -97,11 +125,11 @@ export default function DriftPage() {
   const thresholdValid = !Number.isNaN(thresholdNum) && thresholdNum > 0;
 
   const canSubmit =
-    !state.loading &&
+    state.status !== "loading" &&
     thresholdValid &&
     (mode === "csv" ? Boolean(fileA && fileB) : textsAList.length > 0 && textsBList.length > 0);
 
-  const handleAnalyze = async (e) => {
+  const handleAnalyze = async (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
 
@@ -109,29 +137,29 @@ export default function DriftPage() {
     setResult(null);
 
     try {
-      let data;
+      let data: DriftResult;
       if (mode === "csv") {
-        data = await client.driftCsv({
-          fileA,
-          fileB,
+        data = (await client.driftCsv({
+          fileA: fileA || undefined,
+          fileB: fileB || undefined,
           textColumn: textColumn.trim() || "text",
           threshold: thresholdNum,
           method,
           model: model || undefined,
-        });
+        })) as DriftResult;
       } else {
-        data = await client.driftTexts({
+        data = (await client.driftTexts({
           textsA: textsAList,
           textsB: textsBList,
           threshold: thresholdNum,
           method,
           model: model || undefined,
-        });
+        })) as DriftResult;
       }
       setResult(data);
       setState({ status: "done" });
     } catch (err) {
-      setState({ status: "error", error: err?.message || "Erreur inconnue." });
+      setState({ status: "error", error: err instanceof Error ? err.message : "Erreur inconnue." });
     }
   };
 

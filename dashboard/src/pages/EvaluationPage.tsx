@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../context/useApp";
+import type { SentimentApiClient } from "../api/sentimentApiClient";
 import ModelVersionSelector from "../components/ModelVersionSelector";
 import ConfusionHeatmap from "../components/ConfusionHeatmap";
 import ConfusionExplanation from "../components/ConfusionExplanation";
@@ -17,25 +18,59 @@ import ErrorLog from "../components/ErrorLog";
 import ModelComparisonPanel from "../components/ModelComparisonPanel";
 import { sentimentLabelCapitalized } from "../lib/sentiment";
 
-function useConfusion(client, model, limit = 300) {
-  const [result, setResult] = useState({ status: "idle", data: null, error: null, forModel: null });
+interface ConfusionErrorByClass {
+  label: string;
+  errors: number;
+  total: number;
+}
+
+interface ConfusionMetrics {
+  accuracy?: number;
+}
+
+interface ConfusionData {
+  n?: number;
+  metrics?: ConfusionMetrics;
+  errors_by_class?: ConfusionErrorByClass[];
+  mistakes?: Record<string, unknown>[];
+}
+
+interface ConfusionState {
+  status: "idle" | "loading" | "done" | "error";
+  data: ConfusionData | null;
+  error: string | null;
+  forModel: string | null;
+}
+
+function useConfusion(client: SentimentApiClient, model: string, limit = 300): ConfusionState {
+  const [result, setResult] = useState<ConfusionState>({
+    status: "idle",
+    data: null,
+    error: null,
+    forModel: null,
+  });
 
   const currentKey = model || null;
 
   useEffect(() => {
     let cancelled = false;
     client
-      .getConfusion({ model: model || null, limit })
+      .getConfusion({ model: model || undefined, limit })
       .then((data) => {
         if (!cancelled)
-          setResult({ status: "done", data, error: null, forModel: model || null });
+          setResult({
+            status: "done",
+            data: (data as ConfusionData) || null,
+            error: null,
+            forModel: model || null,
+          });
       })
       .catch((err) => {
         if (!cancelled)
           setResult({
             status: "error",
             data: null,
-            error: err?.message || String(err),
+            error: err instanceof Error ? err.message : String(err),
             forModel: model || null,
           });
       });
@@ -47,7 +82,7 @@ function useConfusion(client, model, limit = 300) {
   // L'état « loading » est dérivé : on charge tant que la donnée en cache ne
   // correspond pas au modèle courant (évite un setState synchrone dans l'effet).
   if (result.forModel !== currentKey) {
-    return { status: "loading", data: null, error: null };
+    return { status: "loading", data: null, error: null, forModel: null };
   }
   return result;
 }
@@ -99,10 +134,10 @@ export default function EvaluationPage() {
               loading={!models.length}
               label="Modèle évalué"
             />
-            {heat?.data?.n > 0 && (
+            {((heat?.data?.n ?? 0) > 0) && (
               <p className="tt-eval-meta">
-                {heat.data.n} exemples ·{" "}
-                <span className="tt-mono">{((heat.data.metrics?.accuracy ?? 0) * 100).toFixed(1)}%</span>{" "}
+                {heat.data?.n} exemples ·{" "}
+                <span className="tt-mono">{((heat.data?.metrics?.accuracy ?? 0) * 100).toFixed(1)}%</span>{" "}
                 accuracy
               </p>
             )}
@@ -115,8 +150,8 @@ export default function EvaluationPage() {
           )}
           {heat?.status === "done" && heat.data && (
             <>
-              <ConfusionExplanation data={heat.data} />
-              <ConfusionHeatmap data={heat.data} />
+              <ConfusionExplanation data={heat.data as never} />
+              <ConfusionHeatmap data={heat.data as never} />
             </>
           )}
           {heat?.status === "idle" && <p className="tt-hint">Sélectionnez un modèle.</p>}
@@ -133,7 +168,7 @@ export default function EvaluationPage() {
                 </span>
               </div>
               <div className="tt-errlist">
-                {heat.data.errors_by_class.map((e) => {
+                {(heat.data?.errors_by_class ?? []).map((e) => {
                   const label = sentimentLabelCapitalized(e.label);
                   return (
                     <span key={e.label} className="tt-errchip" title={label}>

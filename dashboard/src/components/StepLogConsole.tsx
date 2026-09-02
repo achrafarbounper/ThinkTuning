@@ -1,25 +1,27 @@
 /**
- * StepLogConsole.jsx
+ * StepLogConsole.tsx
  * ---------------------------------------------------------------------
  * Console de logs live par étape : affiche les événements "log" reçus du
  * WebSocket /train/stream/{job_id} (message, niveau, étape d'origine),
  * avec auto-scroll et filtre optionnel par étape.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
 
-const LEVEL_CLASS = {
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { StepLogConsoleProps } from "./types";
+
+const LEVEL_CLASS: Record<string, string> = {
   ERROR: "tt-log-error",
   WARNING: "tt-log-warning",
   INFO: "tt-log-info",
   DEBUG: "tt-log-debug",
 };
 
-export default function StepLogConsole({ logs, stepLabels = {} }) {
+export default function StepLogConsole({ logs, stepLabels = {} }: StepLogConsoleProps) {
   const [filter, setFilter] = useState("all"); // "all" | étape courante uniquement
-  const listRef = useRef(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const steps = useMemo(() => {
-    const seen = [];
+    const seen: string[] = [];
     for (const log of logs) {
       if (log.step && !seen.includes(log.step)) seen.push(log.step);
     }
@@ -61,7 +63,7 @@ export default function StepLogConsole({ logs, stepLabels = {} }) {
         {visible.map((log) => (
           <div
             key={log.seq}
-            className={`tt-log-line ${LEVEL_CLASS[log.level] || "tt-log-info"}`}
+            className={`tt-log-line ${LEVEL_CLASS[log.level ?? ""] || "tt-log-info"}`}
           >
             <span className="tt-log-time">
               {new Date((log.ts || 0) * 1000).toLocaleTimeString()}

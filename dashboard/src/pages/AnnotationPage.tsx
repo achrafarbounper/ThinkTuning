@@ -13,13 +13,19 @@ import { useApp } from "../context/useApp";
 
 const POLL_MS = 4000;
 
-const LABELS = [
+interface AnnotLabel {
+  value: string;
+  label: string;
+  className: string;
+}
+
+const LABELS: AnnotLabel[] = [
   { value: "negative", label: "Négatif", className: "annot-btn annot-btn--negative" },
   { value: "neutral", label: "Neutre", className: "annot-btn annot-btn--neutral" },
   { value: "positive", label: "Positif", className: "annot-btn annot-btn--positive" },
 ];
 
-const STEP_LABELS = {
+const STEP_LABELS: Record<string, string> = {
   merging_annotations: "Fusion des annotations",
   training: "Ré-entraînement",
   activation: "Activation du modèle",
@@ -27,7 +33,35 @@ const STEP_LABELS = {
   failed: "Échec",
 };
 
-function pct(value) {
+interface AnnotationItem {
+  text: string;
+  label: string;
+}
+
+interface AnnotationsList {
+  total: number;
+  items: AnnotationItem[];
+}
+
+interface UncertainExample {
+  text: string;
+  predicted_label: string;
+  confidence: number;
+  uncertainty: number;
+}
+
+interface CycleJob {
+  job_id: string;
+  status: string;
+  error?: string | null;
+  regression?: boolean;
+  regression_detail?: string;
+  progress?: {
+    cycle?: Record<string, unknown>;
+  };
+}
+
+function pct(value: unknown): string {
   const n = Number(value);
   return Number.isNaN(n) ? "—" : `${Math.round(n * 100)}%`;
 }
@@ -35,22 +69,24 @@ function pct(value) {
 export default function AnnotationPage() {
   const { client, pushLog } = useApp();
 
-  const [examples, setExamples] = useState([]);
+  const [examples, setExamples] = useState<UncertainExample[]>([]);
   const [loadingExamples, setLoadingExamples] = useState(false);
-  const [examplesError, setExamplesError] = useState(null);
-  const [annotated, setAnnotated] = useState({});
-  const [annotations, setAnnotations] = useState({ total: 0, items: [] });
-  const [activeVersion, setActiveVersion] = useState(null);
+  const [examplesError, setExamplesError] = useState<string | null>(null);
+  const [annotated, setAnnotated] = useState<Record<string, string>>({});
+  const [annotations, setAnnotations] = useState<AnnotationsList>({ total: 0, items: [] });
+  const [activeVersion, setActiveVersion] = useState<string | null>(null);
 
-  const [cycleJob, setCycleJob] = useState(null);
+  const [cycleJob, setCycleJob] = useState<CycleJob | null>(null);
   const [cycleLoading, setCycleLoading] = useState(false);
-  const [cycleError, setCycleError] = useState(null);
+  const [cycleError, setCycleError] = useState<string | null>(null);
 
-  const pollRef = useRef(null);
+  const pollRef = useRef<number | null>(null);
 
   const refreshAnnotations = useCallback(async () => {
     try {
-      setAnnotations(await client.listAnnotations({ limit: 20 }));
+      setAnnotations(
+        (await client.listAnnotations({ limit: 20 })) as AnnotationsList
+      );
     } catch {
       /* silencieux : la liste est indicative */
     }
@@ -61,12 +97,12 @@ export default function AnnotationPage() {
     const init = async () => {
       try {
         const data = await client.listAnnotations({ limit: 20 });
-        if (!cancelled) setAnnotations(data);
+        if (!cancelled) setAnnotations(data as AnnotationsList);
       } catch {
         /* silencieux : la liste est indicative */
       }
       try {
-        const data = await client.getActiveModel();
+        const data = (await client.getActiveModel()) as { version?: string } | null;
         if (!cancelled) setActiveVersion(data?.version || null);
       } catch {
         if (!cancelled) setActiveVersion(null);
@@ -85,17 +121,17 @@ export default function AnnotationPage() {
     const jobId = cycleJob.job_id;
     const tick = async () => {
       try {
-        const job = await client.getActiveLearningCycleStatus(jobId);
+        const job = (await client.getActiveLearningCycleStatus(jobId)) as CycleJob;
         setCycleJob(job);
         if (job.status === "completed" || job.status === "failed") {
-          clearInterval(pollRef.current);
+          if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
           setCycleLoading(false);
           pushLog?.(
+            job.status === "completed" ? "info" : "error",
             job.status === "completed"
               ? `Cycle terminé (job ${jobId.slice(0, 8)})`
-              : `Cycle échoué : ${job.error || "?"}`,
-            job.status === "completed" ? "info" : "error"
+              : `Cycle échoué : ${job.error || "?"}`
           );
           refreshAnnotations();
         }
@@ -115,24 +151,29 @@ export default function AnnotationPage() {
     setLoadingExamples(true);
     setExamplesError(null);
     try {
-      const data = await client.getActiveLearning({ topN: 30 });
+      const data = (await client.getActiveLearning({ topN: 30 })) as {
+        items?: UncertainExample[];
+      };
       setExamples(data.items || []);
       setAnnotated({});
     } catch (err) {
-      setExamplesError(err.message || "Erreur de chargement");
+      setExamplesError(err instanceof Error ? err.message : "Erreur de chargement");
     } finally {
       setLoadingExamples(false);
     }
   };
 
-  const submitAnnotation = async (text, label) => {
+  const submitAnnotation = async (text: string, label: string) => {
     try {
       await client.annotate({ text, label });
       setAnnotated((prev) => ({ ...prev, [text]: label }));
       refreshAnnotations();
-      pushLog?.(`Annotation enregistrée : "${text.slice(0, 40)}…" → ${label}`, "info");
+      pushLog?.("info", `Annotation enregistrée : "${text.slice(0, 40)}…" → ${label}`);
     } catch (err) {
-      pushLog?.(`Annotation refusée : ${err.message}`, "error");
+      pushLog?.(
+        "error",
+        `Annotation refusée : ${err instanceof Error ? err.message : "?"}`
+      );
     }
   };
 
@@ -140,10 +181,10 @@ export default function AnnotationPage() {
     setCycleError(null);
     setCycleLoading(true);
     try {
-      const job = await client.startActiveLearningCycle({});
+      const job = (await client.startActiveLearningCycle({})) as CycleJob;
       setCycleJob(job);
     } catch (err) {
-      setCycleError(err.message || "Impossible de lancer le cycle");
+      setCycleError(err instanceof Error ? err.message : "Impossible de lancer le cycle");
       setCycleLoading(false);
     }
   };
@@ -203,11 +244,11 @@ export default function AnnotationPage() {
           {cycleJob.regression && (
             <p className="tt-warning">Régression détectée : {cycleJob.regression_detail}</p>
           )}
-          {cycleJob.progress?.cycle?.activation && (
+          {cycleJob.progress?.cycle?.activation ? (
             <pre className="annot-activation">
               {JSON.stringify(cycleJob.progress.cycle.activation, null, 2)}
             </pre>
-          )}
+          ) : null}
         </div>
       )}
 

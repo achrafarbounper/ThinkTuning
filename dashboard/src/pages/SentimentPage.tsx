@@ -8,8 +8,9 @@
  * - historique local des prédictions.
  */
 
-import React, { useState } from "react";
+import React, { useState, type FormEvent } from "react";
 import { useApp } from "../context/useApp";
+import type { PredictionResult } from "../api/sentimentApiClient";
 import ModelVersionSelector from "../components/ModelVersionSelector";
 import { useExplain } from "../hooks/useExplain";
 import { sentimentLabel } from "../lib/sentiment";
@@ -32,24 +33,24 @@ export default function SentimentPage() {
   const [predictText, setPredictText] = useState(
     "Ce film était vraiment excellent, j'ai adoré chaque instant.\nThis product is terrible, I want a refund.\nC'était correct, sans plus."
   );
-  const [predictResults, setPredictResults] = useState(null);
+  const [predictResults, setPredictResults] = useState<PredictionResult[] | null>(null);
   const [predictLoading, setPredictLoading] = useState(false);
-  const [predictError, setPredictError] = useState(null);
+  const [predictError, setPredictError] = useState<string | null>(null);
 
   // Explications LLM (POST /explain) : un hook unifié au lieu de 3 états dupliqués.
   const explainUnit = useExplain(client);
   const explainBatch = useExplain(client);
   const explainHistory = useExplain(client);
 
-  const [batchFile, setBatchFile] = useState(null);
+  const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchColumn, setBatchColumn] = useState("text");
   const [batchFormat, setBatchFormat] = useState("json");
-  const [batchResults, setBatchResults] = useState(null);
+  const [batchResults, setBatchResults] = useState<PredictionResult[] | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
-  const [batchError, setBatchError] = useState(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
   // -- Prédiction unitaire ----------------------------------------------------
-  const handlePredict = async (e) => {
+  const handlePredict = async (e: FormEvent) => {
     e.preventDefault();
     const texts = predictText
       .split("\n")
@@ -62,23 +63,24 @@ export default function SentimentPage() {
     explainUnit.reset();
     explainHistory.reset();
     try {
-      const { results } = await client.predict(texts, activeModel || undefined);
+      const res = await client.predict(texts, activeModel || undefined);
+      const results = res?.results ?? null;
       setPredictResults(results);
-      addToHistory(results);
+      if (results) addToHistory(results);
     } catch (err) {
-      setPredictError(err.message);
+      setPredictError(err instanceof Error ? err.message : String(err));
     } finally {
       setPredictLoading(false);
     }
   };
 
   // -- Explication LLM d'une prédiction unitaire ------------------------------
-  const handleExplain = (text) => {
+  const handleExplain = (text: string) => {
     void explainUnit.run(text);
   };
 
   // -- Explication LLM d'une ligne de prédiction par lot ----------------------
-  const handleBatchExplain = (index) => {
+  const handleBatchExplain = (index: number) => {
     const row = batchResults && batchResults[index];
     if (!row) return;
     void explainBatch.run(row.text);
@@ -88,14 +90,14 @@ export default function SentimentPage() {
   // On passe par le texte (identifiant stable) plutôt que l'index : les
   // nouvelles prédictions s'insèrent en tête de l'historique et décaleraient
   // les index (bug latent de l'ancienne version).
-  const handleHistoryExplain = (index) => {
+  const handleHistoryExplain = (index: number) => {
     const pred = predictionsHistory && predictionsHistory[index];
     if (!pred) return;
     void explainHistory.run(pred.text);
   };
 
   // -- Prédiction batch CSV -----------------------------------------------------
-  const handleBatchSubmit = async (e) => {
+  const handleBatchSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!batchFile) {
       setBatchError("Sélectionnez un fichier CSV.");
@@ -109,10 +111,10 @@ export default function SentimentPage() {
     explainHistory.reset();
     try {
       if (batchFormat === "csv") {
-        const blob = await client.predictBatchCsv({
+        const blob = (await client.predictBatchCsv({
           file: batchFile,
           textColumn: batchColumn,
-        });
+        })) as Blob;
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
@@ -123,15 +125,16 @@ export default function SentimentPage() {
         window.URL.revokeObjectURL(url);
         pushLog("success", "predictions.csv téléchargé.");
       } else {
-        const { results } = await client.predictBatchJson({
+        const res = (await client.predictBatchJson({
           file: batchFile,
           textColumn: batchColumn,
-        });
+        })) as { results?: PredictionResult[] };
+        const results = res?.results ?? null;
         setBatchResults(results);
-        addToHistory(results);
+        if (results) addToHistory(results);
       }
     } catch (err) {
-      setBatchError(err.message);
+      setBatchError(err instanceof Error ? err.message : String(err));
     } finally {
       setBatchLoading(false);
     }
@@ -143,7 +146,7 @@ export default function SentimentPage() {
       await client.reloadPredictor(activeModel || undefined);
       pushLog("success", "Predictor rechargé depuis le disque.");
     } catch (err) {
-      pushLog("error", `Échec du rechargement : ${err.message}`);
+      pushLog("error", `Échec du rechargement : ${err instanceof Error ? err.message : "?"}`);
     }
   };
 
@@ -363,7 +366,7 @@ export default function SentimentPage() {
                   <React.Fragment key={idx}>
                     <tr>
                       <td className="tt-mono tt-history-time">
-                        {new Date(pred.timestamp).toLocaleString()}
+                        {pred.timestamp ? new Date(pred.timestamp).toLocaleString() : "—"}
                       </td>
                       <td className="tt-history-text">{pred.text}</td>
                       <td>

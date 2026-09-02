@@ -32,10 +32,85 @@ import {
   parsePrometheusText,
   normalizeJsonProxy,
   aggregateSnapshot,
-  deltaSnapshots,
+  computeDelta,
+  type AggregatedSnapshot,
 } from "../api/prometheusParser";
 
 const WINDOW_MS = 5 * 60 * 1000; // 5 dernières minutes
+
+// --- Types locaux des snapshots Produits par prometheusParser (fichier .js
+// non typé) : on documente ici les formes utilisées par cette page. -------------
+interface RawCounter {
+  name: string;
+  labels: Record<string, string>;
+  value: number;
+}
+interface RawHistogram {
+  name: string;
+  labels: Record<string, string>;
+  count: number;
+  sum: number;
+}
+interface RawSnapshot {
+  scrapedAtMs: number;
+  counters: RawCounter[];
+  histograms: RawHistogram[];
+}
+interface StatusDelta {
+  status: string;
+  delta: number;
+}
+interface PathDelta {
+  method: string;
+  path: string;
+  delta: number;
+}
+interface LatencyItem {
+  method: string;
+  path: string;
+  count: number;
+  sum: number;
+}
+interface LatencyStat {
+  count: number;
+  sum: number;
+  meanMs: number;
+}
+interface Aggregate {
+  scrapedAtMs: number;
+  [key: string]: unknown;
+}
+interface DeltaResult {
+  elapsedMs: number;
+  requestsTotal: number;
+  requestsPerMin: number;
+  requestsByPath: PathDelta[];
+  requestsByStatus: StatusDelta[];
+  latencyTotal: LatencyStat;
+  latencyPredict: LatencyStat;
+  latencyByPath: LatencyItem[];
+}
+interface HistoryPoint {
+  t: number;
+  requestsPerMin: number;
+  requestDelta: number;
+  predictLatencyMs: number | null;
+  statuses: StatusDelta[];
+  byPath: PathDelta[];
+  latencyByPath: LatencyItem[];
+}
+interface TooltipEntry {
+  dataKey?: string | number;
+  value?: unknown;
+  payload?: Record<string, unknown>;
+}
+interface MetricTooltipProps {
+  active?: boolean;
+  payload?: TooltipEntry[];
+  label?: string | number;
+  formatter?: (key: string | number) => string | number;
+  suffix?: string;
+}
 const STORAGE_KEY = "thinktuning.monitoringInterval";
 const INTERVAL_OPTIONS = [
   { value: 5, label: "5 s" },
@@ -45,10 +120,10 @@ const INTERVAL_OPTIONS = [
   { value: 60, label: "60 s" },
 ];
 
-function loadInterval() {
+function loadInterval(): number {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    const n = parseInt(raw, 10);
+    const n = parseInt(raw ?? "", 10);
     if (INTERVAL_OPTIONS.some((o) => o.value === n)) return n;
   } catch {
     /* stockage indisponible */
@@ -60,12 +135,12 @@ const AXIS = { stroke: "none", tick: { fill: "#8b94a3", fontSize: 11 }, tickLine
 const GRID = { stroke: "#1e242c", strokeDasharray: "3 3" };
 const TOOLTIP_STYLE = { background: "#12161c", border: "1px solid #1e242c", borderRadius: 8, fontSize: 12 };
 
-function timeLabel(ts) {
+function timeLabel(ts: number): string {
   return new Date(ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 /** Couleur d'un statut HTTP (harmonisée avec le thème). */
-function statusColor(status) {
+function statusColor(status: unknown): string {
   const code = Number(status) || 0;
   if (code >= 500) return "#f2545b";
   if (code >= 400) return "#f2b705";
@@ -74,13 +149,14 @@ function statusColor(status) {
 }
 
 /** Tooltip recharts sur mesure pour les valeurs numériques. */
-function MetricTooltip({ active, payload, label, formatter, suffix }) {
+function MetricTooltip({ active, payload, label, formatter, suffix }: MetricTooltipProps) {
   if (!active || !payload || !payload.length) return null;
   return (
     <div className="tt-mon-tooltip" style={TOOLTIP_STYLE}>
       <strong className="tt-mon-tooltip-time">{label}</strong>
       {payload.map((entry) => {
-        const labelKey = formatter ? formatter(entry.dataKey) : entry.dataKey;
+        const labelKey =
+          formatter && entry.dataKey != null ? formatter(entry.dataKey) : entry.dataKey;
         return (
           <span key={String(entry.dataKey)}>
             {labelKey} : {entry.value != null ? Number(entry.value).toFixed(1) : 0}
@@ -92,17 +168,17 @@ function MetricTooltip({ active, payload, label, formatter, suffix }) {
   );
 }
 
-function RequestsTooltip(props) {
+function RequestsTooltip(props: MetricTooltipProps) {
   return <MetricTooltip {...props} formatter={() => "requêtes/min"} suffix="" />;
 }
 
-function LatencyTooltip(props) {
+function LatencyTooltip(props: MetricTooltipProps) {
   return <MetricTooltip {...props} formatter={() => "latence"} suffix=" ms" />;
 }
 
-function StatusTooltip({ active, payload }) {
+function StatusTooltip({ active, payload }: MetricTooltipProps) {
   if (!active || !payload || !payload.length) return null;
-  const item = payload[0].payload;
+  const item = (payload[0].payload ?? {}) as { status?: string | number; count?: number };
   return (
     <div className="tt-mon-tooltip" style={TOOLTIP_STYLE}>
       <strong>Statut {item.status}</strong>
@@ -115,13 +191,13 @@ export default function MonitoringPage() {
   const { client } = useApp();
   const [intervalSec, setIntervalSec] = useState(loadInterval);
   const [paused, setPaused] = useState(false);
-  const [error, setError] = useState(null);
-  const [source, setSource] = useState(null); // "texte" | "json"
-  const [lastScrapedAt, setLastScrapedAt] = useState(null);
-  const [history, setHistory] = useState([]); // points fenêtre mobile 5 min
-  const prevRef = useRef(null);
+  const [error, setError] = useState<string | null>(null);
+  const [source, setSource] = useState<string | null>(null); // "texte" | "json"
+  const [lastScrapedAt, setLastScrapedAt] = useState<number | null>(null);
+  const [history, setHistory] = useState<HistoryPoint[]>([]); // points fenêtre mobile 5 min
+  const prevRef = useRef<Aggregate | null>(null);
 
-  const persistInterval = (sec) => {
+  const persistInterval = (sec: number) => {
     setIntervalSec(sec);
     try {
       window.localStorage.setItem(STORAGE_KEY, String(sec));
@@ -139,24 +215,24 @@ export default function MonitoringPage() {
   // Scrutation Prometheus, stabilisée (useCallback) et pilotée par usePolling :
   // pause auto quand l'onglet est masqué, interruption propre au démontage.
   const scrape = useCallback(async () => {
-    let raw;
-    let src = "texte";
+    let raw: RawSnapshot;
+    let src: "texte" | "json" = "texte";
     try {
       try {
         const text = await client.getMetricsRaw();
-        raw = parsePrometheusText(text);
+        raw = parsePrometheusText(text) as RawSnapshot;
         if (!raw.counters.length && !raw.histograms.length) throw new Error("parse vide");
       } catch {
-        raw = normalizeJsonProxy(await client.getMetricsJson());
+        raw = normalizeJsonProxy(await client.getMetricsJson() as Record<string, unknown>) as RawSnapshot;
         src = "json";
       }
     } catch (err) {
-      setError(err && err.message ? err.message : String(err));
+      setError(err instanceof Error ? err.message : String(err));
       return;
     }
 
-    const agg = aggregateSnapshot(raw);
-    const delta = prevRef.current ? deltaSnapshots(prevRef.current, agg) : null;
+    const agg = aggregateSnapshot(raw) as unknown as Aggregate;
+    const delta = prevRef.current ? (computeDelta(prevRef.current as unknown as AggregatedSnapshot, agg as unknown as AggregatedSnapshot) as unknown as DeltaResult) : null;
 
     prevRef.current = agg;
     setSource(src);
@@ -165,7 +241,7 @@ export default function MonitoringPage() {
 
     if (delta) {
       setHistory((h) => {
-        const point = {
+        const point: HistoryPoint = {
           t: agg.scrapedAtMs,
           requestsPerMin: delta.requestsPerMin,
           requestDelta: delta.requestsTotal,
@@ -189,9 +265,9 @@ export default function MonitoringPage() {
 
   // Agrégats sur la fenêtre mobile (5 min) pour les cartes + distribution.
   const windowSummary = useMemo(() => {
-    const statuses = {};
-    const byPath = {};
-    const latencyByPath = {};
+    const statuses: Record<string, number> = {};
+    const byPath: Record<string, { method: string; path: string; count: number }> = {};
+    const latencyByPath: Record<string, { method: string; path: string; count: number; sum: number }> = {};
     let errors = 0;
     let total = 0;
 

@@ -7,9 +7,22 @@
  * La section « Assistant IA » configure le provider LLM (Ollama / OpenRouter).
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, type FormEvent } from "react";
 import { useApp } from "../context/useApp";
 import { DEFAULT_BASE_URL } from "../api/sentimentApiClient";
+
+interface DraftShape {
+  baseUrl: string;
+  apiKey: string;
+  provider: string;
+  model: string;
+  ollamaUrl: string;
+  openrouterUrl: string;
+  openrouterApiKey: string;
+  timeoutSeconds: number | string;
+  contextLength: number | string;
+  temperature: number | string;
+}
 
 export default function SettingsPage() {
     const {
@@ -24,24 +37,25 @@ export default function SettingsPage() {
   } = useApp();
 
   // Draft local : ne modifie pas l'état global tant qu'on n'a pas sauvegardé.
-  const [draft, setDraft] = useState(() => ({
+  const [draft, setDraft] = useState<DraftShape>(() => ({
     baseUrl: config.baseUrl || DEFAULT_BASE_URL,
     apiKey: config.apiKey || "",
-    ...(agentSettings || {
-      provider: "ollama",
-      model: "",
-      ollamaUrl: "",
-      openrouterUrl: "https://openrouter.ai/api/v1",
-      openrouterApiKey: "",
-      timeoutSeconds: 60,
-      contextLength: 512,
-      temperature: 0.2,
-    }),
+    provider: agentSettings?.provider ?? "ollama",
+    model: agentSettings?.model ?? "",
+    ollamaUrl: agentSettings?.ollamaUrl ?? "",
+    openrouterUrl: agentSettings?.openrouterUrl ?? "https://openrouter.ai/api/v1",
+    openrouterApiKey: agentSettings?.openrouterApiKey ?? "",
+    timeoutSeconds: agentSettings?.timeoutSeconds ?? 60,
+    contextLength: agentSettings?.contextLength ?? 512,
+    temperature: agentSettings?.temperature ?? 0.2,
   }));
 
-  const updateDraft = useCallback((field, value) => {
-    setDraft((prev) => ({ ...prev, [field]: value }));
-  }, []);
+  const updateDraft = useCallback(
+    <K extends keyof DraftShape>(field: K, value: DraftShape[K]) => {
+      setDraft((prev) => ({ ...prev, [field]: value }));
+    },
+    []
+  );
 
   // Reflète les paramètres agent une fois chargés via l'API (nouvel onglet /
   // navigateur après enregistrement) sans écraser la connexion API. Mise à jour
@@ -56,7 +70,7 @@ export default function SettingsPage() {
 
   // -- Connexion API ----------------------------------------------------------
     const saveConfig = useCallback(
-    (e) => {
+    (e: FormEvent) => {
       e.preventDefault();
       setConfig({ baseUrl: draft.baseUrl, apiKey: draft.apiKey });
       pushLog("info", `Configuration mise à jour → ${draft.baseUrl}`);
@@ -70,7 +84,7 @@ export default function SettingsPage() {
       await testAgentConnection(draft);
       pushLog("success", "Test de connexion IA réussi !");
     } catch (err) {
-      pushLog("error", `Test échoué : ${err.message}`);
+      pushLog("error", `Test échoué : ${err instanceof Error ? err.message : "?"}`);
     }
   }, [draft, testAgentConnection, pushLog]);
 
@@ -79,13 +93,13 @@ export default function SettingsPage() {
       await updateAgentSettings(draft);
       pushLog("success", "Paramètres de l'assistant IA enregistrés.");
     } catch (err) {
-      pushLog("error", `Échec de l'enregistrement : ${err.message}`);
+      pushLog("error", `Échec de l'enregistrement : ${err instanceof Error ? err.message : "?"}`);
     }
   }, [draft, updateAgentSettings, pushLog]);
 
   // -- Préférences ------------------------------------------------------------
   const savePreferences = useCallback(
-    (e) => {
+    (e: FormEvent) => {
       e.preventDefault();
           pushLog("info", "Préférences appliquées.");
     },

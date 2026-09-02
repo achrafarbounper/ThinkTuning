@@ -1,23 +1,27 @@
 /**
  * Affiche un sélecteur de version de modèle sous forme de dropdown.
  * Permet à l'utilisateur de choisir la version de modèle pour les prédictions.
- *
- * Props:
- *   - models: array of model objects { name, path, active, created_at }
- *   - activeModel: currently selected model name or ""
- *   - onModelChange: callback(modelName)
- *   - loading: boolean indicating if models are loading
- *   - label: libellé affiché au-dessus du dropdown ("Modèle A", "Modèle B"…)
  */
+
+import type { ModelVersion } from "../api/sentimentApiClient";
+
+export interface ModelVersionSelectorProps {
+  models?: ModelVersion[];
+  activeModel?: string;
+  onModelChange?: (model: string) => void;
+  loading?: boolean;
+  label?: string;
+}
+
 export default function ModelVersionSelector({
   models = [],
   activeModel = "",
   onModelChange,
   loading = false,
   label = "Modèle pour les prédictions",
-}) {
-  const handleChange = (e) => {
-    onModelChange(e.target.value);
+}: ModelVersionSelectorProps) {
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    onModelChange?.(e.target.value);
   };
 
   if (loading) {
@@ -46,7 +50,7 @@ export default function ModelVersionSelector({
             {models.length > 0 ? "Le plus récent (auto)" : "Aucun modèle disponible"}
           </option>
           {models.map((model) => (
-            <option key={model.path} value={model.name}>
+            <option key={String(model.path ?? model.name)} value={model.name}>
               {model.name}
               {model.active ? " (actif)" : ""}
             </option>

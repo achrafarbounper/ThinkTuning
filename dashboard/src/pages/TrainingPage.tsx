@@ -20,7 +20,7 @@ const SCHEDULES_POLL_MS = 30000;
 
 const DAY_LABELS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
 
-const STEP_LABELS = {
+const STEP_LABELS: Record<string, string> = {
   queued: "En file d'attente",
   loading_dataset: "Chargement du dataset",
   splitting_dataset: "Split train/val",
@@ -34,13 +34,44 @@ const STEP_LABELS = {
   cancelled: "Annulé",
 };
 
-function numOrUndef(value) {
+interface TrainJob {
+  job_id: string;
+  status: string;
+  step: string;
+  started_at: number;
+  finished_at: number;
+  regression?: boolean;
+  regression_detail?: string;
+}
+
+interface ScheduledJob {
+  schedule_id: string;
+  next_run_at: number;
+  [key: string]: unknown;
+}
+
+interface TrainForm {
+  max_per_lang: number;
+  augment_fraction: number;
+  variants_per_example: number;
+  device: string;
+  epochs: string;
+  batch_size: string;
+  num_workers: string;
+  max_length: string;
+  learning_rate: string;
+  weight_decay: string;
+  warmup_ratio: string;
+  base_model_version: string;
+}
+
+function numOrUndef(value: string | null | undefined): number | undefined {
   if (value === "" || value === null || value === undefined) return undefined;
   const n = Number(value);
   return Number.isNaN(n) ? undefined : n;
 }
 
-function formatEpoch(seconds) {
+function formatEpoch(seconds: number | null | undefined): string {
   if (!seconds) return "—";
   try {
     return new Date(seconds * 1000).toLocaleString();
@@ -52,7 +83,7 @@ function formatEpoch(seconds) {
 export default function TrainingPage() {
   const { client, refreshModels, pushLog, models, modelsError } = useApp();
 
-  const [trainForm, setTrainForm] = useState({
+  const [trainForm, setTrainForm] = useState<TrainForm>({
     max_per_lang: 500,
     augment_fraction: 0.4,
     variants_per_example: 2,
@@ -69,10 +100,11 @@ export default function TrainingPage() {
     base_model_version: "",
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [currentJob, setCurrentJob] = useState(null);
+  const [currentJob, setCurrentJob] = useState<string | null>(null);
+  const [currentJobData, setCurrentJobData] = useState<TrainJob | null>(null);
   const [trainLoading, setTrainLoading] = useState(false);
-  const [trainError, setTrainError] = useState(null);
-  const [jobs, setJobs] = useState([]);
+  const [trainError, setTrainError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<TrainJob[]>([]);
   // Pagination / filtrage GET /train/jobs (?status=&limit=&offset=)
   const [jobsStatusFilter, setJobsStatusFilter] = useState("");
   const [jobsLimit] = useState(20);
@@ -84,11 +116,11 @@ export default function TrainingPage() {
   const [scheduleTime, setScheduleTime] = useState("02:00");    // heure fixe
   const [scheduleDay, setScheduleDay] = useState("1");          // 0-6 (dimanche=0)
   const [scheduleInterval, setScheduleInterval] = useState("60");
-  const [schedules, setSchedules] = useState([]);
+  const [schedules, setSchedules] = useState<ScheduledJob[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
-  const [scheduleError, setScheduleError] = useState(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
-  const trainPollRef = useRef(null);
+  const trainPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // -- Continual training : s'assurer que la liste des versions est chargée ---
   useEffect(() => {
@@ -99,15 +131,15 @@ export default function TrainingPage() {
   const refreshJobs = useCallback(async () => {
     try {
       // Réponse : { total, items, limit, offset } trié par started_at DESC.
-      const result = await client.listTrainingJobs({
+      const result = (await client.listTrainingJobs({
         status: jobsStatusFilter || undefined,
         limit: jobsLimit,
         offset: jobsOffset,
-      });
+      })) as { items: TrainJob[]; total: number };
       setJobs(result.items);
       setJobsTotal(result.total);
-    } catch (err) {
-      pushLog("error", `Historique des jobs indisponible : ${err.message}`);
+    } catch (err: unknown) {
+      pushLog("error", `Historique des jobs indisponible : ${(err as Error).message}`);
     }
   }, [client, pushLog, jobsStatusFilter, jobsLimit, jobsOffset]);
 
@@ -116,18 +148,18 @@ export default function TrainingPage() {
     const load = async () => {
       try {
         // Réponse : { total, items, limit, offset } trié par started_at DESC.
-        const result = await client.listTrainingJobs({
+        const result = (await client.listTrainingJobs({
           status: jobsStatusFilter || undefined,
           limit: jobsLimit,
           offset: jobsOffset,
-        });
+        })) as { items: TrainJob[]; total: number };
         if (!cancelled) {
           setJobs(result.items);
           setJobsTotal(result.total);
         }
-      } catch (err) {
+      } catch (err: unknown) {
         if (!cancelled) {
-          pushLog("error", `Historique des jobs indisponible : ${err.message}`);
+          pushLog("error", `Historique des jobs indisponible : ${(err as Error).message}`);
         }
       }
     };
@@ -154,23 +186,24 @@ export default function TrainingPage() {
   }, []);
 
   const pollJob = useCallback(
-    (jobId) => {
+    (jobId: string) => {
       stopTrainPolling();
       trainPollRef.current = setInterval(async () => {
         try {
-          const job = await client.getTrainingStatus(jobId);
-          setCurrentJob(job);
+          const job = (await client.getTrainingStatus(jobId)) as TrainJob;
+          setCurrentJob(job.job_id);
+          setCurrentJobData(job);
           if (["completed", "failed", "cancelled"].includes(job.status)) {
             stopTrainPolling();
             pushLog(
-              job.status === "completed" ? "success" : "warning",
-              `Job ${jobId.slice(0, 8)} → ${job.status}${job.error ? ` (${job.error.split("\n")[0]})` : ""}`
+              job.status === "completed" ? "success" : "error",
+              `Job ${jobId.slice(0, 8)} → ${job.status}${(job as unknown as { error?: string }).error ? ` (${(job as unknown as { error: string }).error.split("\n")[0]})` : ""}`
             );
             refreshModels();
             refreshJobs();
           }
-        } catch (err) {
-          pushLog("error", `Suivi du job interrompu : ${err.message}`);
+        } catch (err: unknown) {
+          pushLog("error", `Suivi du job interrompu : ${(err as Error).message}`);
           stopTrainPolling();
         }
       }, TRAIN_POLL_MS);
@@ -179,14 +212,14 @@ export default function TrainingPage() {
   );
 
   // -- Actions -------------------------------------------------------------------
-  const handleStartTraining = async (e) => {
+  const handleStartTraining = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setTrainError(null);
     setTrainLoading(true);
     const payload = {
-      max_per_lang: numOrUndef(trainForm.max_per_lang) ?? 500,
-      augment_fraction: numOrUndef(trainForm.augment_fraction) ?? 0.4,
-      variants_per_example: numOrUndef(trainForm.variants_per_example) ?? 2,
+      max_per_lang: numOrUndef(String(trainForm.max_per_lang)) ?? 500,
+      augment_fraction: numOrUndef(String(trainForm.augment_fraction)) ?? 0.4,
+      variants_per_example: numOrUndef(String(trainForm.variants_per_example)) ?? 2,
       epochs: numOrUndef(trainForm.epochs),
       batch_size: numOrUndef(trainForm.batch_size),
       num_workers: numOrUndef(trainForm.num_workers),
@@ -198,8 +231,8 @@ export default function TrainingPage() {
       base_model_version: trainForm.base_model_version || null,
     };
     try {
-      const job = await client.startTraining(payload);
-      setCurrentJob(job);
+      const job = (await client.startTraining(payload)) as TrainJob;
+      setCurrentJob(job.job_id);
       pushLog(
         "info",
         `Entraînement lancé — job ${job.job_id.slice(0, 8)}` +
@@ -209,8 +242,8 @@ export default function TrainingPage() {
       );
       pollJob(job.job_id);
       refreshJobs();
-    } catch (err) {
-      setTrainError(err.message);
+    } catch (err: unknown) {
+      setTrainError((err as Error).message);
     } finally {
       setTrainLoading(false);
     }
@@ -219,15 +252,15 @@ export default function TrainingPage() {
   const handleCancelTraining = async () => {
     if (!currentJob) return;
     try {
-      const job = await client.cancelTraining(currentJob.job_id);
-      setCurrentJob(job);
-      pushLog("warning", `Annulation demandée pour ${job.job_id.slice(0, 8)}`);
-    } catch (err) {
-      pushLog("error", `Échec de l'annulation : ${err.message}`);
+      const job = (await client.cancelTraining(currentJob)) as TrainJob;
+      setCurrentJob(job.job_id);
+      pushLog("error", `Annulation demandée pour ${job.job_id.slice(0, 8)}`);
+    } catch (err: unknown) {
+      pushLog("error", `Échec de l'annulation : ${(err as Error).message}`);
     }
   };
 
-  const handleJobsStatusFilterChange = (event) => {
+  const handleJobsStatusFilterChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     setJobsStatusFilter(event.target.value);
     setJobsOffset(0); // repart à la première page quand le filtre change
   };
@@ -235,10 +268,10 @@ export default function TrainingPage() {
   // -- Planification récurrente (SCRUM-34) --------------------------------------
   const refreshSchedules = useCallback(async () => {
     try {
-      const result = await client.listSchedules();
+      const result = (await client.listSchedules()) as { items: ScheduledJob[] };
       setSchedules(result.items || []);
-    } catch (err) {
-      pushLog("error", `Planifications indisponibles : ${err.message}`);
+    } catch (err: unknown) {
+      pushLog("error", `Planifications indisponibles : ${(err as Error).message}`);
     }
   }, [client, pushLog]);
 
@@ -246,13 +279,13 @@ export default function TrainingPage() {
     let cancelled = false;
     const load = async () => {
       try {
-        const result = await client.listSchedules();
+        const result = (await client.listSchedules()) as { items: ScheduledJob[] };
         if (!cancelled) {
           setSchedules(result.items || []);
         }
-      } catch (err) {
+      } catch (err: unknown) {
         if (!cancelled) {
-          pushLog("error", `Planifications indisponibles : ${err.message}`);
+          pushLog("error", `Planifications indisponibles : ${(err as Error).message}`);
         }
       }
     };
@@ -264,15 +297,15 @@ export default function TrainingPage() {
     };
   }, [client, pushLog]);
 
-  const handleCreateSchedule = async (e) => {
+  const handleCreateSchedule = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setScheduleError(null);
     setScheduleLoading(true);
 
-    let cron = null;
-    let intervalMinutes = null;
+    let cron: string | null = null;
+    let intervalMinutes: number | null = null;
     if (scheduleMode === "interval") {
-      intervalMinutes = numOrUndef(scheduleInterval);
+      intervalMinutes = numOrUndef(scheduleInterval) ?? null;
       if (!intervalMinutes || intervalMinutes <= 0) {
         setScheduleError("Intervalle invalide : renseignez un nombre de minutes > 0.");
         setScheduleLoading(false);
@@ -293,9 +326,9 @@ export default function TrainingPage() {
 
     // Paramètres d'entraînement identiques au formulaire POST /train.
     const train = {
-      max_per_lang: numOrUndef(trainForm.max_per_lang) ?? 500,
-      augment_fraction: numOrUndef(trainForm.augment_fraction) ?? 0.4,
-      variants_per_example: numOrUndef(trainForm.variants_per_example) ?? 2,
+      max_per_lang: numOrUndef(String(trainForm.max_per_lang)) ?? 500,
+      augment_fraction: numOrUndef(String(trainForm.augment_fraction)) ?? 0.4,
+      variants_per_example: numOrUndef(String(trainForm.variants_per_example)) ?? 2,
       epochs: numOrUndef(trainForm.epochs),
       batch_size: numOrUndef(trainForm.batch_size),
       num_workers: numOrUndef(trainForm.num_workers),
@@ -308,39 +341,39 @@ export default function TrainingPage() {
     };
 
     try {
-      const schedule = await client.scheduleTraining({ train, cron, interval_minutes: intervalMinutes });
+      const schedule = (await client.scheduleTraining({ train, cron, interval_minutes: intervalMinutes })) as ScheduledJob;
       pushLog("success", `Entraînement programmé (${schedule.schedule_id.slice(0, 8)})`);
       refreshSchedules();
-    } catch (err) {
-      setScheduleError(err.message);
+    } catch (err: unknown) {
+      setScheduleError((err as Error).message);
     } finally {
       setScheduleLoading(false);
     }
   };
 
-  const handleDeleteSchedule = async (scheduleId) => {
+  const handleDeleteSchedule = async (scheduleId: string) => {
     try {
       await client.deleteSchedule(scheduleId);
-      pushLog("warning", `Planification ${scheduleId.slice(0, 8)} supprimée`);
+      pushLog("error", `Planification ${scheduleId.slice(0, 8)} supprimée`);
       refreshSchedules();
-    } catch (err) {
-      pushLog("error", `Échec de la suppression : ${err.message}`);
+    } catch (err: unknown) {
+      pushLog("error", `Échec de la suppression : ${(err as Error).message}`);
     }
   };
 
   /** Libellé lisible d'une planification ("Toutes les 60 min" / "cron 0 2 * * *"). */
-  function describeSchedule(schedule) {
-    if (schedule.trigger === "cron") {
-      const parts = (schedule.cron || "").split(" ");
+  function describeSchedule(schedule: ScheduledJob) {
+    if ((schedule.trigger as string) === "cron") {
+      const parts = ((schedule.cron as string) || "").split(" ");
       if (parts.length === 5) {
         const [minute, hour, , , dow] = parts;
         const time = `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
         if (dow === "*") return `Quotidien à ${time}`;
         if (/^\d$/.test(dow)) return `${DAY_LABELS[Number(dow)]} à ${time}`;
       }
-      return `cron ${schedule.cron}`;
+      return `cron ${schedule.cron as string}`;
     }
-    return `Toutes les ${schedule.interval_minutes} min`;
+    return `Toutes les ${schedule.interval_minutes as number} min`;
   }
 
   return (
@@ -366,7 +399,7 @@ export default function TrainingPage() {
                 <input
                   type="number"
                   value={trainForm.max_per_lang}
-                  onChange={(e) => setTrainForm((f) => ({ ...f, max_per_lang: e.target.value }))}
+                  onChange={(e) => setTrainForm((f) => ({ ...f, max_per_lang: Number(e.target.value) }))}
                 />
               </label>
               <label>
@@ -375,7 +408,7 @@ export default function TrainingPage() {
                   type="number"
                   step="0.05"
                   value={trainForm.augment_fraction}
-                  onChange={(e) => setTrainForm((f) => ({ ...f, augment_fraction: e.target.value }))}
+                  onChange={(e) => setTrainForm((f) => ({ ...f, augment_fraction: Number(e.target.value) }))}
                 />
               </label>
               <label>
@@ -383,7 +416,7 @@ export default function TrainingPage() {
                 <input
                   type="number"
                   value={trainForm.variants_per_example}
-                  onChange={(e) => setTrainForm((f) => ({ ...f, variants_per_example: e.target.value }))}
+                  onChange={(e) => setTrainForm((f) => ({ ...f, variants_per_example: Number(e.target.value) }))}
                 />
               </label>
               <label>
@@ -406,7 +439,7 @@ export default function TrainingPage() {
                 >
                   <option value="">Modèle de base (from scratch)</option>
                   {models.map((model) => (
-                    <option key={model.path} value={model.name}>
+                    <option key={model.name} value={model.name}>
                       {model.name}
                       {model.active ? " (actif)" : ""}
                     </option>
@@ -426,7 +459,7 @@ export default function TrainingPage() {
             <details
               className="tt-advanced"
               open={advancedOpen}
-              onToggle={(e) => setAdvancedOpen(e.target.open)}
+              onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
             >
               <summary className="tt-advanced-toggle">Options avancées</summary>
               <div className="tt-field-grid">
@@ -465,7 +498,7 @@ export default function TrainingPage() {
               <button className="tt-btn tt-btn-primary" type="submit" disabled={trainLoading}>
                 {trainLoading ? "Lancement…" : "Lancer l'entraînement"}
               </button>
-              {currentJob && ["pending", "running"].includes(currentJob.status) && (
+              {currentJob && currentJobData && ["pending", "running"].includes(currentJobData.status) && (
                 <button className="tt-btn tt-btn-danger" type="button" onClick={handleCancelTraining}>
                   Annuler le job en cours
                 </button>
@@ -475,13 +508,13 @@ export default function TrainingPage() {
           {trainError && <p className="tt-hint tt-hint-error">{trainError}</p>}
 
           <TrainJobTracker
-            job={currentJob}
+            job={currentJobData}
             onCancel={handleCancelTraining}
             cancelLoading={false}
           />
 
           {/* -- Métriques live (WebSocket /train/stream/{job_id}) ---------- */}
-          <TrainMetricsStream jobId={currentJob?.job_id} />
+          {currentJob && <TrainMetricsStream jobId={currentJob} client={client} />}
 
           {/* -- Planification récurrente (SCRUM-34 : POST /train/schedule) --- */}
           <div className="tt-history-section">
@@ -592,9 +625,9 @@ export default function TrainingPage() {
           <div className="tt-history-section">
             <h3 className="tt-subtitle">Courbes loss / F1 par version de modèle</h3>
             <TrainingHistoryChart
-              jobs={jobs}
+              jobs={jobs as never}
               client={client}
-              pushLog={pushLog}
+              pushLog={pushLog as never}
             />
           </div>
 
@@ -685,9 +718,9 @@ export default function TrainingPage() {
         {/* Santé & nettoyage du répertoire experiments/models (SCRUM-74) */}
         <ModelSanityPanel
           client={client}
-          models={models}
+          models={models as never}
           onModelsChanged={refreshModels}
-          pushLog={pushLog}
+          pushLog={pushLog as never}
         />
       </div>
     </>

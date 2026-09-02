@@ -7,14 +7,14 @@
  * - historique des jobs (GET /pipeline/jobs) avec filtre statut + pagination.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useApp } from "../context/useApp";
 import ModelVersionSelector from "../components/ModelVersionSelector";
 import PipelineJobTracker from "../components/PipelineJobTracker";
 
 const PIPELINE_POLL_MS = 4000;
 
-const STEP_LABELS = {
+const STEP_LABELS: Record<string, string> = {
   queued: "En file d'attente",
   labeling: "Labeling DistilBERT",
   filtering: "Filtrage par confidence",
@@ -23,16 +23,48 @@ const STEP_LABELS = {
   cancelled: "Annulé",
 };
 
-function numOrUndef(value) {
+interface PipelineForm {
+  input_path: string;
+  labeled_out: string;
+  output_dir: string;
+  text_column: string;
+  min_confidence: number;
+  label_batch_size: string;
+  model_path: string;
+  base_model: string;
+  validation_file: string;
+  epochs: string;
+  finetune_batch_size: string;
+  learning_rate: string;
+  lora_r: string;
+  lora_alpha: string;
+  use_qlora: boolean;
+}
+
+interface PipelineJob {
+  job_id: string;
+  status: string;
+  step?: string;
+  error?: string | null;
+  started_at?: number;
+  finished_at?: number;
+}
+
+interface PipelineJobsResult {
+  items: PipelineJob[];
+  total: number;
+}
+
+function numOrUndef(value: unknown): number | undefined {
   if (value === "" || value === null || value === undefined) return undefined;
   const n = Number(value);
   return Number.isNaN(n) ? undefined : n;
 }
 
-function formatEpoch(seconds) {
+function formatEpoch(seconds?: number | string): string {
   if (!seconds) return "—";
   try {
-    return new Date(seconds * 1000).toLocaleString();
+    return new Date(Number(seconds) * 1000).toLocaleString();
   } catch {
     return "—";
   }
@@ -41,7 +73,7 @@ function formatEpoch(seconds) {
 export default function PipelinePage() {
   const { client, models, modelsError, refreshModels, pushLog } = useApp();
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<PipelineForm>({
     input_path: "",
     labeled_out: "",
     output_dir: "",
@@ -59,17 +91,17 @@ export default function PipelinePage() {
     use_qlora: true,
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [currentJob, setCurrentJob] = useState(null);
+  const [currentJob, setCurrentJob] = useState<PipelineJob | null>(null);
   const [pipelineLoading, setPipelineLoading] = useState(false);
-  const [pipelineError, setPipelineError] = useState(null);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [cancelLoading, setCancelLoading] = useState(false);
-  const [jobs, setJobs] = useState([]);
+  const [jobs, setJobs] = useState<PipelineJob[]>([]);
   const [jobsStatusFilter, setJobsStatusFilter] = useState("");
   const [jobsLimit] = useState(20);
   const [jobsOffset, setJobsOffset] = useState(0);
   const [jobsTotal, setJobsTotal] = useState(0);
 
-  const pipelinePollRef = useRef(null);
+  const pipelinePollRef = useRef<number | null>(null);
 
   const stopPipelinePolling = useCallback(() => {
     if (pipelinePollRef.current) {
@@ -80,15 +112,15 @@ export default function PipelinePage() {
 
   const refreshJobs = useCallback(async () => {
     try {
-      const result = await client.listPipelineJobs({
+      const result = (await client.listPipelineJobs({
         status: jobsStatusFilter || undefined,
         limit: jobsLimit,
         offset: jobsOffset,
-      });
+      })) as PipelineJobsResult;
       setJobs(result.items);
       setJobsTotal(result.total);
     } catch (err) {
-      pushLog("error", `Historique des jobs pipeline indisponible : ${err.message}`);
+      pushLog("error", `Historique des jobs pipeline indisponible : ${err instanceof Error ? err.message : "?"}`);
     }
   }, [client, pushLog, jobsStatusFilter, jobsLimit, jobsOffset]);
 
@@ -96,18 +128,18 @@ export default function PipelinePage() {
     let cancelled = false;
     const load = async () => {
       try {
-        const result = await client.listPipelineJobs({
+        const result = (await client.listPipelineJobs({
           status: jobsStatusFilter || undefined,
           limit: jobsLimit,
           offset: jobsOffset,
-        });
+        })) as PipelineJobsResult;
         if (!cancelled) {
           setJobs(result.items);
           setJobsTotal(result.total);
         }
       } catch (err) {
         if (!cancelled) {
-          pushLog("error", `Historique des jobs pipeline indisponible : ${err.message}`);
+          pushLog("error", `Historique des jobs pipeline indisponible : ${err instanceof Error ? err.message : "?"}`);
         }
       }
     };
@@ -123,11 +155,11 @@ export default function PipelinePage() {
 
   // Suivi temps réel du job en cours (poll 4 s) tant qu'il est actif.
   const startPipelinePolling = useCallback(
-    (jobId) => {
+    (jobId: string) => {
       stopPipelinePolling();
       pipelinePollRef.current = setInterval(async () => {
         try {
-          const job = await client.getPipelineStatus(jobId);
+          const job = (await client.getPipelineStatus(jobId)) as PipelineJob;
           setCurrentJob(job);
           if (!["pending", "running"].includes(job.status)) {
             stopPipelinePolling();
@@ -140,7 +172,7 @@ export default function PipelinePage() {
           }
         } catch (err) {
           stopPipelinePolling();
-          pushLog("error", `Suivi du pipeline interrompu : ${err.message}`);
+          pushLog("error", `Suivi du pipeline interrompu : ${err instanceof Error ? err.message : "?"}`);
         }
       }, PIPELINE_POLL_MS);
     },
@@ -149,7 +181,7 @@ export default function PipelinePage() {
 
   useEffect(() => stopPipelinePolling, [stopPipelinePolling]);
 
-  const handleStartPipeline = async (event) => {
+  const handleStartPipeline = async (event: FormEvent) => {
     event.preventDefault();
     if (!form.input_path.trim()) {
       setPipelineError("Le chemin du fichier d'entrée est requis.");
@@ -158,7 +190,7 @@ export default function PipelinePage() {
     setPipelineLoading(true);
     setPipelineError(null);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         input_path: form.input_path.trim(),
         text_column: form.text_column.trim() || "text",
         min_confidence: numOrUndef(form.min_confidence) ?? 0.7,
@@ -182,14 +214,14 @@ export default function PipelinePage() {
         if (n !== undefined) payload[key] = n;
       }
 
-      const job = await client.startPipeline(payload);
+      const job = (await client.startPipeline(payload)) as PipelineJob;
       setCurrentJob(job);
       pushLog("info", `Pipeline lancé (${job.job_id.slice(0, 8)})`);
       startPipelinePolling(job.job_id);
       refreshJobs();
     } catch (err) {
-      setPipelineError(err.message);
-      pushLog("error", `Échec du lancement du pipeline : ${err.message}`);
+      setPipelineError(err instanceof Error ? err.message : String(err));
+      pushLog("error", `Échec du lancement du pipeline : ${err instanceof Error ? err.message : "?"}`);
     } finally {
       setPipelineLoading(false);
     }
@@ -199,25 +231,26 @@ export default function PipelinePage() {
     if (!currentJob) return;
     setCancelLoading(true);
     try {
-      const job = await client.cancelPipeline(currentJob.job_id);
+      const job = (await client.cancelPipeline(currentJob.job_id)) as PipelineJob;
       setCurrentJob(job);
       stopPipelinePolling();
       pushLog("info", `Pipeline ${job.job_id.slice(0, 8)} annulé`);
       refreshJobs();
     } catch (err) {
-      pushLog("error", `Échec de l'annulation : ${err.message}`);
+      pushLog("error", `Échec de l'annulation : ${err instanceof Error ? err.message : "?"}`);
     } finally {
       setCancelLoading(false);
     }
   };
 
-  const handleJobsStatusFilterChange = (event) => {
+  const handleJobsStatusFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setJobsStatusFilter(event.target.value);
     setJobsOffset(0);
   };
 
-  const setField = (key) => (e) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }));
+  const setField =
+    (key: keyof PipelineForm) => (e: ChangeEvent<HTMLInputElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value } as PipelineForm));
 
   return (
     <>
@@ -295,7 +328,7 @@ export default function PipelinePage() {
             <details
               className="tt-advanced"
               open={advancedOpen}
-              onToggle={(e) => setAdvancedOpen(e.target.open)}
+              onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
             >
               <summary className="tt-advanced-toggle">Options fine-tuning avancées</summary>
               <div className="tt-field-grid">
@@ -361,7 +394,7 @@ export default function PipelinePage() {
           {pipelineError && <p className="tt-hint tt-hint-error">{pipelineError}</p>}
 
           <PipelineJobTracker
-            job={currentJob}
+            job={currentJob as never}
             onCancel={handleCancelPipeline}
             cancelLoading={cancelLoading}
           />
@@ -421,7 +454,7 @@ export default function PipelinePage() {
                   <td>
                     <span className={`tt-tag tt-tag-status-${job.status}`}>{job.status}</span>
                   </td>
-                  <td>{STEP_LABELS[job.step] || job.step}</td>
+                  <td>{STEP_LABELS[job.step ?? ""] || job.step}</td>
                   <td className="tt-mono">{formatEpoch(job.started_at)}</td>
                   <td className="tt-mono">{formatEpoch(job.finished_at)}</td>
                 </tr>

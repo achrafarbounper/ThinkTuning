@@ -1,19 +1,21 @@
 /**
- * ConfusionExplanation.jsx
+ * ConfusionExplanation.tsx
  * ---------------------------------------------------------------------
  * Explication textuelle automatique des erreurs du modèle, dérivée
  * déterministiquement des données de GET /evaluate/confusion :
  * accuracy, rappels par classe et paires de confusion les plus fréquentes.
  */
 
-const LABELS_FR = { negative: "négatif", neutral: "neutre", positive: "positif" };
+import type { ConfusionData } from "./types";
 
-function pct(v) {
+const LABELS_FR: Record<string, string> = { negative: "négatif", neutral: "neutre", positive: "positif" };
+
+function pct(v: number | null | undefined): string {
   if (v == null) return "—";
   return `${(Math.round(v * 1000) / 10).toFixed(1)}%`;
 }
 
-export default function ConfusionExplanation({ data }) {
+export default function ConfusionExplanation({ data }: { data: ConfusionData | null | undefined }) {
   if (!data) return null;
 
   const metrics = data.metrics || {};
@@ -23,7 +25,7 @@ export default function ConfusionExplanation({ data }) {
   const mistakes = data.mistakes || [];
 
   // Classe au rappel le plus faible (parmi celles représentées).
-  let weakest = null;
+  let weakest: { cls: string; recall: number } | null = null;
   for (const cls of data.labels || []) {
     const r = recalls[cls];
     if (r == null) continue;

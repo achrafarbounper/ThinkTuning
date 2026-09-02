@@ -18,9 +18,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    // Cohabitation avec les fichiers .jsx existants : ils sont parsés mais non vérifiés.
-    "allowJs": true,
-    "checkJs": false,
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
