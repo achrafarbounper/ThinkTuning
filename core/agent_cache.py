@@ -29,6 +29,7 @@ from core.agent_settings import get_agent_settings
 # --- Imports de l'agent (à placer APRÈS l'insertion du sys.path ci-dessus) ----
 from agent.agent_core import AgentCore  # noqa: E402
 from agent.llm_client import LLMClient  # noqa: E402
+from agent.orchestrator import MultiAgentCoordinator  # noqa: E402
 from agent.runner import AgentRunner  # noqa: E402
 from tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
 
@@ -52,6 +53,10 @@ __all__ = [
     "ask_agent_decision_streaming",
     "ask_agent_detailed",
     "ask_agent_detailed_streaming",
+    "ask_multi_agent",
+    "ask_multi_agent_streaming",
+    "get_multi_agent_coordinator",
+    "reload_multi_agent_coordinator",
     "get_agent_runner",
     "list_llm_models",
     "reload_agent_runner",
@@ -700,3 +705,113 @@ def ask_agent_decision_streaming(
     else:
         payload["status"] = "completed"
     return payload
+# --- Orchestration multi-agents (superviseur) -----------------------------
+
+# Coordonnateur partagé, mis en cache paresseusement (même pattern que
+# ``_runner``). Injectable dans les tests via monkeypatch.
+_multi_coordinator: MultiAgentCoordinator | None = None
+_multi_coordinator_lock = threading.Lock()
+
+
+def _build_llm_client(model_name: str | None = None) -> LLMClient:
+    """Construit un LLMClient selon la config effective du fournisseur."""
+    cfg = agent_config()
+    url, api_key = _llm_endpoint(cfg)
+    return LLMClient(
+        url,
+        model_name or cfg["model"],
+        timeout=cfg["timeout"],
+        temperature=cfg["temperature"],
+        think=False,
+        context_length=cfg["context_length"],
+        provider=cfg["provider"],
+        api_key=api_key,
+    )
+
+
+def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinator:
+    """Coordonnateur multi-agents mis en cache (construction paresseuse).
+
+    Utilise le provider configuré (même LLMClient pour chaque worker, pour
+    rester déterministe et maîtriser le coût en tokens). La spécialisation
+    se fait par SOUS-ENSEMBLE D'OUTILS (isolation stricte), pas par modèle.
+    """
+    global _multi_coordinator
+    if _multi_coordinator is None:
+        with _multi_coordinator_lock:
+            if _multi_coordinator is None:
+                llm = _build_llm_client(model)
+                _multi_coordinator = MultiAgentCoordinator(llm)
+    return _multi_coordinator
+
+
+def reload_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinator:
+    """Reconstruit le coordonnateur (nouveau LLMClient). Utilisé en cas d'échec."""
+    global _multi_coordinator
+    with _multi_coordinator_lock:
+        _multi_coordinator = None
+        llm = _build_llm_client(model)
+        _multi_coordinator = MultiAgentCoordinator(llm)
+    return _multi_coordinator
+
+
+def ask_multi_agent(prompt: str, model: str | None = None, parallel: bool = False) -> dict:
+    """Exécute la demande via l'orchestration multi-agents (superviseur).
+
+    Retourne le contrat de sortie stable de l'orchestrateur :
+    ``{"status", "final_answer", "plan", "workers", "unexecuted", "thinking"}``.
+    Les erreurs réseau LLM sont traduites en HTTPException (même politique
+    que ``ask_agent_decision``).
+    """
+    coordinator = get_multi_agent_coordinator(model)
+    try:
+        return coordinator.run(prompt)
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Le LLM n'a pas répondu pendant l'orchestration multi-agents.",
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM injoignable. Vérifiez que le serveur de modèles tourne.",
+        )
+    except requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
+        )
+
+
+def ask_multi_agent_streaming(
+    prompt: str,
+    model: str | None = None,
+    parallel: bool = False,
+    on_event=None,
+) -> dict:
+    """Comme ``ask_multi_agent``, mais avec diffusion temps réel.
+
+    ``on_event(event_type, data)`` reçoit les événements structurés de
+    l'orchestrateur (``agent.plan``, ``agent.worker.start``, ``agent.worker.tool``,
+    ``agent.worker.error``, ``agent.worker.result``, ``agent.synthesizing``,
+    ``agent.done``, ``agent.error``). Les erreurs réseau sont traduites en
+    HTTPException (même politique que le reste de l'agent).
+    """
+    coordinator = get_multi_agent_coordinator(model)
+    try:
+        return coordinator.run(prompt, on_event=on_event)
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Le LLM n'a pas répondu pendant l'orchestration multi-agents.",
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM injoignable. Vérifiez que le serveur de modèles tourne.",
+        )
+    except requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
+        )

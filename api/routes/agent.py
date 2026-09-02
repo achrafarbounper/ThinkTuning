@@ -44,6 +44,8 @@ from core.agent_cache import (
     agent_config,
     ask_agent_decision,
     ask_agent_decision_streaming,
+    ask_multi_agent,
+    ask_multi_agent_streaming,
     reload_agent_runner,
 )
 from core.approval_store import (
@@ -135,6 +137,39 @@ class AskStreamRequest(BaseModel):
     )
     enable_thinking: bool = Field(False, description="Mode « Réflexion ». ")
     session_id: Optional[str] = Field(None, description="Conversation cible (persistance).")
+
+
+class MultiAskRequest(BaseModel):
+    """Corps de l'orchestration multi-agents (superviseur/workers)."""
+
+    prompt: str = Field(..., min_length=1, description="Tâche globale soumise au superviseur.")
+    model: Optional[str] = Field(
+        None, max_length=100, description="Modèle LLM ; absent/vide = défaut serveur."
+    )
+    parallel: bool = Field(
+        False, description="Exécution parallèle des workers (défaut : séquentielle)."
+    )
+    mode: str = Field(
+        "full",
+        description="Granularité du streaming SSE : « full » (tous événements) "
+        "ou « compact » (plan / worker.result / done uniquement).",
+    )
+
+
+# Événements « UX » : nécessaires au rendu, émis dans les deux modes.
+_MULTI_UX_EVENTS = {
+    "agent.plan",
+    "agent.worker.start",
+    "agent.worker.result",
+    "agent.done",
+    "agent.error",
+}
+# Événements « observabilité » : filtrés hors du mode « compact ».
+_MULTI_OBSERVABILITY_EVENTS = {
+    "agent.worker.tool",
+    "agent.worker.error",
+    "agent.synthesizing",
+}
 
 
 class AskResponse(BaseModel):
@@ -1166,3 +1201,113 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
         if item is None:
             break
         await websocket.send_json(item[1])
+        
+# --- Orchestration multi-agents (superviseur / workers) --------------------
+
+
+@router.post("/multi/ask")
+def multi_ask(
+    request: MultiAskRequest, _: bool = Depends(require_api_key)
+):
+    """Orchestration multi-agents (mode bloquant).
+
+    Exécute plan → dispatch → synthèse via le superviseur et renvoie le
+    contrat de sortie stable de l'orchestrateur :
+    ``{"status", "final_answer", "plan", "workers", "unexecuted", "thinking"}``.
+    ``unexecuted`` liste explicitement les sous-tâches non exécutées (jamais
+    noyées dans la réponse).
+    """
+    result = ask_multi_agent(
+        request.prompt,
+        model=request.model or None,
+        parallel=request.parallel,
+    )
+    return result
+
+
+@router.post("/multi/ask/stream")
+def multi_ask_stream(
+    request: MultiAskRequest, _: bool = Depends(require_api_key)
+):
+    """Orchestration multi-agents en streaming SSE.
+
+    Événements SSE (``event:`` + ``data:``) :
+      - ``agent.plan``          plan validé (sous-tâches assignées)
+      - ``agent.worker.start``  une sous-tâche commence
+      - ``agent.worker.tool``   appel/retour d'outil (observabilité)
+      - ``agent.worker.error``  sous-tâche en erreur (observabilité)
+      - ``agent.worker.result`` résultat d'une sous-tâche
+      - ``agent.synthesizing``  phase de synthèse
+      - ``agent.done``          réponse finale
+      - ``agent.error``         erreur globale (plan invalide, abort)
+
+    ``mode`` : « full » (tous) ou « compact » (plan / worker.start /
+    worker.result / done / error — les événements d'observabilité sont
+    filtrés pour ne pas étouffer un front simple).
+
+    Réutilise le schéma éprouvé (queue.Queue + thread worker + générateur
+    async) et garde la traduction des pannes réseau en erreur HTTP précoce.
+    """
+    events: queue.Queue = queue.Queue()
+    compact = (request.mode or "full").strip().lower() == "compact"
+
+    def _emit(event_type: str, data: dict) -> None:
+        if compact and event_type in _MULTI_OBSERVABILITY_EVENTS:
+            return  # observabilité : aucun envoi au front en mode compact
+        events.put((event_type, data))
+
+    def worker() -> None:
+        try:
+            result = ask_multi_agent_streaming(
+                request.prompt,
+                model=request.model or None,
+                parallel=request.parallel,
+                on_event=_emit,
+            )
+            events.put(("agent.done", result))
+        except HTTPException as exc:  # panne réseau déjà traduite
+            events.put(("agent.error", {"message": str(exc.detail)}))
+        except Exception as exc:  # pragma: no cover
+            events.put(("agent.error", {"message": f"{type(exc).__name__}: {exc}"}))
+        finally:
+            events.put(("__done__", None))
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    # Réception SYNCHRONE du premier événement : une panne précoce reste une
+    # vraie erreur HTTP (même politique que /ask/stream).
+    first_kind, first_payload = events.get()
+    if first_kind == "agent.error":
+        raise HTTPException(
+            status_code=502, detail=first_payload.get("message", "Erreur multi-agents.")
+        )
+    if first_kind == "__done__":
+        raise HTTPException(status_code=502, detail="Aucun événement produit.")
+
+    async def _sse_stream() -> AsyncIterator[str]:
+        try:
+            # Rejoue le premier événement déjà consommé (sauf le sentinelle).
+            if first_kind != "__done__":
+                yield f"event: {first_kind}\n" + _sse(first_payload)
+            while True:
+                kind, payload = await asyncio.to_thread(events.get)
+                if kind == "__done__":
+                    break
+                if kind == "agent.error":
+                    yield f"event: {kind}\n" + _sse(payload)
+                    break
+                yield f"event: {kind}\n" + _sse(payload)
+            yield "data: [DONE]\n\n"
+        except asyncio.CancelledError:
+            # Le client a interrompu la génération (bouton Stop du chat).
+            raise
+
+    return StreamingResponse(
+        _sse_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # désactive le buffering nginx
+        },
+    )
