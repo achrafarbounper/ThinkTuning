@@ -150,8 +150,8 @@ export default function EvaluationPage() {
           )}
           {heat?.status === "done" && heat.data && (
             <>
-              <ConfusionExplanation data={heat.data} />
-              <ConfusionHeatmap data={heat.data} />
+              <ConfusionExplanation data={heat.data as never} />
+              <ConfusionHeatmap data={heat.data as never} />
             </>
           )}
           {heat?.status === "idle" && <p className="tt-hint">Sélectionnez un modèle.</p>}

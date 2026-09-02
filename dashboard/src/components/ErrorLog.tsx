@@ -1,5 +1,5 @@
 /**
- * ErrorLog.jsx
+ * ErrorLog.tsx
  * ---------------------------------------------------------------------
  * Journal des erreurs : liste défilante des exemples mal classés renvoyés
  * par GET /evaluate/confusion (champ `mistakes`).
@@ -8,20 +8,22 @@
  * confiance de la prédiction.
  */
 
-const LABELS_FR = { negative: "Négatif", neutral: "Neutre", positive: "Positif" };
+import type { Mistake } from "./types";
 
-function truncate(text, max = 140) {
+const LABELS_FR: Record<string, string> = { negative: "Négatif", neutral: "Neutre", positive: "Positif" };
+
+function truncate(text: unknown, max = 140): string {
   const s = String(text ?? "");
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-/**
- * @param {{
- *   mistakes?: Array<Record<string, unknown>>;
- *   maxShown?: number;
- * }} props
- */
-export default function ErrorLog({ mistakes = [], maxShown = 50 }) {
+export default function ErrorLog({
+  mistakes = [],
+  maxShown = 50,
+}: {
+  mistakes?: Mistake[];
+  maxShown?: number;
+}) {
   const shown = mistakes.slice(0, maxShown);
 
   return (
@@ -45,11 +47,11 @@ export default function ErrorLog({ mistakes = [], maxShown = 50 }) {
               </span>
               <span className="tt-errlog-flow">
                 <span className={`tt-badge tt-badge-${m.true_label}`}>
-                  {LABELS_FR[m.true_label] || m.true_label}
+                  {LABELS_FR[m.true_label ?? ""] || m.true_label}
                 </span>
                 <span className="tt-errlog-arrow">→</span>
                 <span className={`tt-badge tt-badge-${m.pred_label}`}>
-                  {LABELS_FR[m.pred_label] || m.pred_label}
+                  {LABELS_FR[m.pred_label ?? ""] || m.pred_label}
                 </span>
               </span>
               <span className="tt-errlog-conf tt-mono">

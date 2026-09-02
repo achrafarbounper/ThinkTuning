@@ -514,7 +514,7 @@ export default function TrainingPage() {
           />
 
           {/* -- Métriques live (WebSocket /train/stream/{job_id}) ---------- */}
-          <TrainMetricsStream jobId={currentJob ?? undefined} />
+          {currentJob && <TrainMetricsStream jobId={currentJob} client={client} />}
 
           {/* -- Planification récurrente (SCRUM-34 : POST /train/schedule) --- */}
           <div className="tt-history-section">
@@ -627,7 +627,7 @@ export default function TrainingPage() {
             <TrainingHistoryChart
               jobs={jobs as never}
               client={client}
-              pushLog={pushLog}
+              pushLog={pushLog as never}
             />
           </div>
 
@@ -720,7 +720,7 @@ export default function TrainingPage() {
           client={client}
           models={models as never}
           onModelsChanged={refreshModels}
-          pushLog={pushLog}
+          pushLog={pushLog as never}
         />
       </div>
     </>

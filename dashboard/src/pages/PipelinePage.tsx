@@ -394,7 +394,7 @@ export default function PipelinePage() {
           {pipelineError && <p className="tt-hint tt-hint-error">{pipelineError}</p>}
 
           <PipelineJobTracker
-            job={currentJob}
+            job={currentJob as never}
             onCancel={handleCancelPipeline}
             cancelLoading={cancelLoading}
           />

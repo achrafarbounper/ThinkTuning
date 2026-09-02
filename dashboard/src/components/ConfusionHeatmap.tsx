@@ -1,15 +1,7 @@
 /**
- * ConfusionHeatmap.jsx
+ * ConfusionHeatmap.tsx
  * ---------------------------------------------------------------------
  * Heatmap interactive de la matrice de confusion, rendue avec recharts.
- *
- * Reçoit la réponse de `GET /evaluate/confusion` :
- *   { labels: ["negative","neutral","positive"],
- *     matrix: [[3x3]], metrics, errors_by_class, n, model }
- *
- * Ligne = vrai, colonne = prédit. La diagonale (bonnes prédictions) est en
- * vert, les cellules hors-diagonale (erreurs) en rouge. Le survol affiche
- * « Vrai = X · Prédit = Y · Nombre = N ».
  */
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -21,19 +13,34 @@ import {
   ZAxis,
   Tooltip,
 } from "recharts";
+import type { ConfusionData } from "./types";
 
 const HEIGHT = 320;
 const AXIS_MARGIN = { top: 10, right: 20, bottom: 46, left: 80 };
 
-/** Couleur d'une cellule selon qu'elle est sur la diagonale (correcte). */
-function cellFill(value, max, isCorrect) {
-  const t = max > 0 ? value / max : 0;
-  if (isCorrect) return `rgba(47, 191, 113, ${0.22 + 0.78 * t})`; // vert
-  return `rgba(242, 84, 91, ${0.18 + 0.82 * t})`; // rouge (erreur)
+interface CellData {
+  x: number;
+  y: number;
+  value: number;
+  max: number;
+  trueIdx: number;
+  predIdx: number;
+  trueLabel?: string;
+  predLabel?: string;
+  isCorrect: boolean;
 }
 
-/** Cellule custom : un rect + le compteur, centré sur les coordonnées recharts. */
-function CellRect({ cx, cy, cellW, cellH, value, max, isCorrect }) {
+interface CellRectProps {
+  cx?: number;
+  cy?: number;
+  cellW: number;
+  cellH: number;
+  value: number;
+  max: number;
+  isCorrect: boolean;
+}
+
+function CellRect({ cx, cy, cellW, cellH, value, max, isCorrect }: CellRectProps) {
   if (cx == null || cy == null) return null;
   const w = Math.max(8, cellW * 0.92);
   const h = Math.max(8, cellH * 0.92);
@@ -63,8 +70,12 @@ function CellRect({ cx, cy, cellW, cellH, value, max, isCorrect }) {
   );
 }
 
-/** Tooltip maison : infos lisibles plutôt que les coordonnées brutes. */
-function ConfusionTooltip({ active, payload }) {
+interface ConfusionTooltipProps {
+  active?: boolean;
+  payload?: Array<{ payload: CellData }>;
+}
+
+function ConfusionTooltip({ active, payload }: ConfusionTooltipProps) {
   if (!active || !payload || !payload.length) return null;
   const p = payload[0]?.payload;
   if (!p) return null;
@@ -80,11 +91,16 @@ function ConfusionTooltip({ active, payload }) {
   );
 }
 
-export default function ConfusionHeatmap({ data }) {
-  const wrapRef = useRef(null);
+function cellFill(value: number, max: number, isCorrect: boolean): string {
+  const t = max > 0 ? value / max : 0;
+  if (isCorrect) return `rgba(47, 191, 113, ${0.22 + 0.78 * t})`;
+  return `rgba(242, 84, 91, ${0.18 + 0.82 * t})`;
+}
+
+export default function ConfusionHeatmap({ data }: { data: ConfusionData | null | undefined }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
-  // Mesure la largeur du conteneur pour dimensionner parfaitement les cellules.
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return undefined;
@@ -100,15 +116,15 @@ export default function ConfusionHeatmap({ data }) {
   const cellW = innerW / 3;
   const cellH = innerH / 3;
 
-  const cells = useMemo(() => {
+  const cells = useMemo<CellData[]>(() => {
     const labels = data?.labels || [];
     const matrix = data?.matrix || [];
     const max = matrix.flat().reduce((m, v) => (v > m ? v : m), 0);
-    const out = [];
+    const out: CellData[] = [];
     matrix.forEach((row, trueIdx) => {
       row.forEach((value, predIdx) => {
         out.push({
-          x: predIdx + 0.5, // cellule i → centre du band i (domaine [0,3])
+          x: predIdx + 0.5,
           y: trueIdx + 0.5,
           value,
           max,
@@ -138,7 +154,7 @@ export default function ConfusionHeatmap({ data }) {
             domain={[0, 3]}
             ticks={[0.5, 1.5, 2.5]}
             allowDataOverflow
-            tickFormatter={(t) => data.labels[Math.round(t - 0.5)]}
+            tickFormatter={(t: number) => data.labels?.[Math.round(t - 0.5)] ?? ""}
             tick={{ fill: "#8b94a3", fontSize: 12 }}
             tickLine={false}
             axisLine={{ stroke: "#1e242c" }}
@@ -152,7 +168,7 @@ export default function ConfusionHeatmap({ data }) {
             ticks={[0.5, 1.5, 2.5]}
             allowDataOverflow
             reversed
-            tickFormatter={(t) => data.labels[Math.round(t - 0.5)]}
+            tickFormatter={(t: number) => data.labels?.[Math.round(t - 0.5)] ?? ""}
             tick={{ fill: "#8b94a3", fontSize: 12 }}
             tickLine={false}
             axisLine={{ stroke: "#1e242c" }}
@@ -163,7 +179,7 @@ export default function ConfusionHeatmap({ data }) {
           <Scatter
             data={cells}
             isAnimationActive={false}
-            shape={(props) => <CellRect {...props} cellW={cellW} cellH={cellH} />}
+            shape={(props: unknown) => <CellRect {...(props as CellRectProps)} cellW={cellW} cellH={cellH} />}
           />
         </ScatterChart>
       )}

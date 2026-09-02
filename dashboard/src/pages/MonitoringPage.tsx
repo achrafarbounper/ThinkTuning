@@ -32,7 +32,8 @@ import {
   parsePrometheusText,
   normalizeJsonProxy,
   aggregateSnapshot,
-  deltaSnapshots,
+  computeDelta,
+  type AggregatedSnapshot,
 } from "../api/prometheusParser";
 
 const WINDOW_MS = 5 * 60 * 1000; // 5 dernières minutes
@@ -222,7 +223,7 @@ export default function MonitoringPage() {
         raw = parsePrometheusText(text) as RawSnapshot;
         if (!raw.counters.length && !raw.histograms.length) throw new Error("parse vide");
       } catch {
-        raw = normalizeJsonProxy(await client.getMetricsJson()) as RawSnapshot;
+        raw = normalizeJsonProxy(await client.getMetricsJson() as Record<string, unknown>) as RawSnapshot;
         src = "json";
       }
     } catch (err) {
@@ -230,8 +231,8 @@ export default function MonitoringPage() {
       return;
     }
 
-    const agg = aggregateSnapshot(raw) as Aggregate;
-    const delta = prevRef.current ? (deltaSnapshots(prevRef.current, agg) as DeltaResult) : null;
+    const agg = aggregateSnapshot(raw) as unknown as Aggregate;
+    const delta = prevRef.current ? (computeDelta(prevRef.current as unknown as AggregatedSnapshot, agg as unknown as AggregatedSnapshot) as unknown as DeltaResult) : null;
 
     prevRef.current = agg;
     setSource(src);

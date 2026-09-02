@@ -1,42 +1,29 @@
 import { useEffect, useState } from "react";
-import { TRAIN_STEPS } from "../api/sentimentApiClient";
+import { PIPELINE_STEPS } from "../api/sentimentApiClient";
+import type { PipelineJobTrackerProps } from "./types";
 
 /**
- * TrainJobTracker — affiche le suivi d'un job d'entraînement en cours :
- * statut, étape courante, timing, et possibilité d'annulation.
- *
- * Les hooks sont volontairement appelés avant tout retour anticipé afin de
- * respecter la règle react-hooks/rules-of-hooks.
+ * PipelineJobTracker — suivi d'un job pipeline end-to-end
+ * (labeling -> filtering -> fine-tuning), sur le modèle de TrainJobTracker.
  */
 
-const STEP_LABELS = {
+const STEP_LABELS: Record<string, string> = {
   queued: "En file d'attente",
-  loading_dataset: "Chargement du dataset",
-  splitting_dataset: "Split train/val",
-  augmenting_dataset: "Recomposition (EDA)",
-  building_dataloaders: "Construction DataLoaders",
-  computing_class_weights: "Poids des classes",
-  loading_model: "Chargement du modèle",
-  training: "Entraînement",
-  saving_model: "Sauvegarde du modèle",
+  labeling: "Labeling DistilBERT",
+  filtering: "Filtrage par confidence",
+  finetuning: "Fine-tuning LLM (LoRA)",
   done: "Terminé",
   cancelled: "Annulé",
 };
 
-function formatDuration(startedAt, endSeconds) {
+function formatDuration(startedAt?: number, endSeconds?: number | null): string | null {
   if (!startedAt || !endSeconds) return null;
   const seconds = Math.max(0, Math.round(endSeconds - startedAt));
   if (seconds < 60) return `${seconds}s`;
   return `${Math.round(seconds / 60)}m`;
 }
 
-export default function TrainJobTracker({
-  job,
-  onCancel,
-  cancelLoading = false,
-}) {
-  // Horloge rafraîchie chaque seconde UNIQUEMENT pendant l'exécution du job ;
-  // évite d'appeler Date.now() (impur) pendant le rendu.
+export default function PipelineJobTracker({ job, onCancel, cancelLoading = false }: PipelineJobTrackerProps) {
   const [nowTs, setNowTs] = useState(0);
   const isRunning = job?.status === "running" || job?.status === "pending";
 
@@ -48,7 +35,7 @@ export default function TrainJobTracker({
 
   if (!job) return null;
 
-  const stepIndex = TRAIN_STEPS.indexOf(job.step);
+  const stepIndex = PIPELINE_STEPS.indexOf(job.step ?? "");
   const isCompleted = job.status === "completed";
   const isFailed = job.status === "failed";
   const isCancelled = job.status === "cancelled";
@@ -56,15 +43,16 @@ export default function TrainJobTracker({
   const endSeconds = job.finished_at ?? (nowTs ? nowTs / 1000 : null);
   const duration = formatDuration(job.started_at, endSeconds);
 
-  const statusColor = {
+  const statusColor: Record<string, string> = {
     running: "#2563eb",
     completed: "#16a34a",
     failed: "#dc2626",
     cancelled: "#ea580c",
     pending: "#6b7280",
-  }[job.status] || "#9ca3af";
+  };
+  const color = statusColor[job.status] || "#9ca3af";
 
-  const stepLabel = STEP_LABELS[job.step] || job.step;
+  const stepLabel = STEP_LABELS[job.step ?? ""] || job.step;
 
   return (
     <div className="tt-job-live">
@@ -74,7 +62,7 @@ export default function TrainJobTracker({
         </h3>
         <span
           className={`tt-tag tt-tag-status-${job.status}`}
-          style={{ color: statusColor }}
+          style={{ color }}
         >
           {job.status}
         </span>
@@ -86,9 +74,9 @@ export default function TrainJobTracker({
       </p>
 
       <ul className="tt-tracker">
-        {TRAIN_STEPS.map((step, index) => {
+        {PIPELINE_STEPS.map((step, index) => {
           const stateClass =
-            isFailed && index === stepIndex
+            (isFailed || isCancelled) && index === stepIndex
               ? "tt-tracker-error"
               : index < stepIndex || isCompleted
               ? "tt-tracker-done"
@@ -102,25 +90,18 @@ export default function TrainJobTracker({
             </li>
           );
         })}
-        {isCancelled && (
-          <li className="tt-tracker-step tt-tracker-error">
-            <span className="tt-tracker-dot" aria-hidden="true" />
-            Annulé
-          </li>
-        )}
       </ul>
 
-      {job.error && <p className="tt-hint tt-hint-error tt-job-error">{job.error}</p>}
-
-      {/* Garde-fou anti-régression (continual training) : la nouvelle version
-          a un F1 macro inférieur à celui de la version source. */}
-      {job.regression && (
-        <p className="tt-hint tt-hint-error tt-job-error">
-          ⚠ Régression détectée{job.regression_detail ? ` — ${job.regression_detail}` : ""}
+      {job.model_path && (
+        <p className="tt-hint">
+          {isCompleted ? "Modèle LoRA produit : " : "Dataset labelé : "}
+          <span className="tt-mono">{job.model_path}</span>
         </p>
       )}
 
-      {(job.status === "running" || job.status === "pending") && (
+      {job.error && <p className="tt-hint tt-hint-error tt-job-error">{job.error}</p>}
+
+      {isRunning && (
         <button
           className="tt-btn tt-btn-danger"
           type="button"
