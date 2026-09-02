@@ -24,13 +24,14 @@ import os
 os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port factice
 
+from agent.thinking import extract_thinking  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+
+from api import app  # noqa: E402
 
 # ORDRE IMPORTANT : importer agent_cache AVANT tout module « agent.* »,
 # c'est lui qui ajoute le dossier ia/ au sys.path.
 from core import agent_cache  # noqa: E402
-from agent.thinking import extract_thinking  # noqa: E402
-from api import app  # noqa: E402
 
 AgentCore = agent_cache.AgentCore
 AgentRunner = agent_cache.AgentRunner

@@ -89,6 +89,12 @@ from copilot.suggestions import (  # Phase D (copilot)
     suggest_for_context,
 )
 
+# Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
+from app.agent.core import RunStatus
+from app.agent.factory import build_agent_core, new_core_enabled
+from app.domain.entities.plan import Intent
+from app.infrastructure.legacy_approval_store import build_approval_store
+
 router = APIRouter(prefix="/api/agent", tags=["Agent IA"])
 
 # Timeout (secondes) des sondes de connectivité du bouton « Tester ».
@@ -445,6 +451,112 @@ def ask(request: AskRequest, _: bool = Depends(require_api_key)):
         status=decision.get("status", "completed"),
         request_id=decision.get("request_id"),
         approval=decision.get("approval"),
+    )
+
+
+# --- Nouveau noyau agentique (POST /api/agent/ask/core) ------------------------------
+# Endpoint ADDITIF : utilise app/agent/core.py (Intent -> Plan -> Policy ->
+# Budget -> Action) sans modifier le comportement de /ask. Tant que le flag
+# AGENT_NEW_CORE est absent, il répond 503 (bascule incrémentale).
+
+
+@router.post("/ask/core", response_model=AskResponse)
+def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
+    """Prompt libre via le nouveau noyau agentique (flag ``AGENT_NEW_CORE``).
+
+    Réutilise les conventions de /ask : run_store, audit, persistance de
+    session, réponse AskResponse (status : completed / awaiting_approval /
+    rejected / error)."""
+    if not new_core_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Nouveau noyau agentique désactivé (AGENT_NEW_CORE non activé).",
+        )
+
+    run_store = get_run_store()
+    run_row = run_store.start_run(
+        request.prompt, model=agent_config()["model"], source="ask_core"
+    )
+    _audit_log(ACT_RUN, subject="ask_core",
+               detail={"status": "started"}, run_id=run_row["id"])
+
+    # Gateway d'approbation : si le run reprend après validation humaine
+    # (resume_request_id -> action approuvée), la gateway accorde UNIQUEMENT
+    # l'action dont l'empreinte (args_hash) correspond à la demande approuvée.
+    approval_store = build_approval_store()
+    resume_record = (
+        approval_store.get(request.resume_request_id)
+        if request.resume_request_id else None
+    )
+    resume_hash = (
+        resume_record.get("args_hash")
+        if resume_record and resume_record.get("status") == APPROVED else None
+    )
+
+    def _approval_gateway(action) -> bool:
+        return bool(resume_hash and action.fingerprint() == resume_hash)
+
+    try:
+        core = build_agent_core(approval_gateway=_approval_gateway)
+        history = _load_session_history(request.session_id, request.resume_request_id)
+        result = core.run(
+            Intent(prompt=request.prompt, session_id=request.session_id or "default"),
+            history=history,
+        )
+    except Exception as exc:
+        run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    approval_payload = None
+    if result.status is RunStatus.PENDING_APPROVAL and result.awaiting_action:
+        action = result.awaiting_action
+        record = approval_store.create(
+            action.tool,
+            action.args,
+            action.category.value,
+            "approve",
+            "Policy : validation humaine requise",
+            prompt=request.prompt,
+            args_hash=action.fingerprint(),
+        )
+        approval_payload = {
+            "request_id": record.get("request_id") or record.get("id"),
+            "tool": action.tool,
+            "args": action.args,
+        }
+        _audit_log(
+            ACT_APPROVAL, subject="ask_core",
+            detail={"request_id": approval_payload["request_id"], "tool": action.tool},
+            run_id=run_row["id"],
+        )
+
+    status_map = {
+        RunStatus.COMPLETED: "completed",
+        RunStatus.PENDING_APPROVAL: "awaiting_approval",
+        RunStatus.REJECTED_LOOP: "rejected",
+        RunStatus.BUDGET_EXHAUSTED: "error",
+        RunStatus.FAILED: "error",
+    }
+    api_status = status_map.get(result.status, "completed")
+    run_store.finish_run(
+        run_row["id"], status_map.get(result.status, RUN_COMPLETED),
+        answer_summary=(result.answer or "")[:300],
+    )
+    _audit_log(
+        ACT_RUN, subject="ask_core",
+        detail={"status": api_status, "actions": len(result.actions),
+                "rounds": result.rounds_used, "tool_calls": result.tool_calls_used},
+        run_id=run_row["id"],
+    )
+    if api_status != "error":
+        _persist_exchange(request.session_id, request.prompt, result.answer or "")
+
+    return AskResponse(
+        response=result.answer or "",
+        model=agent_config()["model"],
+        status=api_status,
+        request_id=approval_payload["request_id"] if approval_payload else run_row["id"],
+        approval=approval_payload,
     )
 
 

@@ -22,9 +22,7 @@ for _p in (PROJECT_ROOT, IA_DIR):
 os.environ.setdefault("AGENT_API_KEY", "test-agent-key")
 
 import pytest
-
 from agent.json_parser import extract_json_blocks
-
 
 # --- Parser JSON -----------------------------------------------------------------
 

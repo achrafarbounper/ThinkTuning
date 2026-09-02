@@ -44,7 +44,6 @@ agent_settings_module.reset_store_for_tests(_SETTINGS_DB)
 from agent import llm_client as llm_module  # noqa: E402
 from agent.llm_client import LLMClient  # noqa: E402
 
-
 DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 

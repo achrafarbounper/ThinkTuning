@@ -22,8 +22,49 @@ from logging_setup import setup_agent_logging  # noqa: E402
 
 setup_agent_logging(os.getenv("AGENT_LOG_LEVEL", "INFO"))
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+# SCRUM-74 : sanity check comportemental du modèle au démarrage de l'API.
+# Exécute Predictor.predict() sur un jeu fixe de phrases FR/EN polarisées
+# afin de détecter un modèle non entraîné / un fallback base model. L'API
+# reste démarrée (disponibilité de /health/model-sanity et de l'outillage),
+# mais l'état est loggé en ERROR et exposé via l'endpoint de santé.
+def _run_startup_model_sanity() -> None:
+    import logging
+
+    from core.model_sanity import run_model_sanity, VERDICT_OK
+    from core.predictor_cache import get_predictor
+
+    _logger = logging.getLogger(__name__)
+    try:
+        predictor = get_predictor()
+        report = run_model_sanity(predictor)
+        if report["verdict"] == VERDICT_OK:
+            _logger.info("Sanity check modèle au démarrage : %s", report["detail"])
+        else:
+            _logger.error(
+                "Sanity check modèle au démarrage ÉCHOUÉ [%s] : %s",
+                report["verdict"],
+                report["detail"],
+            )
+    except Exception as exc:
+        # Aucun modèle disponible au démarrage (ex. premier lancement Docker)
+        # ou échec du check : non bloquant, l'état reste visible via
+        # GET /health/model-sanity.
+        _logger.warning(
+            "Sanity check modèle au démarrage indisponible : %s", exc
+        )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Cycle de vie de l'application (remplace @app.on_event, déprécié)."""
+    _run_startup_model_sanity()
+    yield
+
 
 from api.routes import train, predict, maintenance, metrics, health, models, ai_chat, agent, sessions, evaluate, explain, drift, pipeline, active_learning  # noqa: E402
 from core.scheduler import ensure_scheduler_started  # noqa: E402
@@ -43,6 +84,7 @@ app = FastAPI(
     title="Sentiment Analysis API",
     description="Entraînement et prédiction pour l'analyse de sentiments FR/EN",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -76,35 +118,3 @@ app.include_router(active_learning.router)
 # d'entraînement persistées (table scheduled_jobs du SQLite existant).
 ensure_scheduler_started()
 
-
-# SCRUM-74 : sanity check comportemental du modèle au démarrage de l'API.
-# Exécute Predictor.predict() sur un jeu fixe de phrases FR/EN polarisées
-# afin de détecter un modèle non entraîné / un fallback base model. L'API
-# reste démarrée (disponibilité de /health/model-sanity et de l'outillage),
-# mais l'état est loggé en ERROR et exposé via l'endpoint de santé.
-@app.on_event("startup")
-def run_startup_model_sanity():
-    import logging
-
-    from core.model_sanity import run_model_sanity, VERDICT_OK
-    from core.predictor_cache import get_predictor
-
-    _logger = logging.getLogger(__name__)
-    try:
-        predictor = get_predictor()
-        report = run_model_sanity(predictor)
-        if report["verdict"] == VERDICT_OK:
-            _logger.info("Sanity check modèle au démarrage : %s", report["detail"])
-        else:
-            _logger.error(
-                "Sanity check modèle au démarrage ÉCHOUÉ [%s] : %s",
-                report["verdict"],
-                report["detail"],
-            )
-    except Exception as exc:
-        # Aucun modèle disponible au démarrage (ex. premier lancement Docker)
-        # ou échec du check : non bloquant, l'état reste visible via
-        # GET /health/model-sanity.
-        _logger.warning(
-            "Sanity check modèle au démarrage indisponible : %s", exc
-        )

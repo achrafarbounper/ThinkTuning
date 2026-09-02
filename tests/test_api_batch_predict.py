@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 import api
 from api import app
 
-
 client = TestClient(app)
 
 
@@ -216,8 +215,9 @@ def test_batch_parquet():
     assert "predictions.parquet" in content_disposition
 
     # 3. Le contenu doit être lisible en parquet
-    import pandas as pd
     import io
+
+    import pandas as pd
 
     raw = response.content
     df = pd.read_parquet(io.BytesIO(raw))

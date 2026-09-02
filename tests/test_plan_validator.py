@@ -24,7 +24,6 @@ for _p in (PROJECT_ROOT, IA_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import pytest  # noqa: E402
 
 from agent.errors import (  # noqa: E402
     PLAN_CYCLE,

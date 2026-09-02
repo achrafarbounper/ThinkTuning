@@ -14,7 +14,6 @@ if _IA_ROOT not in sys.path:
 os.environ.setdefault("API_KEY", "test-key")  # avant l'import de l'app
 
 import pytest
-
 from copilot.feedback import FeedbackStore, get_feedback_store, reset_feedback_store
 from copilot.suggestions import (
     args_skeleton,
@@ -22,7 +21,6 @@ from copilot.suggestions import (
     nl_to_tool,
     suggest_for_context,
 )
-
 
 # ---------------------------------------------------------------------------
 # FeedbackStore (SQLite)

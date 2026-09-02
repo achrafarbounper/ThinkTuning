@@ -33,6 +33,8 @@ MANIFEST
 
 # Testing & Coverage
 tests/tmp_models
+tests/tmp/
+*.db
 htmlcov/
 .tox/
 .nox/
@@ -176,3 +178,9 @@ build/
 # Agent IA : espace de travail sandbox + scripts temporaires
 agent_workspace/
 .agent_tmp/
+
+# Sorties de runs / journaux de test ad hoc (racine du projet)
+/e2e_*.txt
+/pytest_*.txt
+/fixtests_*.txt
+/dashboard/build_out.txt

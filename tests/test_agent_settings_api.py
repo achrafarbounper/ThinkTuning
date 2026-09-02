@@ -26,9 +26,9 @@ os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from core import agent_settings as agent_settings_module  # noqa: E402
-from core import agent_cache  # noqa: E402
 from api import app  # noqa: E402
+from core import agent_cache  # noqa: E402
+from core import agent_settings as agent_settings_module  # noqa: E402
 
 HEADERS = {"X-API-Key": "test-key"}
 client = TestClient(app)

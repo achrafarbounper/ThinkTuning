@@ -1,0 +1,78 @@
+[project]
+name = "thinktuning"
+version = "1.0.0"
+description = "Backend ML d'analyse de sentiments FR/EN avec couche agentique (API FastAPI + agent Intent -> Plan -> Action)"
+requires-python = ">=3.11"
+
+# MIROIR de requirements.txt (source d'installation du Dockerfile, qui gère
+# torch via son index CPU dédié : https://download.pytorch.org/whl/cpu).
+# Toute dépendance ajoutée ici DOIT l'être aussi dans requirements.txt
+# (et inversement) tant que le Dockerfile installe via -r requirements.txt.
+dependencies = [
+    "torch>=2.0.0",
+    "transformers==5.15.0",
+    "datasets>=2.19.0",
+    "scikit-learn>=1.4.0",
+    "matplotlib>=3.7.0",
+    "nltk==3.10.2",
+    "nlpaug>=1.1.11",
+    "pandas>=2.0.0",
+    "numpy==2.4.5",
+    "accelerate>=0.30.0",
+    "sentencepiece>=0.1.99",
+    "peft>=0.11.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "prometheus-client>=0.20.0",
+    "rich>=13.0.0",
+    "starlette==1.0.1",
+    "pyarrow>=14.0.0",
+    "requests>=2.32.0",
+    "psycopg2-binary>=2.9.9",
+    "pyyaml>=6.0",
+    "apscheduler>=3.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["venv", "dashboard", ".agent_tmp", "experiments", "outputs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
+# E501 géré par line-length ; les TODO/héritages sont annotés dans le code.
+ignore = ["B008"]  # Depends() en signature FastAPI (idiome officiel)
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = ["venv", "dashboard", ".agent_tmp", "experiments", "outputs", "src", "ia", "core", "api"]
+# Phase 3 : retirer les exclusions à mesure que les modules migrent sous app/.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# Complète pytest.ini existant ; ne le remplace pas tant que la migration des
+# tests n'est pas terminée.
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/__init__.py"]

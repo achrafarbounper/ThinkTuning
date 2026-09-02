@@ -9,19 +9,16 @@ Vérifie :
 """
 
 import threading
-import time
 import unittest
 
 from ia.agent.event_bus import (
     EventBus,
-    get_event_bus,
-    on,
-    once,
-    off,
     emit,
-    listener_count,
-    temporary_listener,
+    get_event_bus,
+    off,
+    on,
     reset_event_bus,
+    temporary_listener,
 )
 
 

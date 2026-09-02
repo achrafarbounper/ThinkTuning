@@ -21,10 +21,8 @@ if _IA_ROOT not in sys.path:
 
 import pytest  # noqa: E402
 import requests  # noqa: E402
-
 from agent import reliability as rel  # noqa: E402
 from agent.llm_client import LLMClient  # noqa: E402
-
 
 # --- Classification des erreurs ------------------------------------------------------
 

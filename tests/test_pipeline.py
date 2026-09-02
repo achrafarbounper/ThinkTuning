@@ -7,7 +7,6 @@ finetune_llm.py sont remplacés par des doubles.
 """
 
 import sys
-import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,10 +14,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from core.models import PipelineRequest, TrainJob, JobStatus
-from core import pipeline_runner
 import pipeline as pipeline_cli
-
+from core import pipeline_runner
+from core.models import JobStatus, PipelineRequest, TrainJob
 
 # --------------------------------------------------------------------------- #
 # Fixtures / helpers
@@ -83,8 +81,8 @@ def api_client(tmp_path, monkeypatch):
     """Client FastAPI avec job store isolé (tmp_path) et runner mocké."""
     monkeypatch.setenv("API_KEY", "test-key")
 
-    from core.job_store import PersistentJobStore
     from api.routes import pipeline as pipeline_route
+    from core.job_store import PersistentJobStore
 
     store = PersistentJobStore(path=str(tmp_path / "jobs.db"))
     monkeypatch.setattr(pipeline_route, "get_job_store", lambda: store)

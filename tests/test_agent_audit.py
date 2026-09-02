@@ -16,8 +16,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import api  # noqa: E402,F401
 from api import app  # noqa: E402
-from core import audit_store  # noqa: E402
-from core import feature_flags  # noqa: E402
+from core import (
+    audit_store,  # noqa: E402
+    feature_flags,  # noqa: E402
+)
 
 HEADERS = {"X-API-Key": "test-key"}
 

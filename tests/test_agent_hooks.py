@@ -8,10 +8,9 @@ Vérifie :
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
 
-from ia.agent.event_bus import EventBus, reset_event_bus, on, off
-from ia.agent.middleware import clear_middlewares, register_middleware, process_tool_call
+from ia.agent.event_bus import on, reset_event_bus
+from ia.agent.middleware import clear_middlewares, process_tool_call, register_middleware
 
 
 class TestEventEmission(unittest.TestCase):

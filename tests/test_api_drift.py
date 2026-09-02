@@ -131,8 +131,8 @@ def test_drift_missing_fields(client, monkeypatch):
 
 def test_drift_csv_upload(client, monkeypatch):
     _setup(monkeypatch, pred_map={"neg1": "negative", "neg2": "negative"})
-    csv_a = io.BytesIO("text\nneg1\nneg2\np1\np2\n".encode())
-    csv_b = io.BytesIO("text\np1\np2\np3\np4\n".encode())
+    csv_a = io.BytesIO(b"text\nneg1\nneg2\np1\np2\n")
+    csv_b = io.BytesIO(b"text\np1\np2\np3\np4\n")
     resp = client.post(
         "/drift",
         files={"file_a": ("a.csv", csv_a, "text/csv"), "file_b": ("b.csv", csv_b, "text/csv")},
@@ -148,8 +148,8 @@ def test_drift_csv_upload(client, monkeypatch):
 
 def test_drift_csv_custom_column(client, monkeypatch):
     _setup(monkeypatch)
-    csv_a = io.BytesIO("review\nx\ny\n".encode())
-    csv_b = io.BytesIO("review\nx\ny\n".encode())
+    csv_a = io.BytesIO(b"review\nx\ny\n")
+    csv_b = io.BytesIO(b"review\nx\ny\n")
     resp = client.post(
         "/drift",
         params={"text_column": "review"},
@@ -162,8 +162,8 @@ def test_drift_csv_custom_column(client, monkeypatch):
 
 def test_drift_csv_missing_column(client, monkeypatch):
     _setup(monkeypatch)
-    csv_a = io.BytesIO("body\nx\n".encode())
-    csv_b = io.BytesIO("text\ny\n".encode())
+    csv_a = io.BytesIO(b"body\nx\n")
+    csv_b = io.BytesIO(b"text\ny\n")
     resp = client.post(
         "/drift",
         files={"file_a": ("a.csv", csv_a, "text/csv"), "file_b": ("b.csv", csv_b, "text/csv")},
@@ -175,7 +175,7 @@ def test_drift_csv_missing_column(client, monkeypatch):
 def test_drift_csv_invalid(client, monkeypatch):
     _setup(monkeypatch)
     bad = io.BytesIO(b"\x00\xff not csv")
-    ok = io.BytesIO("text\ny\n".encode())
+    ok = io.BytesIO(b"text\ny\n")
     resp = client.post(
         "/drift",
         files={"file_a": ("a.csv", bad, "text/csv"), "file_b": ("b.csv", ok, "text/csv")},

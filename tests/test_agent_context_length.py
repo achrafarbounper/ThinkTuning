@@ -21,7 +21,6 @@ for _p in (PROJECT_ROOT, IA_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import pytest  # noqa: E402
 
 from core import agent_cache  # noqa: E402  (insère ia/ dans sys.path)
 
