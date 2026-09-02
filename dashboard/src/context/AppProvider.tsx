@@ -29,6 +29,8 @@ const AGENT_DEFAULTS: AgentSettings = {
   ollamaUrl: "",
   openrouterUrl: "https://openrouter.ai/api/v1",
   openrouterApiKey: "",
+  hfUrl: "https://router.huggingface.co/v1",
+  hfApiKey: "",
   timeoutSeconds: 60,
   contextLength: 512,
   temperature: 0.2,

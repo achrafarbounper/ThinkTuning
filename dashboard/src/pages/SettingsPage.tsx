@@ -4,7 +4,8 @@
  * La configuration (URL de base + clé X-API-Key) est persistée en localStorage
  * via AppContext ; elle est partagée par toutes les pages et le chat.
  *
- * La section « Assistant IA » configure le provider LLM (Ollama / OpenRouter).
+ * La section « Assistant IA » configure le provider LLM (Ollama / OpenRouter /
+ * Hugging Face Inference Providers).
  */
 
 import { useCallback, useState, type FormEvent } from "react";
@@ -19,6 +20,8 @@ interface DraftShape {
   ollamaUrl: string;
   openrouterUrl: string;
   openrouterApiKey: string;
+  hfUrl: string;
+  hfApiKey: string;
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
@@ -45,6 +48,8 @@ export default function SettingsPage() {
     ollamaUrl: agentSettings?.ollamaUrl ?? "",
     openrouterUrl: agentSettings?.openrouterUrl ?? "https://openrouter.ai/api/v1",
     openrouterApiKey: agentSettings?.openrouterApiKey ?? "",
+    hfUrl: agentSettings?.hfUrl ?? "https://router.huggingface.co/v1",
+    hfApiKey: agentSettings?.hfApiKey ?? "",
     timeoutSeconds: agentSettings?.timeoutSeconds ?? 60,
     contextLength: agentSettings?.contextLength ?? 512,
     temperature: agentSettings?.temperature ?? 0.2,
@@ -67,6 +72,7 @@ export default function SettingsPage() {
   }
 
   const isOllama = draft.provider === "ollama";
+  const isHf = draft.provider === "hf";
 
   // -- Connexion API ----------------------------------------------------------
     const saveConfig = useCallback(
@@ -165,6 +171,8 @@ export default function SettingsPage() {
                 updateDraft("provider", e.target.value);
                 if (e.target.value === "openrouter") {
                   updateDraft("openrouterUrl", "https://openrouter.ai/api/v1");
+                } else if (e.target.value === "hf") {
+                  updateDraft("hfUrl", "https://router.huggingface.co/v1");
                 } else {
                   updateDraft("ollamaUrl", "");
                 }
@@ -173,13 +181,16 @@ export default function SettingsPage() {
             >
               <option value="ollama">Ollama (local)</option>
               <option value="openrouter">OpenRouter (hébergé)</option>
+              <option value="hf">Hugging Face (Inference Providers)</option>
                         </select>
           </div>
 
           <p className="tt-assistant-section-help">
             {isOllama
               ? "Exécute les requêtes LLM locales via Docker Ollama."
-              : "Accède aux LLM via OpenRouter avec votre clé API."}
+              : isHf
+                ? "Accède aux LLM via Hugging Face Inference Providers avec votre token HF."
+                : "Accède aux LLM via OpenRouter avec votre clé API."}
           </p>
 
           <div className="tt-assistant-grid">
@@ -246,7 +257,7 @@ export default function SettingsPage() {
             </label>
           )}
 
-          {!isOllama && (
+          {!isOllama && !isHf && (
             <label>
               <span className="tt-assistant-label">URL OpenRouter</span>
               <input
@@ -259,7 +270,7 @@ export default function SettingsPage() {
             </label>
           )}
 
-          {!isOllama && (
+          {!isOllama && !isHf && (
             <label>
               <span className="tt-assistant-label">Clé API OpenRouter</span>
               <input
@@ -267,6 +278,32 @@ export default function SettingsPage() {
                 value={draft.openrouterApiKey}
                 onChange={(e) => updateDraft("openrouterApiKey", e.target.value)}
                 placeholder="sk-or-xxxxxxxxxxxx"
+                className="tt-input-tt-settings"
+              />
+            </label>
+          )}
+
+          {isHf && (
+            <label>
+              <span className="tt-assistant-label">URL Hugging Face</span>
+              <input
+                type="text"
+                value={draft.hfUrl}
+                onChange={(e) => updateDraft("hfUrl", e.target.value)}
+                placeholder="https://router.huggingface.co/v1"
+                className="tt-input-tt-settings"
+              />
+            </label>
+          )}
+
+          {isHf && (
+            <label>
+              <span className="tt-assistant-label">Token API Hugging Face</span>
+              <input
+                type="password"
+                value={draft.hfApiKey}
+                onChange={(e) => updateDraft("hfApiKey", e.target.value)}
+                placeholder="hf_xxxxxxxxxxxxxxxx"
                 className="tt-input-tt-settings"
               />
             </label>
@@ -329,7 +366,7 @@ export default function SettingsPage() {
             ThinkTuning — pipeline complet de recomposition de données (EDA) +
             fine-tuning DistilBERT multilingue pour la classification de sentiments
             (positif / neutre / négatif) en français et en anglais. Assistant IA
-            configurable via OpenRouter ou Ollama.
+            configurable via OpenRouter, Hugging Face ou Ollama.
           </p>
         </section>
       </div>
