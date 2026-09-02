@@ -125,7 +125,7 @@ class TrainJob(BaseModel):
 
 
 # Ordre canonique des étapes du pipeline d'entraînement (core/trainer_runner.py
-# et dashboard/src/api/jobSteps.js — à garder alignés).
+# et dashboard/src/api/jobSteps.ts — à garder alignés).
 TRAIN_JOB_STEPS = [
     "queued",
     "loading_dataset",

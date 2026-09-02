@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
@@ -30,6 +31,26 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 from .system_prompt import THINKING_PROMPT_SECTION, build_system_prompt
 from .json_parser import extract_json_blocks as _parse_json_blocks
 from .thinking import extract_thinking
+
+# === Infrastructure d'extension (hooks, middlewares, observabilité) ===
+# Imports best-effort : ces modules sont optionnels et ne doivent pas bloquer
+# le démarrage de l'agent s'ils sont absents.
+try:
+    from .event_bus import get_event_bus
+except ImportError:
+    get_event_bus = None  # type: ignore[assignment]
+try:
+    from .middleware import process_tool_call
+except ImportError:
+    process_tool_call = None  # type: ignore[assignment]
+try:
+    from .observability import record_metric
+except ImportError:
+    record_metric = None  # type: ignore[assignment]
+try:
+    from .audit import log_tool_call as _audit_log
+except ImportError:
+    _audit_log = None  # type: ignore[assignment]
 
 
 # ============================================================
@@ -399,6 +420,7 @@ class AgentCore:
         blocks: List[Dict[str, Any]],
         previous_result: Any,
         on_tool_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        run_id: Optional[str] = None,
     ) -> Tuple[Optional[str], Any]:
 
         last_result = previous_result
@@ -458,43 +480,122 @@ class AgentCore:
 
             try:
                 logger.info("tool_call name=%s args=%s", tool, args)
-                # Diffusion temps réel de l'APPEL (streaming SSE / journal de run).
                 tool_started = time.perf_counter()
+
+                # --- Callback historique (rétrocompatibilité) ---
                 if on_tool_event is not None:
                     on_tool_event({
                         "event": "tool_start",
                         "tool": tool,
                         "args": summarize_tool_args(args),
                     })
-                last_result = TOOLS[tool](**args)
-                record_usage(tool, (time.perf_counter() - tool_started) * 1000.0)
+
+                # --- Émission événement tool_call (Event Bus) ---
+                if get_event_bus is not None:
+                    get_event_bus().emit(
+                        "tool_call",
+                        tool_name=tool,
+                        args=args,
+                        job_id=run_id,
+                    )
+
+                # --- Exécution via pipeline de middlewares ---
+                if process_tool_call is not None:
+                    last_result = process_tool_call(
+                        tool,
+                        args,
+                        lambda a: TOOLS[tool](**a),
+                    )
+                else:
+                    last_result = TOOLS[tool](**args)
+
+                duration_ms = (time.perf_counter() - tool_started) * 1000.0
+                record_usage(tool, duration_ms)
+
                 logger.info(
-                    "tool_result name=%s result_type=%s",
+                    "tool_result name=%s result_type=%s duration_ms=%.1f",
                     tool,
                     type(last_result).__name__,
+                    duration_ms,
                 )
                 logger.debug("tool_result_content name=%s result=%r", tool, last_result)
+
+                # --- Callback historique (rétrocompatibilité) ---
                 if on_tool_event is not None:
                     on_tool_event({
                         "event": "tool_result",
                         "tool": tool,
                         "status": "ok",
                         "summary": summarize_tool_result(last_result),
-                        "duration_ms": round((time.perf_counter() - tool_started) * 1000),
+                        "duration_ms": round(duration_ms),
                     })
+
+                # --- Émission événement tool_result (Event Bus) ---
+                if get_event_bus is not None:
+                    get_event_bus().emit(
+                        "tool_result",
+                        tool_name=tool,
+                        result=last_result,
+                        duration_ms=duration_ms,
+                        job_id=run_id,
+                    )
+
+                # --- Observabilité ---
+                if record_metric is not None:
+                    record_metric(tool, duration_ms, success=True)
+
+                # --- Audit trail ---
+                if _audit_log is not None:
+                    _audit_log(
+                        tool_name=tool,
+                        args=args,
+                        result=last_result,
+                        duration_ms=duration_ms,
+                        success=True,
+                        job_id=run_id,
+                    )
+
             except Exception as exc:
+                duration_ms = (time.perf_counter() - tool_started) * 1000.0
                 logger.exception("tool_error name=%s args=%s", tool, args)
+
+                # --- Callback historique (rétrocompatibilité) ---
                 if on_tool_event is not None:
                     on_tool_event({
                         "event": "tool_result",
                         "tool": tool,
                         "status": "error",
                         "summary": f"{type(exc).__name__}: {exc}",
-                        "duration_ms": round((time.perf_counter() - tool_started) * 1000),
+                        "duration_ms": round(duration_ms),
                     })
-                record_usage(
-                    tool, (time.perf_counter() - tool_started) * 1000.0, error=True
-                )
+
+                # --- Émission événement tool_error (Event Bus) ---
+                if get_event_bus is not None:
+                    get_event_bus().emit(
+                        "tool_error",
+                        tool_name=tool,
+                        error=str(exc),
+                        duration_ms=duration_ms,
+                        job_id=run_id,
+                    )
+
+                record_usage(tool, duration_ms, error=True)
+
+                # --- Observabilité ---
+                if record_metric is not None:
+                    record_metric(tool, duration_ms, success=False)
+
+                # --- Audit trail ---
+                if _audit_log is not None:
+                    _audit_log(
+                        tool_name=tool,
+                        args=args,
+                        duration_ms=duration_ms,
+                        success=False,
+                        error_message=str(exc),
+                        job_id=run_id,
+                    )
+
                 detail = f"ERREUR pendant '{tool}' : {type(exc).__name__}: {exc}"
                 hint = (
                     " Utilise find_file si le chemin est inconnu."
@@ -592,6 +693,17 @@ class AgentCore:
         self.rejected_request_id = None
         self._run_prompt = user_prompt
 
+        # Identifiant unique de run (traçabilité, corrélation d'événements).
+        run_id = uuid.uuid4().hex[:12]
+
+        # --- Émission événement run_start (Event Bus) ---
+        if get_event_bus is not None:
+            get_event_bus().emit(
+                "run_start",
+                job_id=run_id,
+                prompt=user_prompt,
+            )
+
         # Vrai quand le client sait streamer ET qu'un récepteur temps réel est
         # branché : on injecte alors le callback directement dans l'appel.
         streaming_llm = on_thinking is not None and callable(
@@ -623,6 +735,15 @@ class AgentCore:
             return cleaned
 
         def _result(answer: str) -> AgentResult:
+            # --- Émission événement run_end (Event Bus) ---
+            if get_event_bus is not None:
+                get_event_bus().emit(
+                    "run_end",
+                    job_id=run_id,
+                    result=answer,
+                    rounds_used=rounds_used,
+                    thinking="\n\n".join(thinking_parts),
+                )
             return AgentResult(answer=answer, thinking="\n\n".join(thinking_parts))
 
         system = {"role": "system", "content": self.system_prompt}
@@ -793,7 +914,9 @@ class AgentCore:
                 )
                 return _result(raw)
 
-            problem, last_result = self._execute(blocks, last_result, on_tool_event=on_tool_event)
+            problem, last_result = self._execute(
+                blocks, last_result, on_tool_event=on_tool_event, run_id=run_id
+            )
 
             # Gate de décision : une action attend une validation (approve) ou
             # a été bloquée (reject). On arrête le run ICI, sans relancer le LLM.
