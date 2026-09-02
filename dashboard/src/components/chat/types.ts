@@ -71,7 +71,7 @@ export interface MultiAgentPlanTask {
 }
 
 /** Statut d'exécution d'un worker multi-agents. */
-export type MultiWorkerStatus = 'running' | 'ok' | 'error';
+export type MultiWorkerStatus = 'running' | 'ok' | 'error' | 'awaiting_approval';
 
 /** État affiché d'un worker (sous-tâche) pendant et après son exécution. */
 export interface MultiAgentWorkerState {
@@ -100,6 +100,14 @@ export interface MultiAgentStreamEvent {
   worker_errors?: number;
   answer?: string;
   final_answer?: string;
+  /**
+   * Événement agent.worker.approval : identifiant de la demande d'approbation
+   * (POST /api/agent/approvals/{id}/approve|reject) puis relance de la
+   * sous-tâche via resume_request_id.
+   */
+  request_id?: string;
+  /** Décision structurée du gate (outil, args, motif) — cf. AgentApprovalInfo. */
+  approval?: Pick<AgentApprovalInfo, 'tool' | 'args' | 'reason'>;
 }
 
 /** Contrat JSON de POST /api/agent/multi/ask (mode bloquant). */

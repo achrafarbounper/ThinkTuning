@@ -161,6 +161,7 @@ _MULTI_UX_EVENTS = {
     "agent.plan",
     "agent.worker.start",
     "agent.worker.result",
+    "agent.worker.approval",
     "agent.done",
     "agent.error",
 }
@@ -1237,6 +1238,10 @@ def multi_ask_stream(
       - ``agent.worker.tool``   appel/retour d'outil (observabilité)
       - ``agent.worker.error``  sous-tâche en erreur (observabilité)
       - ``agent.worker.result`` résultat d'une sous-tâche
+      - ``agent.worker.approval`` sous-tâche bloquée sur une validation
+        humaine (porte ``request_id`` + ``approval`` : la carte
+        Approuver/Refuser du front est déclenchée puis la sous-tâche est
+        relancée via ``resume_request_id``)
       - ``agent.synthesizing``  phase de synthèse
       - ``agent.done``          réponse finale
       - ``agent.error``         erreur globale (plan invalide, abort)

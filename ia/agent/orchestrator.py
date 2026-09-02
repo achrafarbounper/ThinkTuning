@@ -52,6 +52,7 @@ EV_WORKER_START = "agent.worker.start"
 EV_WORKER_TOOL = "agent.worker.tool"
 EV_WORKER_RESULT = "agent.worker.result"
 EV_WORKER_ERROR = "agent.worker.error"
+EV_WORKER_APPROVAL = "agent.worker.approval"
 EV_SYNTHESIZING = "agent.synthesizing"
 EV_DONE = "agent.done"
 EV_ERROR = "agent.error"
@@ -276,6 +277,36 @@ class MultiAgentCoordinator:
 
         answer = getattr(result, "answer", str(result))
         duration_ms = (time.perf_counter() - started) * 1000.0
+
+        # Gate de décision : le worker s'est arrêté sur une action qui exige
+        # une validation humaine (approve). On NE compte PAS ce worker comme
+        # « ok » : l'outil n'a jamais tourné. Le request_id est remonté au
+        # front (événement + contrat) pour afficher la carte Approuver/Refuser
+        # puis relancer la sous-tâche avec resume_request_id.
+        awaiting_id = getattr(agent, "awaiting_request_id", None)
+        if awaiting_id:
+            approval_obj = getattr(agent, "last_approval", None)
+            approval = approval_obj.to_dict() if approval_obj is not None else {}
+            worker = {
+                "task_id": task.task_id,
+                "role": task.role,
+                "status": "awaiting_approval",
+                "request_id": awaiting_id,
+                "approval": approval,
+                "message": answer,
+                "duration_ms": round(duration_ms, 2),
+            }
+            self._on_event(on_event, EV_WORKER_APPROVAL, {
+                "task_id": task.task_id,
+                "role": task.role,
+                "status": "awaiting_approval",
+                "request_id": awaiting_id,
+                "approval": approval,
+                "message": (answer or "")[:300],
+                "duration_ms": round(duration_ms, 2),
+            })
+            return worker
+
         worker = {
             "task_id": task.task_id,
             "role": task.role,
@@ -347,6 +378,43 @@ class MultiAgentCoordinator:
 
         # 2. Dispatch
         workers, unexecuted = self._dispatch(tasks, str(prompt), on_event)
+
+        # Validation humaine requise : au moins une sous-tâche est bloquée sur
+        # un approve. On interrompt AVANT la synthèse (une synthèse sans le
+        # résultat du worker bloqué serait trompeuse) ; le front affiche la
+        # carte Approuver/Refuser puis relance la sous-tâche concernée.
+        pending_approvals = [w for w in workers if w.get("status") == "awaiting_approval"]
+
+        if pending_approvals:
+            listing = "; ".join(
+                f"[{w['role']}] {w.get('approval', {}).get('tool', '?')} "
+                f"({w.get('approval', {}).get('reason', 'validation requise')})"
+                for w in pending_approvals
+            )
+            final_answer = (
+                "Validation humaine requise avant de poursuivre. "
+                f"Action(s) en attente : {listing}. "
+                "Approuvez ou refusez dans l'interface pour relancer la sous-tâche."
+            )
+            outcome = {
+                "status": "awaiting_approval",
+                "final_answer": final_answer,
+                "plan": [
+                    {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
+                    for t in tasks
+                ],
+                "workers": workers,
+                "unexecuted": unexecuted,
+                "pending_approvals": pending_approvals,
+                "thinking": "",
+                "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            }
+            self._on_event(on_event, EV_DONE, {
+                "status": outcome["status"],
+                "answer": final_answer,
+                "duration_ms": outcome["duration_ms"],
+            })
+            return outcome
 
         # 3. Synthèse (continueBroken) — tentée si au moins un ok.
         if any(w["status"] == "ok" for w in workers):
