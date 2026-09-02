@@ -22,13 +22,13 @@ def test_defaults(fresh_settings) -> None:
     assert s.agent_max_llm_rounds == 6
     assert s.effective_ws_token == s.api_key
     assert s.active_flags() == {
-        "reliability": False,
-        "audit": False,
-        "tool_analytics": False,
-        "context": False,
-        "copilot": False,
-        "websocket": False,
-        "multi_agent": False,
+        "reliability": True,
+        "audit": True,
+        "tool_analytics": True,
+        "context": True,
+        "copilot": True,
+        "websocket": True,
+        "multi_agent": True,
     }
 
 
@@ -37,6 +37,7 @@ def test_flags_from_env(monkeypatch, fresh_settings) -> None:
 
     monkeypatch.setenv("AGENT_AUDIT", "1")
     monkeypatch.setenv("AGENT_Copilot", "true")  # insensible à la casse
+    monkeypatch.setenv("AGENT_WEBSOCKET", "0")   # désactivation explicite
     s = get_settings()
     assert s.flag_audit is True
     assert s.flag_copilot is True

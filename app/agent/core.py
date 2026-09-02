@@ -29,6 +29,8 @@ Décisions de policy intégrées au flux :
 from __future__ import annotations
 
 import logging
+import re
+from datetime import date
 from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
@@ -89,7 +91,7 @@ class AgentRunResult(BaseModel):
 # SYSTEM PROMPT (généré depuis le registre réel des outils)
 # ============================================================
 
-_SYSTEM_PROMPT_HEADER = """Tu es un agent outillé. Tu peux utiliser les outils suivants :
+_SYSTEM_PROMPT_HEADER = """Tu es un agent outillé. Nous sommes le {today}. Tu peux utiliser les outils suivants :
 
 {tools}
 
@@ -99,6 +101,14 @@ PROTOCOLE (strict) :
 2. Si tu n'as besoin d'aucun outil, réponds en texte normal (pas de JSON).
 3. Après avoir reçu les résultats, conclus en t'appuyant UNIQUEMENT sur eux.
 4. N'invente jamais d'outil ni d'argument : {tool_names} sont les seuls outils.
+5. FIDÉLITÉ AUX OUTILS : tes connaissances internes ont une date de coupure
+   et peuvent être OBSOLÈTES. Les résultats renvoyés par les outils sont la
+   vérité terrain et PRIMENT sur ta mémoire, même quand ils la contredisent
+   (surtout pour l'actualité, le sport, les faits récents). Ne doute JAMAIS
+   d'un résultat d'outil et ne le qualifie jamais de « fictif » ou
+   « spéculatif » au seul motif qu'il contredit ce que tu « sais ».
+   Si une source te semble douteuse, rappelle un outil avec une requête plus
+   ciblée au lieu de refuser de répondre.
 """
 
 
@@ -117,7 +127,9 @@ def build_system_prompt(registry: ToolRegistryPort) -> str:
             line += f" (args requis : {', '.join(map(str, required))})"
         descriptions.append(line)
     names = ", ".join(registry.tool_names())
-    return _SYSTEM_PROMPT_HEADER.format(tools="\n".join(descriptions), tool_names=names)
+    return _SYSTEM_PROMPT_HEADER.format(
+        tools="\n".join(descriptions), tool_names=names, today=date.today().isoformat()
+    )
 
 
 # ============================================================
@@ -126,25 +138,40 @@ def build_system_prompt(registry: ToolRegistryPort) -> str:
 
 _PLAN_KEYS = ("plan", "tasks", "actions")
 
+# Balises d'appel d'outil ajoutées par certains modèles autour du JSON
+# (ex. « [TOOL_CALL] … [/TOOL_CALL] », « <tool_call> … </tool_call> ») :
+# elles n'apportent rien, on les retire avant l'analyse.
+_TOOL_CALL_TAGS = re.compile(r"</?\s*(?:\[?TOOL_CALL\]?|tool_call)\s*>", re.IGNORECASE)
+# Séparateur de paire style Ruby / YAML (« tool => "web_search" »).
+_HASH_ARROW = re.compile(r"=>")
+# Clé « flag » CLI invoquée comme argument (« --query "..." »).
+_FLAG_KEY = re.compile(r"--\s*([A-Za-z_][\w-]*)\s*")
+# Clé non quotée devant « : » (ex. {tool: "web_search"}).
+_UNQUOTED_KEY = re.compile(r"([{,]\s*)([A-Za-z_][\w-]*)\s*:")
 
-def extract_plan(raw: str) -> Plan | None:
-    """Extrait un ``Plan`` d'une réponse LLM (tolérant prose/fences markdown).
 
-    Formes acceptées : liste directe, {plan|tasks|actions: [...]}, JSON
-    entouré de texte. Renvoie None si rien d'exploitable (=> réponse texte).
+def _repair_pseudo_json(candidate: str) -> str:
+    """Répare les erreurs de syntaxe les plus fréquentes des LLM.
+
+    Traitement (dans l'ordre) :
+        - « => » devient « : » (notation hash Ruby) ;
+        - clés non quotées devant « : » mises entre guillemets ;
+        - arguments invoqués en style flag CLI (« --query "x" ») convertis
+          en paires « "query": "x" ».
     """
-    import json
-    import re
+    repaired = _HASH_ARROW.sub(":", candidate)
+    repaired = _UNQUOTED_KEY.sub(lambda m: f'{m.group(1)}"{m.group(2)}":', repaired)
+    repaired = _FLAG_KEY.sub(lambda m: f'"{m.group(1)}": ', repaired)
+    return repaired
 
-    if not raw or not raw.strip():
-        return None
-    candidates: list[str] = [raw.strip()]
-    # Fences markdown ```json ... ``` et blocs {…} isolés dans la prose.
-    candidates.extend(m.strip() for m in re.findall(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL))
-    candidates.extend(m.strip() for m in re.findall(r"\{.*\}", raw, re.DOTALL))
-    for candidate in candidates:
+
+def _extract_plan_candidate(candidate: str) -> Plan | None:
+    """Parse UN candidat : JSON strict puis version réparée."""
+    import json
+
+    for text in (candidate, _repair_pseudo_json(candidate)):
         try:
-            parsed = json.loads(candidate)
+            parsed = json.loads(text)
         except (ValueError, TypeError):
             continue
         if isinstance(parsed, list):
@@ -153,6 +180,32 @@ def extract_plan(raw: str) -> Plan | None:
             for key in _PLAN_KEYS:
                 if isinstance(parsed.get(key), list):
                     return _steps_from(parsed[key])
+            # Objet « action seule » : {"tool": ..., "args": {...}} — certains
+            # modèles n'encapsulent pas dans un plan (malgré le protocole).
+            if parsed.get("tool"):
+                return _steps_from([parsed])
+    return None
+
+
+def extract_plan(raw: str) -> Plan | None:
+    """Extrait un ``Plan`` d'une réponse LLM (tolérant prose/fences markdown).
+
+    Formes acceptées : liste directe, {plan|tasks|actions: [...]}, objet
+    « action seule » {"tool": ...}, JSON entouré de texte, balises
+    [TOOL_CALL]/<tool_call>, pseudo-JSON réparé (« => », clés non quotées,
+    flags « --arg »). Renvoie None si rien d'exploitable (=> réponse texte).
+    """
+    if not raw or not raw.strip():
+        return None
+    cleaned = _TOOL_CALL_TAGS.sub("", raw).strip()
+    candidates: list[str] = [cleaned]
+    # Fences markdown ```json ... ``` et blocs {…} isolés dans la prose.
+    candidates.extend(m.strip() for m in re.findall(r"```(?:json)?\s*(.*?)```", cleaned, re.DOTALL))
+    candidates.extend(m.strip() for m in re.findall(r"\{.*\}", cleaned, re.DOTALL))
+    for candidate in candidates:
+        plan = _extract_plan_candidate(candidate)
+        if plan is not None:
+            return plan
     return None
 
 
@@ -179,6 +232,98 @@ def _steps_from(items: list[Any]) -> Plan | None:
 # ============================================================
 
 _RESULT_SUMMARY_CHARS = 400
+
+# ============================================================
+# GARDE-FOU « OUTIL ANNONCÉ MAIS JAMAIS APPELÉ »
+# (porté de ia/agent/agent_core.py — bug « qui a gagné la coupe du monde
+# 2026 » : un appel d'outil mal formé ou annoncé en prose ne doit JAMAIS être
+# avalé comme une réponse texte légitime sans AU MOINS une relance.)
+# ============================================================
+
+_INTENT_MARKERS = (
+    "appell",     # appelle / appeler
+    "utiliser", "utilise",
+    "lanc",       # lance / lançons
+    "exécu", "execu",
+    "vérifi",
+    "recherch",
+    "interrog",
+    "je vais", "il faut", "dois ",
+    "let me", "use ", "using", "call ", "calling",
+    "search ", "fetch ", "check ", "query ",
+    "tool_call",  # balise [TOOL_CALL] / <tool_call> mal formée
+)
+_ANNOUNCE_WINDOW = 80
+
+
+def _detect_announced_tool(text: str, tool_names) -> str:
+    """Nom du premier outil CONNU annoncé dans ``text``, sinon ``""``.
+
+    Une annonce = nom d'outil du registre (frontières de mot) à moins de
+    ``_ANNOUNCE_WINDOW`` caractères d'un marqueur d'intention d'appel.
+    """
+    if not text or not tool_names:
+        return ""
+    lowered = text.lower()
+    pattern = re.compile(
+        r"\b(?:" + "|".join(re.escape(name.lower()) for name in sorted(tool_names)) + r")\b"
+    )
+    for match in pattern.finditer(lowered):
+        window = lowered[max(0, match.start() - _ANNOUNCE_WINDOW): match.end() + _ANNOUNCE_WINDOW]
+        if any(marker in window for marker in _INTENT_MARKERS):
+            return match.group(0)
+    return ""
+
+
+_NUDGE_MESSAGE = (
+    "Ton message annonce utiliser l'outil « {tool} » mais AUCUN appel "
+    "exploitable n'a été produit (JSON illisible ou absent) : aucune "
+    "information réelle n'a donc été obtenue et ta réponse actuelle sort de "
+    "mémoire. Jette-la. Renvoie UNIQUEMENT ce JSON strict, sans texte ni "
+    "balise autour :\n"
+    '{{"plan": [{{"tool": "{tool}", "args": {{...}}}}]}}'
+)
+
+# ============================================================
+# GARDE-FOU « RÉSULTAT D'OUTIL REÇU MAIS CONTESTÉ »
+# Certains modèles (notamment les gratuits) doutent du résultat d'un outil
+# réussi quand il contredit leur mémoire (date de coupure obsolète) et
+# REFUSENT de répondre (« pas encore eu lieu », « contenu fictif », …) au
+# lieu de conclure sur le résultat obtenu. On relance UNE fois.
+# ============================================================
+
+_DISTRUST_MARKERS = (
+    "ne peux pas confirmer",
+    "ne peut pas confirmer",
+    "pas encore eu lieu",
+    "n'a pas encore eu lieu",
+    "n'a pas eu lieu",
+    "contenu fictif",
+    "fictive",
+    "non officiel",
+    "spécul",
+    "résultat affiché",
+    "je ne peux pas te dire",
+    "cannot confirm",
+    "not yet taken place",
+    "hasn't happened",
+)
+
+_TOOL_RESULT_NUDGE_MESSAGE = (
+    "L'outil « {tool} » a bien été EXÉCUTÉ et a renvoyé un résultat RÉEL : "
+    "il ne s'agit PAS d'un contenu fictif ou spéculatif. Tes connaissances "
+    "internes ont une date de coupure et peuvent être obsolètes : le résultat "
+    "de l'outil PRIME sur ta mémoire, même s'il la contredit. Conclus MAINTENANT "
+    "en texte normal, en t'appuyant UNIQUEMENT sur le résultat obtenu ci-dessus."
+)
+
+
+def _detect_distrust(text: str) -> bool:
+    """Vrai si la réponse finale suggère un refus de croire le résultat d'outil."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(marker in lowered for marker in _DISTRUST_MARKERS)
 
 
 class AgentCore:
@@ -213,6 +358,9 @@ class AgentCore:
         budget = RunBudget(max_llm_rounds=intent.max_rounds, max_tool_calls=self._max_tool_calls)
         traces: list[ActionTrace] = []
         rejected_prints: set[str] = set()
+        # Une SEULE relance « outil annoncé mais jamais appelé » par run :
+        # surcoût borné même face à un modèle têtu (convention anti-boucle).
+        nudged = False
         messages: list[Message] = [
             {"role": "system", "content": self._system_prompt},
             *(history or []),
@@ -233,7 +381,37 @@ class AgentCore:
                                       answer=f"Erreur LLM : {exc}")
             plan = extract_plan(response)
 
-            if plan is None:  # réponse texte directe (légitime)
+            if plan is None:
+                # Garde-fou : une réponse en texte qui ANNONCE un outil connu
+                # (prose « je vais chercher… », balise [TOOL_CALL], pseudo-JSON
+                # illisible) n'est PAS une conclusion légitime — on relance une
+                # fois avec le format strict attendu, au lieu d'accepter une
+                # réponse sortie de mémoire déguisée en recherche.
+                announced = _detect_announced_tool(response, self._registry.tool_names())
+                if announced and not nudged:
+                    nudged = True
+                    logger.warning(
+                        "tool_intent_detected tool=%s", announced,
+                    )
+                    messages = [*messages,
+                                {"role": "assistant", "content": response},
+                                {"role": "user", "content": _NUDGE_MESSAGE.format(tool=announced)}]
+                    continue
+                # Garde-fou : un outil a RÉUSSI mais le modèle CONTESTE le
+                # résultat (refus par confiance obsolète en sa mémoire) au lieu
+                # de conclure dessus — relance unique orientée fidélité.
+                done_tool = next(
+                    (t.tool for t in traces if t.status == "done"), None
+                )
+                if done_tool and not nudged and _detect_distrust(response):
+                    nudged = True
+                    logger.warning("tool_result_distrusted tool=%s", done_tool)
+                    messages = [*messages,
+                                {"role": "assistant", "content": response},
+                                {"role": "user",
+                                 "content": _TOOL_RESULT_NUDGE_MESSAGE.format(tool=done_tool)}]
+                    continue
+                # Réponse texte directe (légitime)
                 return self._finalize(
                     traces, budget, RunStatus.COMPLETED, answer=response.strip()
                 )

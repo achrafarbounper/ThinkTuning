@@ -75,9 +75,9 @@ class Settings(BaseSettings):
     )
 
     # --- Agent : provider LLM -----------------------------------------------
-    agent_provider: AgentProvider = AgentProvider.OLLAMA
-    agent_model_name: str = "llama3.1:8b"
-    agent_ollama_url: str = "http://localhost:11434/api/chat"
+    agent_provider: AgentProvider = AgentProvider.OPENROUTER # OLLAMA
+    agent_model_name: str = "openrouter/free" #"llama3.1:8b"
+    agent_ollama_url: str = "http://192.168.1.184:11434/api/chat"
     agent_openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"
     openrouter_api_key: str | None = None
     hf_api_key: str | None = None
@@ -97,13 +97,13 @@ class Settings(BaseSettings):
     model_sanity_min_confidence: float = Field(default=0.4, ge=0.0, le=1.0)
 
     # --- Feature flags agent (AGENT_<NOM> = 1/true/yes/on) -------------------
-    flag_reliability: bool = False
-    flag_audit: bool = False
-    flag_tool_analytics: bool = False
-    flag_context: bool = False
-    flag_copilot: bool = False
-    flag_websocket: bool = False
-    flag_multi_agent: bool = False
+    flag_reliability: bool = 1
+    flag_audit: bool = 1
+    flag_tool_analytics: bool = 1
+    flag_context: bool = 1
+    flag_copilot: bool = 1
+    flag_websocket: bool = 1
+    flag_multi_agent: bool = 1
 
     @model_validator(mode="before")
     @classmethod
@@ -115,7 +115,12 @@ class Settings(BaseSettings):
         if isinstance(data, dict):
             for name in _FLAG_NAMES:
                 env = os.getenv(f"AGENT_{name.upper()}", "").strip().lower()
-                data.setdefault(f"flag_{name}", env in _TRUE_VALUES)
+                # N'écrase que si la variable est réellement définie : sinon
+                # on laisse la valeur par défaut du champ s'appliquer (le
+                # validator "before" reçoit uniquement les inputs fournis,
+                # jamais les defaults — un setdefault forcerait donc False).
+                if env:
+                    data[f"flag_{name}"] = env in _TRUE_VALUES
         return data
 
     @model_validator(mode="after")
