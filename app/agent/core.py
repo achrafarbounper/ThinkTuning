@@ -30,8 +30,8 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date
 from collections.abc import Callable
+from datetime import date
 from enum import StrEnum
 from typing import Any
 
@@ -91,11 +91,11 @@ class AgentRunResult(BaseModel):
 # SYSTEM PROMPT (généré depuis le registre réel des outils)
 # ============================================================
 
-_SYSTEM_PROMPT_HEADER = """Tu es un agent outillé. Nous sommes le {today}. Tu peux utiliser les outils suivants :
-
-{tools}
-
-PROTOCOLE (strict) :
+_SYSTEM_PROMPT_HEADER = (
+    "Tu es un agent outillé. Nous sommes le {today}. "
+    "Tu peux utiliser les outils suivants :\n\n"
+    "{tools}\n\n"
+    """PROTOCOLE (strict) :
 1. Si tu as besoin d'un outil, réponds UNIQUEMENT avec un JSON :
    {{"plan": [{{"tool": "<nom>", "args": {{...}}}}, ...]}}
 2. Si tu n'as besoin d'aucun outil, réponds en texte normal (pas de JSON).
@@ -110,6 +110,7 @@ PROTOCOLE (strict) :
    Si une source te semble douteuse, rappelle un outil avec une requête plus
    ciblée au lieu de refuser de répondre.
 """
+)
 
 
 def build_system_prompt(registry: ToolRegistryPort) -> str:
