@@ -64,7 +64,7 @@ def test_persistence_across_instances(tmp_path):
 
 def test_journal_file_is_jsonl(store):
     store.annotate("abc", "positive")
-    with open(store.path, "r", encoding="utf-8") as fh:
+    with open(store.path, encoding="utf-8") as fh:
         lines = [line for line in fh if line.strip()]
     assert len(lines) == 1
     rec = json.loads(lines[0])
@@ -78,7 +78,7 @@ def test_export_review_csv(store, tmp_path):
     assert os.path.isfile(out)
     import csv
 
-    with open(out, "r", encoding="utf-8-sig", newline="") as fh:
+    with open(out, encoding="utf-8-sig", newline="") as fh:
         rows = list(csv.DictReader(fh))
     assert len(rows) == 1
     assert rows[0]["manual_label"] == "negative"

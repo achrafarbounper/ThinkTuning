@@ -27,7 +27,6 @@ for _p in (PROJECT_ROOT, IA_DIR):
 os.environ.setdefault("API_KEY", "test-key")
 
 import pytest
-
 from tools import sandbox
 from tools.docker_tools import docker_exec, docker_logs, docker_ps
 from tools.system_tools import (
@@ -684,8 +683,9 @@ def test_agent_core_self_corrects_missing_args(sandbox_root):
     Avant : mort immédiate sur « Arguments manquants pour … ».
     Maintenant : l'erreur repart au LLM qui renvoie un appel corrigé, exécuté.
     """
-    from ia.agent.agent_core import AgentCore
     from tools.file_tools import write_file
+
+    from ia.agent.agent_core import AgentCore
 
     class ScriptedLLM:
         def __init__(self):
@@ -717,8 +717,9 @@ def test_agent_core_accepts_flat_tool_call(sandbox_root):
     read_file : ['path'] » EN BOUCLE jusqu'à épuisement du budget (3 messages
     d'auto-correction observés). Désormais l'appel à plat est compris du 1er coup.
     """
-    from ia.agent.agent_core import AgentCore
     from tools.file_tools import write_file
+
+    from ia.agent.agent_core import AgentCore
 
     write_file("configs/default.yaml", "cle: valeur")
 
@@ -743,8 +744,9 @@ def test_agent_core_accepts_flat_tool_call(sandbox_root):
 def test_agent_core_accepts_scalar_args_for_single_required_arg(sandbox_root):
     """Quand le tool n'a qu'un argument obligatoire, la valeur brute est acceptée :
     {"tool": "read_file", "args": "chemin"} au lieu de {"args": {"path": ...}}."""
-    from ia.agent.agent_core import AgentCore
     from tools.file_tools import write_file
+
+    from ia.agent.agent_core import AgentCore
 
     write_file("configs/default.yaml", "cle: valeur")
 
@@ -799,8 +801,9 @@ def test_agent_core_chains_find_then_read(sandbox_root):
     Après chaque succès, le LLM reçoit le résultat et peut enchaîner au lieu
     de devoir conclure immédiatement.
     """
-    from ia.agent.agent_core import AgentCore
     from tools.file_tools import write_file
+
+    from ia.agent.agent_core import AgentCore
 
     write_file("configs/secret.yaml", "la réponse")
 
@@ -862,8 +865,8 @@ def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
 
     monkeypatch.setenv("AGENT_SANDBOX_ROOT", str(tmp_path))
     monkeypatch.setenv("API_KEY", "test-key")
-    from core import agent_cache  # noqa: F401  (insère ia/ dans sys.path)
     from api import app as api_app
+    from core import agent_cache  # noqa: F401  (insère ia/ dans sys.path)
 
     headers = {"X-API-Key": "test-key"}
     with TestClient(api_app) as client:
@@ -1260,6 +1263,7 @@ def test_zip_then_unzip_roundtrip(sandbox_root):
 
 def test_unzip_blocks_zip_slip_entries(sandbox_root):
     import zipfile as zipfile_module
+
     from tools.ops_tools import unzip_file
 
     evil = sandbox_root / "evil.zip"
@@ -1398,10 +1402,10 @@ def test_write_file_is_atomic_and_guards_git_and_dir(sandbox_root):
 
 def test_file_info_and_checksum_and_head_and_count(sandbox_root):
     from tools.file_tools import (
+        count_lines,
         file_checksum,
         file_info,
         head_file,
-        count_lines,
         write_file,
     )
 
@@ -1523,8 +1527,9 @@ def test_start_training_launches_background_job(sandbox_root, monkeypatch):
 
 
 def test_start_training_refuses_when_training_already_running(sandbox_root, monkeypatch):
-    from core.models import JobStatus, TrainJob
     from tools import ml_tools
+
+    from core.models import JobStatus, TrainJob
 
     store = _patch_ml_training(monkeypatch, lambda job_id, req: None)
     store["en_cours"] = TrainJob(job_id="en_cours", status=JobStatus.RUNNING)
@@ -1619,8 +1624,9 @@ def _patch_ml_canceller(monkeypatch, store):
 
 
 def test_cancel_training_stops_running_job(sandbox_root, monkeypatch):
-    from core.models import JobStatus, TrainJob
     from tools import ml_tools
+
+    from core.models import JobStatus, TrainJob
 
     store = _FakeJobStore()
     store["j-run"] = TrainJob(job_id="j-run", status=JobStatus.RUNNING)
@@ -1636,8 +1642,9 @@ def test_cancel_training_stops_running_job(sandbox_root, monkeypatch):
 
 
 def test_cancel_training_accepts_pending_and_stop_is_alias(sandbox_root, monkeypatch):
-    from core.models import JobStatus, TrainJob
     from tools import ml_tools
+
+    from core.models import JobStatus, TrainJob
 
     store = _FakeJobStore()
     store["j-pending"] = TrainJob(job_id="j-pending", status=JobStatus.PENDING)
@@ -1650,8 +1657,9 @@ def test_cancel_training_accepts_pending_and_stop_is_alias(sandbox_root, monkeyp
 
 
 def test_cancel_training_rejects_unknown_and_finished_jobs(sandbox_root, monkeypatch):
-    from core.models import JobStatus, TrainJob
     from tools import ml_tools
+
+    from core.models import JobStatus, TrainJob
 
     store = _FakeJobStore()
     store["j-done"] = TrainJob(job_id="j-done", status=JobStatus.COMPLETED)

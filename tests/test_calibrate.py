@@ -8,14 +8,13 @@ Tests du script de calibration (calibrate.py) :
 
 import json
 import logging
-import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
 from datasets import Dataset
-from types import SimpleNamespace
 from transformers import AutoTokenizer
 
 import calibrate

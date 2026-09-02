@@ -10,7 +10,6 @@ import api  # noqa: F401  (initialise MODULE_ROOT/job store avant le routage)
 from api import app
 from core.models import JobStatus, TrainJob
 
-
 client = TestClient(app)
 
 

@@ -13,11 +13,9 @@ if _IA_ROOT not in sys.path:
     sys.path.insert(0, _IA_ROOT)
 
 import pytest
-
 import tools.plugin as plugin_mod
 import tools.tool_analytics as analytics
 from tools.tool_discovery import suggest_tools
-
 
 # ---------------------------------------------------------------------------
 # Découverte / recommandation

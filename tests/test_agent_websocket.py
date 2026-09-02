@@ -1,7 +1,6 @@
 ﻿# project/tests/test_agent_websocket.py
 """Tests Phase E : WebSocket bidirectionnel + journal d'audit (API)."""
 
-import json
 import os
 
 os.environ.setdefault("API_KEY", "test-key")
@@ -17,10 +16,9 @@ os.environ.setdefault(
 import pytest
 from fastapi.testclient import TestClient
 
-from core.audit_store import get_audit_store, reset_audit_store
-from core.approval_store import reset_approval_store
-
 from api import app as api_app  # noqa: E402
+from core.approval_store import reset_approval_store
+from core.audit_store import get_audit_store, reset_audit_store
 
 HEADERS = {"X-API-Key": "test-key"}
 TOKEN = "test-key"

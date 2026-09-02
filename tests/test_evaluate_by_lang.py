@@ -6,7 +6,7 @@ import torch
 from datasets import Dataset
 from transformers import AutoTokenizer
 
-from evaluate import evaluate, plot_confusion_matrices, report_by_language, segment_by_language
+from evaluate import evaluate, report_by_language, segment_by_language
 
 
 class DummyModel(torch.nn.Module):

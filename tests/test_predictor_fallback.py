@@ -1,7 +1,5 @@
-import os
 import tempfile
 
-import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from src.inference.predictor import Predictor

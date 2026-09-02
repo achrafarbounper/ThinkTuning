@@ -8,7 +8,6 @@ Couvre ``ia/agent/encoding.repair_utf8_mojibake`` :
   - chaînes vides / sans mojibake inchangées.
 """
 
-import pytest
 
 from ia.agent.encoding import _has_ctrl, repair_utf8_mojibake
 

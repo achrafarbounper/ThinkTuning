@@ -12,11 +12,11 @@ import unittest
 
 from ia.agent.middleware import (
     ToolContext,
-    register_middleware,
-    unregister_middleware,
     clear_middlewares,
     get_middlewares,
     process_tool_call,
+    register_middleware,
+    unregister_middleware,
 )
 
 

@@ -20,13 +20,11 @@ import torch
 from torch import nn
 
 import api  # noqa: E402,F401  (initialise l'app comme les autres tests)
-from core import job_logs
-from core import trainer_runner
+from core import job_logs, trainer_runner
 from core.job_store import get_job_store
-from core.models import TrainJob, JobStatus, TRAIN_JOB_STEPS
+from core.models import TRAIN_JOB_STEPS, JobStatus, TrainJob
 from core.training_events import SQLitePollingEventsSource
 from src.model.trainer import Trainer
-
 
 # ---------------------------------------------------------------------------
 # core/job_logs

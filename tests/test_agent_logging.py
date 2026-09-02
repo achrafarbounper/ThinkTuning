@@ -177,7 +177,7 @@ def test_llm_client_parses_bytes_lines_when_no_charset(monkeypatch):
         def iter_lines(self, decode_unicode=False):
             # Simule le comportement réel de requests quand l'encodage est
             # indéterminé : les lignes sont émises en tant que `bytes` UTF-8.
-            yield ('{"message": {"content": "réponse de bytes"}, "done": true}').encode("utf-8")
+            yield ('{"message": {"content": "réponse de bytes"}, "done": true}').encode()
 
         def close(self):
             pass

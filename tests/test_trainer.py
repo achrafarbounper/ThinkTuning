@@ -197,7 +197,7 @@ def test_save_model_version_writes_training_report():
 
     report_path = os.path.join(model_dir, "training_report.json")
     assert os.path.exists(report_path)
-    with open(report_path, "r", encoding="utf-8") as fp:
+    with open(report_path, encoding="utf-8") as fp:
         payload = json.load(fp)
 
     assert payload["job_id"] == "job-123"

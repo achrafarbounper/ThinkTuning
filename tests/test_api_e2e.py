@@ -18,22 +18,20 @@ import json
 import os
 import threading
 import time
-from types import SimpleNamespace
 
+import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("API_KEY", "test-key")
 
 import api
 from api import app
-
-from core import trainer_runner as _trainer_runner
-from core import predictor_cache as _predictor_cache
 from core import model_versioning as _model_versioning
+from core import predictor_cache as _predictor_cache
+from core import trainer_runner as _trainer_runner
 
 HEADERS = {"X-API-Key": "test-key"}
 
@@ -316,7 +314,7 @@ class TinyPredictor:
         vocab_path = os.path.join(model_path, "vocab.json")
         if not os.path.isfile(vocab_path):
             raise FileNotFoundError("vocab.json")
-        with open(vocab_path, "r", encoding="utf-8") as fh:
+        with open(vocab_path, encoding="utf-8") as fh:
             self.vocab = json.load(fh)
         self.tokenizer = TinyTokenizer(self.vocab)
         state = torch.load(os.path.join(model_path, "model.pt"), map_location="cpu", weights_only=True)

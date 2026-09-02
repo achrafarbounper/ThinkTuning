@@ -11,11 +11,11 @@ import api  # noqa: F401
 from api import app
 from core.model_sanity import (
     SANITY_PHRASES,
-    run_model_sanity,
-    resolve_min_confidence,
+    VERDICT_FALLBACK,
     VERDICT_OK,
     VERDICT_UNTRAINED,
-    VERDICT_FALLBACK,
+    resolve_min_confidence,
+    run_model_sanity,
 )
 
 

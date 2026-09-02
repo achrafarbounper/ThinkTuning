@@ -26,7 +26,7 @@ os.environ.setdefault(
 
 import api  # noqa: E402
 from core.job_store import get_job_store  # noqa: E402
-from core.models import TrainJob, JobStatus  # noqa: E402
+from core.models import JobStatus, TrainJob  # noqa: E402
 from core.training_events import (  # noqa: E402
     SQLitePollingEventsSource,
     reset_events_source_for_tests,

@@ -19,6 +19,7 @@ os.environ.setdefault("API_KEY", "test-key")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from api import app  # noqa: E402
 from core import agent_cache  # noqa: E402  (insère ia/ dans sys.path)
 from core.approval_store import (  # noqa: E402
     APPROVED,
@@ -27,7 +28,6 @@ from core.approval_store import (  # noqa: E402
     ApprovalStore,
     reset_approval_store,
 )
-from api import app  # noqa: E402
 
 # Le moteur vit dans « ia/agent/approvals.py » : on garantit la racine « ia/ »
 # dans sys.path (comme le fait core.agent_cache au runtime) avant l'import.

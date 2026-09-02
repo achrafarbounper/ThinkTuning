@@ -166,7 +166,7 @@ def test_main_writes_report(tmp_path, monkeypatch):
     assert "distilbert" in report["models"]
     assert "llm" in report["models"]
     assert report["dataset"]["n_evaluated"] == 2
-    with open(out_json, "r", encoding="utf-8") as f:
+    with open(out_json, encoding="utf-8") as f:
         saved = json.load(f)
     assert "models" in saved
     assert all(

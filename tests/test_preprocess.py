@@ -1,20 +1,18 @@
-import gc
 import os
 import sqlite3
 import tempfile
 import threading
-import time
 from types import SimpleNamespace
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import torch
 from datasets import Dataset
 from transformers import AutoTokenizer
 
 import api
-from api import JobStatus, TrainJob, TrainRequest, _jobs, _job_cancel_events, _run_training, cancel_training
+from api import JobStatus, TrainJob, TrainRequest, _jobs, _run_training, cancel_training
 from evaluate import evaluate
-from src.dataset.preprocess import tokenize_dataset, create_dataloaders
+from src.dataset.preprocess import create_dataloaders, tokenize_dataset
 
 api.TEST_MODE = True
 

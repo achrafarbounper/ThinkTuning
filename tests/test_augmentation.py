@@ -1,14 +1,13 @@
 import random
 
 import pandas as pd
-import pytest
 from datasets import Dataset
 
 import src.augmentation.eda as eda
 from src.augmentation.eda import (
     back_translation,
-    random_swap,
     random_deletion,
+    random_swap,
     recompose,
 )
 from src.dataset.loader import augment_dataset

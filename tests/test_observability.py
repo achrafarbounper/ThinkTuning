@@ -9,16 +9,15 @@ Vérifie :
     - Résumé des métriques
 """
 
-import time
 import unittest
 
 from ia.agent.observability import (
-    record_metric,
+    clear_metrics,
+    get_error_rate,
     get_metrics_summary,
     get_slow_tools,
-    get_error_rate,
     get_tool_metrics,
-    clear_metrics,
+    record_metric,
     reset_observability,
 )
 

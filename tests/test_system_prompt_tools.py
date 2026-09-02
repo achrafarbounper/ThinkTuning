@@ -14,8 +14,9 @@ os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port factice
 
 # ORDRE IMPORTANT : importer agent_cache AVANT tout module « agent.* ».
-from core import agent_cache  # noqa: E402
 from agent.system_prompt import build_system_prompt, build_tools_section  # noqa: E402
+
+from core import agent_cache  # noqa: E402
 
 AgentCore = agent_cache.AgentCore
 TOOLS = agent_cache.TOOLS

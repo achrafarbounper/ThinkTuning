@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 
 import api  # noqa: F401
 from api import app
-from core.annotation_store import get_annotation_store
 
 HEADERS = {"X-API-Key": "test-key"}
 client = TestClient(app)

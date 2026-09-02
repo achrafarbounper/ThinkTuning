@@ -10,8 +10,6 @@ tests/test_preprocess.py qui patche load_raw_dataset côté runner.
 """
 
 import json
-import os
-import tempfile
 from unittest.mock import Mock, patch
 
 import pytest
@@ -229,9 +227,8 @@ def test_load_raw_dataset_with_empty_corrections_file_keeps_base(tmp_path, patch
 # Propagation TrainRequest -> run_training -> load_raw_dataset        #
 # ------------------------------------------------------------------ #
 def test_run_training_propagates_local_corrections_to_loader():
-    from core import trainer_runner as _runner
-    import api
     from api import JobStatus, TrainJob, TrainRequest, _jobs
+    from core import trainer_runner as _runner
 
     raw = Dataset.from_dict({
         "text": ["Bonjour", "Hello", "Très bien", "Good"],

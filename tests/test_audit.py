@@ -13,12 +13,12 @@ import tempfile
 import unittest
 
 from ia.agent.audit import (
-    log_tool_call,
+    clear_audit_log,
+    get_audit_db_path,
     get_audit_trail,
     get_tool_history,
-    clear_audit_log,
+    log_tool_call,
     set_audit_db_path,
-    get_audit_db_path,
 )
 
 

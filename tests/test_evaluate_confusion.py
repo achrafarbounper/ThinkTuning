@@ -10,9 +10,9 @@ import os
 
 os.environ.setdefault("API_KEY", "test-key")
 
+from datasets import Dataset
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from datasets import Dataset
 
 import api
 from api import app

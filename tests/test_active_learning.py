@@ -87,7 +87,7 @@ class TestActiveLearning(unittest.TestCase):
             out_path = os.path.join(tmpdir, "review.csv")
             write_manual_review_csv(records, out_path)
 
-            with open(out_path, "r", encoding="utf-8") as f:
+            with open(out_path, encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 self.assertEqual(reader.fieldnames, ["text", "predicted_label", "manual_label", "status"])
                 rows = list(reader)

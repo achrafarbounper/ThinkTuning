@@ -12,7 +12,6 @@ Couvre :
 - head_matches_reference : équivalence stricte tête disque <-> mémoire.
 """
 
-import json
 import os
 from types import SimpleNamespace
 
@@ -20,11 +19,10 @@ import pytest
 import torch
 from torch.utils.data import DataLoader
 
-from core.model_head_check import head_matches_reference, is_model_version_trained
 from core import model_versioning
+from core.model_head_check import head_matches_reference, is_model_version_trained
 from core.model_versioning import save_model_version
 from src.model.trainer import Trainer
-
 
 # --------------------------------------------------------------------------- #
 # Helpers

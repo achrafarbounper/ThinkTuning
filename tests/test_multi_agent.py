@@ -18,7 +18,6 @@ Aucun réseau : tout est scripté. Lance : pytest tests/test_multi_agent.py -v
 
 import os
 import sys
-from types import SimpleNamespace
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IA_DIR = os.path.join(PROJECT_ROOT, "ia")
@@ -26,7 +25,6 @@ for _p in (PROJECT_ROOT, IA_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import pytest  # noqa: E402
 
 from agent.agent_core import AgentCore  # noqa: E402
 from agent.orchestrator import (  # noqa: E402
@@ -38,7 +36,6 @@ from agent.orchestrator import (  # noqa: E402
     MultiAgentCoordinator,
     build_role_agent,
 )
-
 
 # --- Fakes -------------------------------------------------------------------
 

@@ -109,7 +109,7 @@ class TestWriteOutputs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = os.path.join(tmpdir, "train_enriched.jsonl")
             write_merged_jsonl(self._sample_records(), out_path)
-            with open(out_path, "r", encoding="utf-8") as handle:
+            with open(out_path, encoding="utf-8") as handle:
                 rows = [json.loads(line) for line in handle if line.strip()]
         self.assertEqual(rows, self._sample_records())
 
@@ -117,7 +117,7 @@ class TestWriteOutputs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = os.path.join(tmpdir, "train_enriched.csv")
             write_merged_csv(self._sample_records(), out_path)
-            with open(out_path, "r", encoding="utf-8", newline="") as handle:
+            with open(out_path, encoding="utf-8", newline="") as handle:
                 reader = csv.DictReader(handle)
                 self.assertEqual(reader.fieldnames, ["text", "label", "lang_code"])
                 rows = [{**row, "label": int(row["label"])} for row in reader]
@@ -207,7 +207,7 @@ class TestCliEndToEnd(unittest.TestCase):
             finally:
                 sys.argv = original_argv
 
-            with open(output_path, "r", encoding="utf-8") as handle:
+            with open(output_path, encoding="utf-8") as handle:
                 rows = [json.loads(line) for line in handle if line.strip()]
 
         # Ligne non tranchée exclue ; correction appliquée ; nouvel exemple ajouté.
