@@ -19,10 +19,12 @@ export const AGENT_MODEL_DEFAULT = "";
 export const AGENT_OLLAMA_URL_DEFAULT = "";
 export const AGENT_OPENROUTER_URL_DEFAULT = "https://openrouter.ai/api/v1";
 export const AGENT_OPENROUTER_API_KEY_DEFAULT = "";
+export const AGENT_HF_URL_DEFAULT = "https://router.huggingface.co/v1";
+export const AGENT_HF_API_KEY_DEFAULT = "";
 export const AGENT_TIMEOUT_SECONDS_DEFAULT = 60;
 export const AGENT_CONTEXT_LENGTH_DEFAULT = 512;
 export const AGENT_TEMPERATURE_DEFAULT = 0.2;
-export const AGENT_PROVIDERS = ["ollama", "openrouter"] as const;
+export const AGENT_PROVIDERS = ["ollama", "openrouter", "hf"] as const;
 export const AGENT_SETTINGS_STORAGE_KEY = "thinktuning.agentSettings";
 export const AGENT_LAST_MODEL_STORAGE_KEY = "thinktuning.agentLastModel";
 export const AGENT_LAST_MODEL_DEFAULT = "";
@@ -37,7 +39,10 @@ export interface AgentSettings {
   ollamaUrl: string;
   openrouterUrl: string;
   openrouterApiKey: string;
+  hfUrl: string;
+  hfApiKey: string;
   hasOpenrouterApiKey?: boolean;
+  hasHfApiKey?: boolean;
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
@@ -63,6 +68,8 @@ export function agentSettingsPayload(input?: AgentSettingsInput): AgentSettingsP
   if (src.ollamaUrl !== undefined) out.ollama_url = src.ollamaUrl;
   if (src.openrouterUrl !== undefined) out.openrouter_url = src.openrouterUrl;
   if (src.openrouterApiKey !== undefined) out.openrouter_api_key = src.openrouterApiKey;
+  if (src.hfUrl !== undefined) out.hf_url = src.hfUrl;
+  if (src.hfApiKey !== undefined) out.hf_api_key = src.hfApiKey;
   if (src.timeoutSeconds !== undefined && src.timeoutSeconds !== "")
     out.timeout_seconds = src.timeoutSeconds;
   if (src.contextLength !== undefined && src.contextLength !== "")
@@ -92,6 +99,10 @@ export function normalizeAgentSettings(input?: Record<string, unknown>): AgentSe
     hasOpenrouterApiKey: Boolean(
       (src.has_openrouter_api_key ?? src.hasOpenrouterApiKey) ?? false
     ),
+    hfUrl: ((src.hfUrl ?? src.hf_url) as string) || AGENT_HF_URL_DEFAULT,
+    hfApiKey:
+      ((src.hfApiKey ?? src.hf_api_key) as string) || AGENT_HF_API_KEY_DEFAULT,
+    hasHfApiKey: Boolean((src.has_hf_api_key ?? src.hasHfApiKey) ?? false),
     timeoutSeconds:
       ((src.timeoutSeconds ?? src.timeout_seconds) as string | number | undefined) ??
       AGENT_TIMEOUT_SECONDS_DEFAULT,
@@ -117,6 +128,8 @@ function loadAgentSettingsFromDefaults(): AgentSettings {
     ollamaUrl: url("VITE_AGENT_OLLAMA_URL"),
     openrouterUrl: url("VITE_AGENT_OPENROUTER_URL"),
     openrouterApiKey: url("VITE_OPENROUTER_API_KEY"),
+    hfUrl: url("VITE_AGENT_HF_URL"),
+    hfApiKey: url("VITE_HF_API_KEY"),
     timeoutSeconds: parseInt(url("VITE_AGENT_TIMEOUT_SECONDS"), 10) || AGENT_TIMEOUT_SECONDS_DEFAULT,
     contextLength: parseInt(url("VITE_AGENT_CONTEXT_LENGTH"), 10) || AGENT_CONTEXT_LENGTH_DEFAULT,
     temperature: parseFloat(url("VITE_AGENT_TEMPERATURE")) || AGENT_TEMPERATURE_DEFAULT,
@@ -135,6 +148,9 @@ function loadAgentSettingsFromStorage(): AgentSettings {
       ollamaUrl: AGENT_OLLAMA_URL_DEFAULT,
       openrouterUrl: AGENT_OPENROUTER_URL_DEFAULT,
       openrouterApiKey: AGENT_OPENROUTER_API_KEY_DEFAULT,
+      hfUrl: AGENT_HF_URL_DEFAULT,
+      hfApiKey: AGENT_HF_API_KEY_DEFAULT,
+      hasHfApiKey: false,
       timeoutSeconds: AGENT_TIMEOUT_SECONDS_DEFAULT,
       contextLength: AGENT_CONTEXT_LENGTH_DEFAULT,
       temperature: AGENT_TEMPERATURE_DEFAULT,

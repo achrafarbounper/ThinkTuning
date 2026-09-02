@@ -1,6 +1,6 @@
 """Client HTTP multi-provider entièrement streamé (`stream: true`).
 
-Deux providers sont supportés :
+Deux providers sont supportés (plus « hf ») :
 
     - ``ollama``     (défaut) : endpoint chat Ollama, flux NDJSON, champs
       « message.content » / « message.thinking », fenêtre de contexte
@@ -8,7 +8,10 @@ Deux providers sont supportés :
     - ``openrouter`` : endpoint compatible OpenAI
       (https://openrouter.ai/api/v1/chat/completions), flux SSE
       (« data: {...} » jusqu'à « data: [DONE] »), fragments dans
-      ``choices[0].delta.{content, reasoning}`` (repli « reasoning_content »).
+      ``choices[0].delta.{content, reasoning}`` (repli « reasoning_content ») ;
+    - ``hf`` : Hugging Face Inference Providers, endpoint compatible OpenAI
+      (https://router.huggingface.co/v1/chat/completions), auth Bearer
+      « HF_TOKEN », même flux SSE qu'OpenRouter — le payload est identique.
 
 Les événements sont publiés sur le logger « thinktuning.agent » (même canal
 que AgentCore) : requête/durée/statut en INFO, contenus complets en DEBUG,
@@ -47,8 +50,9 @@ from .encoding import repair_utf8_mojibake
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
-# Providers supportés par le client.
-PROVIDERS = ("ollama", "openrouter")
+# Providers supportés par le client : « hf » = Hugging Face Inference
+# Providers (endpoint compatible OpenAI, cf. _build_payload).
+PROVIDERS = ("ollama", "openrouter", "hf")
 
 # Température appliquée quand l'appelant n'en fournit pas explicitement
 # (0.8 = défaut historique du serveur Ollama).
@@ -156,17 +160,19 @@ class LLMClient:
 
     def _build_payload(self, messages) -> dict:
         """Construit le corps JSON de la requête selon le provider."""
-        if self.provider == "openrouter":
-            # Format compatible OpenAI : température au niveau racine, pas de
-            # bloc « options » (num_ctx n'existe pas côté OpenRouter ; la
-            # fenêtre de contexte est gérée par le modèle hébergé).
+        if self.provider in ("openrouter", "hf"):
+            # Format compatible OpenAI (OpenRouter ET Hugging Face Inference
+            # Providers, dont l'endpoint router.huggingface.co est une copie
+            # de l'API chat OpenAI) : température au niveau racine, pas de
+            # bloc « options » (num_ctx n'existe pas côté providers hébergés ;
+            # la fenêtre de contexte est gérée par le modèle hébergé).
             payload: dict = {
                 "model": self.model,
                 "messages": messages,
                 "stream": True,
                 "temperature": self.temperature,
             }
-            # Les modèles de raisonnement d'OpenRouter émettent spontanément
+            # Les modèles de raisonnement émettent spontanément
             # delta.reasoning : aucun paramètre « think » à envoyer.
         else:
             payload = {

@@ -75,6 +75,13 @@ DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # format « vendor/model »).
 DEFAULT_OPENROUTER_MODEL_NAME = "openrouter/free"
 
+# Hugging Face Inference Providers : endpoint compatible OpenAI (auth Bearer
+# HF_TOKEN/HF_API_KEY). Le dashboard enregistre la racine « /v1 » tandis que
+# la config serveur peut porter l'endpoint chat complet — normalisé par
+# _hf_chat_url().
+DEFAULT_HF_URL = "https://router.huggingface.co/v1/chat/completions"
+DEFAULT_HF_MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
+
 # Taille de fenêtre de contexte (tokens) appliquée par défaut à l'agent,
 # transmise à Ollama via `options.num_ctx` (env AGENT_CONTEXT_LENGTH).
 DEFAULT_CONTEXT_LENGTH = 2048
@@ -109,6 +116,20 @@ def _openrouter_chat_url(url: str | None) -> str:
     return f"{url}/chat/completions"
 
 
+def _hf_chat_url(url: str | None) -> str:
+    """Normalise une URL Hugging Face vers l'endpoint chat complet.
+
+    Accepte la racine de l'API (« https://router.huggingface.co/v1 ») ou
+    l'endpoint complet (« .../v1/chat/completions »), comme _openrouter_chat_url.
+    """
+    url = (url or "").strip().rstrip("/")
+    if not url:
+        return DEFAULT_HF_URL
+    if url.endswith("/chat/completions"):
+        return url
+    return f"{url}/chat/completions"
+
+
 
 
 
@@ -138,7 +159,9 @@ def agent_config() -> dict:
     # Défaut dépendant du provider : les modèles OpenRouter portent un
     # identifiant « vendor/model » incompatible avec la convention Ollama.
     model = val("model") or (
-        DEFAULT_OPENROUTER_MODEL_NAME if provider == "openrouter" else DEFAULT_MODEL_NAME
+        DEFAULT_OPENROUTER_MODEL_NAME
+        if provider == "openrouter"
+        else DEFAULT_HF_MODEL_NAME if provider == "hf" else DEFAULT_MODEL_NAME
     )
     timeout_raw = val("timeout_seconds")
     context_raw = val("context_length")
@@ -151,6 +174,8 @@ def agent_config() -> dict:
             val("openrouter_url") or DEFAULT_OPENROUTER_URL
         ),
         "openrouter_api_key": val("openrouter_api_key") or "",
+        "hf_url": _hf_chat_url(val("hf_url") or DEFAULT_HF_URL),
+        "hf_api_key": val("hf_api_key") or "",
         "model": model,
         "timeout": (
             float(timeout_raw) if timeout_raw is not None else DEFAULT_TIMEOUT_SECONDS
@@ -183,6 +208,18 @@ def _llm_endpoint(cfg: dict) -> tuple[str, str | None]:
                 ),
             )
         return cfg["openrouter_url"], api_key
+    if cfg["provider"] == "hf":
+        api_key = (cfg["hf_api_key"] or "").strip()
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Provider LLM « hf » sélectionné mais aucune clé API "
+                    "n'est définie. Renseignez HF_API_KEY (ou enregistrez-la "
+                    "dans la page Paramètres)."
+                ),
+            )
+        return cfg["hf_url"], api_key
     return cfg["ollama_url"], None
 
 
@@ -308,6 +345,8 @@ def list_llm_models() -> dict:
     cfg = agent_config()
     if cfg["provider"] == "openrouter":
         return _list_openrouter_models(cfg)
+    if cfg["provider"] == "hf":
+        return _list_hf_models(cfg)
 
     base_url = _ollama_base_url()
     try:
@@ -418,6 +457,78 @@ def _list_openrouter_models(cfg: dict) -> dict:
     except ValueError as exc:  # réponse non JSON
         raise HTTPException(
             status_code=502, detail=f"Réponse illisible de l'API OpenRouter ({exc})."
+        )
+
+    active_model = cfg["model"]
+    models = []
+    for entry in payload.get("data", []):
+        name = entry.get("id") or ""
+        if not name:
+            continue
+        models.append(
+            {
+                "name": name,
+                "size": None,
+                "modified_at": None,
+                "is_default": name == active_model,
+            }
+        )
+    models.sort(key=lambda item: item["name"])
+
+    return {"active": active_model, "models": models}
+
+
+def _hf_base_api() -> str:
+    """Racine de l'API HF déduite de l'URL du endpoint chat.
+
+    « https://router.huggingface.co/v1/chat/completions » -> « .../v1 ».
+    """
+    url = agent_config()["hf_url"]
+    marker = url.find("/chat/completions")
+    if marker != -1:
+        return url[:marker].rstrip("/")
+    return url.rsplit("/", 1)[0] if "/" in url.rstrip("/") else url
+
+
+def _list_hf_models(cfg: dict) -> dict:
+    """Liste les modèles Hugging Face Inference Providers (GET /v1/models).
+
+    L'entête Bearer est envoyé quand la clé est définie. Mapping sur le même
+    contrat que la liste Ollama : ``name`` porte l'identifiant complet du
+    modèle (« vendor/model ») ; ``size`` et ``modified_at`` n'existent pas.
+    """
+    url = f"{_hf_base_api()}/models"
+    api_key = (cfg["hf_api_key"] or "").strip()
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    try:
+        response = requests.get(url, headers=headers, timeout=LIST_MODELS_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        payload = response.json()
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"L'API Hugging Face ({url}) n'a pas répondu "
+                f"dans les {LIST_MODELS_TIMEOUT_SECONDS:.0f}s."
+            ),
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=502,
+            detail=f"API Hugging Face injoignable sur {url}.",
+        )
+    except requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Erreur renvoyée par Hugging Face (HTTP {status})."
+                + (" Clé HF_API_KEY invalide ?" if status == 401 else "")
+            ),
+        )
+    except ValueError as exc:  # réponse non JSON
+        raise HTTPException(
+            status_code=502, detail=f"Réponse illisible de l'API Hugging Face ({exc})."
         )
 
     active_model = cfg["model"]
@@ -729,13 +840,36 @@ def _build_llm_client(model_name: str | None = None) -> LLMClient:
     )
 
 
-def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinator:
-    """Coordonnateur multi-agents mis en cache (construction paresseuse).
 
-    Utilise le provider configuré (même LLMClient pour chaque worker, pour
-    rester déterministe et maîtriser le coût en tokens). La spécialisation
-    se fait par SOUS-ENSEMBLE D'OUTILS (isolation stricte), pas par modèle.
-    """
+
+# Coordinateurs dedies aux modeles explicitement demandes (selecteur du
+# chat), mis en cache par nom de modele - meme pattern que _override_runners.
+_override_coordinators: dict[str, MultiAgentCoordinator] = {}
+
+
+def _coordinator_key(model: str | None) -> str | None:
+    # Cle de cache : None (modele par defaut) -> singleton.
+    name = (model or "").strip()
+    if not name or name == agent_config()["model"]:
+        return None
+    return name
+
+
+def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinator:
+    # Coordonnateur multi-agents mis en cache (construction paresseuse).
+    # Le modele par defaut (config SQLite/env) utilise le singleton
+    # _multi_coordinator ; tout modele explicitement demande (selecteur du
+    # chat) obtient un coordinateur dedie, mis en cache par nom de modele
+    # (meme pattern que _override_runners) - sinon le parametre serait
+    # ignore des que le singleton existe.
+    key = _coordinator_key(model)
+    if key is not None:
+        with _multi_coordinator_lock:
+            coord = _override_coordinators.get(key)
+            if coord is None:
+                coord = MultiAgentCoordinator(_build_llm_client(key))
+                _override_coordinators[key] = coord
+        return coord
     global _multi_coordinator
     if _multi_coordinator is None:
         with _multi_coordinator_lock:
@@ -746,9 +880,15 @@ def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinat
 
 
 def reload_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinator:
-    """Reconstruit le coordonnateur (nouveau LLMClient). Utilisé en cas d'échec."""
+    # Reconstruit le coordinateur (nouveau LLMClient) pour le modele demande.
+    key = _coordinator_key(model)
     global _multi_coordinator
     with _multi_coordinator_lock:
+        if key is not None:
+            _override_coordinators.pop(key, None)
+            coord = MultiAgentCoordinator(_build_llm_client(key))
+            _override_coordinators[key] = coord
+            return coord
         _multi_coordinator = None
         llm = _build_llm_client(model)
         _multi_coordinator = MultiAgentCoordinator(llm)
