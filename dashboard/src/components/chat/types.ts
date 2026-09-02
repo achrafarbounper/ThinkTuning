@@ -49,6 +49,78 @@ export interface ChatMessageData {
    * dans l'ordre d'exécution. Vide côté utilisateur ou hors mode Agent.
    */
   toolCalls?: ToolCallData[];
+  /**
+   * Plan du superviseur multi-agents (mode « Multi-agents »), affiché comme
+   * une liste de sous-tâches assignées avant le dispatch. Vide hors mode.
+   */
+  multiPlan?: MultiAgentPlanTask[];
+  /**
+   * État temps réel des workers (une entrée par sous-tâche), mis à jour au fil
+   * des événements SSE agent.worker.*.
+   */
+  multiWorkers?: MultiAgentWorkerState[];
+}
+
+/* --- Mode Multi-agents (orchestration superviseur / workers) ---------------- */
+
+/** Une sous-tâche du plan validé par le superviseur (événement agent.plan). */
+export interface MultiAgentPlanTask {
+  task_id: string;
+  role: string;
+  subtask: string;
+}
+
+/** Statut d'exécution d'un worker multi-agents. */
+export type MultiWorkerStatus = 'running' | 'ok' | 'error' | 'awaiting_approval';
+
+/** État affiché d'un worker (sous-tâche) pendant et après son exécution. */
+export interface MultiAgentWorkerState {
+  task_id: string;
+  role: string;
+  subtask?: string;
+  status: MultiWorkerStatus;
+  summary?: string;
+  message?: string;
+  durationMs?: number;
+}
+
+/**
+ * Charge utile des événements SSE nommés de POST /api/agent/multi/ask/stream
+ * (le nom de l'événement arrive dans le champ `event:` de la trame SSE).
+ */
+export interface MultiAgentStreamEvent {
+  plan?: MultiAgentPlanTask[];
+  task_id?: string;
+  role?: string;
+  status?: string;
+  summary?: string;
+  message?: string;
+  error_code?: string;
+  duration_ms?: number;
+  worker_errors?: number;
+  answer?: string;
+  final_answer?: string;
+  /**
+   * Événement agent.worker.approval : identifiant de la demande d'approbation
+   * (POST /api/agent/approvals/{id}/approve|reject) puis relance de la
+   * sous-tâche via resume_request_id.
+   */
+  request_id?: string;
+  /** Décision structurée du gate (outil, args, motif) — cf. AgentApprovalInfo. */
+  approval?: Pick<AgentApprovalInfo, 'tool' | 'args' | 'reason'>;
+}
+
+/** Contrat JSON de POST /api/agent/multi/ask (mode bloquant). */
+export interface MultiAgentAskResponse {
+  status: string;
+  final_answer: string;
+  plan: MultiAgentPlanTask[];
+  workers: Array<Record<string, unknown>>;
+  unexecuted: Array<Record<string, unknown>>;
+  thinking?: string;
+  duration_ms?: number;
+  error_code?: string;
+  message?: string;
 }
 
 /** Corps JSON attendu par le backend : POST /api/ai */

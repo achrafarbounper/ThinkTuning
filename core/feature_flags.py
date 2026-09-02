@@ -27,6 +27,7 @@ import os
 #   context        (C) gestion du contexte (résumé, fenêtre, mémoire)
 #   copilot        (D) suggestions de type « GitHub Copilot »
 #   websocket      (E) canal bidirectionnel WebSocket
+#   multi_agent    (F) orchestration multi-agents (superviseur/workers)
 FEATURES = (
     "reliability",
     "audit",
@@ -34,6 +35,7 @@ FEATURES = (
     "context",
     "copilot",
     "websocket",
+    "multi_agent",
 )
 
 # Valeurs considérées comme « activé » (insensible à la casse).

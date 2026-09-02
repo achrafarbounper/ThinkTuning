@@ -1,5 +1,6 @@
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallBlock } from './ToolCallBlock';
+import { MultiAgentTrace } from './MultiAgentTrace';
 import type { ChatMessageData } from './types';
 
 interface ChatMessageProps {
@@ -79,6 +80,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
         {/* Chaîne d'outils appelés par l'agent (mode Agent streaming). */}
         {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
           <ToolCallBlock calls={message.toolCalls} />
+        )}
+
+        {/* Orchestration multi-agents : plan + etat des workers (temps reel). */}
+        {!isUser && (message.multiPlan || message.multiWorkers) && (
+          <MultiAgentTrace plan={message.multiPlan} workers={message.multiWorkers} />
         )}
 
         {/* Trace de raisonnement (« Réflexion »), au-dessus de la bulle. */}

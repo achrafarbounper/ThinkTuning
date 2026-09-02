@@ -910,3 +910,116 @@
     color: var(--chat-text);
   }
 }
+
+/* === Mode Multi-agents (trace orchestration superviseur / workers) ======== */
+
+.multi-agent-trace {
+  margin-bottom: 8px;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.multi-agent-trace__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.multi-agent-trace__badge {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+}
+
+.multi-agent-trace__count {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.multi-agent-trace__plan,
+.multi-agent-trace__workers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.multi-agent-trace__plan-item,
+.multi-agent-trace__worker {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.multi-agent-trace__role {
+  flex: none;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent-color, #58a6ff);
+  white-space: nowrap;
+}
+
+.multi-agent-trace__subtask {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+.multi-agent-trace__status {
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+
+.multi-agent-trace__worker--running .multi-agent-trace__status {
+  animation: multi-agent-spin 1s linear infinite;
+  color: var(--accent-color, #58a6ff);
+}
+
+.multi-agent-trace__worker--ok .multi-agent-trace__status {
+  color: #3fb950;
+}
+
+.multi-agent-trace__worker--error .multi-agent-trace__status {
+  color: #f85149;
+}
+
+.multi-agent-trace__worker--awaiting_approval .multi-agent-trace__status {
+  color: #d29922;
+}
+
+.multi-agent-trace__worker--awaiting_approval .multi-agent-trace__state {
+  color: #d29922;
+  font-weight: 600;
+}
+
+.multi-agent-trace__state {
+  flex: none;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.multi-agent-trace__worker--running .multi-agent-trace__state {
+  color: var(--accent-color, #58a6ff);
+  opacity: 0.9;
+}
+
+@keyframes multi-agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

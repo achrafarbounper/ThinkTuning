@@ -197,6 +197,14 @@ class Predictor:
                     raise RuntimeError(
                         f"Fichier de poids illisible (pas un state_dict) : {state_dict_path}"
                     )
+                # Le try initial a échoué (ex. tokenizer absent du dossier) :
+                # tokenizer + modèle doivent être (re)chargés ICI, avant toute
+                # référence à self.model, sinon AttributeError garanti.
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+                self.model = AutoModelForSequenceClassification.from_pretrained(
+                    resolved_model_path,
+                    num_labels=3,
+                )
                 expected_keys = set(self.model.state_dict().keys())
                 unexpected = set(state) - expected_keys
                 if unexpected:
@@ -211,11 +219,6 @@ class Predictor:
                         "ré-entraînez (POST /train) ou activez une autre version."
                     )
 
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                self.model = AutoModelForSequenceClassification.from_pretrained(
-                    self.model_name,
-                    num_labels=3,
-                )
                 self.model.load_state_dict(state)
 
         elif os.path.isfile(resolved_model_path):

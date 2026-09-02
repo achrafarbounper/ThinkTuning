@@ -103,16 +103,74 @@ def get_model_report(name: str, _: bool = Depends(require_api_key)):
         return json.load(fh)
 
 
+# Fichiers possibles pour un tokenizer sauvegardé (save_pretrained).
+_TOKENIZER_FILES = (
+    "tokenizer_config.json",
+    "tokenizer.json",
+    "vocab.txt",
+    "vocab.json",
+    "spiece.model",
+    "merges.txt",
+)
+
+# Fichiers de poids considérés non vides.
+_WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin", "model.pt", "model_state_dict.pt")
+
+
+def _structural_invalidity_reason(version_dir: str) -> str | None:
+    """Vérification structurelle SANS chargement de modèle.
+
+    Retourne la raison pour laquelle la version est incomplète (None si la
+    structure est a priori exploitable) :
+      - aucun fichier tokenizer non vide ;
+      - config.json absent, vide ou non parsable ;
+      - aucun fichier de poids non vide.
+    Permet au DELETE de supprimer immédiatement une version invalide sans
+    instancier de Predictor ni lancer le sanity check comportemental.
+    """
+    if not os.path.isdir(version_dir):
+        return "dossier de version inexistant"
+
+    if not any(
+        os.path.isfile(os.path.join(version_dir, f)) and os.path.getsize(os.path.join(version_dir, f)) > 0
+        for f in _TOKENIZER_FILES
+    ):
+        return "aucun fichier tokenizer"
+
+    config_path = os.path.join(version_dir, "config.json")
+    if not os.path.isfile(config_path):
+        return "config.json absent"
+    try:
+        with open(config_path, "r", encoding="utf-8") as fh:
+            config = json.load(fh)
+        if not isinstance(config, dict) or not config:
+            return "config.json vide"
+    except (ValueError, OSError) as exc:
+        return f"config.json illisible : {exc}"
+
+    if not any(
+        os.path.isfile(os.path.join(version_dir, f)) and os.path.getsize(os.path.join(version_dir, f)) > 0
+        for f in _WEIGHT_FILES
+    ):
+        return "aucun fichier de poids non vide"
+
+    return None
+
+
 @router.delete("/{name}")
 def delete_model_version(name: str, _: bool = Depends(require_api_key)):
     """Supprime une version de modèle défaillante de experiments/models.
 
-    Le sanity check comportemental (run_model_sanity) décide de la suppression :
-      - verdict « untrained » / « fallback_base_model » (ou dossier illisible ->
-        « model_unavailable ») : le dossier est supprimé ;
-      - verdict « ok » (modèle sain) : refus 422 — un modèle sain ne se
-        supprime pas via cette route ;
-      - version active : refus 409, quel que soit le verdict.
+    Deux niveaux de décision :
+      1. Vérification structurelle SANS chargement de modèle : une version
+         incomplète (pas de tokenizer, config.json absent/vide/illisible,
+         aucun poids non vide) est supprimée immédiatement (verdict
+         « model_unavailable ») — sans get_predictor(), sans
+         run_model_sanity(), sans risque de 500.
+      2. Sinon, sanity check comportemental (run_model_sanity) décide :
+         - verdict « untrained » / « fallback_base_model » : suppression ;
+         - verdict « ok » (modèle sain) : refus 422 ;
+         - version active : refus 409, quel que soit le verdict.
     """
     if not _VERSION_NAME_RE.match(name) or ".." in name:
         raise HTTPException(status_code=422, detail=f"Nom de version invalide : {name!r}")
@@ -130,19 +188,25 @@ def delete_model_version(name: str, _: bool = Depends(require_api_key)):
             ),
         )
 
-    # Sanity check comportemental sur cette version précise.
-    try:
-        predictor = get_predictor(name)
-        report = run_model_sanity(predictor)
-        verdict = report["verdict"]
-        detail = report["detail"]
-        accuracy = report["accuracy"]
-    except HTTPException as exc:
-        # Dossier cassé / incomplet / modèle illisible -> « model_unavailable »,
-        # ce qui autorise le nettoyage (cas d'usage principal).
-        verdict = "model_unavailable"
-        detail = str(exc.detail)
-        accuracy = None
+    # 1) Version structurellement invalide -> suppression immédiate, sans
+    #    charger le moindre modèle (ni Predictor, ni sanity check).
+    invalid_reason = _structural_invalidity_reason(version_dir)
+    if invalid_reason:
+        verdict, detail, accuracy = "model_unavailable", invalid_reason, None
+    else:
+        # 2) Sanity check comportemental sur cette version précise.
+        try:
+            predictor = get_predictor(name)
+            report = run_model_sanity(predictor)
+            verdict = report["verdict"]
+            detail = report["detail"]
+            accuracy = report["accuracy"]
+        except HTTPException as exc:
+            # Dossier cassé / incomplet / modèle illisible -> « model_unavailable »,
+            # ce qui autorise le nettoyage (cas d'usage principal).
+            verdict = "model_unavailable"
+            detail = str(exc.detail)
+            accuracy = None
 
     if verdict == VERDICT_OK:
         raise HTTPException(

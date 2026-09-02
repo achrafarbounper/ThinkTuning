@@ -210,7 +210,7 @@ _INTENT_MARKERS = (
 _ANNOUNCE_WINDOW = 80
 
 
-def _detect_announced_tool(text: str) -> str:
+def _detect_announced_tool(text: str, tools: Optional[dict] = None) -> str:
     """Nom du premier outil annoncé dans ``text``, sinon ``""``.
 
     Une annonce = nom d'outil CONNU du registre (frontières de mot) à moins
@@ -218,16 +218,20 @@ def _detect_announced_tool(text: str) -> str:
     analysé combine réflexion (inline ou natif Ollama) et réponse nettoyée :
     l'outil peut n'être cité QUE dans le raisonnement.
 
+    ``tools`` (optionnel) : sous-ensemble injecté (mode multi-agents) ;
+    sans lui, le registre global ``TOOLS`` est utilisé.
+
     Sans blocs JSON exécutables dans la même réponse, cette annonce révèle
     exactement le cas « outil planifié puis conclusion sans exécution » —
     la boucle principale s'en sert pour relancer le modèle au lieu de
     valider une réponse sortie de mémoire.
     """
-    if not text or not TOOLS:
+    effective = tools if tools is not None else TOOLS
+    if not text or not effective:
         return ""
     lowered = text.lower()
     pattern = re.compile(
-        r"\b(?:" + "|".join(re.escape(name.lower()) for name in sorted(TOOLS)) + r")\b"
+        r"\b(?:" + "|".join(re.escape(name.lower()) for name in sorted(effective)) + r")\b"
     )
     for match in pattern.finditer(lowered):
         window = lowered[max(0, match.start() - _ANNOUNCE_WINDOW): match.end() + _ANNOUNCE_WINDOW]
@@ -259,6 +263,9 @@ class AgentCore:
         edge_tabs: Optional[List[Dict[str, Any]]] = None,
         enable_thinking: bool = False,
         approval_store=None,
+        tools: Optional[Dict[str, Callable[..., Any]]] = None,
+        required_args: Optional[Dict[str, List[str]]] = None,
+        on_tool_forbidden: Optional[Callable[[str, str], None]] = None,
     ):
         """
         `system_prompt` est optionnel : s'il n'est pas fourni (ou vide),
@@ -271,11 +278,24 @@ class AgentCore:
         exploite en plus le champ natif « message.thinking » d'Ollama.
         """
         self.llm = llm_client
+        # Registres d'outils. En mode multi-agents, un sous-ensemble est
+        # injecté par rôle (isolation stricte) ; sans injection, on retombe
+        # sur le registre global historique (comportement inchangé).
+        self._tools = tools if tools is not None else TOOLS
+        self._required_args = (
+            required_args if required_args is not None else REQUIRED_ARGS
+        )
+        # Hook de sécurité : appelé AVANT le retour d'erreur quand un outil
+        # sort du périmètre du rôle (mode multi-agents). L'orchestrateur s'y
+        # abonne pour émettre l'événement de refus / tracer l'audit.
+        self.on_tool_forbidden = on_tool_forbidden
         # Prompt par défaut : généré depuis le registre RÉEL des outils pour
         # que le modèle connaisse les noms/arguments et sache QUAND les
         # appeler (sinon il « devine » ses outils et répond de mémoire).
         base_prompt = (
-            system_prompt if system_prompt else build_system_prompt(TOOLS, REQUIRED_ARGS)
+            system_prompt
+            if system_prompt
+            else build_system_prompt(self._tools, self._required_args)
         )
         self.enable_thinking = bool(enable_thinking)
         self.system_prompt = (
@@ -363,6 +383,40 @@ class AgentCore:
         return None
 
     # ---------------------------------------------------------
+    # GARDE DE RÔLE (multi-agents) — sécurité déterministe hors LLM
+    # ---------------------------------------------------------
+    # En mode multi-agents, chaque worker n'a accès qu'au sous-ensemble
+    # d'outils injecté pour son rôle. Cette garde est DÉTERMINISTE : elle
+    # bloque AVANT la policy globale (approvals) tout outil hors périmètre,
+    # sans passer par le LLM. Le message renvoyé est volontairement
+    # anti-boucle : il liste les outils autorisés et offre une sortie en
+    # texte normal, pour que le modèle ne réessaie pas en boucle.
+
+    def _gate_role(self, tool: str) -> Optional[str]:
+        """Refuse un outil hors du périmètre du rôle.
+
+        Retourne le message d'erreur anti-boucle à renvoyer au LLM si
+        ``tool`` n'appartient pas au sous-ensemble du rôle ; ``None`` si
+        l'outil est autorisé. Émet le hook ``on_tool_forbidden`` avant de
+        retourner le message (l'orchestrateur s'y abonne pour l'audit /
+        l'événement de streaming).
+        """
+        if tool in self._tools:
+            return None
+        available = ", ".join(sorted(self._tools))
+        message = (
+            f"Outil interdit : « {tool} » n'appartient PAS au périmètre de "
+            f"votre rôle. Vous n'avez accès qu'à : {available}. "
+            f"Ne réessayez PAS avec « {tool} ». Choisissez un outil de la "
+            "liste autorisée, OU concluez en texte normal en expliquant que "
+            "vous ne pouvez pas accomplir cette sous-tâche avec vos outils. "
+            "Renvoie UN SEUL JSON corrigé, ou une conclusion en texte normal."
+        )
+        if self.on_tool_forbidden is not None:
+            self.on_tool_forbidden(tool, message)
+        return message
+
+    # ---------------------------------------------------------
     # GATE DE DÉCISION (auto_approve / approve / reject)
     # ---------------------------------------------------------
 
@@ -437,13 +491,19 @@ class AgentCore:
                     last_result,
                 )
 
-            if tool not in TOOLS:
-                available = ", ".join(sorted(TOOLS))
+            if tool not in self._tools:
+                available = ", ".join(sorted(self._tools))
                 return (
                     f"Tool inconnu : '{tool}'. Tools disponibles : {available}. "
                     "Renvoie UN SEUL JSON corrigé.",
                     last_result,
                 )
+
+            # Garde de rôle (multi-agents) : un outil hors du périmètre du
+            # rôle est refusé DÉTERMINISTIQUEMENT, avant la policy globale.
+            role_problem = self._gate_role(tool)
+            if role_problem is not None:
+                return (role_problem, last_result)
 
             args = self._normalize_args(tool, block)
             if args is None:
@@ -454,13 +514,13 @@ class AgentCore:
                     last_result,
                 )
 
-            missing = [k for k in REQUIRED_ARGS[tool] if k not in args]
+            missing = [k for k in self._required_args[tool] if k not in args]
             if missing:
                 return (
                     f"Arguments manquants pour {tool} : {missing}. "
                     f"Reçu : {args!r}. "
                     f'Format attendu : {{"tool": "{tool}", "args": {{...}}}} — '
-                    f"arguments obligatoires : {REQUIRED_ARGS[tool]}. "
+                    f"arguments obligatoires : {self._required_args[tool]}. "
                     "Renvoie UN SEUL JSON corrigé.",
                     last_result,
                 )
@@ -504,10 +564,10 @@ class AgentCore:
                     last_result = process_tool_call(
                         tool,
                         args,
-                        lambda a: TOOLS[tool](**a),
+                        lambda a: self._tools[tool](**a),
                     )
                 else:
-                    last_result = TOOLS[tool](**args)
+                    last_result = self._tools[tool](**args)
 
                 duration_ms = (time.perf_counter() - tool_started) * 1000.0
                 record_usage(tool, duration_ms)
@@ -783,7 +843,7 @@ class AgentCore:
                     f"{resume_row['status']}). Impossible de reprendre."
                 )
             resume_tool = resume_row["tool"]
-            if resume_tool not in TOOLS:
+            if resume_tool not in self._tools:
                 raise ValueError(f"Outil de reprise inconnu : {resume_tool}")
             resume_args = resume_row.get("args")
             if not isinstance(resume_args, dict):
@@ -798,7 +858,7 @@ class AgentCore:
                         "args": summarize_tool_args(resume_args),
                     })
                 resume_started = time.perf_counter()
-                resume_result = TOOLS[resume_tool](**resume_args)
+                resume_result = self._tools[resume_tool](**resume_args)
                 if on_tool_event is not None:
                     on_tool_event({
                         "event": "tool_result",
@@ -863,7 +923,7 @@ class AgentCore:
                 # une réponse sortie de mémoire déguisée en recherche. On
                 # renvoie une relance exigeant le JSON au lieu de l'accepter.
                 announced = _detect_announced_tool(
-                    f"{last_round_thinking['text']}\n{raw}"
+                    f"{last_round_thinking['text']}\n{raw}", self._tools
                 )
                 if (
                     last_result is None
