@@ -4,10 +4,48 @@ class AgentRunner:
     ``ask`` conserve le comportement historique (réponse finale seule, str).
     ``ask_detailed`` expose en plus la trace de réflexion collectée quand le
     mode « Réflexion » est activé (AgentCore(enable_thinking=True)).
+
+    **Extension Event Bus** : cette classe expose désormais l'Event Bus interne
+    via ``get_event_bus()`` pour permettre l'enregistrement de listeners
+    externes (métriques, logging, alerting) sans modifier l'agent.
     """
 
     def __init__(self, agent):
         self.agent = agent
+
+    # --- Accès à l'infrastructure d'extension -------------------------------
+
+    def get_event_bus(self):
+        """Retourne l'instance globale de l'Event Bus (ou None si indisponible).
+
+        Permet aux consommateurs externes d'enregistrer des listeners :
+
+        >>> runner.get_event_bus().on("tool_call", my_handler)
+        """
+        try:
+            from .event_bus import get_event_bus as _get_bus
+            return _get_bus()
+        except ImportError:
+            return None
+
+    def on(self, event_type: str, handler):
+        """Raccourci pour enregistrer un listener sur l'Event Bus.
+
+        Retourne True si l'enregistrement a réussi, False sinon.
+        """
+        bus = self.get_event_bus()
+        if bus is None:
+            return False
+        bus.on(event_type, handler)
+        return True
+
+    def off(self, event_type: str, handler):
+        """Raccourci pour désenregistrer un listener de l'Event Bus."""
+        bus = self.get_event_bus()
+        if bus is not None:
+            bus.off(event_type, handler)
+
+    # --- Méthodes historiques (inchangées) ----------------------------------
 
     def ask(self, prompt: str):
         return self.agent.run(prompt)

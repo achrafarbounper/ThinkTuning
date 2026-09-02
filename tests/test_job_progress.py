@@ -227,9 +227,9 @@ def test_update_batch_progress_and_events_source():
     assert source.get_logs_sync(job.job_id) == []
 
 
-def test_train_job_steps_order_matches_jobsteps_js():
+def test_train_job_steps_order_matches_jobsteps_ts():
     """Garde-fou : TRAIN_JOB_STEPS (serveur) couvre les étapes affichées
-    par le dashboard (TRAIN_STEPS de jobSteps.js)."""
+    par le dashboard (TRAIN_STEPS de jobSteps.ts)."""
     from pathlib import Path
 
     js = (
@@ -237,7 +237,7 @@ def test_train_job_steps_order_matches_jobsteps_js():
         / "dashboard"
         / "src"
         / "api"
-        / "jobSteps.js"
+        / "jobSteps.ts"
     )
     content = js.read_text(encoding="utf-8")
     for step in TRAIN_JOB_STEPS:
