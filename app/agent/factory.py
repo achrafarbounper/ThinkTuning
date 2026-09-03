@@ -23,16 +23,12 @@ from app.infrastructure.legacy_registry import LegacyToolRegistryAdapter
 logger = logging.getLogger("thinktuning.agent.factory")
 
 
-def build_legacy_llm_client():
-    """Construit le client LLM legacy avec les réglages centralisés.
+def llm_endpoint(settings):
+    """Résout (url, api_key) selon le provider et les Settings centralisés.
 
-    Retourne l'instance ``ia.agent.llm_client.LLMClient``. L'import passe par
-    l'identité de PAQUET réel (``ia.agent``) — jamais par l'identité nue
-    ``agent`` qui n'existe que via un hack ``sys.path``
-    (cf. tests/test_sys_path_guard.py)."""
-    settings = get_settings()
-    from ia.agent import llm_client as _llm_mod
-
+    Extrait du code du client legacy pour être réutilisé par le client v2
+    (``app/infrastructure/llm``) : source unique de la sélection d'endpoint.
+    """
     url = {
         AgentProvider.OLLAMA: settings.agent_ollama_url,
         AgentProvider.OPENROUTER: settings.agent_openrouter_url,
@@ -44,6 +40,20 @@ def build_legacy_llm_client():
         api_key = settings.openrouter_api_key
     elif settings.agent_provider is AgentProvider.HF:
         api_key = settings.effective_hf_key
+    return url, api_key
+
+
+def build_legacy_llm_client():
+    """Construit le client LLM legacy avec les réglages centralisés.
+
+    Retourne l'instance ``ia.agent.llm_client.LLMClient``. L'import passe par
+    l'identité de PAQUET réel (``ia.agent``) — jamais par l'identité nue
+    ``agent`` qui n'existe que via un hack ``sys.path``
+    (cf. tests/test_sys_path_guard.py)."""
+    settings = get_settings()
+    from ia.agent import llm_client as _llm_mod
+
+    url, api_key = llm_endpoint(settings)
 
     return _llm_mod.LLMClient(
         url=url,
@@ -75,13 +85,22 @@ def build_llm_client():
     """Seam du client LLM : choisit l'implémentation selon ``AGENT_LLM_V2``.
 
     - ``llm_v2`` désactivé (défaut) → client legacy (comportement v1 intact) ;
-    - ``llm_v2`` activé → implémentation propre du port ``LLMClientPort``
-      (aujourd'hui un stub déterministe, futur client HTTP propre).
+    - ``llm_v2`` activé → ``HttpLLMClient`` (implémentation propre httpx du port
+      ``LLMClientPort``, cf. ``app/infrastructure/llm``).
     """
     if llm_v2_enabled():
-        from app.infrastructure.llm.stub_client import StubLLMClient
+        from app.infrastructure.llm.http_client import HttpLLMClient
 
-        return StubLLMClient()
+        settings = get_settings()
+        url, api_key = llm_endpoint(settings)
+        return HttpLLMClient(
+            url=url,
+            model=settings.agent_model_name,
+            provider=settings.agent_provider.value,
+            api_key=api_key,
+            timeout=settings.agent_timeout_seconds,
+            context_length=settings.agent_context_length,
+        )
     return build_legacy_llm_client()
 
 

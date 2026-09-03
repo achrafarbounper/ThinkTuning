@@ -202,8 +202,14 @@ permettent au runner de distinguer retry / recovery / rejet.
 - **Port `ContextPort` absorbé** : `ia/agent/context.py` → wrapper
   `app/infrastructure/context/legacy_context.py`, faux déterministe
   `null_context.py`, bascule `AGENT_CONTEXT` (`tests/test_context_port.py`).
-- **Seam `AGENT_LLM_V2`** : `app/infrastructure/llm/` (stub déterministe
-  implémentant `LLMClientPort`), bascule via `build_llm_client()`
-  (`tests/test_llm_v2.py`). **Reste à faire** : le vrai client HTTP propre
-  (httpx + retry + circuit breaker qui reprend `ia/agent/reliability.py`) pour
-  remplacer le stub derrière le même port.
+- **`HttpLLMClient` (v2) implémenté** : client HTTP httpx propre derrière
+  `LLMClientPort` — streaming NDJSON/SSE, payloads `ollama`/`openrouter`/`hf`,
+  retry + circuit breaker réutilisés de `ia/agent/reliability.py` (classifieur
+  d'erreurs httpx dans `errors.py`), thinking + réparation d'encodage.
+  Bascule via `AGENT_LLM_V2` → `build_llm_client()` (`tests/test_llm_http_client.py`,
+  transport `httpx.MockTransport` hors réseau). Le stub déterministe
+  (`StubLLMClient`) reste disponible pour les tests de use-cases.
+  **Reste à faire** : basculer `/ask/core` en production sur l'implémentation v2
+  puis décommissionner `ia/agent/llm_client.py` (le vrai client HTTP propre est
+  en place ; il s'agit désormais d'un choix de flag et de la suppression du
+  legacy).

@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import inspect
 
-from app.agent.factory import build_llm_client, llm_v2_enabled
+from app.agent.factory import (
+    AgentProvider,
+    build_llm_client,
+    llm_v2_enabled,
+)
 from app.domain.ports import LLMClientPort
-from app.infrastructure.llm import StubLLMClient
+from app.infrastructure.llm import HttpLLMClient, StubLLMClient
 
 LLM_METHODS = ("call", "call_stream")
 
@@ -63,12 +67,20 @@ def test_llm_v2_enabled_flag_selection(monkeypatch):
 
 
 def test_build_llm_client_routes_by_flag(monkeypatch):
-    """Le seam renvoie le stub (v2) ou le client legacy selon le flag."""
+    """Le seam renvoie le client v2 (HttpLLMClient) ou le client legacy selon le flag."""
     from unittest.mock import patch
 
+    # v2 activé → HttpLLMClient (patche Settings+endpoint : pas de `.env`).
     monkeypatch.setenv("AGENT_LLM_V2", "1")
-    client = build_llm_client()
-    assert isinstance(client, StubLLMClient)
+    with patch("app.agent.factory.get_settings") as mock_settings, \
+         patch("app.agent.factory.llm_endpoint", return_value=("http://x", None)):
+        mock_settings.return_value.agent_model_name = "m"
+        mock_settings.return_value.agent_provider = AgentProvider.OLLAMA
+        mock_settings.return_value.agent_timeout_seconds = 30
+        mock_settings.return_value.agent_context_length = 2048
+        client = build_llm_client()
+
+    assert isinstance(client, HttpLLMClient)
 
     # v2 désactivé → délègue à l'implémentation legacy (chemin intact).
     sentinel = object()
