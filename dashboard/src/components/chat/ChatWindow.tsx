@@ -234,7 +234,13 @@ function mapStoredToolCalls(
     if (event.event === 'tool_start') {
       calls.push({
         tool,
-        args: typeof event.args === 'string' ? event.args : undefined,
+        // Args stockés en string par l'ancien agent, en objet par le noyau v2.
+        args:
+          typeof event.args === 'string'
+            ? event.args
+            : event.args != null
+              ? JSON.stringify(event.args)
+              : undefined,
         status: 'running',
       });
     } else if (event.event === 'tool_result') {
@@ -1136,8 +1142,9 @@ export function ChatWindow() {
         }
 
         if (event.error) throw new Error(event.error);
-        // Événements d'outils du noyau (champ « core_tool » côté backend).
-        const toolFrame = (event as { core_tool?: { event?: string; tool?: string; args?: unknown; status?: string; summary?: string; error?: string } }).core_tool;
+        // Événements d'outils du noyau (frame « core_tool », même sémantique
+        // que tool_start / tool_result du mode Agent) : affichés dans le chat.
+        const toolFrame = event.core_tool;
         if (toolFrame?.tool) {
           if (toolFrame.event === 'tool_start') {
             appendToolCall(assistantId, {
@@ -1150,6 +1157,7 @@ export function ChatWindow() {
               tool: toolFrame.tool,
               status: toolFrame.status === 'error' ? 'error' : 'ok',
               summary: toolFrame.summary,
+              duration_ms: toolFrame.duration_ms,
             });
           }
         }

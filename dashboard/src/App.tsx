@@ -28,6 +28,7 @@ const DriftPage = lazy(() => import("./pages/DriftPage"));
 const PipelinePage = lazy(() => import("./pages/PipelinePage"));
 const MonitoringPage = lazy(() => import("./pages/MonitoringPage"));
 const AnnotationPage = lazy(() => import("./pages/AnnotationPage"));
+const FlowMapPage = lazy(() => import("./pages/FlowMapPage"));
 
 /** Table de routage : identifiant de menu → composant de page. */
 const ROUTES: Record<string, ComponentType<{ onNavigate?: (id: string) => void }>> = {
@@ -41,6 +42,7 @@ const ROUTES: Record<string, ComponentType<{ onNavigate?: (id: string) => void }
   annotation: AnnotationPage,
   evaluation: EvaluationPage,
   monitoring: MonitoringPage,
+  flowmap: FlowMapPage,
   parametres: SettingsPage,
 } as unknown as Record<string, ComponentType<{ onNavigate?: (id: string) => void }>>;
 

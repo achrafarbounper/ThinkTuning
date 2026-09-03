@@ -64,6 +64,12 @@ from core.run_store import (
     STATUSES as RUN_STATUSES,
     get_run_store,
 )
+from core.flow_store import (
+    COMPLETED as FLOW_COMPLETED,
+    ERROR as FLOW_ERROR,
+    STATUSES as FLOW_STATUSES,
+    get_flow_store,
+)
 from core.session_store import get_session_store
 from core.feature_flags import active_features, flag  # Phase A (flags)
 from tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
@@ -465,6 +471,26 @@ def ask(request: AskRequest, _: bool = Depends(require_api_key)):
 # AGENT_NEW_CORE est absent, il répond 503 (bascule incrémentale).
 
 
+def _core_tool_events(result) -> list[dict]:
+    """Traduit les traces d'actions du noyau en événements d'outils stockables.
+
+    Même contrat que les frames SSE « core_tool » (tool_start / tool_result) :
+    l'IHM rejoue ces paires au rechargement d'une session pour réafficher les
+    outils exécutés dans le chat (cf. mapStoredToolCalls côté front).
+    """
+    events: list[dict] = []
+    for trace in getattr(result, "actions", []) or []:
+        if trace.status not in ("done", "error"):
+            continue  # awaiting_approval / rejected : aucun outil exécuté
+        events.append({"event": "tool_start", "tool": trace.tool, "args": trace.args})
+        events.append({
+            "event": "tool_result", "tool": trace.tool,
+            "status": "ok" if trace.status == "done" else "error",
+            "summary": trace.result_summary or trace.error,
+        })
+    return events
+
+
 @router.post("/ask/core", response_model=AskResponse)
 def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
     """Prompt libre via le nouveau noyau agentique (flag ``AGENT_NEW_CORE``).
@@ -554,7 +580,8 @@ def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
         run_id=run_row["id"],
     )
     if api_status != "error":
-        _persist_exchange(request.session_id, request.prompt, result.answer or "")
+        _persist_exchange(request.session_id, request.prompt, result.answer or "",
+                          tool_events=_core_tool_events(result) or None)
 
     return AskResponse(
         response=result.answer or "",
@@ -606,8 +633,11 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     def _approval_gateway(action) -> bool:
         return bool(resume_hash and action.fingerprint() == resume_hash)
 
+    tool_events: list[dict] = []
+
     def _on_tool_event(event: dict) -> None:
         events.put(("tool", event))
+        tool_events.append(event)
         try:
             run_store.append_tool_event(run_row["id"], event)
         except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
@@ -675,7 +705,10 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
             )
             if api_status != "error":
                 _persist_exchange(request.session_id, request.prompt,
-                                  result.answer or "")
+                                  result.answer or "",
+                                  tool_events=(tool_events
+                                               or _core_tool_events(result))
+                                  or None)
 
             # Rejoue la réponse finale mot à mot (convention /ask/stream).
             for word in _stream_fragments(result.answer or ""):
@@ -1569,7 +1602,30 @@ def multi_ask_stream(
     events: queue.Queue = queue.Queue()
     compact = (request.mode or "full").strip().lower() == "compact"
 
+    # --- Persistance « Agent Flow Map » ---------------------------------------
+    # Tous les événements SSE sont enregistrés (quel que soit le mode full/
+    # compact) avec un horodatage relatif au début de session : la timeline
+    # rejouable du dashboard (Replay / Heatmap). La persistance est défensive
+    # et ne doit JAMAIS faire échouer le streaming.
+    flow_record = get_flow_store().start_flow(request.prompt, request.model or "")
+    flow_t0 = time.perf_counter()
+    flow_errored = {"v": False}
+
+    def _record(event_type: str, data: dict) -> None:
+        try:
+            get_flow_store().append_event(
+                flow_record["id"],
+                event_type,
+                data,
+                (time.perf_counter() - flow_t0) * 1000.0,
+            )
+            if event_type == "agent.error":
+                flow_errored["v"] = True
+        except Exception:  # pragma: no cover - persistance jamais bloquante
+            pass
+
     def _emit(event_type: str, data: dict) -> None:
+        _record(event_type, data)
         if compact and event_type in _MULTI_OBSERVABILITY_EVENTS:
             return  # observabilité : aucun envoi au front en mode compact
         events.put((event_type, data))
@@ -1583,9 +1639,27 @@ def multi_ask_stream(
                 on_event=_emit,
             )
             events.put(("agent.done", result))
+            if flow_errored["v"] or (result or {}).get("status") == "error":
+                get_flow_store().finish_flow(
+                    flow_record["id"],
+                    FLOW_ERROR,
+                    error=(result or {}).get("message") or "erreur multi-agents",
+                )
+            else:
+                get_flow_store().finish_flow(
+                    flow_record["id"],
+                    FLOW_COMPLETED,
+                    answer_summary=(result or {}).get("final_answer")
+                    or (result or {}).get("answer")
+                    or "",
+                )
         except HTTPException as exc:  # panne réseau déjà traduite
+            get_flow_store().finish_flow(flow_record["id"], FLOW_ERROR, error=str(exc.detail))
             events.put(("agent.error", {"message": str(exc.detail)}))
         except Exception as exc:  # pragma: no cover
+            get_flow_store().finish_flow(
+                flow_record["id"], FLOW_ERROR, error=f"{type(exc).__name__}: {exc}"
+            )
             events.put(("agent.error", {"message": f"{type(exc).__name__}: {exc}"}))
         finally:
             events.put(("__done__", None))
@@ -1629,3 +1703,51 @@ def multi_ask_stream(
             "X-Accel-Buffering": "no",  # désactive le buffering nginx
         },
     )
+
+# --- Journal « Agent Flow Map » (sessions multi-agents persistées) -------------------
+
+
+@router.get("/flow")
+def list_flow_sessions(
+    limit: int = 50,
+    status: Optional[str] = None,
+    _: bool = Depends(require_api_key),
+):
+    """Liste paginée des sessions multi-agents (Flow Map), plus récentes d'abord.
+
+    Chaque entrée porte un résumé (prompt, statut, réponse, compteurs
+    ``tool_calls`` / ``agents``) sans la timeline complète : le détail est
+    servi par ``GET /flow/{flow_id}``.
+    """
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=422, detail="limit doit être entre 1 et 200.")
+    if status is not None and status not in FLOW_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Statut inconnu : '{status}'. Valeurs : {', '.join(FLOW_STATUSES)}",
+        )
+    return {
+        "flows": get_flow_store().list(limit=limit, status=status),
+        "statuses": list(FLOW_STATUSES),
+    }
+
+
+@router.get("/flow/{flow_id}")
+def get_flow_session(flow_id: str, _: bool = Depends(require_api_key)):
+    """Détail complet d'une session Flow Map : timeline horodatée des événements.
+
+    ``events`` est une liste ``{"event", "data", "at_ms"}`` prête à rejouer par
+    le dashboard (``at_ms`` = millisecondes relatives au début de la session).
+    """
+    flow = get_flow_store().get(flow_id)
+    if flow is None:
+        raise HTTPException(status_code=404, detail=f"Session introuvable : {flow_id}")
+    return flow
+
+
+@router.delete("/flow/{flow_id}")
+def delete_flow_session(flow_id: str, _: bool = Depends(require_api_key)):
+    """Supprime une session enregistrée (nettoyage du journal Flow Map)."""
+    if not get_flow_store().delete(flow_id):
+        raise HTTPException(status_code=404, detail=f"Session introuvable : {flow_id}")
+    return {"deleted": flow_id}

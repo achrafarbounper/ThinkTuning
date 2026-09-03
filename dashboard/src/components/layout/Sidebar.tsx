@@ -162,6 +162,19 @@ const MENU_ITEMS: MenuItem[] = [
     ),
   },
   {
+    id: "flowmap",
+    label: "Agent Flow Map",
+    hint: "Pipeline IA animé",
+    icon: (
+      <Icon>
+        <circle cx="5" cy="6" r="3" />
+        <circle cx="19" cy="6" r="3" />
+        <circle cx="12" cy="19" r="3" />
+        <path d="M7.2 7.7 10.8 16M16.8 7.7 13.2 16" />
+      </Icon>
+    ),
+  },
+  {
     id: "parametres",
     label: "Paramètres",
     hint: "Connexion & préférences",

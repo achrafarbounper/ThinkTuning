@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Callable
 from datetime import date
 from enum import StrEnum
@@ -520,8 +521,10 @@ class AgentCore:
             # Émission temps réel (SSE) : annonce de l'appel d'outil.
             self._emit_tool_event({"event": "tool_start", "tool": action.tool,
                                    "args": action.args})
+            started = time.perf_counter()
             try:
                 value = func(**action.args)
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 results.append(f"[{step.task_id}] {action.tool} -> {self._summarize(value)}")
                 traces.append(ActionTrace(
                     tool=action.tool, args=action.args, decision=decision.value,
@@ -529,15 +532,18 @@ class AgentCore:
                 ))
                 self._emit_tool_event({"event": "tool_result", "tool": action.tool,
                                        "status": "ok",
-                                       "summary": self._summarize(value)})
+                                       "summary": self._summarize(value),
+                                       "duration_ms": duration_ms})
             except Exception as exc:  # auto-correction : l'erreur retourne au LLM
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 results.append(f"[{step.task_id}] ERREUR d'exécution ({action.tool}) : {exc}")
                 traces.append(ActionTrace(
                     tool=action.tool, args=action.args, decision=decision.value,
                     status="error", error=str(exc),
                 ))
                 self._emit_tool_event({"event": "tool_result", "tool": action.tool,
-                                       "status": "error", "error": str(exc)})
+                                       "status": "error", "error": str(exc),
+                                       "duration_ms": duration_ms})
         return "\n".join(results) if results else "Aucune action exécutée. Réponds à la question."
 
     def _capture_thinking(self, chunk: str) -> None:
