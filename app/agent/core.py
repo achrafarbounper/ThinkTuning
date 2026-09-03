@@ -42,7 +42,12 @@ from app.agent.policies.budget import RunBudget
 from app.agent.policies.sandbox_policy import decide_action
 from app.domain.entities.plan import Action, Decision, Intent, Plan, PlanStep
 from app.domain.errors import BudgetExceededError
-from app.domain.ports import LLMClientPort, Message, ToolRegistryPort
+from app.domain.ports import (
+    EventBusPort,
+    LLMClientPort,
+    Message,
+    ToolRegistryPort,
+)
 
 logger = logging.getLogger("thinktuning.agent.core")
 
@@ -378,12 +383,19 @@ class AgentCore:
         on_tool_event: Callable[[dict], None] | None = None,
         enable_thinking: bool = False,
         on_thinking: Callable[[str], None] | None = None,
+        event_bus: EventBusPort | None = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
         self._approval_gateway = approval_gateway
         self._max_tool_calls = max_tool_calls
         self._on_tool_event = on_tool_event
+        # Bus d'événements (port pub/sub, optionnel) : le noyau publie les
+        # événements de cycle de vie (run_start, tool_start/tool_end, thinking,
+        # approval_pending, run_finished) sans dépendre d'un consommateur précis
+        # (SSE, audit, métriques). Compatible avec les callbacks legacy :
+        # ``on_tool_event`` / ``on_thinking`` restent diffusés en parallèle.
+        self._event_bus = event_bus
         # Mode « Réflexion » : ``enable_thinking`` active le reconnement du
         # modèle pendant CHAQUE round ; ``on_thinking`` diffuse la trace en
         # temps réel (SSE thinking_delta), un tampon interne la conserve pour
@@ -399,6 +411,8 @@ class AgentCore:
         # Nouveau run (rebouffrage du même AgentCore en tests / atelier) :
         # le tampon de réflexion est propre à chaque exécution.
         self._thinking_parts = []
+        if self._event_bus is not None:
+            self._safe_emit("agent.run_start", prompt=intent.prompt)
         budget = RunBudget(max_llm_rounds=intent.max_rounds, max_tool_calls=self._max_tool_calls)
         traces: list[ActionTrace] = []
         rejected_prints: set[str] = set()
@@ -588,19 +602,41 @@ class AgentCore:
                 self._on_thinking(chunk)
             except Exception:  # pragma: no cover - défensif
                 pass
+        if self._event_bus is not None:
+            self._safe_emit("agent.thinking", chunk=chunk)
 
-    def _emit_tool_event(self, event: dict) -> None:
-        """Transmet un événement d'outil au callback SSE (silencieux si absent).
-
-        Le journal ne doit JAMAIS faire échouer le run : toute exception du
-        callback est avalée (même convention que run_store.append_tool_event).
-        """
-        if self._on_tool_event is None:
+    def _safe_emit(self, event_type: str, **data: Any) -> None:
+        """Émet un événement sur le bus sans jamais faire échouer le run."""
+        if self._event_bus is None:
             return
         try:
-            self._on_tool_event(event)
-        except Exception:  # pragma: no cover - défensif
-            pass
+            self._event_bus.emit(event_type, **data)
+        except Exception:  # pragma: no cover - défensif (le bus ne bloque pas)
+            logger.exception("event_bus_emit_failed type=%s", event_type)
+
+    def _emit_tool_event(self, event: dict) -> None:
+        """Transmet un événement d'outil au callback SSE et/ou au bus.
+
+        Le journal ne doit JAMAIS faire échouer le run : toute exception du
+        callback ou de l'émission est avalée (même convention que
+        run_store.append_tool_event).
+        """
+        if self._on_tool_event is not None:
+            try:
+                self._on_tool_event(event)
+            except Exception:  # pragma: no cover - défensif
+                pass
+        if self._event_bus is not None:
+            kind = event.get("event")
+            if kind == "tool_start":
+                self._safe_emit("agent.tool_start", tool=event.get("tool"),
+                                args=event.get("args"))
+            elif kind == "tool_result":
+                self._safe_emit("agent.tool_end", tool=event.get("tool"),
+                                status=event.get("status"),
+                                summary=event.get("summary") or "",
+                                error=event.get("error") or "",
+                                duration_ms=event.get("duration_ms"))
 
         # --- Finalisation -------------------------------------------------------------
 
@@ -629,7 +665,7 @@ class AgentCore:
         answer: str = "",
         awaiting_action: Action | None = None,
     ) -> AgentRunResult:
-        return AgentRunResult(
+        result = AgentRunResult(
             answer=answer,
             status=status,
             thinking="\n\n".join(self._thinking_parts).strip(),
@@ -638,6 +674,22 @@ class AgentCore:
             rounds_used=budget.snapshot().llm_rounds_used,
             tool_calls_used=budget.snapshot().tool_calls_used,
         )
+        if self._event_bus is not None:
+            # Soufflet EXACTEMENT une fois par run (tous les chemins passent par
+            # _as_result, y compris _finalize) : observabilité / audit.
+            self._safe_emit(
+                "agent.run_finished",
+                status=status.value,
+                rounds_used=result.rounds_used,
+                tool_calls_used=result.tool_calls_used,
+            )
+            if status is RunStatus.PENDING_APPROVAL and awaiting_action is not None:
+                self._safe_emit(
+                    "agent.approval_pending",
+                    tool=awaiting_action.tool,
+                    args=awaiting_action.args,
+                )
+        return result
 
     def _finalize(
         self,

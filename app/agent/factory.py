@@ -105,7 +105,8 @@ def build_llm_client():
 
 
 def build_agent_core(approval_gateway=None, on_tool_event=None,
-                     enable_thinking=False, on_thinking=None) -> AgentCore:
+                     enable_thinking=False, on_thinking=None,
+                     event_bus=None) -> AgentCore:
     """Assemble le noyau agentique complet (LLM réel + registre legacy).
 
     ``approval_gateway`` : callback optionnel ``(Action) -> bool`` injecté au
@@ -115,7 +116,11 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
     ``enable_thinking`` : active le mode « Réflexion » du noyau (chaque round
     du LLM diffuse son raisonnement via call_stream).
     ``on_thinking`` : callback optionnel ``(str) -> None`` diffusant chaque
-    fragment de raisonnement en temps réel (SSE thinking_delta)."""
+    fragment de raisonnement en temps réel (SSE thinking_delta).
+    ``event_bus`` : ``EventBusPort`` optionnel sur lequel le noyau publie les
+    événements de cycle de vie (run_start, tool_start/tool_end, thinking,
+    approval_pending, run_finished). Un bus PAR RUN (``InMemoryEventBus``)
+    évite tout cross-talk entre flux concurrents."""
     settings = get_settings()
     registry = LegacyToolRegistryAdapter()
     llm = build_llm_client()
@@ -130,6 +135,7 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
         on_tool_event=on_tool_event,
         enable_thinking=enable_thinking,
         on_thinking=on_thinking,
+        event_bus=event_bus,
         max_rounds=settings.agent_max_llm_rounds,
         max_tool_calls=settings.agent_max_tool_calls,
     )

@@ -113,16 +113,18 @@ def test_ask_core_stream_emits_core_tool_frames(client, monkeypatch) -> None:
 
     class FakeCore:
         def __init__(self, *args, **kwargs) -> None:
-            self._on_tool_event = kwargs.get("on_tool_event")
+            # Le noyau (réel) publie ses événements sur le bus injecté ; la
+            # route s'abonne au port pour régénérer les frames SSE.
+            self._event_bus = kwargs.get("event_bus")
 
         def run(self, intent, history=None):
-            if self._on_tool_event is not None:
-                self._on_tool_event({"event": "tool_start",
-                                     "tool": "recherche",
-                                     "args": {"q": "météo"}})
-                self._on_tool_event({"event": "tool_result", "tool": "recherche",
-                                     "status": "ok", "summary": "22°C, ensoleillé",
-                                     "duration_ms": 123.45})
+            if self._event_bus is not None:
+                self._event_bus.emit("agent.tool_start",
+                                     tool="recherche", args={"q": "météo"})
+                self._event_bus.emit("agent.tool_end",
+                                     tool="recherche", status="ok",
+                                     summary="22°C, ensoleillé",
+                                     duration_ms=123.45)
             return AgentRunResult(answer="Il fait 22°C.",
                                   status=RunStatus.COMPLETED,
                                   rounds_used=1, tool_calls_used=1)

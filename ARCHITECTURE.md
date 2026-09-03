@@ -194,10 +194,10 @@ permettent au runner de distinguer retry / recovery / rejet.
    `tests/test_sys_path_guard.py` (statique AST + dynamique sous-processus).
 3. Étendre ruff/mypy à `api/`, `core/`, `ia/`, `tests/`.
 4. ~~Streaming SSE de `/ask/core` (événements tool_start/tool_result
-   réutilisant l'event bus legacy)~~ **Port `EventBusPort` en place** : le
-   portage propre de l'event bus est disponible (`app/infrastructure/events/`),
-   prêt à découpler les adaptateurs SSE/WS des use-cases ; reste le câblage du
-   streaming SSE sur le port.
+   réutilisant l'event bus legacy)~~ **Port `EventBusPort` câblé sur le SSE** :
+   le port pub/sub est en place (`app/infrastructure/events/`) et le flux
+   `/ask/core/stream` s'y appuie — le noyau publie, la route s'abonne via un
+   bus PAR RUN (`InMemoryEventBus`) ; see `tests/test_event_bus_wiring.py`.
 5. Baseline GPU : `gpu_info` et `nvidia-smi` restent hors sandbox Windows CI.
 
 ### Avancée Phase 3 (client LLM v2 + contexte)
@@ -216,9 +216,17 @@ permettent au runner de distinguer retry / recovery / rejet.
   puis décommissionner `ia/agent/llm_client.py` (le vrai client HTTP propre est
   en place ; il s'agit désormais d'un choix de flag et de la suppression du
   legacy).
-- **Port `EventBusPort` (8e) ajouté** : contrat pub/sub aligné sur
-  `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` (wrapper strangler
-  vers le singleton, isolation d'erreurs préservée) et `InMemoryEventBus` (faux
-  déterministe async, avec `history`) — dans `app/infrastructure/events/`
-  (`tests/test_event_bus_port.py`). Prêt à découpler la publication SSE/WS des
-  use-cases : un émetteur ne connaît plus que `EventBusPort`.
+- **Port `EventBusPort` (8e) ajouté puis câblé sur le SSE** : contrat pub/sub
+  aligné sur `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` (wrapper
+  strangler vers le singleton, isolation d'erreurs préservée) et
+  `InMemoryEventBus` (faux déterministe async, avec `history`) — dans
+  `app/infrastructure/events/` (`tests/test_event_bus_port.py`).
+  **Câblage** : le noyau (`AgentCore`) accepte un `EventBusPort` optionnel et
+  publie son cycle de vie (`agent.run_start`, `agent.tool_start`/`tool_end`,
+  `agent.thinking`, `agent.approval_pending`, `agent.run_finished`) via
+  `_safe_emit` (défensif, jamais bloquant). `/ask/core/stream` injecte un bus
+  PAR RUN (`InMemoryEventBus`) et s'abonne pour régénérer les frames SSE
+  `core_tool` / `thinking_delta` à l'identique — aucun cross-talk entre flux
+  concurrents, et la route n'est plus qu'un abonné
+  (`tests/test_event_bus_wiring.py`). Les callbacks legacy `on_tool_event` /
+  `on_thinking` restent pris en charge (compatibilité `/ask/core` et tests).

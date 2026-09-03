@@ -192,15 +192,15 @@ def test_core_stream_persists_flow(client, monkeypatch):
             pass
 
     class _FakeCore:
-        def __init__(self, on_tool_event=None, **kw):
-            self._on_tool = on_tool_event
+        def __init__(self, event_bus=None, **kw):
+            self._bus = event_bus
 
         def run(self, intent, history=None):
-            if self._on_tool is not None:
-                self._on_tool({"event": "tool_start", "tool": "web_search",
-                               "args": {"q": "x"}})
-                self._on_tool({"event": "tool_result", "tool": "web_search",
-                               "status": "ok", "summary": "OK", "duration_ms": 5.0})
+            if self._bus is not None:
+                self._bus.emit("agent.tool_start", tool="web_search",
+                               args={"q": "x"})
+                self._bus.emit("agent.tool_end", tool="web_search",
+                               status="ok", summary="OK", duration_ms=5.0)
             return AgentRunResult(answer="Réponse noyau.",
                                   status=RunStatus.COMPLETED,
                                   rounds_used=1, tool_calls_used=1)

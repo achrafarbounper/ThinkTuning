@@ -94,6 +94,7 @@ from app.agent.factory import build_agent_core, new_core_enabled
 from app.domain.entities.plan import Intent
 from app.domain.errors import AgentRunError
 from app.infrastructure.legacy_approval_store import build_approval_store
+from app.infrastructure.events.in_memory import InMemoryEventBus
 # Use-cases (couche application) : la logique métier des runs vit ici,
 # les routes ci-dessous ne sont plus que des adaptateurs HTTP minces.
 from app.application.ask_usecase import run_ask_core, run_legacy_ask
@@ -542,25 +543,46 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
 
     tool_events: list[dict] = []
 
-    def _on_tool_event(event: dict) -> None:
-        events.put(("tool", event))
-        tool_events.append(event)
-        _flow_record("core.tool", event)
+    # --- Câblage SSE via EventBusPort -----------------------------------------
+    # Le noyau publie ses événements de cycle de vie sur un bus PAR RUN
+    # (InMemoryEventBus) : aucun cross-talk entre flux concurrents, et la route
+    # n'est plus qu'un abonné. On reconstruit ici EXACTEMENT les frames SSE
+    # historiques (core_tool / thinking_delta) pour ne rien casser côté IHM.
+    bus = InMemoryEventBus()
+
+    def _push_tool(payload: dict) -> None:
+        events.put(("tool", payload))
+        tool_events.append(payload)
+        _flow_record("core.tool", payload)
         try:
-            run_store.append_tool_event(run_row["id"], event)
+            run_store.append_tool_event(run_row["id"], payload)
         except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
             pass
 
-    def _on_thinking(chunk: str) -> None:
+    def _on_bus_tool_start(*, tool, args=None, **_event) -> None:
+        _push_tool({"event": "tool_start", "tool": tool, "args": args or {}})
+
+    def _on_bus_tool_end(*, tool, status, summary="", error="",
+                         duration_ms=None, **_event) -> None:
+        payload = {"event": "tool_result", "tool": tool,
+                   "status": status, "duration_ms": duration_ms}
+        payload["summary" if status == "ok" else "error"] = (
+            summary if status == "ok" else error)
+        _push_tool(payload)
+
+    def _on_bus_thinking(*, chunk, **_event) -> None:
         events.put(("thinking", chunk))
+
+    bus.on("agent.tool_start", _on_bus_tool_start)
+    bus.on("agent.tool_end", _on_bus_tool_end)
+    bus.on("agent.thinking", _on_bus_thinking)
 
     def worker() -> None:
         try:
             core = build_agent_core(
                 approval_gateway=_approval_gateway,
-                on_tool_event=_on_tool_event,
                 enable_thinking=request.enable_thinking,
-                on_thinking=_on_thinking,
+                event_bus=bus,
             )
             history = _load_session_history(request.session_id, request.resume_request_id)
             result = core.run(
