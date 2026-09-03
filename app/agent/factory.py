@@ -26,13 +26,12 @@ logger = logging.getLogger("thinktuning.agent.factory")
 def build_legacy_llm_client():
     """Construit le client LLM legacy avec les réglages centralisés.
 
-    Retourne l'instance ``ia.agent.llm_client.LLMClient`` (double identité
-    d'import gérée comme pour le registre)."""
+    Retourne l'instance ``ia.agent.llm_client.LLMClient``. L'import passe par
+    l'identité de PAQUET réel (``ia.agent``) — jamais par l'identité nue
+    ``agent`` qui n'existe que via un hack ``sys.path``
+    (cf. tests/test_sys_path_guard.py)."""
     settings = get_settings()
-    try:
-        from ia.agent import llm_client as _llm_mod
-    except ImportError:
-        from agent import llm_client as _llm_mod  # type: ignore[no-redef]
+    from ia.agent import llm_client as _llm_mod
 
     url = {
         AgentProvider.OLLAMA: settings.agent_ollama_url,

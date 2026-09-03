@@ -1,14 +1,14 @@
 """Adaptateur : registre d'outils legacy (ia/tools) -> ToolRegistryPort.
 
-Premier adapter d'infrastructure de la migration : il expose le registre
+Premier adaptateur d'infrastructure de la migration : il expose le registre
 historique ``ia/tools/tool_registry.py`` (TOOLS + TOOL_META chargés depuis
 tools_config.json) derrière le port du domaine. AUCUNE logique nouvelle :
 l'adaptateur délègue et normalise les types.
 
-Les imports legacy sont best-effort tolérants à la double identité
-d'import documentée (``ia.tools`` vs ``tools``) — mais l'échec des DEUX
-lève immédiatement (fail-fast : un registre indisponible n'est jamais
-silencieux).
+L'import passe par l'identité de PAQUET réel (``ia.tools``) — jamais par
+l'identité nue ``tools`` qui n'existe que via un hack ``sys.path``
+(cf. tests/test_sys_path_guard.py). Un échec d'import lève immédiatement
+(fail-fast : un registre indisponible n'est jamais silencieux).
 """
 
 from __future__ import annotations
@@ -18,19 +18,9 @@ from collections.abc import Callable
 from typing import Any
 
 from app.domain.ports import ToolRegistryPort
+from ia.tools import tool_registry as _legacy
 
 logger = logging.getLogger("thinktuning.agent.registry")
-
-try:  # identité « ia.tools » (racine projet, tests)
-    from ia.tools import tool_registry as _legacy
-except ImportError:  # identité « tools » (core/agent_cache.py ajoute ia/ au path)
-    try:
-        from tools import tool_registry as _legacy  # type: ignore[no-redef]
-    except ImportError as exc:
-        raise ImportError(
-            "Registre d'outils legacy introuvable (ni ia.tools.tool_registry, "
-            "ni tools.tool_registry) : impossible d'initialiser l'adaptateur."
-        ) from exc
 
 
 class LegacyToolRegistryAdapter:
