@@ -1,4 +1,4 @@
-"""Tests offline du parser JSON et de la boucle d'auto-correction de l'agent.
+"""Tests offline du parser JSON et de la boucle d'auto-correction de l'ia.agent.
 
 Couvre les correctifs du bug « l'agent n'affiche pas le contenu du fichier » :
     - extraction JSON robuste (prose autour, fences markdown, multi-blocs) ;
@@ -14,15 +14,10 @@ import os
 import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IA_DIR = os.path.join(PROJECT_ROOT, "ia")
-for _p in (PROJECT_ROOT, IA_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 os.environ.setdefault("AGENT_API_KEY", "test-agent-key")
 
 import pytest
-from agent.json_parser import extract_json_blocks
+from ia.agent.json_parser import extract_json_blocks
 
 # --- Parser JSON -----------------------------------------------------------------
 
@@ -98,8 +93,8 @@ def sandbox_root(tmp_path, monkeypatch):
 def test_loop_self_corrects_unknown_tool_then_displays_content(sandbox_root):
     """Scénario utilisateur : 'cat' inexistant -> corrigé en read_file ->
     le contenu réel du fichier est injecté dans le prompt final."""
-    from agent.agent_core import AgentCore
-    from tools.file_tools import write_file
+    from ia.agent.agent_core import AgentCore
+    from ia.tools.file_tools import write_file
 
     write_file("notes/a.txt", "CONTENU-VISIBLE-A-L-ECRAN")
 
@@ -125,7 +120,7 @@ def test_loop_self_corrects_unknown_tool_then_displays_content(sandbox_root):
 def test_first_round_plain_text_without_tool_mention_is_direct_answer():
     """Réponse en TEXTE NORMAL au premier tour sans aucune mention d'outil :
     légitime (salutation, explication…), renvoyée telle quelle SANS relance."""
-    from agent.agent_core import AgentCore
+    from ia.agent.agent_core import AgentCore
 
     llm = ScriptedLLM(["Bonjour ! Comment puis-je vous aider ?"])
     assert AgentCore(llm).run("salut") == "Bonjour ! Comment puis-je vous aider ?"
@@ -137,8 +132,8 @@ def test_loop_reprompts_when_tool_announced_without_any_json(sandbox_root, monke
     ANNONCE l'outil (« je vais appeler calc… ») puis conclut sans avoir jamais
     émis de JSON. L'agent doit relancer avec une exigence de JSON strict au
     lieu d'accepter une réponse sortie de mémoire."""
-    import tools.tool_registry as registry
-    from agent.agent_core import AgentCore
+    import ia.tools.tool_registry as registry
+    from ia.agent.agent_core import AgentCore
 
     calls = []
 
@@ -166,8 +161,8 @@ def test_loop_reprompts_when_tool_announced_without_any_json(sandbox_root, monke
 
 
 def test_loop_self_corrects_missing_arguments(sandbox_root):
-    from agent.agent_core import AgentCore
-    from tools.file_tools import write_file
+    from ia.agent.agent_core import AgentCore
+    from ia.tools.file_tools import write_file
 
     write_file("f.txt", "hello")
     llm = ScriptedLLM([
@@ -187,7 +182,7 @@ def test_loop_self_corrects_missing_arguments(sandbox_root):
 def test_gives_up_after_max_rounds_with_unknown_tool():
     """Budget de rounds épuisé sur des erreurs répétées : conclusion finale
     enrichie du dernier problème signalé (suffixe [auto-correction])."""
-    from agent.agent_core import AgentCore
+    from ia.agent.agent_core import AgentCore
 
     llm = ScriptedLLM(['{"tool": "division", "args": {"a": 1}}'] * 20)
     answer = AgentCore(llm, max_rounds=4).run("divise")
@@ -201,7 +196,7 @@ def test_conclusion_after_max_rounds_reports_problems():
     """Plafond atteint sur des erreurs répétées : le modèle reçoit bien une
     demande de bilan citant les problèmes accumulés, et la réponse rendue à
     l'utilisateur garde la trace transparente du suffixe [auto-correction]."""
-    from agent.agent_core import AgentCore
+    from ia.agent.agent_core import AgentCore
 
     llm = ScriptedLLM(
         ['{"tool": "add", "args": {"a": 1}}'] * 3 + ["Voici mon bilan."]
@@ -219,7 +214,7 @@ def test_conclusion_after_max_rounds_reports_problems():
 
 def test_final_prompt_forbids_inventing_content(sandbox_root):
     """Le prompt post-outil impose de s'appuyer sur le résultat OBTENU."""
-    from agent.agent_core import AgentCore
+    from ia.agent.agent_core import AgentCore
 
     llm = ScriptedLLM([
         '{"tool": "add", "args": {"a": 1, "b": 2}}',
@@ -235,8 +230,8 @@ def test_final_prompt_forbids_inventing_content(sandbox_root):
 # --- System prompt généré depuis le registre ----------------------------------------
 
 def test_system_prompt_lists_every_registered_tool():
-    from agent.system_prompt import build_system_prompt
-    from tools.tool_registry import TOOLS
+    from ia.agent.system_prompt import build_system_prompt
+    from ia.tools.tool_registry import TOOLS
 
     prompt = build_system_prompt()
     for name in TOOLS:
@@ -244,7 +239,7 @@ def test_system_prompt_lists_every_registered_tool():
 
 
 def test_system_prompt_read_file_signature_and_fidelity_rules():
-    from agent.system_prompt import build_system_prompt
+    from ia.agent.system_prompt import build_system_prompt
 
     prompt = build_system_prompt()
     assert "- read_file(path, max_bytes=65536)" in prompt
@@ -254,8 +249,8 @@ def test_system_prompt_read_file_signature_and_fidelity_rules():
 
 def test_system_prompt_is_regenerated_when_registry_changes(monkeypatch):
     """Un outil ajouté au registre apparaît automatiquement dans le prompt."""
-    import tools.tool_registry as registry
-    from agent.system_prompt import build_system_prompt
+    import ia.tools.tool_registry as registry
+    from ia.agent.system_prompt import build_system_prompt
 
     def fake_tool(x):
         """Fait un truc factice."""

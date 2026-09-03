@@ -8,7 +8,7 @@ Lance avec : pytest tests/test_agent_sessions.py -v
 
 import os
 
-# Config test AVANT tout import (le cache insère ia/ dans sys.path).
+# Config test AVANT tout import de l'application.
 os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port factice
 

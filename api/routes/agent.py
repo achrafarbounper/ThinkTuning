@@ -71,16 +71,14 @@ from core.flow_store import (
 )
 from core.session_store import get_session_store
 from core.feature_flags import active_features, flag  # Phase A (flags)
-from tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
-from tools.tool_discovery import suggest_tools  # Phase B (découverte)
-from tools.plugin import loaded_plugins  # Phase B (plugins)
-from ia.agent.context import (  # Phase C (contexte / mémoire)
-    DEFAULT_HISTORY_BUDGET_TOKENS,
-    format_memory_note,
-    optimize_history,
-    summarize_conversation,
-    update_memory_summary,
+from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
+from ia.copilot.suggestions import (  # Phase D (copilot)
+    complete_text,
+    suggest_for_context,
 )
+from ia.tools.plugin import loaded_plugins  # Phase B (plugins)
+from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
+from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
 from core.audit_store import (  # Phase A (audit / conformité)
     ACT_APPROVAL,
     ACT_CONFIG,
@@ -88,11 +86,6 @@ from core.audit_store import (  # Phase A (audit / conformité)
     ACT_RUN,
     ACT_TOOL,
     get_audit_store,
-)
-from copilot.feedback import get_feedback_store  # Phase D (copilot)
-from copilot.suggestions import (  # Phase D (copilot)
-    complete_text,
-    suggest_for_context,
 )
 
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.

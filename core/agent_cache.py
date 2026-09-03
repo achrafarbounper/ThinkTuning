@@ -6,32 +6,24 @@ Même schéma que `core/predictor_cache.py` : une instance unique construite
 paresseusement au premier appel puis mise en cache (accès protégé par un
 verrou), avec rechargement explicite via `reload_agent_runner()`.
 
-Les modules de l'agent utilisent des imports absolus racinés sur le dossier
-`ia/` (`from agent...`, `from tools...`) : ce fichier ajoute donc ce dossier
-au `sys.path` AVANT d'importer l'agent. Il constitue le point d'entrée
-unique : le reste de l'API n'accède à l'agent que via ce module, jamais par
-un import direct de `agent.*` / `tools.*`.
+Les modules de l'agent sont importés via l'identité de PAQUET réel
+(``ia.agent.*``, ``ia.tools.*``) : plus aucun hack ``sys.path`` (Phase 2 de
+la migration, cf. tests/test_sys_path_guard.py). Ce module reste le point
+d'entrée unique : le reste de l'API n'accède à l'agent que via ce module,
+jamais par un import direct de ``ia.agent.*``.
 """
 
-import os
-import sys
 import threading
 
 import requests
 from fastapi import HTTPException
 
-IA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ia")
-if IA_DIR not in sys.path:
-    sys.path.insert(0, IA_DIR)
-
 from core.agent_settings import get_agent_settings
-
-# --- Imports de l'agent (à placer APRÈS l'insertion du sys.path ci-dessus) ----
-from agent.agent_core import AgentCore  # noqa: E402
-from agent.llm_client import LLMClient  # noqa: E402
-from agent.orchestrator import MultiAgentCoordinator  # noqa: E402
-from agent.runner import AgentRunner  # noqa: E402
-from tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
+from ia.agent.agent_core import AgentCore  # noqa: E402
+from ia.agent.llm_client import LLMClient  # noqa: E402
+from ia.agent.orchestrator import MultiAgentCoordinator  # noqa: E402
+from ia.agent.runner import AgentRunner  # noqa: E402
+from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
 
 # File de validation humaine — ré-exportée pour les routes /api/agent/approvals.
 from core.approval_store import ApprovalStore  # noqa: E402,F401

@@ -169,25 +169,30 @@ def test_core_v2_imports_without_ia_sys_path_hack() -> None:
     assert result.stdout.strip().endswith("OK")
 
 
-def test_legacy_tools_identity_still_requires_the_hack() -> None:
-    """Marqueur de dette (Phase 2 de la migration) : l'identité ``tools.*``
-    n'est PAS importable sans le hack ``sys.path`` — seul ``ia.tools.*`` l'est.
+def test_bare_legacy_identities_are_gone_without_the_hack() -> None:
+    """Garde dynamique (Phase 2 réalisée) : les identités legacy nues
+    (``tools``, ``agent``, ``copilot``, ``logging_setup``) ne doivent plus
+    exister — seuls les paquets réels ``ia.tools``, ``ia.agent``, ``ia.copilot``
+    et ``ia.logging_setup`` sont importables, sans aucun hack ``sys.path``.
 
-    À RETOURNER en Phase 2 (paquet installable unique + shims) : ce test
-    devra alors affirmer que ``import tools`` RÉUSSIT sans hack, et les
-    inserts de ``api/main.py`` / ``core/agent_cache.py`` pourront être
-    supprimés.
+    Historique : avant la Phase 2, ``import tools`` ne réussissait qu'avec
+    ``ia/`` ajouté au chemin (par ``api/main.py``, ``core/agent_cache.py``,
+    conftest ou les tests). Ce test verrouille la suppression du hack :
+    toute réintroduction d'une identité nue (nouveau module racine, shim)
+    fera échouer la CI ici.
     """
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     env["PYTHONPATH"] = ""
     script = (
         "import sys; sys.path.insert(0, sys.argv[1])\n"
-        "try:\n"
-        "    import tools  # identité nue legacy\n"
-        "except ImportError:\n"
-        "    print('NOT_IMPORTABLE_WITHOUT_HACK')\n"
-        "else:\n"
-        "    print('IMPORTABLE')\n"
+        "ok = []\n"
+        "for name in ('tools', 'agent', 'copilot', 'logging_setup'):\n"
+        "    try:\n"
+        "        __import__(name)\n"
+        "        ok.append(name)\n"
+        "    except ImportError:\n"
+        "        pass\n"
+        "print('BARE_IDENTITIES:' + ','.join(ok) if ok else 'BARE_IDENTITIES:none')\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", script, str(PROJECT_ROOT)],
@@ -198,9 +203,10 @@ def test_legacy_tools_identity_still_requires_the_hack() -> None:
         timeout=60,
     )
     assert result.returncode == 0, result.stderr[-1000:]
-    assert "NOT_IMPORTABLE_WITHOUT_HACK" in result.stdout, (
-        "L'identité nue 'tools' est désormais importable sans hack : la "
-        "Phase 2 (paquet unique + shims) est réalisée — mettre à jour ce "
-        "test et supprimer les inserts de api/main.py et core/agent_cache.py."
+    assert "BARE_IDENTITIES:none" in result.stdout, (
+        "Identité d'import legacy nue détectée sans hack sys.path : "
+        f"{result.stdout.strip()}. Utiliser le paquet réel « ia.* » — toute "
+        "nouvelle identité racine recrée la double identité d'import "
+        "(deux instances de module pour le même fichier)."
     )
 

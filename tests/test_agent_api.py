@@ -17,7 +17,7 @@ Lance avec : pytest tests/test_agent_api.py -v
 
 import os
 
-# Config test AVANT tout import (le cache insère ia/ dans sys.path).
+# Config test AVANT tout import de l'application.
 os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port factice
 
@@ -25,7 +25,7 @@ import pytest  # noqa: E402
 import requests  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
-from core import agent_cache  # noqa: E402  (insère ia/ dans sys.path)
+from core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 AgentCore = agent_cache.AgentCore
 AgentRunner = agent_cache.AgentRunner

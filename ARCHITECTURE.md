@@ -175,8 +175,11 @@ permettent au runner de distinguer retry / recovery / rejet.
 
 1. Migration physique des stores legacy vers `app/infrastructure/persistence/`
    (SQLAlchemy + Alembic pour le schéma SQLite).
-2. Suppression progressive des hacks `sys.path` (double identité
-   `ia.tools` / `tools`) — un paquet installable unique.
+2. ~~Suppression progressive des hacks `sys.path`~~ **FAIT (Phase 2)** :
+   tous les imports passent par les paquets réels (`ia.agent.*`, `ia.tools.*`,
+   `ia.copilot.*`, `ia.logging_setup`) — plus aucun insert `sys.path` dans
+   `api/`, `core/`, `app/` ni les tests. Garde-fous CI :
+   `tests/test_sys_path_guard.py` (statique AST + dynamique sous-processus).
 3. Étendre ruff/mypy à `api/`, `core/`, `ia/`, `tests/`.
 4. Streaming SSE de `/ask/core` (événements tool_start/tool_result
    réutilisant l'event bus legacy).

@@ -7,15 +7,11 @@ la base de feedback est isolée via AGENT_COPILOT_PATH (tmp_path).
 import os
 import sys
 
-_IA_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ia")
-if _IA_ROOT not in sys.path:
-    sys.path.insert(0, _IA_ROOT)
-
 os.environ.setdefault("API_KEY", "test-key")  # avant l'import de l'app
 
 import pytest
-from copilot.feedback import FeedbackStore, get_feedback_store, reset_feedback_store
-from copilot.suggestions import (
+from ia.copilot.feedback import FeedbackStore, get_feedback_store, reset_feedback_store
+from ia.copilot.suggestions import (
     args_skeleton,
     complete_text,
     nl_to_tool,
@@ -113,7 +109,7 @@ def test_suggest_for_context_empty_query_returns_empty():
 
 
 def test_feedback_boost_reorders_suggestions(store, monkeypatch):
-    monkeypatch.setattr("copilot.suggestions.get_feedback_store", lambda: store)
+    monkeypatch.setattr("ia.copilot.suggestions.get_feedback_store", lambda: store)
     base = suggest_for_context(query="lire le contenu d'un fichier", k=3)
     assert base["suggestions"], "suggestions attendues"
     top = base["suggestions"][0]["tool"]
