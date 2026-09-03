@@ -1306,7 +1306,13 @@ async def _ws_handle_approval(websocket: WebSocket, msg: dict, action: str) -> N
 
 
 async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
-    """Exécute un tour d'agent en diffusant les événements en temps réel."""
+    """Exécute un tour d'agent en diffusant les événements en temps réel.
+
+    Bascule sur le flag ``AGENT_NEW_CORE`` : le noyau v2 (bus par-run) ou le
+    flux legacy. Dans les deux cas, les événements temps réel (thinking,
+    tool_start/tool_result, delta, final) sortent dans la même file puis sont
+    poussés sur le canal WebSocket.
+    """
     prompt = str(msg.get("prompt") or "").strip()
     if not prompt:
         await websocket.send_json({
@@ -1319,7 +1325,36 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
     session_id = msg.get("session_id") or None
     model = str(msg.get("model") or "").strip() or None
 
-    events: "queue.Queue[tuple]" = queue.Queue()
+    if new_core_enabled():
+        worker = _ws_core_worker(
+            prompt=prompt, session_id=session_id,
+            resume_request_id=resume_request_id,
+            enable_thinking=enable_thinking, model=model,
+        )
+    else:
+        worker = _ws_legacy_worker(
+            prompt=prompt, session_id=session_id,
+            resume_request_id=resume_request_id,
+            enable_thinking=enable_thinking, model=model,
+        )
+    # `worker` est (events_queue, thread) déjà lancé par les fabriques.
+    events, _thread = worker
+    loop = asyncio.get_event_loop()
+    while True:
+        item = await loop.run_in_executor(None, events.get)
+        if item is None:
+            break
+        await websocket.send_json(item[1])
+
+def _ws_legacy_worker(*, prompt, session_id, resume_request_id,
+                      enable_thinking, model):
+    """Worker WebSocket (flux legacy) — extrait comme fonction module-level.
+
+    Retourne ``(events_queue, thread)`` (le thread est déjà lancé). Chaque
+    événement temps réel est mis dans la file sous ``(kind, payload)`` ; le
+    consommateur de ``_ws_run_agent`` envoie ``payload`` sur le canal.
+    """
+    events = queue.Queue()
     run_store = get_run_store()
     run_row = run_store.start_run(
         prompt, model=model or agent_config()["model"], source="ws"
@@ -1337,7 +1372,7 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
         except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
             pass
 
-    def worker() -> None:
+    def _worker() -> None:
         try:
             result = ask_agent_decision_streaming(
                 prompt,
@@ -1388,14 +1423,112 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
         finally:
             events.put(None)
 
-    threading.Thread(target=worker, daemon=True).start()
-    loop = asyncio.get_event_loop()
-    while True:
-        item = await loop.run_in_executor(None, events.get)
-        if item is None:
-            break
-        await websocket.send_json(item[1])
-        
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    return events, thread
+
+def _ws_core_worker(*, prompt, session_id, resume_request_id,
+                    enable_thinking, model):
+    """Worker WebSocket du noyau v2 — événements publiés sur un bus par-run.
+
+    Le noyau ``AgentCore`` publie son cycle de vie sur un ``InMemoryEventBus``
+    local ; les abonnés ci-dessous traduisent ces événements vers le contrat
+    WebSocket historique (``thinking`` / ``tool_start`` / ``tool_result`` /
+    ``delta`` / ``final``), puis les mettent dans la file. Un bus PAR RUN
+    isole les tours d'agent concurrents (aucun cross-talk).
+    """
+    events = queue.Queue()
+    run_store = get_run_store()
+    run_row = run_store.start_run(
+        prompt, model=model or agent_config()["model"], source="ws"
+    )
+    tool_events: list[dict] = []
+    bus = InMemoryEventBus()
+
+    def on_thinking(*, chunk, **_event) -> None:
+        events.put(("thinking", {"event": "thinking", "text": chunk}))
+
+    def on_tool_start(*, tool, args=None, **_event) -> None:
+        payload = {"event": "tool_start", "tool": tool, "args": args or {}}
+        events.put(("tool", payload))
+        tool_events.append(payload)
+        try:
+            run_store.append_tool_event(run_row["id"], payload)
+        except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
+            pass
+
+    def on_tool_end(*, tool, status, summary="", error="",
+                    duration_ms=None, **_event) -> None:
+        payload = {"event": "tool_result", "tool": tool,
+                   "status": status, "duration_ms": duration_ms}
+        payload["summary" if status == "ok" else "error"] = (
+            summary if status == "ok" else error)
+        events.put(("tool", payload))
+        tool_events.append(payload)
+        try:
+            run_store.append_tool_event(run_row["id"], payload)
+        except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
+            pass
+
+    bus.on("agent.thinking", on_thinking)
+    bus.on("agent.tool_start", on_tool_start)
+    bus.on("agent.tool_end", on_tool_end)
+
+    def _worker() -> None:
+        try:
+            approval_store = build_approval_store()
+            resume_hash = resolve_resume_hash(approval_store, resume_request_id)
+            core = build_agent_core(
+                approval_gateway=make_approval_gateway(resume_hash),
+                enable_thinking=enable_thinking,
+                event_bus=bus,
+            )
+            result = core.run(
+                Intent(prompt=prompt,
+                       session_id=session_id or "default")
+            )
+            answer = result.answer or ""
+            for word in _stream_fragments(answer):
+                events.put(("delta", {"event": "delta", "text": word}))
+            run_store.finish_run(
+                run_row["id"],
+                core_store_status(result.status),
+                answer_summary=answer[:300],
+            )
+            _persist_exchange(
+                session_id, prompt, answer,
+                tool_events=tool_events or core_tool_events(result),
+            )
+            events.put((
+                "final",
+                {
+                    "event": "final",
+                    "response": answer,
+                    "model": agent_config()["model"],
+                    "status": core_api_status(result.status),
+                    "request_id": None,
+                },
+            ))
+        except Exception as exc:  # pragma: no cover - défensif
+            try:
+                run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+            except Exception:
+                pass
+            events.put((
+                "final",
+                {
+                    "event": "final",
+                    "response": "",
+                    "status": "error",
+                    "detail": f"{type(exc).__name__}: {exc}",
+                },
+            ))
+        finally:
+            events.put(None)
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    return events, thread
 # --- Orchestration multi-agents (superviseur / workers) --------------------
 
 
