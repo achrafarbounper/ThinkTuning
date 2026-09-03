@@ -26,17 +26,31 @@ def test_flag_enabled(monkeypatch) -> None:
     assert factory.new_core_enabled() is True
 
 
-def test_build_agent_core_wires_real_legacy_parts(monkeypatch) -> None:
-    """Le noyau assemblé utilise le registre legacy et le client legacy."""
+def test_build_agent_core_wires_default_v2_llm(monkeypatch) -> None:
+    """Le noyau assemblé utilise le registre legacy et le client v2 par défaut."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("AGENT_PROVIDER", "ollama")
+    monkeypatch.delenv("AGENT_LLM_V2", raising=False)
     core = factory.build_agent_core()
     assert isinstance(core, AgentCore)
     # Le registre réel expose les outils métier documentés.
     names = core._registry.tool_names()
     assert "read_file" in names and "predict_sentiment" in names
     assert isinstance(core._registry, ToolRegistryPort)
-    # Le client LLM legacy est bien le module historique.
+    # Défaut depuis la bascule : client v2 propre (même port), model aligné.
+    from app.infrastructure.llm import HttpLLMClient
+
+    assert isinstance(core._llm, HttpLLMClient)
+    assert core._llm.model == get_settings().agent_model_name
+
+
+def test_build_agent_core_legacy_opt_out(monkeypatch) -> None:
+    """``AGENT_LLM_V2=0`` conserve le client legacy (repli tant que v1 vit)."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("AGENT_PROVIDER", "ollama")
+    monkeypatch.setenv("AGENT_LLM_V2", "0")
+    core = factory.build_agent_core()
+    # Le client legacy historique reste disponible comme repli.
     from ia.agent.llm_client import LLMClient
 
     assert isinstance(core._llm, LLMClient)

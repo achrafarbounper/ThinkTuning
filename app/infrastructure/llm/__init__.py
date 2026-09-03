@@ -1,16 +1,16 @@
 """Implémentations ``LLMClientPort`` (client LLM).
 
 - ``default_llm_client()`` : choisit l'implémentation selon le flag
-  ``AGENT_LLM_V2`` — le client legacy par défaut, ou ``HttpLLMClient`` (client
-  HTTP propre httpx, Phase 3 de la migration) ;
+  ``AGENT_LLM_V2`` — ``HttpLLMClient`` par défaut (bascule v2 en production),
+  client legacy en repli (``AGENT_LLM_V2=0``) tant que le chemin v1 vit ;
 - ``HttpLLMClient``     : implémentation v2 complète (streaming NDJSON/SSE,
   retry + circuit breaker, thinking, réparation d'encodage). ``transport``
   injectable pour des tests hors réseau ;
 - ``StubLLMClient``     : faux déterministe (aucune I/O) pour les tests de
   use-cases hors ligne.
 
-Le futur (Phase 3) : remplacer ``ia/agent/llm_client.py`` par ``HttpLLMClient``
-derrière le même port, sans toucher au domaine.
+Décommission (fin de migration) : la suppression de ``ia/agent/llm_client.py``
+est liée au retrait du chemin v1 (``core/agent_cache.py`` l'utilise encore).
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ __all__ = [
 ]
 
 
-def default_llm_client(llm_v2: bool = False, **overrides: object) -> LLMClientPort:
+def default_llm_client(llm_v2: bool = True, **overrides: object) -> LLMClientPort:
     """Implémentation LLM par défaut, selon la bascule ``AGENT_LLM_V2``.
 
-    ``llm_v2=True``  → ``HttpLLMClient`` configuré depuis ``Settings`` ;
-    ``llm_v2=False`` → client legacy (assemblé par la factory).
+    ``llm_v2=True`` (défaut) → ``HttpLLMClient`` configuré depuis ``Settings`` ;
+    ``llm_v2=False``         → client legacy (assemblé par la factory).
 
     ``**overrides`` permet de remplacer les réglages (``model``, ``url``…)
     pour les tests / la composition ciblée.

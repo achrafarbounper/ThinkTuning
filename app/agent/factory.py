@@ -1,9 +1,10 @@
 """Factory du noyau agentique : câblage des implémentations réelles.
 
-Composition root légère : assemble ``AgentCore`` avec le client LLM legacy
-(``ia/agent/llm_client.py``, qui porte déjà retry + circuit breaker + streaming)
-et l'adaptateur du registre d'outils, en lisant les réglages depuis
-``app/config/settings.py``.
+Composition root légère : assemble ``AgentCore`` avec le client LLM choisi par
+``AGENT_LLM_V2`` (``HttpLLMClient`` par défaut depuis la bascule v2 en
+production ; client legacy ``ia/agent/llm_client.py`` en repli via
+``AGENT_LLM_V2=0``) et l'adaptateur du registre d'outils, en lisant les
+réglages depuis ``app/config/settings.py``.
 
 Bascule par feature flag : ``AGENT_NEW_CORE=1`` active le nouveau noyau.
 Tant que le flag est absent, le comportement historique d'
@@ -66,11 +67,13 @@ def build_legacy_llm_client():
 
 
 def llm_v2_enabled() -> bool:
-    """Vrai si la bascule du client LLM v2 est activée (AGENT_LLM_V2).
+    """Vrai si le client LLM v2 est actif (AGENT_LLM_V2 — activé par défaut).
 
     Même convention que ``new_core_enabled()`` : l'environnement (comptabilité
-    ``monkeypatch.setenv``) est lu en priorité, puis ``Settings.flag_llm_v2``,
-    avec un repli sûr ``False`` si les Settings ne sont pas chargeables.
+    ``monkeypatch.setenv``) est lu en priorité, puis ``Settings.flag_llm_v2``.
+    Repli ``True`` si les Settings ne sont pas chargeables : depuis la bascule
+    en production, v2 est le comportement par défaut (``AGENT_LLM_V2=0`` pour
+    forcer le repli legacy).
     """
     env = os.getenv("AGENT_LLM_V2")
     if env is not None:
@@ -78,15 +81,15 @@ def llm_v2_enabled() -> bool:
     try:
         return get_settings().flag_llm_v2
     except Exception:
-        return False
+        return True
 
 
 def build_llm_client():
     """Seam du client LLM : choisit l'implémentation selon ``AGENT_LLM_V2``.
 
-    - ``llm_v2`` désactivé (défaut) → client legacy (comportement v1 intact) ;
-    - ``llm_v2`` activé → ``HttpLLMClient`` (implémentation propre httpx du port
-      ``LLMClientPort``, cf. ``app/infrastructure/llm``).
+    - défaut (flag absent ou ``1``) → ``HttpLLMClient`` (implémentation propre
+      httpx du port ``LLMClientPort``, cf. ``app/infrastructure/llm``) ;
+    - ``AGENT_LLM_V2=0`` → client legacy (repli, tant que le chemin v1 vit).
     """
     if llm_v2_enabled():
         from app.infrastructure.llm.http_client import HttpLLMClient

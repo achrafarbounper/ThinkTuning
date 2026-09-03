@@ -58,12 +58,12 @@ def test_stub_call_and_call_stream_deterministic():
 
 def test_llm_v2_enabled_flag_selection(monkeypatch):
     monkeypatch.delenv("AGENT_LLM_V2", raising=False)
-    # Désactivé par défaut (rollout sûr) ; activé via env.
-    assert llm_v2_enabled() is False
-    monkeypatch.setenv("AGENT_LLM_V2", "1")
+    # Activé par défaut (bascule v2 en production) ; AGENT_LLM_V2=0 = repli.
     assert llm_v2_enabled() is True
     monkeypatch.setenv("AGENT_LLM_V2", "0")
     assert llm_v2_enabled() is False
+    monkeypatch.setenv("AGENT_LLM_V2", "1")
+    assert llm_v2_enabled() is True
 
 
 def test_build_llm_client_routes_by_flag(monkeypatch):
@@ -82,8 +82,24 @@ def test_build_llm_client_routes_by_flag(monkeypatch):
 
     assert isinstance(client, HttpLLMClient)
 
-    # v2 désactivé → délègue à l'implémentation legacy (chemin intact).
+    # v2 désactivé → délègue à l'implémentation legacy (repli intact).
     sentinel = object()
     monkeypatch.setenv("AGENT_LLM_V2", "0")
     with patch("app.agent.factory.build_legacy_llm_client", return_value=sentinel):
         assert build_llm_client() is sentinel
+
+
+def test_build_llm_client_defaults_to_v2(monkeypatch):
+    """Sans ``AGENT_LLM_V2`` (défaut de production), le seam renvoie le v2."""
+    from unittest.mock import patch
+
+    monkeypatch.delenv("AGENT_LLM_V2", raising=False)
+    with patch("app.agent.factory.get_settings") as mock_settings, \
+         patch("app.agent.factory.llm_endpoint", return_value=("http://x", None)):
+        mock_settings.return_value.agent_model_name = "m"
+        mock_settings.return_value.agent_provider = AgentProvider.OLLAMA
+        mock_settings.return_value.agent_timeout_seconds = 30
+        mock_settings.return_value.agent_context_length = 2048
+        client = build_llm_client()
+
+    assert isinstance(client, HttpLLMClient)

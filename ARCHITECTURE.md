@@ -122,9 +122,10 @@ vérifient que les classes legacy **satisfont les Protocols** : impossible de fa
 dériver un contrat de l'implémentation sans casser un test.
 
 **Bascule client LLM (`AGENT_LLM_V2`)** : deux implémentations derrière
-`LLMClientPort` — le client legacy (défaut) et `app/infrastructure/llm/`
-(stub déterministe aujourd'hui, futur client HTTP propre). `build_llm_client()`
-sélectionne via le flag sans changer les use-cases (`tests/test_llm_v2.py`).
+`LLMClientPort` — `HttpLLMClient` (**défaut** depuis la bascule v2 en
+production) et le client legacy en repli (`AGENT_LLM_V2=0`, tant que le
+chemin v1 vit). `build_llm_client()` sélectionne via le flag sans changer les
+use-cases (`tests/test_llm_v2.py`).
 
 **Bascule contexte (`AGENT_CONTEXT`)** : `default_context_provider()` choisit le
 wrapper legacy (comportement v1) ou `NullContextProvider` (profil `AGENT_CONTEXT=0`,
@@ -142,8 +143,8 @@ aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
   (`reliability`, `audit`, `tool_analytics`, `context`, `copilot`,
   `websocket`, `multi_agent`) — même convention que `core/feature_flags.py`.
 - Bascule du noyau : **`AGENT_NEW_CORE=1`** active `/ask/core` (503 sinon).
-- Bascule du client LLM : **`AGENT_LLM_V2=1`** utilise la 2e implémentation de
-  `LLMClientPort` (désactivé par défaut).
+- Bascule du client LLM : **`HttpLLMClient` activé par défaut** ;
+  `AGENT_LLM_V2=0` force le repli legacy (ia/agent/llm_client.py).
 - Pour les tests : `get_settings.cache_clear()` après modification de l'env.
 
 ---
@@ -185,8 +186,11 @@ permettent au runner de distinguer retry / recovery / rejet.
 
 ## 6. Migration restante (backlog)
 
-1. Migration physique des stores legacy vers `app/infrastructure/persistence/`
-   (SQLAlchemy + Alembic pour le schéma SQLite).
+1. ~~Migration physique des stores legacy vers `app/infrastructure/persistence/`
+   (SQLAlchemy + Alembic pour le schéma SQLite)~~ **Annulé (décision projet)** :
+   les stores restent dans `core/` ; les wrappers `app/infrastructure/persistence/`
+   demeurent des délégations permanentes (ports + adaptateurs, sans remplacement
+   physique du stockage).
 2. ~~Suppression progressive des hacks `sys.path`~~ **FAIT (Phase 2)** :
    tous les imports passent par les paquets réels (`ia.agent.*`, `ia.tools.*`,
    `ia.copilot.*`, `ia.logging_setup`) — plus aucun insert `sys.path` dans
@@ -219,10 +223,12 @@ permettent au runner de distinguer retry / recovery / rejet.
   Bascule via `AGENT_LLM_V2` → `build_llm_client()` (`tests/test_llm_http_client.py`,
   transport `httpx.MockTransport` hors réseau). Le stub déterministe
   (`StubLLMClient`) reste disponible pour les tests de use-cases.
-  **Reste à faire** : basculer `/ask/core` en production sur l'implémentation v2
-  puis décommissionner `ia/agent/llm_client.py` (le vrai client HTTP propre est
-  en place ; il s'agit désormais d'un choix de flag et de la suppression du
-  legacy).
+  **Bascule en production réalisée** : `HttpLLMClient` est l'implémentation
+  par défaut (`flag_llm_v2=True`, repli legacy via `AGENT_LLM_V2=0` ;
+  `tests/test_llm_v2.py`, `tests/test_agent_factory.py`).
+  **Reste à faire** : décommissionner `ia/agent/llm_client.py` — supprimé
+  seulement avec le chemin v1 (`core/agent_cache.py` l'importe encore pour le
+  coordinateur multi-agents).
 - **Port `EventBusPort` (8e) ajouté puis câblé sur le SSE** : contrat pub/sub
   aligné sur `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` (wrapper
   strangler vers le singleton, isolation d'erreurs préservée) et

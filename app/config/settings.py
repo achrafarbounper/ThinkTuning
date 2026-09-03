@@ -119,11 +119,11 @@ class Settings(BaseSettings):
     # fichier .env (lu par pydantic-settings, contrairement à os.getenv).
     flag_new_core: bool = False
 
-    # Bascule du client LLM v2 (AGENT_LLM_V2). Par défaut le client legacy
-    # (retry + circuit breaker déjà embarqués) est conservé ; la bascule
-    # bascule vers une implémentation propre du port LLMClientPort sans
-    # changer les use-cases.
-    flag_llm_v2: bool = False
+    # Bascule du client LLM v2 (AGENT_LLM_V2). ACTIVÉ par défaut depuis la
+    # bascule en production : ``HttpLLMClient`` (implémentation propre du port
+    # LLMClientPort, retry + circuit breaker réutilisés) remplace le legacy.
+    # ``AGENT_LLM_V2=0`` conserve le repli legacy tant que le chemin v1 vit.
+    flag_llm_v2: bool = True
 
     @model_validator(mode="before")
     @classmethod
