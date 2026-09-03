@@ -17,7 +17,7 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ChatModelSelector } from './ChatModelSelector';
 import { SessionSelector } from './SessionSelector';
-import { readSseEvents } from './streamSse';
+import { readNamedSseEvents, readSseEvents } from './streamSse';
 import type {
   AgentAskResponse,
   ChatMessageData,
@@ -26,6 +26,9 @@ import type {
   ChatStreamEvent,
   LlmModelInfo,
   LlmModelsResponse,
+  MultiAgentPlanTask,
+  MultiAgentStreamEvent,
+  MultiAgentWorkerState,
   PendingApprovalData,
   StoredMessage,
   ToolCallData,
@@ -55,6 +58,27 @@ const AGENT_ASK_STREAM_ENDPOINT = '/api/agent/ask/stream';
 /** Base des endpoints de validation humaine (approve / reject). */
 const APPROVALS_ENDPOINT = '/api/agent/approvals';
 
+/**
+ * Endpoint d orchestration multi-agents (POST /api/agent/multi/ask/stream) :
+ * le superviseur planifie, dispatche des sous-taches a des workers isoles puis
+ * synthetise. Evenements SSE nommes agent.plan / agent.worker.* / agent.done.
+ */
+const MULTI_ASK_STREAM_ENDPOINT = '/api/agent/multi/ask/stream';
+
+/** Mode SSE demande : les evenements d observabilite (worker.tool) sont filtres. */
+const MULTI_SSE_MODE = 'compact';
+
+/**
+ * Endpoint du nouveau noyau agentique :
+ *  - POST /api/agent/ask/core/stream : streaming SSE (tool_start / tool_result
+ *    / delta / final) — chemin principal ;
+ *  - POST /api/agent/ask/core : bloquant (réponse d'un bloc) — repli si le
+ *    backend ne connaît pas encore le stream (404/405).
+ * Le backend exige le flag AGENT_NEW_CORE=1 (sinon HTTP 503).
+ */
+const CORE_ASK_STREAM_ENDPOINT = '/api/agent/ask/core/stream';
+const CORE_ASK_ENDPOINT = '/api/agent/ask/core';
+
 /** Endpoint des conversations persistées (GET/POST /api/sessions…). */
 const SESSIONS_ENDPOINT = '/api/sessions';
 
@@ -82,19 +106,18 @@ const THINKING_STORAGE_KEY = 'thinktuning.enableThinking';
 const AGENT_MODE_STORAGE_KEY = 'thinktuning.agentMode';
 
 /**
- * Cle de persistance du toggle « Noyau v2 » : quand il est actif (et en mode
- * Agent), les messages partent vers /api/agent/ask[/stream] du NOUVEAU noyau
- * (/api/agent/ask/core[/stream]) au lieu de la boucle historique.
- */
-const AGENT_CORE_MODE_STORAGE_KEY = 'thinktuning.agentCoreMode';
-
-/**
- * Cle de persistance du mode « Multi-agents ». NOTE : ce mode est desormais
- * route vers le tour d'agent standard (askAgentTurn), donc vers
- * /api/agent/ask/core/stream quand le toggle « Noyau v2 » est actif ;
- * l'orchestration superviseur/workers n'est plus appelee depuis le chat.
+ * Cle de persistance du mode « Multi-agents » (orchestration superviseur /
+ * workers via /api/agent/multi/ask/stream). Mutuellement exclusif avec le
+ * mode Agent simple.
  */
 const MULTI_MODE_STORAGE_KEY = 'thinktuning.multiAgentMode';
+
+/**
+ * Clé de persistance du mode « Noyau v2 » (nouvelle boucle agentique
+ * Intent -> Plan -> Policy -> Budget -> Action via /api/agent/ask/core).
+ * Mutuellement exclusif avec les modes Agent et Multi-agents.
+ */
+const CORE_MODE_STORAGE_KEY = 'thinktuning.coreMode';
 
 /** Nombre maximal de caractères d'arguments affichés sur la carte d'approbation. */
 const APPROVAL_ARGS_PREVIEW_LIMIT = 400;
@@ -159,22 +182,19 @@ function loadStoredAgentMode(): boolean {
   }
 }
 
-/** Relit l etat persiste du toggle « Noyau v2 » (ACTIF par defaut : la cle
- * absente vaut vrai ; seul un « false » explicite desactive le nouveau noyau.
- * Le repli transparent sur la boucle historique reste garanti par les
- * endpoints essayes en cascade dans askAgentTurn). */
-function loadStoredAgentCoreMode(): boolean {
-  try {
-    return window.localStorage.getItem(AGENT_CORE_MODE_STORAGE_KEY) !== 'false';
-  } catch {
-    return true;
-  }
-}
-
 /** Relit l etat persiste du mode « Multi-agents » (desactive par defaut). */
 function loadStoredMultiMode(): boolean {
   try {
     return window.localStorage.getItem(MULTI_MODE_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** Relit l'état persisté du mode « Noyau v2 » (désactivé par défaut). */
+function loadStoredCoreMode(): boolean {
+  try {
+    return window.localStorage.getItem(CORE_MODE_STORAGE_KEY) === 'true';
   } catch {
     return false;
   }
@@ -286,6 +306,10 @@ export function ChatWindow() {
   // stream (superviseur : plan -> dispatch -> synthese) et la trace temps reel
   // (plan + workers) est affichee dans la bulle de reponse.
   const [multiMode, setMultiMode] = useState<boolean>(loadStoredMultiMode);
+  // Mode « Noyau v2 » : les messages partent vers /api/agent/ask/core (boucle
+  // Intent -> Plan -> Policy -> Budget -> Action, flag AGENT_NEW_CORE requis
+  // côté backend, sinon le serveur répond 503).
+  const [coreMode, setCoreMode] = useState<boolean>(loadStoredCoreMode);
   // Demande en attente de décision humaine (approve / reject), le cas échéant.
   const [pendingApproval, setPendingApproval] = useState<PendingApprovalData | null>(null);
 
@@ -495,6 +519,13 @@ export function ChatWindow() {
       return next;
     });
     setPendingApproval(null);
+    // Mutuellement exclusif avec le mode « Noyau v2 ».
+    setCoreMode(false);
+    try {
+      window.localStorage.setItem(CORE_MODE_STORAGE_KEY, 'false');
+    } catch {
+      /* idem */
+    }
   }, []);
 
   /**
@@ -513,13 +544,40 @@ export function ChatWindow() {
     });
     if (!multiMode) {
       setAgentMode(false);
+      setCoreMode(false);
       try {
         window.localStorage.setItem(AGENT_MODE_STORAGE_KEY, 'false');
+        window.localStorage.setItem(CORE_MODE_STORAGE_KEY, 'false');
       } catch {
         /* idem */
       }
     }
   }, [multiMode]);
+
+  /**
+   * Bascule le mode « Noyau v2 » (et desactive les modes Agent et
+   * Multi-agents : les trois routages de message sont mutuellement exclusifs).
+   */
+  const handleCoreToggle = useCallback(() => {
+    setCoreMode((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(CORE_MODE_STORAGE_KEY, String(next));
+      } catch {
+        /* stockage indisponible : le choix reste valable pour la session */
+      }
+      return next;
+    });
+    setPendingApproval(null);
+    setAgentMode(false);
+    setMultiMode(false);
+    try {
+      window.localStorage.setItem(AGENT_MODE_STORAGE_KEY, 'false');
+      window.localStorage.setItem(MULTI_MODE_STORAGE_KEY, 'false');
+    } catch {
+      /* idem */
+    }
+  }, []);
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
@@ -598,6 +656,59 @@ export function ChatWindow() {
     [],
   );
 
+  /** Enregistre le plan validé par le superviseur (agent.plan). */
+  const setMultiPlan = useCallback(
+    (id: string, plan: NonNullable<ChatMessageData['multiPlan']>) => {
+      patchMessage(id, { multiPlan: plan });
+    },
+    [patchMessage],
+  );
+
+  /** Démarre un worker dans la trace (agent.worker.start). */
+  const startMultiWorker = useCallback(
+    (id: string, worker: MultiAgentWorkerState) => {
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.id === id
+            ? { ...message, multiWorkers: [...(message.multiWorkers ?? []), worker] }
+            : message,
+        ),
+      );
+    },
+    [],
+  );
+
+  /** Clôture un worker par task_id (agent.worker.result / agent.worker.error). */
+  const completeMultiWorker = useCallback(
+    (
+      id: string,
+      task_id: string,
+      patch: Partial<MultiAgentWorkerState>,
+      finalStatus: MultiAgentWorkerState['status'],
+    ) => {
+      setMessages((previous) =>
+        previous.map((message) => {
+          if (message.id !== id || !message.multiWorkers?.length) return message;
+          const workers = [...message.multiWorkers];
+          for (let index = workers.length - 1; index >= 0; index -= 1) {
+            if (workers[index].task_id === task_id && workers[index].status === 'running') {
+              workers[index] = {
+                ...workers[index],
+                ...patch,
+                status: finalStatus,
+                durationMs:
+                  patch.durationMs ?? workers[index].durationMs,
+              };
+              break;
+            }
+          }
+          return { ...message, multiWorkers: workers };
+        }),
+      );
+    },
+    [],
+  );
+
   /** Interrompt proprement la génération en cours. */
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
@@ -626,6 +737,181 @@ export function ChatWindow() {
    *   - awaiting_approval : carte Approuver / Refuser déclenchée ;
    *   - rejected          : motif du blocage policy affiché au mot pour mot.
    */
+  /**
+   * Tour multi-agents : POST /api/agent/multi/ask/stream (SSE avec evenements
+   * nommes). La trace (plan + workers) est rendue en temps reel par
+   * MultiAgentTrace ; la reponse finale (agent.done -> final_answer) remplit
+   * la bulle. Une erreur globale (plan invalide, LLM inaccessible) est affichee
+   * comme une erreur de message.
+   */
+  const askMultiAgentTurn = useCallback(
+    async (
+      assistantId: string,
+      prompt: string,
+      controller: AbortController,
+    ): Promise<void> => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const apiKey = resolveApiKey();
+      if (apiKey) headers['X-API-Key'] = apiKey;
+
+      // Contrat backend (schema MultiAskRequest) : champs snake_case.
+      const body: Record<string, unknown> = {
+        prompt,
+        mode: MULTI_SSE_MODE,
+        parallel: false,
+      };
+      if (selectedModel) body.model = selectedModel;
+
+      const response = await fetch(MULTI_ASK_STREAM_ENDPOINT, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!(contentType.includes('text/event-stream') && response.body)) {
+        // Repli JSON non streame : le backend a repondu d un bloc.
+        const data = (await response.json()) as {
+          status?: string;
+          final_answer?: string;
+          message?: string;
+          plan?: NonNullable<ChatMessageData['multiPlan']>;
+          pending_approvals?: Array<{
+            task_id: string;
+            role: string;
+            request_id: string;
+            approval?: { tool?: string; args?: Record<string, unknown>; reason?: string };
+          }>;
+        };
+        if (data.plan) setMultiPlan(assistantId, data.plan);
+        if (data.status === 'error') {
+          throw new Error(data.message || 'Echec de l orchestration multi-agents.');
+        }
+        // Validation humaine requise (contrat JSON bloquant) : même traitement
+        // que le flux SSE — carte Approuver/Refuser sur la première demande.
+        const blockedTask = data.pending_approvals?.[0];
+        if (data.status === 'awaiting_approval' && blockedTask?.request_id) {
+          const subtask = data.plan?.find((t) => t.task_id === blockedTask.task_id)?.subtask;
+          completeMultiWorker(
+            assistantId,
+            blockedTask.task_id,
+            { message: data.final_answer ?? data.message },
+            'awaiting_approval',
+          );
+          setPendingApproval({
+            requestId: blockedTask.request_id,
+            prompt: subtask ?? prompt,
+            tool: blockedTask.approval?.tool ?? 'outil inconnu',
+            reason: blockedTask.approval?.reason ?? 'validation humaine requise',
+            args: blockedTask.approval?.args,
+          });
+          return;
+        }
+        appendDelta(assistantId, data.final_answer ?? data.message ?? '');
+        return;
+      }
+
+      // Plan local : permet de retrouver le texte d'une sous-tâche (nécessaire
+      // pour relancer la sous-tâche bloquée avec resume_request_id).
+      let planTasks: MultiAgentPlanTask[] = [];
+      for await (const frame of readNamedSseEvents(response.body)) {
+        if (frame.data === '[DONE]') break;
+
+        let event: MultiAgentStreamEvent;
+        try {
+          event = JSON.parse(frame.data) as MultiAgentStreamEvent;
+        } catch {
+          continue; // charge utile illisible : on ignore (tolerance)
+        }
+
+        switch (frame.event) {
+          case 'agent.plan':
+            if (event.plan?.length) {
+              planTasks = event.plan;
+              setMultiPlan(assistantId, event.plan);
+            }
+            break;
+          case 'agent.worker.start':
+            if (event.task_id) {
+              startMultiWorker(assistantId, {
+                task_id: event.task_id,
+                role: event.role ?? '?',
+                subtask: event.plan?.[0]?.subtask,
+                status: 'running',
+              });
+            }
+            break;
+          case 'agent.worker.result':
+            if (event.task_id) {
+              completeMultiWorker(
+                assistantId,
+                event.task_id,
+                { summary: event.summary, durationMs: event.duration_ms },
+                'ok',
+              );
+            }
+            break;
+          case 'agent.worker.error':
+            if (event.task_id) {
+              completeMultiWorker(
+                assistantId,
+                event.task_id,
+                { message: event.message, durationMs: event.duration_ms },
+                'error',
+              );
+            }
+            break;
+          case 'agent.worker.approval':
+            // Une sous-tâche attend une validation humaine : le worker passe
+            // en « awaiting_approval » (badge jaune dans la trace) et la carte
+            // Approuver/Refuser est affichée. Le prompt de reprise est le
+            // texte de la SOUS-TÂCHE (reprise ciblée, pas de l'orchestration).
+            if (event.task_id && event.request_id) {
+              completeMultiWorker(
+                assistantId,
+                event.task_id,
+                { message: event.message, durationMs: event.duration_ms },
+                'awaiting_approval',
+              );
+              setPendingApproval({
+                requestId: event.request_id,
+                prompt:
+                  planTasks.find((task) => task.task_id === event.task_id)?.subtask ?? prompt,
+                tool: event.approval?.tool ?? 'outil inconnu',
+                reason: event.approval?.reason ?? 'validation humaine requise',
+                args: event.approval?.args,
+              });
+            }
+            break;
+          case 'agent.done':
+            // Orchestration interrompue sur une validation : le texte final
+            // récapitulatif n'est affiché que si aucune carte n'est pendante
+            // (la carte suffit comme signal pour l'utilisateur).
+            if (event.answer && !event.answer.startsWith('Validation humaine requise')) {
+              appendDelta(assistantId, event.answer ?? event.final_answer ?? '');
+            }
+            break;
+          case 'agent.error':
+            throw new Error(event.message || 'Echec de l orchestration multi-agents.');
+          default:
+            // agent.synthesizing et autres : rien a afficher pour l instant.
+            break;
+        }
+      }
+    },
+    [
+      appendDelta,
+      completeMultiWorker,
+      selectedModel,
+      setMultiPlan,
+      setPendingApproval,
+      startMultiWorker,
+    ],
+  );
 
   const askAgentTurn = useCallback(
     async (
@@ -748,6 +1034,138 @@ export function ChatWindow() {
     [appendDelta, appendThinkingDelta, appendToolCall, completeToolCall, selectedModel, enableThinking, sessionId],
   );
 
+  /**
+   * Tour de chat via le NOUVEAU NOYAU agentique : POST /api/agent/ask/core/
+   * stream (SSE : core_tool / delta / final), avec repli transparent sur le
+   * POST bloquant /api/agent/ask/core si le backend ne connaît pas le flux.
+   * Même contrat AskResponse que /ask, y compris awaiting_approval -> carte
+   * de validation humaine.
+   */
+  const askCoreTurn = useCallback(
+    async (
+      assistantId: string,
+      prompt: string,
+      controller: AbortController,
+      resumeRequestId?: string,
+    ): Promise<void> => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const apiKey = resolveApiKey();
+      if (apiKey) headers['X-API-Key'] = apiKey;
+
+      /** Applique le statut final (contrat AskResponse du noyau). */
+      const handleFinal = (data: AgentAskResponse, alreadyStreamed: boolean): void => {
+        if (data.status === 'awaiting_approval' && data.request_id) {
+          const tool = data.approval?.tool ?? 'outil inconnu';
+          setPendingApproval({
+            requestId: data.request_id,
+            prompt,
+            tool,
+            reason: data.approval?.reason ?? 'validation humaine requise',
+            args: data.approval?.args,
+          });
+          if (!alreadyStreamed) {
+            appendDelta(assistantId, `[En attente de validation] L'action « ${tool} » nécessite votre décision avant exécution.`);
+          }
+          return;
+        }
+        // completed / rejected / error : la réponse backend porte l'explication.
+        if (!alreadyStreamed) appendDelta(assistantId, data.response || '');
+      };
+
+      /** Repli : POST bloquant /api/agent/ask/core (réponse d'un bloc). */
+      const askCoreBlocking = async (): Promise<void> => {
+        // Contrat backend (schéma AskRequest) : champs en snake_case.
+        const body: { prompt: string; session_id?: string; resume_request_id?: string } = { prompt };
+        if (sessionId) body.session_id = sessionId;
+        if (resumeRequestId) body.resume_request_id = resumeRequestId;
+
+        const response = await fetch(CORE_ASK_ENDPOINT, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(await apiErrorMessage(response));
+        }
+        handleFinal((await response.json()) as AgentAskResponse, false);
+      };
+
+      // Contrat backend (schéma AskStreamRequest) : champs en snake_case.
+      const body: Record<string, unknown> = { prompt };
+      if (sessionId) body.session_id = sessionId;
+      if (resumeRequestId) body.resume_request_id = resumeRequestId;
+      // Mode « Réflexion » : le noyau diffuse son raisonnement (thinking_delta).
+      if (enableThinking) body.enable_thinking = true;
+
+      const response = await fetch(CORE_ASK_STREAM_ENDPOINT, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      // Backend sans endpoint de streaming : repli transparent.
+      if (!response.ok && (response.status === 404 || response.status === 405)) {
+        await askCoreBlocking();
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!(contentType.includes('text/event-stream') && response.body)) {
+        // Réponse JSON classique (sans flux) : même rendu que le bloquant.
+        handleFinal((await response.json()) as AgentAskResponse, false);
+        return;
+      }
+
+      let streamedChars = 0;
+      for await (const payload of readSseEvents(response.body)) {
+        if (payload === '[DONE]') break;
+
+        let event: ChatStreamEvent;
+        try {
+          event = JSON.parse(payload) as ChatStreamEvent;
+        } catch {
+          // Charge utile non JSON : affichée telle quelle (tolérance).
+          appendDelta(assistantId, payload);
+          streamedChars += payload.length;
+          continue;
+        }
+
+        if (event.error) throw new Error(event.error);
+        // Événements d'outils du noyau (champ « core_tool » côté backend).
+        const toolFrame = (event as { core_tool?: { event?: string; tool?: string; args?: unknown; status?: string; summary?: string; error?: string } }).core_tool;
+        if (toolFrame?.tool) {
+          if (toolFrame.event === 'tool_start') {
+            appendToolCall(assistantId, {
+              tool: toolFrame.tool,
+              args: toolFrame.args == null ? undefined : JSON.stringify(toolFrame.args),
+              status: 'running',
+            });
+          } else {
+            completeToolCall(assistantId, {
+              tool: toolFrame.tool,
+              status: toolFrame.status === 'error' ? 'error' : 'ok',
+              summary: toolFrame.summary,
+            });
+          }
+        }
+        if (event.delta) {
+          appendDelta(assistantId, event.delta);
+          streamedChars += event.delta.length;
+        }
+        // Mode « Réflexion » : trace de raisonnement du noyau, affichée dans la
+        // bulle réservée (même contrat thinking_delta que /api/ai).
+        if (event.thinking_delta) appendThinkingDelta(assistantId, event.thinking_delta);
+        if (event.final) handleFinal(event.final, streamedChars > 0);
+      }
+    },
+    [appendDelta, appendThinkingDelta, appendToolCall, completeToolCall, enableThinking, sessionId],
+  );
+
   /** Envoie le message de l'utilisateur puis diffuse la réponse de l'IA en streaming. */
   const sendMessage = useCallback(
     async (text: string) => {
@@ -780,17 +1198,19 @@ export function ChatWindow() {
       abortRef.current = controller;
 
       try {
-        // Mode « Multi-agents » : routé vers le tour d'agent standard
-        // (askAgentTurn), qui appelle /api/agent/ask/core/stream quand le
-        // toggle « Noyau v2 » est actif (repli transparent sur /ask/stream).
-        // L'orchestration superviseur/workers (/api/agent/multi/ask/stream)
-        // n'est plus utilisée ici.
+        // Mode Agent : POST /api/agent/ask (réponse d'un bloc, gate
+        // auto_approve/approve/reject) au lieu du chat SSE /api/ai.
         if (multiMode) {
-          await askAgentTurn(assistantId, trimmed, controller);
+          await askMultiAgentTurn(assistantId, trimmed, controller);
           return;
         }
         if (agentMode) {
           await askAgentTurn(assistantId, trimmed, controller);
+          return;
+        }
+        // Mode Noyau v2 : boucle Intent -> Plan -> Policy -> Budget -> Action.
+        if (coreMode) {
+          await askCoreTurn(assistantId, trimmed, controller);
           return;
         }
 
@@ -858,7 +1278,7 @@ export function ChatWindow() {
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking, agentMode, askAgentTurn, sessionId],
+    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking, agentMode, coreMode, askAgentTurn, askCoreTurn, sessionId],
   );
 
   /**
@@ -899,7 +1319,22 @@ export function ChatWindow() {
           streaming: true,
         },
       ]);
-      await askAgentTurn(assistantId, prompt, controller, requestId);
+      // Reprise du run : via le noyau actif (Noyau v2 ou agent historique).
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          createdAt: nowIso(),
+          streaming: true,
+        },
+      ]);
+      if (coreMode) {
+        await askCoreTurn(assistantId, prompt, controller, requestId);
+      } else {
+        await askAgentTurn(assistantId, prompt, controller, requestId);
+      }
     } catch (error) {
       if (!controller.signal.aborted) {
         patchMessage(assistantId, {
@@ -914,7 +1349,7 @@ export function ChatWindow() {
       setIsLoading(false);
       abortRef.current = null;
     }
-  }, [pendingApproval, isLoading, askAgentTurn, patchMessage]);
+  }, [pendingApproval, isLoading, coreMode, askCoreTurn, askAgentTurn, patchMessage]);
 
   /**
    * Décision humaine : REFUSER une action en attente. Aucune exécution ; un
@@ -992,6 +1427,17 @@ export function ChatWindow() {
       >
         <BotIcon />
         <span className="copilot-chat__think-label">Agent</span>
+      </button>
+      <button
+        type="button"
+        className="copilot-chat__think-toggle"
+        data-active={coreMode || undefined}
+        onClick={handleCoreToggle}
+        aria-pressed={coreMode}
+        title="Noyau v2 : nouvelle boucle agentique (Intent -> Plan -> Policy -> Budget -> Action). Nécessite AGENT_NEW_CORE=1 côté backend."
+      >
+        <CoreIcon />
+        <span className="copilot-chat__think-label">Noyau v2</span>
       </button>
       <button
         type="button"
@@ -1178,6 +1624,30 @@ function BotIcon() {
       <path d="M9 13h.01" />
       <path d="M15 13h.01" />
       <path d="M9.5 17h5" />
+    </svg>
+  );
+}
+
+/** Icône « engrenages » du bouton Noyau v2 (boucle agentique Intent -> Action). */
+function CoreIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 2.5 20 7v10l-8 4.5L4 17V7l8-4.5Z" />
+      <circle cx="12" cy="12" r="2.6" />
+      <path d="M12 6.2v3.2" />
+      <path d="M12 14.6v3.2" />
+      <path d="M7.3 9.3l2.8 1.6" />
+      <path d="M13.9 13.1l2.8 1.6" />
+      <path d="M16.7 9.3l-2.8 1.6" />
+      <path d="M10.1 13.1l-2.8 1.6" />
     </svg>
   );
 }

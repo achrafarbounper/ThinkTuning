@@ -347,15 +347,30 @@ class AgentCore:
         max_rounds: int = 6,
         max_tool_calls: int = 20,
         approval_gateway: Callable[[Action], bool] | None = None,
+        on_tool_event: Callable[[dict], None] | None = None,
+        enable_thinking: bool = False,
+        on_thinking: Callable[[str], None] | None = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
         self._approval_gateway = approval_gateway
         self._max_tool_calls = max_tool_calls
+        self._on_tool_event = on_tool_event
+        # Mode « Réflexion » : ``enable_thinking`` active le reconnement du
+        # modèle pendant CHAQUE round ; ``on_thinking`` diffuse la trace en
+        # temps réel (SSE thinking_delta), un tampon interne la conserve pour
+        # le champ ``thinking`` du résultat final.
+        self._enable_thinking = enable_thinking
+        self._on_thinking = on_thinking
+        # Le tampon est remis à zéro à chaque run (voir run()).
+        self._thinking_parts: list[str] = []
         self._system_prompt = build_system_prompt(registry)
 
     def run(self, intent: Intent, history: list[Message] | None = None) -> AgentRunResult:
         """Exécute un run complet. Ne lève JAMAIS : le statut porte l'échec."""
+        # Nouveau run (rebouffrage du même AgentCore en tests / atelier) :
+        # le tampon de réflexion est propre à chaque exécution.
+        self._thinking_parts = []
         budget = RunBudget(max_llm_rounds=intent.max_rounds, max_tool_calls=self._max_tool_calls)
         traces: list[ActionTrace] = []
         rejected_prints: set[str] = set()
@@ -375,7 +390,16 @@ class AgentCore:
                 return self._finalize(traces, budget, RunStatus.BUDGET_EXHAUSTED)
 
             try:
-                response = self._llm.call(messages)
+                if self._enable_thinking:
+                    # Mode « Réflexion » : le client LLM diffuse son raisonnement
+                    # via call_stream, on_thinking alimente la trace SSE temps
+                    # réel et accumule dans le tampon du résultat final.
+                    response = self._llm.call_stream(
+                        messages,
+                        on_thinking=self._capture_thinking,
+                    )
+                else:
+                    response = self._llm.call(messages)
             except Exception as exc:
                 logger.error("Échec du client LLM : %s", exc)
                 return self._finalize(traces, budget, RunStatus.FAILED,
@@ -493,6 +517,9 @@ class AgentCore:
                         awaiting_action=action,
                     )
 
+            # Émission temps réel (SSE) : annonce de l'appel d'outil.
+            self._emit_tool_event({"event": "tool_start", "tool": action.tool,
+                                   "args": action.args})
             try:
                 value = func(**action.args)
                 results.append(f"[{step.task_id}] {action.tool} -> {self._summarize(value)}")
@@ -500,13 +527,46 @@ class AgentCore:
                     tool=action.tool, args=action.args, decision=decision.value,
                     status="done", result_summary=self._summarize(value),
                 ))
+                self._emit_tool_event({"event": "tool_result", "tool": action.tool,
+                                       "status": "ok",
+                                       "summary": self._summarize(value)})
             except Exception as exc:  # auto-correction : l'erreur retourne au LLM
                 results.append(f"[{step.task_id}] ERREUR d'exécution ({action.tool}) : {exc}")
                 traces.append(ActionTrace(
                     tool=action.tool, args=action.args, decision=decision.value,
                     status="error", error=str(exc),
                 ))
+                self._emit_tool_event({"event": "tool_result", "tool": action.tool,
+                                       "status": "error", "error": str(exc)})
         return "\n".join(results) if results else "Aucune action exécutée. Réponds à la question."
+
+    def _capture_thinking(self, chunk: str) -> None:
+        """Reçoit un fragment de raisonnement (mode « Réflexion »).
+
+        Accumule dans le tampon du résultat final ET diffuse en temps réel via
+        on_thinking (SSE thinking_delta). Ne lève jamais.
+        """
+        if not chunk:
+            return
+        self._thinking_parts.append(chunk)
+        if self._on_thinking is not None:
+            try:
+                self._on_thinking(chunk)
+            except Exception:  # pragma: no cover - défensif
+                pass
+
+    def _emit_tool_event(self, event: dict) -> None:
+        """Transmet un événement d'outil au callback SSE (silencieux si absent).
+
+        Le journal ne doit JAMAIS faire échouer le run : toute exception du
+        callback est avalée (même convention que run_store.append_tool_event).
+        """
+        if self._on_tool_event is None:
+            return
+        try:
+            self._on_tool_event(event)
+        except Exception:  # pragma: no cover - défensif
+            pass
 
         # --- Finalisation -------------------------------------------------------------
 
@@ -527,8 +587,8 @@ class AgentCore:
             return text[:_RESULT_SUMMARY_CHARS] + "… [tronqué]"
         return text
 
-    @staticmethod
     def _as_result(
+        self,
         traces: list[ActionTrace],
         budget: RunBudget,
         status: RunStatus,
@@ -538,6 +598,7 @@ class AgentCore:
         return AgentRunResult(
             answer=answer,
             status=status,
+            thinking="\n\n".join(self._thinking_parts).strip(),
             actions=list(traces),
             awaiting_action=awaiting_action,
             rounds_used=budget.snapshot().llm_rounds_used,
