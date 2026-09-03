@@ -193,8 +193,11 @@ permettent au runner de distinguer retry / recovery / rejet.
    `api/`, `core/`, `app/` ni les tests. Garde-fous CI :
    `tests/test_sys_path_guard.py` (statique AST + dynamique sous-processus).
 3. Étendre ruff/mypy à `api/`, `core/`, `ia/`, `tests/`.
-4. Streaming SSE de `/ask/core` (événements tool_start/tool_result
-   réutilisant l'event bus legacy).
+4. ~~Streaming SSE de `/ask/core` (événements tool_start/tool_result
+   réutilisant l'event bus legacy)~~ **Port `EventBusPort` en place** : le
+   portage propre de l'event bus est disponible (`app/infrastructure/events/`),
+   prêt à découpler les adaptateurs SSE/WS des use-cases ; reste le câblage du
+   streaming SSE sur le port.
 5. Baseline GPU : `gpu_info` et `nvidia-smi` restent hors sandbox Windows CI.
 
 ### Avancée Phase 3 (client LLM v2 + contexte)
@@ -213,3 +216,9 @@ permettent au runner de distinguer retry / recovery / rejet.
   puis décommissionner `ia/agent/llm_client.py` (le vrai client HTTP propre est
   en place ; il s'agit désormais d'un choix de flag et de la suppression du
   legacy).
+- **Port `EventBusPort` (8e) ajouté** : contrat pub/sub aligné sur
+  `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` (wrapper strangler
+  vers le singleton, isolation d'erreurs préservée) et `InMemoryEventBus` (faux
+  déterministe async, avec `history`) — dans `app/infrastructure/events/`
+  (`tests/test_event_bus_port.py`). Prêt à découpler la publication SSE/WS des
+  use-cases : un émetteur ne connaît plus que `EventBusPort`.

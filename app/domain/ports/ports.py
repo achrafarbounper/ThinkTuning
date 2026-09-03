@@ -261,3 +261,49 @@ class ApprovalStorePort(Protocol):
     def list(self, status: str | None = None) -> list[dict[str, Any]]:
         """Liste les demandes (toutes si status=None, sinon filtrées par statut)."""
         ...
+
+
+@runtime_checkable
+class EventBusPort(Protocol):
+    """Contrat du bus d'événements pub/sub (cf. ia/agent/event_bus.py).
+
+    Découple l'émission d'événements (``emit`` / ``emit_async``) du transport de
+    publication (SSE/WS, audit, métriques) : les use-cases émettent sur une
+    interface anonyme, les adaptateurs (legacy ou in-process) acheminent.
+
+    Événements typiques de l'agent : ``agent.tool_start``, ``agent.tool_result``,
+    ``agent.run_finished``, ``agent.approval_pending``. Chaque payload porte
+    ``event_type`` + ``timestamp`` injectés par l'implémentation, plus les
+    champs passés à ``emit``.
+
+    L'isolation d'erreurs est une responsabilité de l'implémentation : un
+    handler fautif ne doit jamais propager d'exception à l'émetteur.
+    """
+
+    def on(self, event_type: str, handler: Callable[..., Any]) -> None:
+        """Enregistre un handler pour un type d'événement."""
+        ...
+
+    def once(self, event_type: str, handler: Callable[..., Any]) -> None:
+        """Enregistre un handler one-shot (désabonné après sa première exécution)."""
+        ...
+
+    def off(self, event_type: str, handler: Callable[..., Any]) -> None:
+        """Supprime un handler."""
+        ...
+
+    def emit(self, event_type: str, **kwargs: Any) -> None:
+        """Émet un événement de manière synchrone (jamais d'exception remontée)."""
+        ...
+
+    def emit_async(self, event_type: str, **kwargs: Any) -> Any:
+        """Émet un événement de manière asynchrone (awaitable)."""
+        ...
+
+    def clear(self, event_type: str | None = None) -> None:
+        """Supprime tous les handlers (ou ceux d'un seul type)."""
+        ...
+
+    def listener_count(self, event_type: str) -> int:
+        """Nombre de handlers enregistrés pour un type."""
+        ...
