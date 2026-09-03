@@ -199,6 +199,13 @@ permettent au runner de distinguer retry / recovery / rejet.
    `/ask/core/stream` s'y appuie — le noyau publie, la route s'abonne via un
    bus PAR RUN (`InMemoryEventBus`) ; see `tests/test_event_bus_wiring.py`.
 5. Baseline GPU : `gpu_info` et `nvidia-smi` restent hors sandbox Windows CI.
+6. **Machine à états du run (domaine)** : `RunStatus` déplacé de `app/agent/core.py`
+   vers `app/domain/entities/run.py` (source de vérité unique, ré-exporté par le
+   moteur pour rétro-compatibilité) ; `RunStateMachine` valide PUREMENT les
+   transitions de la durée de vie persistée — dont l'invariant central : la
+   reprise `awaiting_approval -> running` (empreinte validée) est la SEULE façon
+   de relancer un run, jamais depuis un état terminal. `run_lifecycle.finish_run_status`
+   passe par la FSM avant chaque `run_store.finish_run` (`tests/test_run_state_machine.py`).
 
 ### Avancée Phase 3 (client LLM v2 + contexte)
 

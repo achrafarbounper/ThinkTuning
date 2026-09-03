@@ -21,20 +21,23 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from app.agent.core import RunStatus
-from core.approval_store import APPROVED
-from core.run_store import (
+from app.domain.entities.run import (
     AWAITING_APPROVAL as RUN_AWAITING_APPROVAL,
 )
-from core.run_store import (
+from app.domain.entities.run import (
     COMPLETED as RUN_COMPLETED,
 )
-from core.run_store import (
+from app.domain.entities.run import (
     ERROR as RUN_ERROR,
 )
-from core.run_store import (
+from app.domain.entities.run import (
     REJECTED as RUN_REJECTED,
 )
+from app.domain.entities.run import (
+    RunStateMachine,
+    RunStatus,
+)
+from core.approval_store import APPROVED
 
 # Actions d'audit (alignées sur core/audit_store.py — voir docstring).
 ACT_RUN = "agent_run"
@@ -79,6 +82,21 @@ def core_api_status(status: RunStatus) -> str:
 def core_store_status(status: RunStatus) -> str:
     """Statut persisté (run_store) pour un statut ``RunStatus`` du noyau."""
     return RUN_STATUS_TO_STORE.get(status, RUN_COMPLETED)
+
+
+def finish_run_status(existing: str | None, destination: str) -> str:
+    """Statut persisté de clôture, validé par la machine à états du run.
+
+    Encapsule ``RunStateMachine`` : la clôture d'un run doit être une
+    transition légale depuis son état courant. Un run déjà terminal (ou une
+    issue inconnue) lève ``IllegalRunTransition`` — bug de programmation, à
+    faire échouer tôt au lieu d'écraser l'historique silencieusement.
+
+    ``existing`` est le statut persisté en base (défaut ``running`` : un run
+    fraîchement ouvert est toujours ``running``).
+    """
+    fsm = RunStateMachine(existing or "running")
+    return fsm.transition(destination).status
 
 
 def resolve_resume_hash(approval_store, resume_request_id: str | None) -> str | None:

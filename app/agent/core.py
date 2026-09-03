@@ -33,7 +33,6 @@ import re
 import time
 from collections.abc import Callable
 from datetime import date
-from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -41,6 +40,7 @@ from pydantic import BaseModel, Field
 from app.agent.policies.budget import RunBudget
 from app.agent.policies.sandbox_policy import decide_action
 from app.domain.entities.plan import Action, Decision, Intent, Plan, PlanStep
+from app.domain.entities.run import RunStatus  # noqa: F401  # ré-export domaine
 from app.domain.errors import BudgetExceededError
 from app.domain.ports import (
     EventBusPort,
@@ -54,16 +54,8 @@ logger = logging.getLogger("thinktuning.agent.core")
 # ============================================================
 # MODÈLES DE RÉSULTAT
 # ============================================================
-
-
-class RunStatus(StrEnum):
-    """Statut terminal d'un run du noyau agentique."""
-
-    COMPLETED = "completed"                # réponse finale produite
-    PENDING_APPROVAL = "pending_approval"  # action en attente de validation
-    REJECTED_LOOP = "rejected_loop"        # le LLM reformule une action rejetée
-    BUDGET_EXHAUSTED = "budget_exhausted"  # budget épuisé sans réponse finale
-    FAILED = "failed"                      # erreur non récupérable
+# ``RunStatus`` est défini dans le domaine (app/domain/entities/run.py) et
+# ré-exporté ici pour préserver ``from app.agent.core import RunStatus``.
 
 
 class ActionTrace(BaseModel):

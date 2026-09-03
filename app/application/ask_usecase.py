@@ -22,7 +22,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.agent.core import RunStatus
 from app.application.run_lifecycle import (
     ACT_APPROVAL,
     ACT_RUN,
@@ -31,11 +30,13 @@ from app.application.run_lifecycle import (
     core_store_status,
     core_tool_events,
     create_approval_request,
+    finish_run_status,
     legacy_run_status,
     make_approval_gateway,
     resolve_resume_hash,
 )
 from app.domain.entities.plan import Intent
+from app.domain.entities.run import RunStatus
 from app.domain.errors import AgentRunError
 
 
@@ -98,13 +99,16 @@ def run_legacy_ask(
             history_messages=load_history(session_id, resume_request_id),
         )
     except ValueError as exc:
-        run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+        run_store.finish_run(
+            run_row["id"], finish_run_status(run_row["status"], RUN_ERROR),
+            error=str(exc),
+        )
         raise
 
     status = legacy_run_status(decision.get("status", "completed"))
     run_store.finish_run(
         run_row["id"],
-        status,
+        finish_run_status(run_row["status"], status),
         answer_summary=(decision.get("response") or "")[:300],
     )
     audit_log(
@@ -167,7 +171,11 @@ def run_ask_core(
             history=history,
         )
     except Exception as exc:
-        run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+        run_store.finish_run(
+            run_row["id"],
+            finish_run_status(run_row["status"], RUN_ERROR),
+            error=str(exc),
+        )
         raise AgentRunError(str(exc)) from exc
 
     approval_payload: dict | None = None
@@ -182,7 +190,8 @@ def run_ask_core(
 
     api_status = core_api_status(result.status)
     run_store.finish_run(
-        run_row["id"], core_store_status(result.status),
+        run_row["id"],
+        finish_run_status(run_row["status"], core_store_status(result.status)),
         answer_summary=(result.answer or "")[:300],
     )
     audit_log(
