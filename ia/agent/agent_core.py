@@ -827,6 +827,22 @@ class AgentCore:
             *self._normalize_history_messages(history_messages),
             {"role": "user", "content": user_prompt},
         ]
+        # --- Agent sans outil (lead / superviseur) ---------------------------
+        # Un agent SANS outil ne peut jamais faire d'appel d'outil : tout JSON
+        # qu'il produit (plan du superviseur, synthèse finale...) EST la
+        # réponse attendue. Sans ce court-circuit, le plan {"tasks": [...]}
+        # serait interprété comme un appel d'outil mal formé et déclencherait
+        # la boucle d'auto-correction « Champ 'tool' manquant ou invalide »,
+        # sans issue possible (registre d'outils vide).
+        if not self._tools:
+            rounds_used = 1
+            raw = _capture(_call_llm(messages))
+            logger.info(
+                "run_done reason=no_tools_direct_answer answer_chars=%d",
+                len(raw),
+            )
+            return _result(raw)
+
 
         # --- Reprise après validation humaine (approve) -------------------------
         # Si `resume_request_id` pointe une demande approuvée, on exécute

@@ -23,10 +23,10 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class AgentProvider(StrEnum):
@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # --- API / sécurité -----------------------------------------------------
     api_key: str = Field(default="change-me", description="Clé API des endpoints protégés")
-    cors_allowed_origins: list[str] = Field(
+    cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             "http://localhost",
             "http://localhost:5173",
@@ -70,6 +70,14 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000",
         ]
     )
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v):
+        """Accepte aussi bien du CSV (« a,b ») qu'un tableau JSON pour CORS_ALLOWED_ORIGINS."""
+        if isinstance(v, str):
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
     dashboard_ws_token: str = Field(
         default="", description="Jeton dédié au WebSocket /train/stream (défaut : api_key)"
     )

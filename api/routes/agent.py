@@ -565,6 +565,188 @@ def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
     )
 
 
+@router.post("/ask/core/stream")
+def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key)):
+    """Nouveau noyau agentique en streaming SSE (flag ``AGENT_NEW_CORE``).
+
+    Même contrat de flux que /ask/stream :
+        data: {"tool_start":  {tool, args}}             appel d'outil annoncé
+        data: {"tool_result": {tool, status, summary…}} résultat (ok/error)
+        data: {"delta": "..."}                          réponse finale, mot à mot
+        data: {"final": {...AskResponse...}}            statut + ids d'approbation
+        data: [DONE]
+
+    Le run ``AgentCore`` est exécuté dans un thread worker ; le callback
+    ``on_tool_event`` du noyau alimente la queue en temps réel, la réponse
+    finale est rejouée mot à mot (même cadence que /ask/stream).
+    """
+    if not new_core_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Nouveau noyau agentique désactivé (AGENT_NEW_CORE non activé).",
+        )
+
+    events: queue.Queue[tuple[str, object]] = queue.Queue()
+    run_store = get_run_store()
+    run_row = run_store.start_run(request.prompt, model=agent_config()["model"],
+                                  source="ask_core_stream")
+    _audit_log(ACT_RUN, subject="ask_core_stream",
+               detail={"status": "started"}, run_id=run_row["id"])
+
+    approval_store = build_approval_store()
+    resume_record = (
+        approval_store.get(request.resume_request_id)
+        if request.resume_request_id else None
+    )
+    resume_hash = (
+        resume_record.get("args_hash")
+        if resume_record and resume_record.get("status") == APPROVED else None
+    )
+
+    def _approval_gateway(action) -> bool:
+        return bool(resume_hash and action.fingerprint() == resume_hash)
+
+    def _on_tool_event(event: dict) -> None:
+        events.put(("tool", event))
+        try:
+            run_store.append_tool_event(run_row["id"], event)
+        except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
+            pass
+
+    def _on_thinking(chunk: str) -> None:
+        events.put(("thinking", chunk))
+
+    def worker() -> None:
+        try:
+            core = build_agent_core(
+                approval_gateway=_approval_gateway,
+                on_tool_event=_on_tool_event,
+                enable_thinking=request.enable_thinking,
+                on_thinking=_on_thinking,
+            )
+            history = _load_session_history(request.session_id, request.resume_request_id)
+            result = core.run(
+                Intent(prompt=request.prompt,
+                       session_id=request.session_id or "default"),
+                history=history,
+            )
+
+            # Création de la demande d'approbation le cas échéant (même
+            # logique que /ask/core) : l'IHM affichera la carte de validation.
+            approval_payload = None
+            if result.status is RunStatus.PENDING_APPROVAL and result.awaiting_action:
+                action = result.awaiting_action
+                record = approval_store.create(
+                    action.tool, action.args, action.category.value,
+                    "approve", "Policy : validation humaine requise",
+                    prompt=request.prompt, args_hash=action.fingerprint(),
+                )
+                approval_payload = {
+                    "request_id": record.get("request_id") or record.get("id"),
+                    "tool": action.tool,
+                    "args": action.args,
+                }
+                _audit_log(
+                    ACT_APPROVAL, subject="ask_core_stream",
+                    detail={"request_id": approval_payload["request_id"],
+                            "tool": action.tool},
+                    run_id=run_row["id"],
+                )
+
+            status_map = {
+                RunStatus.COMPLETED: "completed",
+                RunStatus.PENDING_APPROVAL: "awaiting_approval",
+                RunStatus.REJECTED_LOOP: "rejected",
+                RunStatus.BUDGET_EXHAUSTED: "error",
+                RunStatus.FAILED: "error",
+            }
+            api_status = status_map.get(result.status, "completed")
+            run_store.finish_run(
+                run_row["id"], status_map.get(result.status, RUN_COMPLETED),
+                answer_summary=(result.answer or "")[:300],
+            )
+            _audit_log(
+                ACT_RUN, subject="ask_core_stream",
+                detail={"status": api_status,
+                        "actions": len(result.actions),
+                        "rounds": result.rounds_used,
+                        "tool_calls": result.tool_calls_used},
+                run_id=run_row["id"],
+            )
+            if api_status != "error":
+                _persist_exchange(request.session_id, request.prompt,
+                                  result.answer or "")
+
+            # Rejoue la réponse finale mot à mot (convention /ask/stream).
+            for word in _stream_fragments(result.answer or ""):
+                events.put(("delta", word))
+                time.sleep(ANSWER_STREAM_CADENCE_SECONDS)
+
+            events.put(("final", {
+                "response": result.answer or "",
+                "model": agent_config()["model"],
+                "status": api_status,
+                "request_id": approval_payload["request_id"] if approval_payload else run_row["id"],
+                "approval": approval_payload,
+            }))
+        except HTTPException as exc:  # panne réseau déjà traduite par agent_cache
+            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc.detail))
+            events.put(("http_error", exc))
+        except Exception as exc:
+            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+            events.put(("error", str(exc)))
+        finally:
+            events.put(("done", None))
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    # Réception SYNCHRONE du premier événement : une panne précoce (LLM
+    # injoignable, resume_request_id invalide) reste une vraie erreur HTTP.
+    first_kind, first_payload = events.get()
+    if first_kind == "http_error":
+        raise first_payload  # noqa: TRY201 - re-lever l'HTTPException d'origine
+    if first_kind == "error":
+        raise HTTPException(status_code=502, detail=str(first_payload))
+
+    async def _sse_stream() -> AsyncIterator[str]:
+        try:
+            if first_kind != "done":
+                field = _CORE_STREAM_FIELDS.get(first_kind, first_kind)
+                yield _sse({field: first_payload})
+            while True:
+                kind, payload = await asyncio.to_thread(events.get)
+                if kind == "done":
+                    break
+                if kind in ("http_error", "error"):
+                    detail = payload.detail if kind == "http_error" else str(payload)
+                    yield _sse({"error": detail})
+                    break
+                field = _CORE_STREAM_FIELDS.get(kind, kind)
+                yield _sse({field: payload})
+            yield "data: [DONE]\n\n"
+        except asyncio.CancelledError:
+            raise
+
+    return StreamingResponse(
+        _sse_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# Champs d'événements du flux /ask/core/stream (queue -> SSE).
+_CORE_STREAM_FIELDS = {
+    "tool": "core_tool",
+    "thinking": "thinking_delta",
+    "delta": "delta",
+    "final": "final",
+}
+
+
 # --- Streaming du mode Agent (POST /api/agent/ask/stream) ----------------------------
 
 # Cadence (secondes) de l'émission mot à mot de la réponse finale ; la
