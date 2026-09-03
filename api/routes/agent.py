@@ -57,10 +57,7 @@ from core.approval_store import (
     get_approval_store,
 )
 from core.run_store import (
-    AWAITING_APPROVAL as RUN_AWAITING_APPROVAL,
-    COMPLETED as RUN_COMPLETED,
     ERROR as RUN_ERROR,
-    REJECTED as RUN_REJECTED,
     STATUSES as RUN_STATUSES,
     get_run_store,
 )
@@ -102,7 +99,21 @@ from copilot.suggestions import (  # Phase D (copilot)
 from app.agent.core import RunStatus
 from app.agent.factory import build_agent_core, new_core_enabled
 from app.domain.entities.plan import Intent
+from app.domain.errors import AgentRunError
 from app.infrastructure.legacy_approval_store import build_approval_store
+# Use-cases (couche application) : la logique métier des runs vit ici,
+# les routes ci-dessous ne sont plus que des adaptateurs HTTP minces.
+from app.application.ask_usecase import run_ask_core, run_legacy_ask
+from app.application.run_lifecycle import (
+    core_api_status,
+    core_store_status,
+    core_tool_events,
+    create_approval_request,
+    legacy_run_status,
+    make_approval_gateway,
+    resolve_resume_hash,
+)
+from app.application.session_memory import load_session_history, persist_exchange
 
 router = APIRouter(prefix="/api/agent", tags=["Agent IA"])
 
@@ -411,59 +422,27 @@ def ask(request: AskRequest, _: bool = Depends(require_api_key)):
     Traduction des erreurs réseau (Timeout -> 504, ConnectionError -> 502)
     centralisée dans ``core.agent_cache``.
     """
-    run_store = get_run_store()
-    run_row = run_store.start_run(
-        request.prompt, model=agent_config()["model"], source="ask"
-    )
-    _audit_log(
-        ACT_RUN,
-        subject="ask",
-        detail={"status": "started", "model": agent_config()["model"]},
-        run_id=run_row["id"],
-    )
     try:
-        decision = ask_agent_decision(
-            request.prompt,
+        outcome = run_legacy_ask(
+            prompt=request.prompt,
+            session_id=request.session_id,
             resume_request_id=request.resume_request_id,
-            # Mémoire de session : rejoue les tours précédents en contexte pour
-            # que l'agent se souvienne de la conversation (ex. le nom).
-            history_messages=_load_session_history(
-                request.session_id, request.resume_request_id
-            ),
+            model=agent_config()["model"],
+            run_store=get_run_store(),
+            decide=ask_agent_decision,
+            load_history=_load_session_history,
+            persist_exchange=_persist_exchange,
+            audit_log=_audit_log,
         )
     except ValueError as exc:
-        run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
-        raise HTTPException(status_code=400, detail=str(exc))
-
-    status_map = {
-        "completed": RUN_COMPLETED,
-        "awaiting_approval": RUN_AWAITING_APPROVAL,
-        "rejected": RUN_REJECTED,
-    }
-    run_store.finish_run(
-        run_row["id"],
-        status_map.get(decision.get("status", "completed"), RUN_COMPLETED),
-        answer_summary=(decision.get("response") or "")[:300],
-    )
-    _audit_log(
-        ACT_RUN,
-        subject="ask",
-        detail={
-            "status": decision.get("status", "completed"),
-            "model": agent_config()["model"],
-        },
-        run_id=run_row["id"],
-    )
-    _persist_exchange(
-        request.session_id, request.prompt, decision.get("response") or ""
-    )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return AskResponse(
-        response=decision["response"] or "",
-        model=agent_config()["model"],
-        status=decision.get("status", "completed"),
-        request_id=decision.get("request_id"),
-        approval=decision.get("approval"),
+        response=outcome.response,
+        model=outcome.model,
+        status=outcome.status,
+        request_id=outcome.request_id,
+        approval=outcome.approval,
     )
 
 
@@ -474,23 +453,8 @@ def ask(request: AskRequest, _: bool = Depends(require_api_key)):
 
 
 def _core_tool_events(result) -> list[dict]:
-    """Traduit les traces d'actions du noyau en événements d'outils stockables.
-
-    Même contrat que les frames SSE « core_tool » (tool_start / tool_result) :
-    l'IHM rejoue ces paires au rechargement d'une session pour réafficher les
-    outils exécutés dans le chat (cf. mapStoredToolCalls côté front).
-    """
-    events: list[dict] = []
-    for trace in getattr(result, "actions", []) or []:
-        if trace.status not in ("done", "error"):
-            continue  # awaiting_approval / rejected : aucun outil exécuté
-        events.append({"event": "tool_start", "tool": trace.tool, "args": trace.args})
-        events.append({
-            "event": "tool_result", "tool": trace.tool,
-            "status": "ok" if trace.status == "done" else "error",
-            "summary": trace.result_summary or trace.error,
-        })
-    return events
+    """Délègue au use-case (app/application/run_lifecycle.core_tool_events)."""
+    return core_tool_events(result)
 
 
 @router.post("/ask/core", response_model=AskResponse)
@@ -506,91 +470,28 @@ def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
             detail="Nouveau noyau agentique désactivé (AGENT_NEW_CORE non activé).",
         )
 
-    run_store = get_run_store()
-    run_row = run_store.start_run(
-        request.prompt, model=agent_config()["model"], source="ask_core"
-    )
-    _audit_log(ACT_RUN, subject="ask_core",
-               detail={"status": "started"}, run_id=run_row["id"])
-
-    # Gateway d'approbation : si le run reprend après validation humaine
-    # (resume_request_id -> action approuvée), la gateway accorde UNIQUEMENT
-    # l'action dont l'empreinte (args_hash) correspond à la demande approuvée.
-    approval_store = build_approval_store()
-    resume_record = (
-        approval_store.get(request.resume_request_id)
-        if request.resume_request_id else None
-    )
-    resume_hash = (
-        resume_record.get("args_hash")
-        if resume_record and resume_record.get("status") == APPROVED else None
-    )
-
-    def _approval_gateway(action) -> bool:
-        return bool(resume_hash and action.fingerprint() == resume_hash)
-
     try:
-        core = build_agent_core(approval_gateway=_approval_gateway)
-        history = _load_session_history(request.session_id, request.resume_request_id)
-        result = core.run(
-            Intent(prompt=request.prompt, session_id=request.session_id or "default"),
-            history=history,
+        outcome = run_ask_core(
+            prompt=request.prompt,
+            session_id=request.session_id,
+            resume_request_id=request.resume_request_id,
+            model=agent_config()["model"],
+            run_store=get_run_store(),
+            approval_store=build_approval_store(),
+            build_core=build_agent_core,
+            load_history=_load_session_history,
+            persist_exchange=_persist_exchange,
+            audit_log=_audit_log,
         )
-    except Exception as exc:
-        run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+    except AgentRunError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    approval_payload = None
-    if result.status is RunStatus.PENDING_APPROVAL and result.awaiting_action:
-        action = result.awaiting_action
-        record = approval_store.create(
-            action.tool,
-            action.args,
-            action.category.value,
-            "approve",
-            "Policy : validation humaine requise",
-            prompt=request.prompt,
-            args_hash=action.fingerprint(),
-        )
-        approval_payload = {
-            "request_id": record.get("request_id") or record.get("id"),
-            "tool": action.tool,
-            "args": action.args,
-        }
-        _audit_log(
-            ACT_APPROVAL, subject="ask_core",
-            detail={"request_id": approval_payload["request_id"], "tool": action.tool},
-            run_id=run_row["id"],
-        )
-
-    status_map = {
-        RunStatus.COMPLETED: "completed",
-        RunStatus.PENDING_APPROVAL: "awaiting_approval",
-        RunStatus.REJECTED_LOOP: "rejected",
-        RunStatus.BUDGET_EXHAUSTED: "error",
-        RunStatus.FAILED: "error",
-    }
-    api_status = status_map.get(result.status, "completed")
-    run_store.finish_run(
-        run_row["id"], status_map.get(result.status, RUN_COMPLETED),
-        answer_summary=(result.answer or "")[:300],
-    )
-    _audit_log(
-        ACT_RUN, subject="ask_core",
-        detail={"status": api_status, "actions": len(result.actions),
-                "rounds": result.rounds_used, "tool_calls": result.tool_calls_used},
-        run_id=run_row["id"],
-    )
-    if api_status != "error":
-        _persist_exchange(request.session_id, request.prompt, result.answer or "",
-                          tool_events=_core_tool_events(result) or None)
-
     return AskResponse(
-        response=result.answer or "",
-        model=agent_config()["model"],
-        status=api_status,
-        request_id=approval_payload["request_id"] if approval_payload else run_row["id"],
-        approval=approval_payload,
+        response=outcome.answer,
+        model=outcome.model,
+        status=outcome.api_status,
+        request_id=outcome.request_id,
+        approval=outcome.approval,
     )
 
 
@@ -643,17 +544,8 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     _flow_record("core.start", {"role": "noyau", "prompt": request.prompt})
 
     approval_store = build_approval_store()
-    resume_record = (
-        approval_store.get(request.resume_request_id)
-        if request.resume_request_id else None
-    )
-    resume_hash = (
-        resume_record.get("args_hash")
-        if resume_record and resume_record.get("status") == APPROVED else None
-    )
-
-    def _approval_gateway(action) -> bool:
-        return bool(resume_hash and action.fingerprint() == resume_hash)
+    resume_hash = resolve_resume_hash(approval_store, request.resume_request_id)
+    _approval_gateway = make_approval_gateway(resume_hash)
 
     tool_events: list[dict] = []
 
@@ -689,16 +581,9 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
             approval_payload = None
             if result.status is RunStatus.PENDING_APPROVAL and result.awaiting_action:
                 action = result.awaiting_action
-                record = approval_store.create(
-                    action.tool, action.args, action.category.value,
-                    "approve", "Policy : validation humaine requise",
-                    prompt=request.prompt, args_hash=action.fingerprint(),
+                approval_payload = create_approval_request(
+                    approval_store, action, request.prompt
                 )
-                approval_payload = {
-                    "request_id": record.get("request_id") or record.get("id"),
-                    "tool": action.tool,
-                    "args": action.args,
-                }
                 _audit_log(
                     ACT_APPROVAL, subject="ask_core_stream",
                     detail={"request_id": approval_payload["request_id"],
@@ -712,16 +597,9 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                     "message": "Policy : validation humaine requise",
                 })
 
-            status_map = {
-                RunStatus.COMPLETED: "completed",
-                RunStatus.PENDING_APPROVAL: "awaiting_approval",
-                RunStatus.REJECTED_LOOP: "rejected",
-                RunStatus.BUDGET_EXHAUSTED: "error",
-                RunStatus.FAILED: "error",
-            }
-            api_status = status_map.get(result.status, "completed")
+            api_status = core_api_status(result.status)
             run_store.finish_run(
-                run_row["id"], status_map.get(result.status, RUN_COMPLETED),
+                run_row["id"], core_store_status(result.status),
                 answer_summary=(result.answer or "")[:300],
             )
             _audit_log(
@@ -856,72 +734,9 @@ def _load_session_history(
     session_id: Optional[str],
     resume_request_id: Optional[str],
 ) -> list[dict]:
-    """Recharge les messages précédents d'une session pour nourrir le contexte.
-
-    Mémoire de session en mode Agent : sans cela chaque tour est atomique et
-    l'agent « oublie » ce qui a été dit avant (ex. le nom de l'utilisateur).
-
-    Règles :
-        - ``session_id`` absent -> historique vide (pas de conversation à relire) ;
-        - ``resume_request_id`` présent -> historique vide : la reprise relance
-          l'état interne de l'agent, pas besoin de rejouer la conversation ;
-        - sinon, on relit les ``get_messages`` de la session et on garde les
-          ``MAX_SESSION_CONTEXT_TURNS`` dernières paires. Le tour courant n'y
-          figure pas encore (``_persist_exchange`` écrit après coup).
-        - Les ``tool_calls`` sont écartés (pas de JSON d'outils en contexte).
-
-    Retourne une liste de ``{"role": "user"|"assistant", "content": str}``,
-    vide par défaut.
-    """
-    if not session_id or resume_request_id:
-        return []
-    try:
-        store = get_session_store()
-        if store.get_session(session_id) is None:
-            messages = []  # session inconnue : la mémoire inter-sessions
-            # (Phase C) pourra tout de même être injectée plus bas.
-        else:
-            messages = store.get_messages(session_id, limit=500)
-    except Exception:  # pragma: no cover - mémoire optionnelle, jamais bloquante
-        return []
-    kept: list[dict] = []
-    for message in messages:
-        role = str(message.get("role") or "").strip().lower()
-        content = message.get("content")
-        text = content if isinstance(content, str) else str(content or "")
-        if role not in ("user", "assistant") or not text.strip():
-            continue
-        kept.append({"role": role, "content": text.strip()})
-    # Conserve seulement les N dernières paires user/assistant (les plus récents).
-    kept = kept[-MAX_SESSION_CONTEXT_TURNS * 2 :]
-
-    # Phase C (flag ``AGENT_CONTEXT``) : budget en jetons avec résumé LLM des
-    # tours débordants, puis mémoire inter-sessions si la session est neuve.
-    # Sans le flag : comportement historique strictement préservé.
-    if not flag("context"):
-        return kept
-    try:
-        import os as _os
-
-        from core.agent_cache import get_agent_runner
-
-        budget = int(_os.getenv("AGENT_CONTEXT_BUDGET_TOKENS", "0")) or (
-            DEFAULT_HISTORY_BUDGET_TOKENS
-        )
-        summarize_fn = lambda transcript: summarize_conversation(
-            get_agent_runner().core.llm, transcript
-        )  # noqa: E731 - injection paresseuse, jamais appelée si pas de débordement
-        optimized, _meta = optimize_history(kept, max_tokens=budget, summarize_fn=summarize_fn)
-    except Exception:  # pragma: no cover - mémoire optionnelle, jamais bloquante
-        optimized = kept
-    if not optimized:
-        try:
-            note = format_memory_note(store.get_memory("global"))
-            if note is not None:
-                optimized = [note]
-        except Exception:  # pragma: no cover
-            pass
-    return optimized
+    """Délègue au use-case de mémoire conversationnelle
+    (app/application/session_memory.load_session_history)."""
+    return load_session_history(session_id, resume_request_id)
 
 
 def _persist_exchange(
@@ -930,29 +745,9 @@ def _persist_exchange(
     answer: str,
     tool_events: Optional[list[dict]] = None,
 ) -> None:
-    """Journalise l'échange (user + assistant) dans la session demandée.
-
-    Best-effort : une session absente ou une erreur de base ne doivent jamais
-    faire échouer le tour de chat lui-même.
-    """
-    if not session_id:
-        return
-    try:
-        store = get_session_store()
-        store.append_message(session_id, "user", prompt)
-        store.append_message(session_id, "assistant", answer or "", tool_calls=tool_events)
-        # Phase C (flag ``AGENT_CONTEXT``) : mémoire glissante inter-sessions.
-        # Résumé déterministe (sans LLM) conservé sous la clé « global » et
-        # réinjecté uniquement dans les NOUVELLES sessions (cf.
-        # _load_session_history). Best-effort : ne casse jamais le tour.
-        if flag("context"):
-            previous = store.get_memory("global")
-            store.save_memory(
-                "global",
-                update_memory_summary(previous, prompt, answer or ""),
-            )
-    except Exception:  # pragma: no cover - persistance optionnelle
-        pass
+    """Délègue au use-case de mémoire conversationnelle
+    (app/application/session_memory.persist_exchange)."""
+    persist_exchange(session_id, prompt, answer, tool_events=tool_events)
 
 
 @router.post("/ask/stream")
@@ -1024,14 +819,9 @@ def ask_stream(request: AskStreamRequest, _: bool = Depends(require_api_key)):
             for word in _stream_fragments(answer):
                 events.put(("delta", word))
                 time.sleep(ANSWER_STREAM_CADENCE_SECONDS)
-            status_map = {
-                "completed": RUN_COMPLETED,
-                "awaiting_approval": RUN_AWAITING_APPROVAL,
-                "rejected": RUN_REJECTED,
-            }
             run_store.finish_run(
                 run_row["id"],
-                status_map.get(result.get("status", "completed"), RUN_COMPLETED),
+                legacy_run_status(result.get("status", "completed")),
                 answer_summary=answer[:300],
             )
             _audit_log(
@@ -1548,14 +1338,9 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
             answer = result.get("answer") or ""
             for word in _stream_fragments(answer):
                 events.put(("delta", {"event": "delta", "text": word}))
-            status_map = {
-                "completed": RUN_COMPLETED,
-                "awaiting_approval": RUN_AWAITING_APPROVAL,
-                "rejected": RUN_REJECTED,
-            }
             run_store.finish_run(
                 run_row["id"],
-                status_map.get(result.get("status", "completed"), RUN_COMPLETED),
+                legacy_run_status(result.get("status", "completed")),
                 answer_summary=answer[:300],
             )
             _persist_exchange(
