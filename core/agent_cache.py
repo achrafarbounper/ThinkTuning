@@ -19,6 +19,12 @@ import requests
 from fastapi import HTTPException
 
 from core.agent_settings import get_agent_settings
+from core.run_store import (
+    AWAITING_APPROVAL as MULTI_RUN_AWAITING,
+    COMPLETED as MULTI_RUN_COMPLETED,
+    ERROR as MULTI_RUN_ERROR,
+    get_run_store,
+)
 from ia.agent.agent_core import AgentCore  # noqa: E402
 from ia.agent.llm_client import LLMClient  # noqa: E402
 from ia.agent.orchestrator import MultiAgentCoordinator  # noqa: E402
@@ -847,6 +853,59 @@ def _coordinator_key(model: str | None) -> str | None:
     return name
 
 
+def _multi_coordinator_kwargs() -> dict:
+    """Options du coordinateur multi-agents lues depuis l'environnement.
+
+    ``AGENT_MULTI_MAX_TOOL_CALLS`` : plafond GLOBAL d'appels d'outils partagé
+    par les workers d'un run (BudgetPool hiérarchique) ; ``0``/absent =
+    désactivé (comportement V1). Lecture env directe transitoire — à migrer
+    vers ``app/config/settings.py`` quand celui-ci sera chargeable sans
+    exigence de clé API (fail-fast actuel).
+    """
+    import os as _os
+
+    try:
+        total = int(_os.getenv("AGENT_MULTI_MAX_TOOL_CALLS", "0") or 0)
+    except ValueError:
+        total = 0
+    return {"max_total_tool_calls": total} if total > 0 else {}
+
+
+def _trace_multi_run(prompt: str, outcome: dict) -> None:
+    """Persistance du run superviseur dans le run_store (traçabilité unifiée).
+
+    Complète le flow_store (déjà écrit par la route) : ouvre un run
+    ``source="multi"``, journalise chaque worker bloqué en approbation
+    (``worker_approval`` : task_id / role / request_id / tool — résout la
+    reprise et le dashboard) puis clôture avec le statut mappé. Défensif :
+    la traçabilité ne doit JAMAIS faire échouer le run.
+    """
+    try:
+        store = get_run_store()
+        row = store.start_run(prompt, model="", source="multi")
+        for worker in outcome.get("workers", []) or []:
+            if worker.get("status") == "awaiting_approval":
+                store.append_tool_event(row["id"], {
+                    "event": "worker_approval",
+                    "task_id": worker.get("task_id"),
+                    "role": worker.get("role"),
+                    "request_id": worker.get("request_id"),
+                    "tool": (worker.get("approval") or {}).get("tool", ""),
+                })
+        status_map = {
+            "completed": MULTI_RUN_COMPLETED,
+            "awaiting_approval": MULTI_RUN_AWAITING,
+            "error": MULTI_RUN_ERROR,
+        }
+        store.finish_run(
+            row["id"],
+            status_map.get(outcome.get("status", "completed"), MULTI_RUN_COMPLETED),
+            answer_summary=(outcome.get("final_answer") or "")[:300],
+        )
+    except Exception:  # pragma: no cover - traçabilité jamais bloquante
+        pass
+
+
 def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinator:
     # Coordonnateur multi-agents mis en cache (construction paresseuse).
     # Le modele par defaut (config SQLite/env) utilise le singleton
@@ -859,7 +918,7 @@ def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinat
         with _multi_coordinator_lock:
             coord = _override_coordinators.get(key)
             if coord is None:
-                coord = MultiAgentCoordinator(_build_llm_client(key))
+                coord = MultiAgentCoordinator(_build_llm_client(key), **_multi_coordinator_kwargs())
                 _override_coordinators[key] = coord
         return coord
     global _multi_coordinator
@@ -867,7 +926,7 @@ def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinat
         with _multi_coordinator_lock:
             if _multi_coordinator is None:
                 llm = _build_llm_client(model)
-                _multi_coordinator = MultiAgentCoordinator(llm)
+                _multi_coordinator = MultiAgentCoordinator(llm, **_multi_coordinator_kwargs())
     return _multi_coordinator
 
 
@@ -878,12 +937,12 @@ def reload_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordi
     with _multi_coordinator_lock:
         if key is not None:
             _override_coordinators.pop(key, None)
-            coord = MultiAgentCoordinator(_build_llm_client(key))
+            coord = MultiAgentCoordinator(_build_llm_client(key), **_multi_coordinator_kwargs())
             _override_coordinators[key] = coord
             return coord
         _multi_coordinator = None
         llm = _build_llm_client(model)
-        _multi_coordinator = MultiAgentCoordinator(llm)
+        _multi_coordinator = MultiAgentCoordinator(llm, **_multi_coordinator_kwargs())
     return _multi_coordinator
 
 
@@ -897,7 +956,9 @@ def ask_multi_agent(prompt: str, model: str | None = None, parallel: bool = Fals
     """
     coordinator = get_multi_agent_coordinator(model)
     try:
-        return coordinator.run(prompt)
+        result = coordinator.run(prompt)
+        _trace_multi_run(prompt, result)
+        return result
     except requests.exceptions.Timeout:
         raise HTTPException(
             status_code=504,
@@ -931,7 +992,9 @@ def ask_multi_agent_streaming(
     """
     coordinator = get_multi_agent_coordinator(model)
     try:
-        return coordinator.run(prompt, on_event=on_event)
+        result = coordinator.run(prompt, on_event=on_event)
+        _trace_multi_run(prompt, result)
+        return result
     except requests.exceptions.Timeout:
         raise HTTPException(
             status_code=504,
