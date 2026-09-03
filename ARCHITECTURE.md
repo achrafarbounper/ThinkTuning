@@ -142,7 +142,8 @@ aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
 - Feature flags agent : `AGENT_<NOM>` = 1/true/yes/on
   (`reliability`, `audit`, `tool_analytics`, `context`, `copilot`,
   `websocket`, `multi_agent`) — même convention que `core/feature_flags.py`.
-- Bascule du noyau : **`AGENT_NEW_CORE=1`** active `/ask/core` (503 sinon).
+- Bascule du noyau : **v2 activé par défaut depuis la bascule en production** ;
+  `AGENT_NEW_CORE=0` force le repli legacy (`/ask/core` répond alors 503).
 - Bascule du client LLM : **`HttpLLMClient` activé par défaut** ;
   `AGENT_LLM_V2=0` force le repli legacy (ia/agent/llm_client.py).
 - Pour les tests : `get_settings.cache_clear()` après modification de l'env.

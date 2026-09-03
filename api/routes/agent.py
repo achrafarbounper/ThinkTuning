@@ -440,10 +440,10 @@ def ask(request: AskRequest, _: bool = Depends(require_api_key)):
     )
 
 
-# --- Nouveau noyau agentique (POST /api/agent/ask/core) ------------------------------
-# Endpoint ADDITIF : utilise app/agent/core.py (Intent -> Plan -> Policy ->
-# Budget -> Action) sans modifier le comportement de /ask. Tant que le flag
-# AGENT_NEW_CORE est absent, il répond 503 (bascule incrémentale).
+# --- Noyau agentique v2 (POST /api/agent/ask/core) -----------------------------------
+# Utilise app/agent/core.py (Intent -> Plan -> Policy -> Budget -> Action).
+# Bascule en production : le noyau v2 est le DÉFAUT ; ``AGENT_NEW_CORE=0``
+# répond 503 (repli legacy, tant que le chemin v1 n'est pas décommissionné).
 
 
 def _core_tool_events(result) -> list[dict]:

@@ -65,9 +65,10 @@ def client(monkeypatch):
 
 
 
-def test_ask_core_disabled_without_flag(client, monkeypatch) -> None:
+def test_ask_core_disabled_with_opt_out(client, monkeypatch) -> None:
+    """``AGENT_NEW_CORE=0`` (repli explicite) : /ask/core répond 503."""
     http, _ = client
-    monkeypatch.delenv("AGENT_NEW_CORE", raising=False)
+    monkeypatch.setenv("AGENT_NEW_CORE", "0")
     resp = http.post(
         "/api/agent/ask/core",
         json={"prompt": "bonjour", "session_id": "s-test"},

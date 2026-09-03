@@ -145,13 +145,16 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
 
 
 def new_core_enabled() -> bool:
-    """Vrai si la bascule du noyau agentique v2 est activée.
+    """Vrai si le noyau agentique v2 est actif (AGENT_NEW_CORE — défaut : activé).
 
     Source de vérité : ``Settings.flag_new_core`` (convention des autres
     flags), alimentée par ``AGENT_NEW_CORE`` — y compris via le fichier
     ``.env`` que ``os.getenv`` ne voit pas. L'environnement est lu en
     priorité pour rester compatible avec ``monkeypatch.setenv`` sans
     ``get_settings.cache_clear()`` (convention des tests existants).
+    Repli ``True`` si les Settings ne sont pas chargeables : depuis la
+    bascule en production, le noyau v2 est le comportement par défaut
+    (``AGENT_NEW_CORE=0`` pour forcer le repli sur les routes v1 restantes).
     """
     env = os.getenv("AGENT_NEW_CORE")
     if env is not None:
@@ -159,6 +162,4 @@ def new_core_enabled() -> bool:
     try:
         return get_settings().flag_new_core
     except Exception:
-        # Settings non chargeables (env incomplet) : défaut sûr du rollout
-        # incrémental — le noyau v2 reste désactivé.
-        return False
+        return True

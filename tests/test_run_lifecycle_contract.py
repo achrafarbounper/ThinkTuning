@@ -131,13 +131,13 @@ def test_new_core_settings_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.delenv("AGENT_NEW_CORE", raising=False)
     get_settings.cache_clear()
-    # Défaut : noyau v2 désactivé — y compris si les Settings ne sont pas
-    # chargeables (env incomplet : repli fail-safe de new_core_enabled).
-    assert new_core_enabled() is False
-    os.environ["AGENT_NEW_CORE"] = "1"
+    # Défaut : noyau v2 ACTIVÉ (bascule en production) — y compris si les
+    # Settings ne sont pas chargeables (repli fail-open de new_core_enabled).
+    assert new_core_enabled() is True
+    os.environ["AGENT_NEW_CORE"] = "0"
     get_settings.cache_clear()
     try:
-        assert new_core_enabled() is True
+        assert new_core_enabled() is False
     finally:
         os.environ.pop("AGENT_NEW_CORE", None)
         get_settings.cache_clear()

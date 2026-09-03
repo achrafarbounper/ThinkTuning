@@ -114,10 +114,12 @@ class Settings(BaseSettings):
     flag_copilot: bool = 1
     flag_websocket: bool = 1
     flag_multi_agent: bool = 1
-    # Bascule du noyau agentique v2 : DÉSACTIVÉ par défaut (rollout
-    # incrémental). Peut venir de l'environnement (AGENT_NEW_CORE) ou du
-    # fichier .env (lu par pydantic-settings, contrairement à os.getenv).
-    flag_new_core: bool = False
+    # Bascule du noyau agentique v2 : ACTIVÉ par défaut depuis la bascule en
+    # production (rollout terminé). Peut venir de l'environnement
+    # (AGENT_NEW_CORE) ou du fichier .env (lu par pydantic-settings,
+    # contrairement à os.getenv) ; ``AGENT_NEW_CORE=0`` conserve le repli
+    # legacy tant que le chemin v1 n'est pas décommissionné.
+    flag_new_core: bool = True
 
     # Bascule du client LLM v2 (AGENT_LLM_V2). ACTIVÉ par défaut depuis la
     # bascule en production : ``HttpLLMClient`` (implémentation propre du port

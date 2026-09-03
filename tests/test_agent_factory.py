@@ -16,8 +16,11 @@ def _reset_settings_cache():
     get_settings.cache_clear()
 
 
-def test_flag_disabled_by_default(monkeypatch) -> None:
+def test_flag_enabled_by_default(monkeypatch) -> None:
+    """Noyau v2 par défaut depuis la bascule en production ; 0 = repli legacy."""
     monkeypatch.delenv("AGENT_NEW_CORE", raising=False)
+    assert factory.new_core_enabled() is True
+    monkeypatch.setenv("AGENT_NEW_CORE", "0")
     assert factory.new_core_enabled() is False
 
 

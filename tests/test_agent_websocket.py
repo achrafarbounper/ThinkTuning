@@ -75,6 +75,9 @@ def test_ws_ping_pong_and_protocol_errors(monkeypatch):
 
 def test_ws_ask_streams_then_final(monkeypatch):
     monkeypatch.setenv("AGENT_WEBSOCKET", "1")
+    # Chemin WS legacy épinglé explicitement (repli AGENT_NEW_CORE=0) :
+    # le décommission du worker legacy portera ces tests sur le worker v2.
+    monkeypatch.setenv("AGENT_NEW_CORE", "0")
 
     def fake_streaming(prompt, model=None, enable_thinking=False,
                        resume_request_id=None, on_thinking=None,
@@ -110,6 +113,8 @@ def test_ws_ask_streams_then_final(monkeypatch):
 
 def test_ws_ask_error_yields_error_final(monkeypatch):
     monkeypatch.setenv("AGENT_WEBSOCKET", "1")
+    # Chemin WS legacy épinglé explicitement (repli AGENT_NEW_CORE=0).
+    monkeypatch.setenv("AGENT_NEW_CORE", "0")
 
     def boom(*a, **kw):
         raise ValueError("explosion simulee")
