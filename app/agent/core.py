@@ -88,6 +88,33 @@ class AgentRunResult(BaseModel):
     model_config = {"frozen": True}
 
 
+# Marqueur de conclusion « FINAL » : les petits modèles le recrachent parfois
+# NU au lieu du contenu de la réponse (fuite du protocole de format).
+_FINAL_PREFIX_RE = re.compile(r"^FINAL\s*:\s*", re.IGNORECASE)
+_FINAL_MARKER_RE = re.compile(r"^FINAL\s*:?\s*$", re.IGNORECASE)
+
+
+def _sanitize_final_answer(response: str, traces: list[ActionTrace]) -> str:
+    """Assainit une réponse finale « texte direct » du noyau.
+
+    - retire un préfixe « FINAL: » éventuel ;
+    - si le reste est vide ou réduit au marqueur nu (« FINAL »), remplace par
+      le dernier résultat d'outil concluant, sinon par un message neutre
+      (jamais le marqueur brut exposé à l'utilisateur).
+    """
+    text = _FINAL_PREFIX_RE.sub("", (response or "").strip()).strip()
+    if not text or _FINAL_MARKER_RE.match(text):
+        done = [t for t in reversed(traces)
+                if t.status == "done" and t.result_summary]
+        if done:
+            logger.warning("final_answer_marker_leak -> fallback tool result")
+            return done[0].result_summary
+        logger.warning("final_answer_marker_leak -> neutral message")
+        return ("Je n'ai pas pu produire de réponse à partir des informations "
+                "collectées. Peux-tu reformuler ta demande ?")
+    return text
+
+
 # ============================================================
 # SYSTEM PROMPT (généré depuis le registre réel des outils)
 # ============================================================
@@ -439,7 +466,8 @@ class AgentCore:
                     continue
                 # Réponse texte directe (légitime)
                 return self._finalize(
-                    traces, budget, RunStatus.COMPLETED, answer=response.strip()
+                    traces, budget, RunStatus.COMPLETED,
+                    answer=_sanitize_final_answer(response, traces),
                 )
 
             outcome = self._execute_plan(plan, budget, traces, rejected_prints)

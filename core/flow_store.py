@@ -238,14 +238,20 @@ class FlowStore:
                 continue
             events = item.get("events") or []
             # Compteurs utiles au dashboard sans transporter toute la timeline.
+            # ``core.tool`` : événements du noyau v2 (/ask/core/stream).
+            # 1 appel d'outil = 1 : seuls les « tool_start » sont comptés.
+            # En mode noyau v2, un appel émet deux événements core.tool
+            # (tool_start + tool_result) : sans ce filtre le compteur était
+            # doublé par rapport au mode multi-agents.
             item["tool_calls"] = sum(
                 1
                 for e in events
-                if e.get("event") == "agent.worker.tool"
+                if e.get("event") in ("agent.worker.tool", "core.tool")
+                and (e.get("data") or {}).get("event") != "tool_result"
             )
             roles: set[str] = set()
             for e in events:
-                if e.get("event") == "agent.worker.start" and e.get("data"):
+                if e.get("event") in ("agent.worker.start", "core.start") and e.get("data"):
                     r = e["data"].get("role")
                     if r:
                         roles.add(str(r))

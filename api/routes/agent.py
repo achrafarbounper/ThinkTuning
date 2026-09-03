@@ -65,8 +65,10 @@ from core.run_store import (
     get_run_store,
 )
 from core.flow_store import (
+    AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
     COMPLETED as FLOW_COMPLETED,
     ERROR as FLOW_ERROR,
+    REJECTED as FLOW_REJECTED,
     STATUSES as FLOW_STATUSES,
     get_flow_store,
 )
@@ -620,6 +622,26 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     _audit_log(ACT_RUN, subject="ask_core_stream",
                detail={"status": "started"}, run_id=run_row["id"])
 
+    # --- Persistance « Agent Flow Map » ---------------------------------------
+    # Même convention que /multi/ask/stream : chaque run du noyau v2 crée une
+    # session de flux (timeline horodatée rejouable dans le dashboard). La
+    # persistance est défensive et ne doit JAMAIS faire échouer le streaming.
+    flow_record = get_flow_store().start_flow(request.prompt, agent_config()["model"])
+    flow_t0 = time.perf_counter()
+
+    def _flow_record(event_type: str, data: dict) -> None:
+        try:
+            get_flow_store().append_event(
+                flow_record["id"],
+                event_type,
+                data,
+                (time.perf_counter() - flow_t0) * 1000.0,
+            )
+        except Exception:  # pragma: no cover - persistance jamais bloquante
+            pass
+
+    _flow_record("core.start", {"role": "noyau", "prompt": request.prompt})
+
     approval_store = build_approval_store()
     resume_record = (
         approval_store.get(request.resume_request_id)
@@ -638,6 +660,7 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     def _on_tool_event(event: dict) -> None:
         events.put(("tool", event))
         tool_events.append(event)
+        _flow_record("core.tool", event)
         try:
             run_store.append_tool_event(run_row["id"], event)
         except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
@@ -682,6 +705,12 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                             "tool": action.tool},
                     run_id=run_row["id"],
                 )
+                _flow_record("core.approval", {
+                    "role": "noyau",
+                    "request_id": approval_payload["request_id"],
+                    "tool": action.tool,
+                    "message": "Policy : validation humaine requise",
+                })
 
             status_map = {
                 RunStatus.COMPLETED: "completed",
@@ -722,11 +751,29 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                 "request_id": approval_payload["request_id"] if approval_payload else run_row["id"],
                 "approval": approval_payload,
             }))
+
+            # Clôture de la session de flux (mapping statut run -> statut flux).
+            _flow_record("core.done", {"answer": result.answer or "", "status": api_status})
+            flow_status = {
+                "completed": FLOW_COMPLETED,
+                "awaiting_approval": FLOW_AWAITING_APPROVAL,
+                "rejected": FLOW_REJECTED,
+            }.get(api_status, FLOW_ERROR)
+            get_flow_store().finish_flow(
+                flow_record["id"],
+                flow_status,
+                answer_summary=(result.answer or "")[:300] or "",
+            )
         except HTTPException as exc:  # panne réseau déjà traduite par agent_cache
             run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc.detail))
+            get_flow_store().finish_flow(flow_record["id"], FLOW_ERROR, error=str(exc.detail))
             events.put(("http_error", exc))
         except Exception as exc:
             run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+            _flow_record("core.error", {"message": f"{type(exc).__name__}: {exc}"})
+            get_flow_store().finish_flow(
+                flow_record["id"], FLOW_ERROR, error=f"{type(exc).__name__}: {exc}"
+            )
             events.put(("error", str(exc)))
         finally:
             events.put(("done", None))
@@ -1607,7 +1654,9 @@ def multi_ask_stream(
     # compact) avec un horodatage relatif au début de session : la timeline
     # rejouable du dashboard (Replay / Heatmap). La persistance est défensive
     # et ne doit JAMAIS faire échouer le streaming.
-    flow_record = get_flow_store().start_flow(request.prompt, request.model or "")
+    flow_record = get_flow_store().start_flow(
+        request.prompt, request.model or agent_config()["model"]
+    )
     flow_t0 = time.perf_counter()
     flow_errored = {"v": False}
 

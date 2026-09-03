@@ -124,6 +124,56 @@ export function sseToFlowEvent(
       };
     case "agent.error":
       return { t: "error", at, message: payload.message ? String(payload.message) : undefined };
+    /* --- Noyau v2 (/api/agent/ask/core/stream) : sessions enregistrées ------- */
+    case "core.start":
+      return {
+        t: "worker.start",
+        at,
+        task_id: "core",
+        role: String(payload.role ?? "noyau") || "noyau",
+        subtask: payload.prompt ? String(payload.prompt) : undefined,
+      };
+    case "core.tool": {
+      const sub = (payload.event as string | undefined) ?? "tool_start";
+      const tool = String(payload.tool ?? "");
+      if (sub === "tool_start") {
+        return {
+          t: "tool.start",
+          at,
+          task_id: "core",
+          role: "noyau",
+          tool,
+          args: payload.args ? JSON.stringify(payload.args) : undefined,
+        };
+      }
+      return {
+        t: "tool.result",
+        at,
+        task_id: "core",
+        role: "noyau",
+        tool,
+        status: payload.status === "error" ? "error" : "ok",
+        summary: payload.summary ? String(payload.summary) : undefined,
+        duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : undefined,
+      };
+    }
+    case "core.approval":
+      return {
+        t: "worker.approval",
+        at,
+        task_id: "core",
+        role: "noyau",
+        request_id: payload.request_id ? String(payload.request_id) : undefined,
+        message: payload.message ? String(payload.message) : undefined,
+      };
+    case "core.done":
+      return {
+        t: "done",
+        at,
+        answer: payload.answer ? String(payload.answer) : undefined,
+      };
+    case "core.error":
+      return { t: "error", at, message: payload.message ? String(payload.message) : undefined };
     default:
       return null;
   }

@@ -22,6 +22,7 @@ from fastapi import FastAPI  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 
 import api.routes.agent as agent_routes  # noqa: E402
+from app.agent.core import AgentRunResult, RunStatus  # noqa: E402
 from core import flow_store as fs  # noqa: E402
 
 API_KEY = "test-flow-key"
@@ -167,3 +168,69 @@ def test_flow_get_unknown_returns_404(client):
 def test_flow_list_invalid_status(client):
     resp = client.get("/api/agent/flow?status=bogus", headers=HEADERS)
     assert resp.status_code == 400
+
+
+def test_core_stream_persists_flow(client, monkeypatch):
+    """Le run Noyau v2 (POST /api/agent/ask/core/stream) crée aussi une
+    session « Flow Map » : événements core.start / core.tool / core.done
+    enregistrés puis session clôturée en ``completed``."""
+    monkeypatch.setattr(agent_routes, "new_core_enabled", lambda: True)
+    monkeypatch.setattr(agent_routes, "agent_config", lambda: {"model": "fake-model"})
+
+    class _FakeApprovalStore:
+        def get(self, request_id):
+            return None
+
+    class _FakeRunStore:
+        def start_run(self, prompt, model="", source=""):
+            return {"id": "run-core"}
+
+        def finish_run(self, rid, status, answer_summary="", error=None):
+            pass
+
+        def append_tool_event(self, rid, event):
+            pass
+
+    class _FakeCore:
+        def __init__(self, on_tool_event=None, **kw):
+            self._on_tool = on_tool_event
+
+        def run(self, intent, history=None):
+            if self._on_tool is not None:
+                self._on_tool({"event": "tool_start", "tool": "web_search",
+                               "args": {"q": "x"}})
+                self._on_tool({"event": "tool_result", "tool": "web_search",
+                               "status": "ok", "summary": "OK", "duration_ms": 5.0})
+            return AgentRunResult(answer="Réponse noyau.",
+                                  status=RunStatus.COMPLETED,
+                                  rounds_used=1, tool_calls_used=1)
+
+    monkeypatch.setattr(agent_routes, "build_approval_store", lambda: _FakeApprovalStore())
+    monkeypatch.setattr(agent_routes, "get_run_store", lambda: _FakeRunStore())
+    monkeypatch.setattr(agent_routes, "build_agent_core", lambda **kw: _FakeCore(**kw))
+    monkeypatch.setattr(agent_routes, "_audit_log", lambda *a, **k: None)
+    monkeypatch.setattr(agent_routes, "_persist_exchange", lambda *a, **k: None)
+    monkeypatch.setattr(agent_routes, "_load_session_history", lambda *a, **k: [])
+
+    with client.stream("POST", "/api/agent/ask/core/stream",
+                       json={"prompt": "Analyse noyau."}, headers=HEADERS) as resp:
+        assert resp.status_code == 200
+        body = b"".join(resp.iter_bytes()).decode("utf-8", errors="replace")
+    assert "core_tool" in body  # le SSE n'est pas altéré par la persistance
+
+    flows = client.get("/api/agent/flow", headers=HEADERS).json()["flows"]
+    assert len(flows) == 1
+    flow = flows[0]
+    assert flow["prompt"] == "Analyse noyau."
+    assert flow["status"] == fs.COMPLETED
+    # 1 appel d'outil = 1 : seuls les « tool_start » sont comptés, les
+    # « tool_result » du noyau v2 ne doublent plus le compteur.
+    assert flow["tool_calls"] == 1
+    assert flow["agents"] == ["noyau"]
+
+    detail = client.get(f"/api/agent/flow/{flow['id']}", headers=HEADERS).json()
+    kinds = [e["event"] for e in detail["events"]]
+    assert kinds[0] == "core.start"
+    assert "core.tool" in kinds
+    assert kinds[-1] == "core.done"
+    assert detail["answer_summary"] == "Réponse noyau."
