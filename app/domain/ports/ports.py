@@ -49,6 +49,47 @@ class LLMClientPort(Protocol):
 
 
 @runtime_checkable
+class ContextPort(Protocol):
+    """Contrat d'optimisation du contexte conversationnel (cf. ia/agent/context.py).
+
+    Fonctions pures (aucune I/O réseau) : bornage du budget en jetons,
+    fenêtre glissante + résumé, et mémoire inter-sessions.
+
+    - ``optimize_history`` renvoie ``(messages, meta)`` — ``meta`` porte
+      ``kept`` / ``dropped`` / ``summarized`` / ``estimated_tokens`` ;
+    - ``format_memory_note`` renvoie ``None`` quand le résumé est vide
+      (comportement historique : rien n'est injecté).
+    """
+
+    def estimate_tokens(self, text: str) -> int:
+        """Estimation du nombre de jetons (heuristique ~4 car./jeton)."""
+        ...
+
+    def optimize_history(
+        self,
+        messages: list[Message],
+        max_tokens: int = 1200,
+        summarize_fn: Callable[[str], str] | None = None,
+    ) -> tuple[list[Message], dict]:
+        """Fenêtre glissante + résumé éventuel ; ordre chronologique préservé."""
+        ...
+
+    def update_memory_summary(
+        self,
+        previous_summary: str,
+        prompt: str,
+        answer: str,
+        max_chars: int = 2000,
+    ) -> str:
+        """Résumé glissant déterministe (concaténation bornée), sans LLM."""
+        ...
+
+    def format_memory_note(self, summary: str) -> Message | None:
+        """Message de contexte portant la mémoire des sessions précédentes."""
+        ...
+
+
+@runtime_checkable
 class ToolRegistryPort(Protocol):
     """Contrat du registre d'outils (cf. ia/tools/tool_registry.py).
 

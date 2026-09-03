@@ -105,7 +105,7 @@ api/routes/agent.py               # POST /ask/core (flag AGENT_NEW_CORE)
 core/ ia/ src/                    # legacy — migré progressivement
 ```
 
-### Les 6 ports (`app/domain/ports/ports.py`)
+### Les 7 ports (`app/domain/ports/ports.py`)
 
 | Port | Legacy implémentant déjà le contrat |
 |---|---|
@@ -115,10 +115,20 @@ core/ ia/ src/                    # legacy — migré progressivement
 | `AuditStorePort` | `core/audit_store.py` |
 | `RunStorePort` | `core/run_store.py` |
 | `ApprovalStorePort` | `core/approval_store.py` |
+| `ContextPort` | `ia/agent/context.py` — wrapper `app/infrastructure/context/` |
 
-Les tests de conformité (`tests/test_domain_ports.py`) vérifient que les
-classes legacy **satisfont les Protocols** : impossible de faire dériver un
-contrat de l'implémentation sans casser un test.
+Les tests de conformité (`tests/test_domain_ports.py`, `tests/test_context_port.py`)
+vérifient que les classes legacy **satisfont les Protocols** : impossible de faire
+dériver un contrat de l'implémentation sans casser un test.
+
+**Bascule client LLM (`AGENT_LLM_V2`)** : deux implémentations derrière
+`LLMClientPort` — le client legacy (défaut) et `app/infrastructure/llm/`
+(stub déterministe aujourd'hui, futur client HTTP propre). `build_llm_client()`
+sélectionne via le flag sans changer les use-cases (`tests/test_llm_v2.py`).
+
+**Bascule contexte (`AGENT_CONTEXT`)** : `default_context_provider()` choisit le
+wrapper legacy (comportement v1) ou `NullContextProvider` (profil `AGENT_CONTEXT=0`,
+aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
 
 ---
 
@@ -132,6 +142,8 @@ contrat de l'implémentation sans casser un test.
   (`reliability`, `audit`, `tool_analytics`, `context`, `copilot`,
   `websocket`, `multi_agent`) — même convention que `core/feature_flags.py`.
 - Bascule du noyau : **`AGENT_NEW_CORE=1`** active `/ask/core` (503 sinon).
+- Bascule du client LLM : **`AGENT_LLM_V2=1`** utilise la 2e implémentation de
+  `LLMClientPort` (désactivé par défaut).
 - Pour les tests : `get_settings.cache_clear()` après modification de l'env.
 
 ---
@@ -184,3 +196,14 @@ permettent au runner de distinguer retry / recovery / rejet.
 4. Streaming SSE de `/ask/core` (événements tool_start/tool_result
    réutilisant l'event bus legacy).
 5. Baseline GPU : `gpu_info` et `nvidia-smi` restent hors sandbox Windows CI.
+
+### Avancée Phase 3 (client LLM v2 + contexte)
+
+- **Port `ContextPort` absorbé** : `ia/agent/context.py` → wrapper
+  `app/infrastructure/context/legacy_context.py`, faux déterministe
+  `null_context.py`, bascule `AGENT_CONTEXT` (`tests/test_context_port.py`).
+- **Seam `AGENT_LLM_V2`** : `app/infrastructure/llm/` (stub déterministe
+  implémentant `LLMClientPort`), bascule via `build_llm_client()`
+  (`tests/test_llm_v2.py`). **Reste à faire** : le vrai client HTTP propre
+  (httpx + retry + circuit breaker qui reprend `ia/agent/reliability.py`) pour
+  remplacer le stub derrière le même port.

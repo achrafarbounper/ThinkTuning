@@ -55,6 +55,36 @@ def build_legacy_llm_client():
     )
 
 
+def llm_v2_enabled() -> bool:
+    """Vrai si la bascule du client LLM v2 est activée (AGENT_LLM_V2).
+
+    Même convention que ``new_core_enabled()`` : l'environnement (comptabilité
+    ``monkeypatch.setenv``) est lu en priorité, puis ``Settings.flag_llm_v2``,
+    avec un repli sûr ``False`` si les Settings ne sont pas chargeables.
+    """
+    env = os.getenv("AGENT_LLM_V2")
+    if env is not None:
+        return env.strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        return get_settings().flag_llm_v2
+    except Exception:
+        return False
+
+
+def build_llm_client():
+    """Seam du client LLM : choisit l'implémentation selon ``AGENT_LLM_V2``.
+
+    - ``llm_v2`` désactivé (défaut) → client legacy (comportement v1 intact) ;
+    - ``llm_v2`` activé → implémentation propre du port ``LLMClientPort``
+      (aujourd'hui un stub déterministe, futur client HTTP propre).
+    """
+    if llm_v2_enabled():
+        from app.infrastructure.llm.stub_client import StubLLMClient
+
+        return StubLLMClient()
+    return build_legacy_llm_client()
+
+
 def build_agent_core(approval_gateway=None, on_tool_event=None,
                      enable_thinking=False, on_thinking=None) -> AgentCore:
     """Assemble le noyau agentique complet (LLM réel + registre legacy).
@@ -69,7 +99,7 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
     fragment de raisonnement en temps réel (SSE thinking_delta)."""
     settings = get_settings()
     registry = LegacyToolRegistryAdapter()
-    llm = build_legacy_llm_client()
+    llm = build_llm_client()
     logger.info(
         "Noyau agentique assemblé : provider=%s model=%s outils=%d flags=%s",
         settings.agent_provider.value, settings.agent_model_name,

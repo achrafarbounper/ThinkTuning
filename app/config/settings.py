@@ -48,6 +48,7 @@ _FLAG_NAMES = (
     "websocket",
     "multi_agent",
     "new_core",  # bascule du noyau agentique v2 (AGENT_NEW_CORE)
+    "llm_v2",    # client LLM propre vs legacy (AGENT_LLM_V2)
 )
 
 
@@ -117,6 +118,12 @@ class Settings(BaseSettings):
     # incrémental). Peut venir de l'environnement (AGENT_NEW_CORE) ou du
     # fichier .env (lu par pydantic-settings, contrairement à os.getenv).
     flag_new_core: bool = False
+
+    # Bascule du client LLM v2 (AGENT_LLM_V2). Par défaut le client legacy
+    # (retry + circuit breaker déjà embarqués) est conservé ; la bascule
+    # bascule vers une implémentation propre du port LLMClientPort sans
+    # changer les use-cases.
+    flag_llm_v2: bool = False
 
     @model_validator(mode="before")
     @classmethod
