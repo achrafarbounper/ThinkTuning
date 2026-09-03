@@ -14,6 +14,7 @@ d'enhancement : rollout incrémental, flags désactivés par défaut).
 from __future__ import annotations
 
 import logging
+import os
 
 from app.agent.core import AgentCore
 from app.config.settings import AgentProvider, get_settings
@@ -87,7 +88,20 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
 
 
 def new_core_enabled() -> bool:
-    """Vrai si le flag ``AGENT_NEW_CORE`` est activé (bascule incrémentale)."""
-    import os
+    """Vrai si la bascule du noyau agentique v2 est activée.
 
-    return os.getenv("AGENT_NEW_CORE", "").strip().lower() in {"1", "true", "yes", "on"}
+    Source de vérité : ``Settings.flag_new_core`` (convention des autres
+    flags), alimentée par ``AGENT_NEW_CORE`` — y compris via le fichier
+    ``.env`` que ``os.getenv`` ne voit pas. L'environnement est lu en
+    priorité pour rester compatible avec ``monkeypatch.setenv`` sans
+    ``get_settings.cache_clear()`` (convention des tests existants).
+    """
+    env = os.getenv("AGENT_NEW_CORE")
+    if env is not None:
+        return env.strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        return get_settings().flag_new_core
+    except Exception:
+        # Settings non chargeables (env incomplet) : défaut sûr du rollout
+        # incrémental — le noyau v2 reste désactivé.
+        return False

@@ -144,24 +144,41 @@ class AuditStorePort(Protocol):
 
 @runtime_checkable
 class RunStorePort(Protocol):
-    """Contrat de traçabilité des runs agent (cf. core/run_store.py)."""
+    """Contrat de traçabilité des runs agent (cf. core/run_store.py).
 
-    def start_run(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Ouvre un run (prompt, session, modèle…) et renvoie son état."""
+    Signatures alignées sur l'implémentation legacy : un adaptateur conforme
+    doit accepter exactement ces arguments (les tests de contrat vérifient
+    l'alignement par introspection des signatures)."""
+
+    def start_run(
+        self, prompt: str, model: str = "", source: str = "api"
+    ) -> dict[str, Any]:
+        """Ouvre un run ``running`` et renvoie sa ligne (dict, clé ``id``)."""
         ...
 
     def append_tool_event(self, run_id: str, event: dict[str, Any]) -> None:
         """Journalise un événement d'outil (tool_start / tool_result / error)."""
         ...
 
-    def finish_run(self, run_id: str, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
-        """Clôture le run (answer, status, duration…)."""
+    def finish_run(
+        self,
+        run_id: str,
+        status: str,
+        answer_summary: str = "",
+        error: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Clôture le run (statut final, résumé de réponse ou erreur)."""
         ...
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         ...
 
-    def list(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    def list(
+        self,
+        limit: int = 50,
+        status: str | None = None,
+        tool: str | None = None,
+    ) -> list[dict[str, Any]]:
         ...
 
 
@@ -170,11 +187,25 @@ class ApprovalStorePort(Protocol):
     """Contrat de la file d'approbation humaine (cf. core/approval_store.py).
 
     Flux : ``create`` (status pending) -> ``approve``/``reject`` -> le runner
-    reprend l'action si ``approved``. Signature alignée sur le legacy : les
-    identifiants sont des ``request_id``, le filtrage passe par ``list(status)``."""
+    reprend l'action si ``approved``. Le filtrage passe par ``list(status)``.
 
-    def create(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Enregistre une action pending (tool, args, category, reason…)."""
+    Convention ``create`` : l'adaptateur de référence
+    (``app/infrastructure/legacy_approval_store``) renvoie la LIGNE créée
+    (dict avec ``request_id``) et non l'identifiant brut du legacy — les
+    use-cases s'appuient sur ``record.get("request_id")``."""
+
+    def create(
+        self,
+        tool: str,
+        args: Any,
+        category: str,
+        decision: str,
+        reason: str,
+        prompt: str = "",
+        args_hash: str = "",
+        status: str = "pending",
+    ) -> dict[str, Any]:
+        """Enregistre une demande (pending ou trace de rejet) et renvoie la ligne."""
         ...
 
     def get(self, request_id: str) -> dict[str, Any] | None:

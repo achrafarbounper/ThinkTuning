@@ -47,6 +47,7 @@ _FLAG_NAMES = (
     "copilot",
     "websocket",
     "multi_agent",
+    "new_core",  # bascule du noyau agentique v2 (AGENT_NEW_CORE)
 )
 
 
@@ -112,6 +113,10 @@ class Settings(BaseSettings):
     flag_copilot: bool = 1
     flag_websocket: bool = 1
     flag_multi_agent: bool = 1
+    # Bascule du noyau agentique v2 : DÉSACTIVÉ par défaut (rollout
+    # incrémental). Peut venir de l'environnement (AGENT_NEW_CORE) ou du
+    # fichier .env (lu par pydantic-settings, contrairement à os.getenv).
+    flag_new_core: bool = False
 
     @model_validator(mode="before")
     @classmethod
