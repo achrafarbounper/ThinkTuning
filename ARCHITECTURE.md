@@ -211,6 +211,17 @@ permettent au runner de distinguer retry / recovery / rejet.
    reprise `awaiting_approval -> running` (empreinte validée) est la SEULE façon
    de relancer un run, jamais depuis un état terminal. `run_lifecycle.finish_run_status`
    passe par la FSM avant chaque `run_store.finish_run` (`tests/test_run_state_machine.py`).
+7. ~~Décommission du chemin v1 HTTP/WS~~ **FAIT (bascule `AGENT_NEW_CORE` par
+   défaut)** : routes `/ask` et `/ask/stream` supprimées (remplacées par
+   `/ask/core` et `/ask/core/stream`), worker WebSocket legacy retiré (le canal
+   `/ws` passe toujours par le noyau v2), use-case `run_legacy_ask` et ponts
+   `ask_agent_decision` / `ask_agent_decision_streaming` supprimés ; tests
+   portés sur le noyau v2 à contrat SSE/WS/sessions inchangé.
+8. **Reste v1** : chat `/api/ai` (`core.agent_cache.ask_agent_detailed_streaming`),
+   `/complete` + summarizer de session (v1 `AgentRunner`), coordinateur
+   multi-agents (`MultiAgentCoordinator`) — tous construits sur
+   `ia/agent/agent_core.py` + `ia/agent/llm_client.py` ; leur migration vers le
+   client/noyau v2 conditionne la suppression de `ia/agent/llm_client.py`.
 
 ### Avancée Phase 3 (client LLM v2 + contexte)
 
@@ -227,9 +238,9 @@ permettent au runner de distinguer retry / recovery / rejet.
   **Bascule en production réalisée** : `HttpLLMClient` est l'implémentation
   par défaut (`flag_llm_v2=True`, repli legacy via `AGENT_LLM_V2=0` ;
   `tests/test_llm_v2.py`, `tests/test_agent_factory.py`).
-  **Reste à faire** : décommissionner `ia/agent/llm_client.py` — supprimé
-  seulement avec le chemin v1 (`core/agent_cache.py` l'importe encore pour le
-  coordinateur multi-agents).
+  **Reste à faire** : décommissionner `ia/agent/llm_client.py` — il reste
+  importé par le chemin v1 résiduel (`core/agent_cache.py` : coordinateur
+  multi-agents + runners du chat `/api/ai`, cf. backlog item 8).
 - **Port `EventBusPort` (8e) ajouté puis câblé sur le SSE** : contrat pub/sub
   aligné sur `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` (wrapper
   strangler vers le singleton, isolation d'erreurs préservée) et

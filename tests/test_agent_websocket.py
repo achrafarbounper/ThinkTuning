@@ -75,22 +75,25 @@ def test_ws_ping_pong_and_protocol_errors(monkeypatch):
 
 def test_ws_ask_streams_then_final(monkeypatch):
     monkeypatch.setenv("AGENT_WEBSOCKET", "1")
-    # Chemin WS legacy épinglé explicitement (repli AGENT_NEW_CORE=0) :
-    # le décommission du worker legacy portera ces tests sur le worker v2.
-    monkeypatch.setenv("AGENT_NEW_CORE", "0")
 
-    def fake_streaming(prompt, model=None, enable_thinking=False,
-                       resume_request_id=None, on_thinking=None,
-                       on_tool_event=None, history_messages=None):
-        if on_thinking:
-            on_thinking("Je reflechis...")
-        if on_tool_event:
-            on_tool_event({"event": "tool_start", "tool": "add", "args": {}})
-        return {"answer": "Le total est 42.", "status": "completed",
-                "model": "test-model", "request_id": None}
+    # Noyau v2 (défaut) : le noyau scripté publie son cycle de vie sur le bus
+    # par-run injecté ; le worker WS traduit vers le contrat WS historique.
+    from app.agent.core import AgentRunResult, RunStatus
+
+    class FakeCore:
+        def __init__(self, *args, **kwargs):
+            self._event_bus = kwargs.get("event_bus")
+
+        def run(self, intent, history=None):
+            if self._event_bus is not None:
+                self._event_bus.emit("agent.thinking", chunk="Je reflechis...")
+                self._event_bus.emit("agent.tool_start", tool="add", args={})
+            return AgentRunResult(answer="Le total est 42.",
+                                  status=RunStatus.COMPLETED,
+                                  rounds_used=1, tool_calls_used=1)
 
     monkeypatch.setattr(
-        "api.routes.agent.ask_agent_decision_streaming", fake_streaming
+        "api.routes.agent.build_agent_core", lambda *a, **kw: FakeCore(*a, **kw)
     )
     client = TestClient(api_app)
     with client.websocket_connect(_ws_url("/ws")) as ws:
@@ -113,13 +116,15 @@ def test_ws_ask_streams_then_final(monkeypatch):
 
 def test_ws_ask_error_yields_error_final(monkeypatch):
     monkeypatch.setenv("AGENT_WEBSOCKET", "1")
-    # Chemin WS legacy épinglé explicitement (repli AGENT_NEW_CORE=0).
-    monkeypatch.setenv("AGENT_NEW_CORE", "0")
 
-    def boom(*a, **kw):
-        raise ValueError("explosion simulee")
+    def boom_build(*args, **kwargs):
+        class BoomCore:
+            def run(self, intent, history=None):
+                raise ValueError("explosion simulee")
 
-    monkeypatch.setattr("api.routes.agent.ask_agent_decision_streaming", boom)
+        return BoomCore()
+
+    monkeypatch.setattr("api.routes.agent.build_agent_core", boom_build)
     client = TestClient(api_app)
     with client.websocket_connect(_ws_url("/ws")) as ws:
         ws.receive_json()

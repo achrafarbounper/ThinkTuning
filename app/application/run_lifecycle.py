@@ -1,9 +1,8 @@
 """Cycle de vie d'un run agent — helpers métier partagés par les use-cases.
 
-Regroupe ce qui était dupliqué entre ``/ask``, ``/ask/core``, ``/ask/stream``,
-``/ask/core/stream`` et le canal WebSocket de ``api/routes/agent.py`` :
+Regroupe ce qui est partagé par ``/ask/core``, ``/ask/core/stream`` et le
+canal WebSocket de ``api/routes/agent.py`` :
 
-    - mapping des statuts de décision legacy -> statuts du run_store ;
     - mapping des statuts ``RunStatus`` du noyau v2 -> statut API / run_store ;
     - résolution du hash de reprise (empreinte SHA-256 de l'action approuvée) ;
     - gateway d'approbation par empreinte ;
@@ -43,13 +42,6 @@ from core.approval_store import APPROVED
 ACT_RUN = "agent_run"
 ACT_APPROVAL = "approval"
 
-# Statuts de décision legacy (gate ask_agent_decision) -> statuts du run_store.
-DECISION_RUN_STATUS: dict[str, str] = {
-    "completed": RUN_COMPLETED,
-    "awaiting_approval": RUN_AWAITING_APPROVAL,
-    "rejected": RUN_REJECTED,
-}
-
 # Statuts du noyau v2 -> statut API (« completed » par défaut).
 RUN_STATUS_TO_API: dict[RunStatus, str] = {
     RunStatus.COMPLETED: "completed",
@@ -67,11 +59,6 @@ RUN_STATUS_TO_STORE: dict[RunStatus, str] = {
     RunStatus.BUDGET_EXHAUSTED: RUN_ERROR,
     RunStatus.FAILED: RUN_ERROR,
 }
-
-
-def legacy_run_status(decision_status: Any) -> str:
-    """Statut de run_store pour un statut de décision legacy (défaut : completed)."""
-    return DECISION_RUN_STATUS.get(str(decision_status or "completed"), RUN_COMPLETED)
 
 
 def core_api_status(status: RunStatus) -> str:

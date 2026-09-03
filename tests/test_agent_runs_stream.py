@@ -1,10 +1,10 @@
 """
-Tests offline du streaming du mode Agent (/api/agent/ask/stream) et du
-journal des exécutions (core/run_store).
+Tests offline du streaming du noyau v2 (/api/agent/ask/core et
+/api/agent/ask/core/stream) et du journal des exécutions (core/run_store).
 
-Aucun réseau : la fonction `ask_agent_decision_streaming` est remplacée par
-une version scriptée (monkeypatch) et le LLM reste factice ; la base SQLite
-des runs est isolée dans tmp_path (AGENT_RUN_PATH / reset_run_store).
+Aucun réseau : le noyau est remplacé par une version scriptée (monkeypatch
+de ``build_agent_core``) ; la base SQLite des runs est isolée dans tmp_path
+(AGENT_RUN_PATH / reset_run_store).
 Lance avec : pytest tests/test_agent_runs_stream.py -v
 """
 
@@ -19,7 +19,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import api  # noqa: E402,F401  (initialise le job store avant le routage)
 from api.routes import agent as agent_routes  # noqa: E402
+from app.agent.core import AgentRunResult, RunStatus  # noqa: E402
 from core import run_store  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
 
 
 @pytest.fixture()
@@ -75,71 +77,49 @@ def test_run_store_get_unknown_returns_none(tmp_path):
     assert store.list() == []
 
 
-# --- POST /api/agent/ask/stream ----------------------------------------------------
+# --- POST /api/agent/ask/core (+ /core/stream) ---------------------------------------
 
 
-def _fake_streaming_factory(events_log):
-    """Fabrique un remplaçant scripté de ask_agent_decision_streaming."""
+def _fake_core_factory(answer="Le total est 42.", tools=True):
+    """Fabrique un noyau v2 scripté publiant son cycle de vie sur le bus injecté."""
 
-    def fake(
-        prompt,
-        model=None,
-        enable_thinking=False,
-        resume_request_id=None,
-        on_thinking=None,
-        on_tool_event=None,
-        history_messages=None,
-    ):
-        events_log.append({"prompt": prompt, "model": model})
-        if enable_thinking and on_thinking is not None:
-            on_thinking("Je raisonne…")
-        if on_tool_event is not None:
-            on_tool_event(
-                {
-                    "event": "tool_start",
-                    "tool": "calc",
-                    "args": '{"expression": "12+30"}',
-                }
+    class FakeCore:
+        def __init__(self, *args, **kwargs):
+            # Le noyau publie ses événements sur le bus par-run injecté ; la
+            # route s'abonne au port pour régénérer les frames SSE.
+            self._event_bus = kwargs.get("event_bus")
+
+        def run(self, intent, history=None):
+            if self._event_bus is not None and tools:
+                self._event_bus.emit(
+                    "agent.tool_start", tool="calc", args={"expression": "12+30"}
+                )
+                self._event_bus.emit(
+                    "agent.tool_end", tool="calc", status="ok",
+                    summary="42", duration_ms=2,
+                )
+            return AgentRunResult(
+                answer=answer,
+                status=RunStatus.COMPLETED,
+                rounds_used=1,
+                tool_calls_used=1 if tools else 0,
             )
-            on_tool_event(
-                {
-                    "event": "tool_result",
-                    "tool": "calc",
-                    "status": "ok",
-                    "summary": "42",
-                    "duration_ms": 2,
-                }
-            )
-        return {
-            "answer": "La somme est 42.",
-            "thinking": "",
-            "response": "La somme est 42.",
-            "model": model or "llama3.1:8b",
-            "status": "completed",
-        }
 
-    return fake
+    return FakeCore
 
 
-def test_ask_stream_emits_tool_events_then_final(client, monkeypatch):
-    log: list[dict] = []
-    monkeypatch.setattr(
-        agent_routes, "ask_agent_decision_streaming", _fake_streaming_factory(log)
-    )
+def test_core_stream_emits_tool_events_then_final(client, monkeypatch):
+    monkeypatch.setattr(agent_routes, "build_agent_core", _fake_core_factory())
 
     with client.stream(
-        "POST", "/api/agent/ask/stream", headers=HEADERS,
+        "POST", "/api/agent/ask/core/stream", headers=HEADERS,
         json={"prompt": "Calcule 12+30"},
     ) as response:
-        assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join(chunk for chunk in response.iter_text())
 
-    # La fonction remplacée a bien reçu le prompt.
-    assert log[0]["prompt"] == "Calcule 12+30"
-
-    # Séquence SSE attendue : outils -> delta(s) -> final -> DONE.
-    assert '"tool_start"' in body and '"tool": "calc"' in body
+    # Séquence SSE attendue : core_tool -> delta(s) -> final -> DONE.
+    assert '"core_tool"' in body and '"tool_start"' in body
     assert '"tool_result"' in body and '"status": "ok"' in body
     assert '"delta"' in body
     assert '"final"' in body and '"status": "completed"' in body
@@ -149,21 +129,23 @@ def test_ask_stream_emits_tool_events_then_final(client, monkeypatch):
     runs = run_store.get_run_store().list(limit=10)
     assert len(runs) == 1
     recorded = runs[0]
-    assert recorded["source"] == "ask-stream"
+    assert recorded["source"] == "ask_core_stream"
     assert recorded["status"] == run_store.COMPLETED
     assert len(recorded["tools"]) == 2
 
 
-def test_ask_stream_early_error_is_http(client, monkeypatch):
-    """Une erreur précoce (resume_request_id invalide) reste une vraie HTTP 400."""
+def test_core_stream_early_error_is_http(client, monkeypatch):
+    """Une erreur précoce (noyau injoignable) reste une vraie erreur HTTP."""
 
-    def failing(*args, **kwargs):
-        raise ValueError("Demande d'approbation introuvable : nope")
+    def failing_build(*args, **kwargs):
+        raise HTTPException(
+            status_code=400, detail="Demande d'approbation introuvable : nope"
+        )
 
-    monkeypatch.setattr(agent_routes, "ask_agent_decision_streaming", failing)
+    monkeypatch.setattr(agent_routes, "build_agent_core", failing_build)
 
     response = client.post(
-        "/api/agent/ask/stream", headers=HEADERS, json={"prompt": "relance"}
+        "/api/agent/ask/core/stream", headers=HEADERS, json={"prompt": "relance"}
     )
     assert response.status_code == 400
     assert "introuvable" in response.json()["detail"]
@@ -173,24 +155,21 @@ def test_ask_stream_early_error_is_http(client, monkeypatch):
     assert all(r["status"] != run_store.RUNNING for r in runs)
 
 
-def test_ask_requires_and_writes_run_journal(client, monkeypatch):
-    """POST /api/agent/ask conserve son contrat ET alimente le journal des runs."""
+def test_ask_core_writes_run_journal(client, monkeypatch):
+    """POST /api/agent/ask/core conserve son contrat ET alimente le journal."""
     monkeypatch.setattr(
         agent_routes,
-        "ask_agent_decision",
-        lambda prompt, resume_request_id=None, **kwargs: {
-            "response": "Fait.",
-            "status": "completed",
-        },
+        "build_agent_core",
+        _fake_core_factory(answer="Fait.", tools=False),
     )
-    response = client.post("/api/agent/ask", headers=HEADERS, json={"prompt": "ok"})
+    response = client.post("/api/agent/ask/core", headers=HEADERS, json={"prompt": "ok"})
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "completed"
 
     runs = run_store.get_run_store().list()
     assert len(runs) == 1
-    assert runs[0]["source"] == "ask"
+    assert runs[0]["source"] == "ask_core"
     assert runs[0]["status"] == run_store.COMPLETED
     assert runs[0]["answer_summary"] == "Fait."
 

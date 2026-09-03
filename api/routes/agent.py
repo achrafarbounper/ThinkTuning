@@ -43,8 +43,6 @@ from core.agent_cache import (
     _openrouter_chat_url,
     _hf_chat_url,
     agent_config,
-    ask_agent_decision,
-    ask_agent_decision_streaming,
     ask_multi_agent,
     ask_multi_agent_streaming,
     reload_agent_runner,
@@ -97,13 +95,12 @@ from app.infrastructure.legacy_approval_store import build_approval_store
 from app.infrastructure.events.in_memory import InMemoryEventBus
 # Use-cases (couche application) : la logique métier des runs vit ici,
 # les routes ci-dessous ne sont plus que des adaptateurs HTTP minces.
-from app.application.ask_usecase import run_ask_core, run_legacy_ask
+from app.application.ask_usecase import run_ask_core
 from app.application.run_lifecycle import (
     core_api_status,
     core_store_status,
     core_tool_events,
     create_approval_request,
-    legacy_run_status,
     make_approval_gateway,
     resolve_resume_hash,
 )
@@ -144,7 +141,7 @@ class AskRequest(BaseModel):
 
 
 class AskStreamRequest(BaseModel):
-    """Corps de POST /api/agent/ask/stream (mode Agent temps réel).
+    """Corps de POST /api/agent/ask/core/stream (mode Agent temps réel).
 
     Même contrat que ``AskRequest`` avec en plus la sélection du modèle LLM
     et du mode « Réflexion » (sélecteurs de l'en-tête du chat).
@@ -401,43 +398,6 @@ def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     except Exception:
         raise HTTPException(status_code=503, detail="LLM indisponible pour la complétion")
     return {"completion": complete_text(llm, request.messages, request.draft)}
-
-
-@router.post("/ask", response_model=AskResponse)
-def ask(request: AskRequest, _: bool = Depends(require_api_key)):
-    """Prompt libre : l'agent décide des outils, puis renvoie sa réponse finale.
-
-    Ponte le gate de décision (auto_approve / approve / reject) : quand une
-    action requiert une validation humaine, la réponse porte
-    ``status="awaiting_approval"`` (avec ``request_id``) — l'agent n'attend
-    pas, il s'arrête et l'UI peut proposer approve/reject puis relancer via
-    ``resume_request_id``. S'il y a un refus (policy), ``status="rejected"``.
-
-    Traduction des erreurs réseau (Timeout -> 504, ConnectionError -> 502)
-    centralisée dans ``core.agent_cache``.
-    """
-    try:
-        outcome = run_legacy_ask(
-            prompt=request.prompt,
-            session_id=request.session_id,
-            resume_request_id=request.resume_request_id,
-            model=agent_config()["model"],
-            run_store=get_run_store(),
-            decide=ask_agent_decision,
-            load_history=_load_session_history,
-            persist_exchange=_persist_exchange,
-            audit_log=_audit_log,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return AskResponse(
-        response=outcome.response,
-        model=outcome.model,
-        status=outcome.status,
-        request_id=outcome.request_id,
-        approval=outcome.approval,
-    )
 
 
 # --- Noyau agentique v2 (POST /api/agent/ask/core) -----------------------------------
@@ -720,7 +680,7 @@ _CORE_STREAM_FIELDS = {
 }
 
 
-# --- Streaming du mode Agent (POST /api/agent/ask/stream) ----------------------------
+# --- Helpers de streaming SSE partagés (noyau v2) ------------------------------------
 
 # Cadence (secondes) de l'émission mot à mot de la réponse finale ; la
 # réflexion et les événements d'outils, eux, sont diffusés en temps réel.
@@ -763,167 +723,6 @@ def _persist_exchange(
     """Délègue au use-case de mémoire conversationnelle
     (app/application/session_memory.persist_exchange)."""
     persist_exchange(session_id, prompt, answer, tool_events=tool_events)
-
-
-@router.post("/ask/stream")
-def ask_stream(request: AskStreamRequest, _: bool = Depends(require_api_key)):
-    """Mode Agent en streaming SSE — le temps réel de /api/ai pour l'agent.
-
-    Contrat d'entrée : POST JSON ``AskStreamRequest``.
-    Contrat de sortie : flux SSE ->
-        data: {"tool_start":  {tool, args}}             appel d'outil annoncé
-        data: {"tool_result": {tool, status, summary…}} résultat (ok/error)
-        data: {"thinking_delta": "..."}                 réflexion (mode activé)
-        data: {"delta": "..."}                          réponse finale, mot à mot
-        data: {"final": {...AskResponse...}}            statut du gate + ids
-        data: [DONE]
-
-    Réutilisation du schéma éprouvé de /api/ai (queue.Queue + thread worker +
-    générateur asynchrone) complété par le journal des runs : chaque appel
-    crée une ligne ``running`` dans core/run_store, enrichie au vol via le
-    callback d'événements d'outils.
-    """
-    events: queue.Queue[tuple[str, object]] = queue.Queue()
-    run_store = get_run_store()
-    run_row = run_store.start_run(
-        request.prompt,
-        model=(request.model or "").strip() or agent_config()["model"],
-        source="ask-stream",
-    )
-    _audit_log(
-        ACT_RUN,
-        subject="ask-stream",
-        detail={
-            "status": "started",
-            "model": (request.model or "").strip() or agent_config()["model"],
-            "enable_thinking": request.enable_thinking,
-        },
-        run_id=run_row["id"],
-    )
-
-    def _emit_thinking(chunk: str) -> None:
-        events.put(("thinking", chunk))
-
-    def _on_tool_event(event: dict) -> None:
-        kind = event.get("event", "tool_result")
-        events.put((kind, event))
-        tool_events.append(event)
-        try:
-            run_store.append_tool_event(run_row["id"], event)
-        except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
-            pass
-
-    tool_events: list[dict] = []
-
-    def worker() -> None:
-        try:
-            result = ask_agent_decision_streaming(
-                request.prompt,
-                model=request.model or None,
-                enable_thinking=request.enable_thinking,
-                resume_request_id=request.resume_request_id,
-                # Sans « Réflexion », aucun thinking_delta n'est émis.
-                on_thinking=_emit_thinking if request.enable_thinking else None,
-                on_tool_event=_on_tool_event,
-                # Mémoire de session : rejoue les tours précédents en contexte.
-                history_messages=_load_session_history(
-                    request.session_id, request.resume_request_id
-                ),
-            )
-            answer = result.get("answer") or ""
-            for word in _stream_fragments(answer):
-                events.put(("delta", word))
-                time.sleep(ANSWER_STREAM_CADENCE_SECONDS)
-            run_store.finish_run(
-                run_row["id"],
-                legacy_run_status(result.get("status", "completed")),
-                answer_summary=answer[:300],
-            )
-            _audit_log(
-                ACT_RUN,
-                subject="ask-stream",
-                detail={
-                    "status": result.get("status", "completed"),
-                    "n_tools": len(tool_events),
-                },
-                run_id=run_row["id"],
-            )
-            # Persistance de l'échange dans la session demandée (best-effort),
-            # avec la trace complète des événements d'outils observés.
-            _persist_exchange(
-                request.session_id,
-                request.prompt,
-                answer,
-                tool_events=tool_events or None,
-            )
-            events.put(
-                (
-                    "final",
-                    {
-                        "response": answer,
-                        "model": result.get("model"),
-                        "status": result.get("status", "completed"),
-                        "request_id": result.get("request_id"),
-                        "approval": result.get("approval"),
-                    },
-                )
-            )
-        except ValueError as exc:
-            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
-            events.put(("bad_request", str(exc)))
-        except HTTPException as exc:  # panne réseau déjà traduite par agent_cache
-            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc.detail))
-            events.put(("http_error", exc))
-        except Exception as exc:
-            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
-            events.put(("error", str(exc)))
-        finally:
-            events.put(("done", None))
-
-    # Thread daemon : l'agent se termine seul même si le client coupe (Stop).
-    threading.Thread(target=worker, daemon=True).start()
-
-    # Réception SYNCHRONE du premier événement : une panne précoce (LLM
-    # injoignable, resume_request_id invalide) reste une vraie erreur HTTP.
-    first_kind, first_payload = events.get()
-    if first_kind == "bad_request":
-        raise HTTPException(status_code=400, detail=str(first_payload))
-    if first_kind == "http_error":
-        raise first_payload  # noqa: TRY201 - re-lever l'HTTPException d'origine
-    if first_kind == "error":
-        raise HTTPException(status_code=502, detail=str(first_payload))
-
-    async def _sse_stream() -> AsyncIterator[str]:
-        try:
-            if first_kind != "done":
-                # Rejoue le premier événement déjà consommé ci-dessus.
-                field = "thinking_delta" if first_kind == "thinking" else first_kind
-                yield _sse({field: first_payload})
-
-            while True:
-                kind, payload = await asyncio.to_thread(events.get)
-                if kind == "done":
-                    break
-                if kind in ("bad_request", "http_error", "error"):
-                    detail = payload.detail if kind == "http_error" else str(payload)
-                    yield _sse({"error": detail})
-                    break
-                field = "thinking_delta" if kind == "thinking" else kind
-                yield _sse({field: payload})
-            yield "data: [DONE]\n\n"
-        except asyncio.CancelledError:
-            # Le client a interrompu la génération (bouton Stop du chat).
-            raise
-
-    return StreamingResponse(
-        _sse_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # désactive le buffering nginx
-        },
-    )
 
 
 # --- Approbation humaine (approve / reject) -----------------------------------------
@@ -1220,7 +1019,7 @@ def agent_features(_: bool = Depends(require_api_key)):
 
 # --- WebSocket bidirectionnel (Phase E, flag AGENT_WEBSOCKET) -------------------------
 #
-# Canal temps réel duplex, miroir WebSocket de POST /api/agent/ask/stream :
+# Canal temps réel duplex, miroir WebSocket de POST /api/agent/ask/core/stream :
 #
 #   client -> serveur : {"action": "ask", "prompt": "...", "session_id"?,
 #                        "enable_thinking"?, "model"?, "resume_request_id"?}
@@ -1306,12 +1105,10 @@ async def _ws_handle_approval(websocket: WebSocket, msg: dict, action: str) -> N
 
 
 async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
-    """Exécute un tour d'agent en diffusant les événements en temps réel.
+    """Exécute un tour d'agent via le noyau v2, événements en temps réel.
 
-    Bascule sur le flag ``AGENT_NEW_CORE`` : le noyau v2 (bus par-run) ou le
-    flux legacy. Dans les deux cas, les événements temps réel (thinking,
-    tool_start/tool_result, delta, final) sortent dans la même file puis sont
-    poussés sur le canal WebSocket.
+    Les événements temps réel (thinking, tool_start/tool_result, delta, final)
+    sortent dans la même file puis sont poussés sur le canal WebSocket.
     """
     prompt = str(msg.get("prompt") or "").strip()
     if not prompt:
@@ -1325,19 +1122,14 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
     session_id = msg.get("session_id") or None
     model = str(msg.get("model") or "").strip() or None
 
-    if new_core_enabled():
-        worker = _ws_core_worker(
-            prompt=prompt, session_id=session_id,
-            resume_request_id=resume_request_id,
-            enable_thinking=enable_thinking, model=model,
-        )
-    else:
-        worker = _ws_legacy_worker(
-            prompt=prompt, session_id=session_id,
-            resume_request_id=resume_request_id,
-            enable_thinking=enable_thinking, model=model,
-        )
-    # `worker` est (events_queue, thread) déjà lancé par les fabriques.
+    # Noyau v2 par défaut (bascule en production) : le flux WS legacy est
+    # décommissionné ; les événements viennent du bus par-run du noyau.
+    worker = _ws_core_worker(
+        prompt=prompt, session_id=session_id,
+        resume_request_id=resume_request_id,
+        enable_thinking=enable_thinking, model=model,
+    )
+    # `worker` est (events_queue, thread) déjà lancé par la fabrique.
     events, _thread = worker
     loop = asyncio.get_event_loop()
     while True:
@@ -1345,87 +1137,6 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
         if item is None:
             break
         await websocket.send_json(item[1])
-
-def _ws_legacy_worker(*, prompt, session_id, resume_request_id,
-                      enable_thinking, model):
-    """Worker WebSocket (flux legacy) — extrait comme fonction module-level.
-
-    Retourne ``(events_queue, thread)`` (le thread est déjà lancé). Chaque
-    événement temps réel est mis dans la file sous ``(kind, payload)`` ; le
-    consommateur de ``_ws_run_agent`` envoie ``payload`` sur le canal.
-    """
-    events = queue.Queue()
-    run_store = get_run_store()
-    run_row = run_store.start_run(
-        prompt, model=model or agent_config()["model"], source="ws"
-    )
-    tool_events: list[dict] = []
-
-    def on_thinking(chunk: str) -> None:
-        events.put(("thinking", {"event": "thinking", "text": chunk}))
-
-    def on_tool_event(event: dict) -> None:
-        events.put(("tool", event))
-        tool_events.append(event)
-        try:
-            run_store.append_tool_event(run_row["id"], event)
-        except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
-            pass
-
-    def _worker() -> None:
-        try:
-            result = ask_agent_decision_streaming(
-                prompt,
-                model=model,
-                enable_thinking=enable_thinking,
-                resume_request_id=resume_request_id,
-                on_thinking=on_thinking if enable_thinking else None,
-                on_tool_event=on_tool_event,
-                history_messages=_load_session_history(
-                    session_id, resume_request_id
-                ),
-            )
-            answer = result.get("answer") or ""
-            for word in _stream_fragments(answer):
-                events.put(("delta", {"event": "delta", "text": word}))
-            run_store.finish_run(
-                run_row["id"],
-                legacy_run_status(result.get("status", "completed")),
-                answer_summary=answer[:300],
-            )
-            _persist_exchange(
-                session_id, prompt, answer, tool_events=tool_events or None
-            )
-            events.put((
-                "final",
-                {
-                    "event": "final",
-                    "response": answer,
-                    "model": result.get("model"),
-                    "status": result.get("status", "completed"),
-                    "request_id": result.get("request_id"),
-                },
-            ))
-        except Exception as exc:  # pragma: no cover - défensif
-            try:
-                run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
-            except Exception:
-                pass
-            events.put((
-                "final",
-                {
-                    "event": "final",
-                    "response": "",
-                    "status": "error",
-                    "detail": f"{type(exc).__name__}: {exc}",
-                },
-            ))
-        finally:
-            events.put(None)
-
-    thread = threading.Thread(target=_worker, daemon=True)
-    thread.start()
-    return events, thread
 
 def _ws_core_worker(*, prompt, session_id, resume_request_id,
                     enable_thinking, model):

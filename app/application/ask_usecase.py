@@ -1,19 +1,15 @@
 """Use-cases d'exécution d'un tour d'agent — extraits de ``api/routes/agent.py``.
 
-``run_legacy_ask``  : boucle historique (``core.agent_cache.ask_agent_decision``).
-``run_ask_core``    : noyau v2 (``app/agent/core.AgentCore``).
+``run_ask_core`` : noyau v2 (``app/agent/core.AgentCore``).
 
-Les collaborators (stores, client LLM via ``decide``/``build_core``, audit,
-mémoire de session) sont INJECTÉS par la route : la couche application ne
-connaît ni FastAPI, ni la composition root, ni les singletons legacy. Les
-routes ``api/`` résolvent les attributs de module à l'appel, ce qui préserve
-les points de monkeypatch des tests existants.
+Les collaborateurs (stores, client LLM via ``build_core``, audit, mémoire de
+session) sont INJECTÉS par la route : la couche application ne connaît ni
+FastAPI, ni la composition root, ni les singletons legacy. Les routes ``api/``
+résolvent les attributs de module à l'appel, ce qui préserve les points de
+monkeypatch des tests existants.
 
-Gestion d'erreur déterministe :
-    - ``ValueError`` (entrée invalide côté legacy) -> propagée, run clôturé
-      en ``error`` ; la route la mappe en 400 ;
-    - ``AgentRunError`` (échec non récupérable du noyau v2) -> run clôturé
-      en ``error`` ; la route la mappe en 502.
+Gestion d'erreur déterministe : ``AgentRunError`` (échec non récupérable du
+noyau v2) -> run clôturé en ``error`` ; la route le mappe en 502.
 """
 
 from __future__ import annotations
@@ -31,25 +27,12 @@ from app.application.run_lifecycle import (
     core_tool_events,
     create_approval_request,
     finish_run_status,
-    legacy_run_status,
     make_approval_gateway,
     resolve_resume_hash,
 )
 from app.domain.entities.plan import Intent
 from app.domain.entities.run import RunStatus
 from app.domain.errors import AgentRunError
-
-
-@dataclass
-class AskOutcome:
-    """Issue d'un tour d'agent (legacy ou v2), telle que consommée par l'API."""
-
-    response: str
-    status: str                     # completed / awaiting_approval / rejected / error
-    request_id: str | None
-    approval: dict | None
-    run_id: str
-    model: str
 
 
 @dataclass
@@ -63,73 +46,6 @@ class AskCoreResult:
     run_id: str
     model: str
     result: Any = field(default=None, repr=False)   # RunResult brut (streaming)
-
-
-def run_legacy_ask(
-    *,
-    prompt: str,
-    session_id: str | None,
-    resume_request_id: str | None,
-    model: str,
-    run_store: Any,
-    decide: Callable[..., dict],
-    load_history: Callable[[str | None, str | None], list[dict]],
-    persist_exchange: Callable[..., None],
-    audit_log: Callable[..., Any],
-) -> AskOutcome:
-    """Un tour d'agent via la boucle historique (endpoint ``POST /api/agent/ask``).
-
-    ``decide`` est ``core.agent_cache.ask_agent_decision`` (pont du gate de
-    décision auto_approve / approve / reject). Les erreurs réseau y sont déjà
-    traduites (Timeout -> HTTPException 504, ConnectionError -> 502).
-    """
-    run_row = run_store.start_run(prompt, model=model, source="ask")
-    audit_log(
-        ACT_RUN,
-        subject="ask",
-        detail={"status": "started", "model": model},
-        run_id=run_row["id"],
-    )
-    try:
-        decision = decide(
-            prompt,
-            resume_request_id=resume_request_id,
-            # Mémoire de session : rejoue les tours précédents en contexte pour
-            # que l'agent se souvienne de la conversation (ex. le nom).
-            history_messages=load_history(session_id, resume_request_id),
-        )
-    except ValueError as exc:
-        run_store.finish_run(
-            run_row["id"], finish_run_status(run_row["status"], RUN_ERROR),
-            error=str(exc),
-        )
-        raise
-
-    status = legacy_run_status(decision.get("status", "completed"))
-    run_store.finish_run(
-        run_row["id"],
-        finish_run_status(run_row["status"], status),
-        answer_summary=(decision.get("response") or "")[:300],
-    )
-    audit_log(
-        ACT_RUN,
-        subject="ask",
-        detail={
-            "status": decision.get("status", "completed"),
-            "model": model,
-        },
-        run_id=run_row["id"],
-    )
-    persist_exchange(session_id, prompt, decision.get("response") or "")
-
-    return AskOutcome(
-        response=decision["response"] or "",
-        status=decision.get("status", "completed"),
-        request_id=decision.get("request_id"),
-        approval=decision.get("approval"),
-        run_id=run_row["id"],
-        model=model,
-    )
 
 
 def run_ask_core(

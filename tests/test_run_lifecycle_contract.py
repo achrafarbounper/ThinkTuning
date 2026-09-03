@@ -43,16 +43,6 @@ def test_audit_action_strings_match_legacy() -> None:
 # --- Statuts ------------------------------------------------------------------
 
 
-def test_decision_run_status_matches_legacy_constants() -> None:
-    from core import run_store as legacy
-
-    assert rl.DECISION_RUN_STATUS == {
-        "completed": legacy.COMPLETED,
-        "awaiting_approval": legacy.AWAITING_APPROVAL,
-        "rejected": legacy.REJECTED,
-    }
-
-
 def test_core_status_maps_cover_all_run_statuses() -> None:
     from core import run_store as legacy
 
