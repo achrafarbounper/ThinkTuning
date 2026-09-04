@@ -15,6 +15,16 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+# Clé API des tests : même convention que les modules de test, qui font tous
+# `os.environ.setdefault("API_KEY", "test-key")` avant l'import de l'app.
+# Posée ICI une fois pour toute la session (conftest racine = importé avant la
+# collecte) afin que la clé attendue par `require_api_key` corresponde
+# toujours aux en-têtes `X-API-Key: test-key` codés en dur dans les tests.
+# Indispensable en CI : si le workflow définit API_KEY=<autre valeur>,
+# setdefault devient un no-op et TOUTES les routes protégées répondent 401
+# (134 échecs observés avec API_KEY=ci-test-key).
+os.environ.setdefault("API_KEY", "test-key")
+
 # Isolation GLOBALE des paramètres persistants de l'agent : pendant les tests,
 # la base SQLite de core.agent_settings doit pointer vers un fichier temporaire
 # (jamais experiments/agent_settings.db) pour qu'aucun test n'écrase la

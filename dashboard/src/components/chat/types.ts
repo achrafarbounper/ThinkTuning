@@ -100,6 +100,8 @@ export interface MultiAgentStreamEvent {
   worker_errors?: number;
   answer?: string;
   final_answer?: string;
+  /** Réflexion du worker (agent.worker.thinking, mode « Réflexion »). */
+  thinking?: string;
   /**
    * Événement agent.worker.approval : identifiant de la demande d'approbation
    * (POST /api/agent/approvals/{id}/approve|reject) puis relance de la
@@ -267,6 +269,16 @@ export interface PendingApprovalData {
   reason: string;
   /** Arguments tronqués de l'appel (aperçu sur la carte). */
   args?: Record<string, unknown>;
+  /**
+   * Mode d'origine de la demande :
+   *  - 'multi' → REPRISE NATIVE : l'action approuvée est rejouée dans le
+   *    MÊME worker via POST /multi/ask/stream + resume_request_id (l'action
+   *    n'est JAMAIS exécutée dans le noyau mono-agent) ;
+   *  - 'core' → noyau v2 mono-agent (fallback documenté).
+   */
+  origin?: 'core' | 'multi';
+  /** task_id du worker bloqué (reprise native multi : re-dispatch ciblé). */
+  taskId?: string;
 }
 
 /* --- Conversations persistées (/api/sessions) ------------------------------ */

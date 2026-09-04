@@ -2,6 +2,8 @@ import csv
 import io
 import os
 
+import pytest
+
 os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient
@@ -10,6 +12,30 @@ import api
 from api import app
 
 client = TestClient(app)
+
+
+class _FakeBatchPredictor:
+    """Prédictions déterministes : aucun modèle DistilBERT requis.
+
+    En CI, `experiments/models` est vide (dossier gitignore) : sans ce mock,
+    /predict/batch répond 503 « Aucun modèle disponible » au lieu des codes
+    attendus (200 / 400).
+    """
+
+    def predict(self, texts):
+        return [
+            {"text": text, "sentiment": "positive", "confidence": 0.95}
+            for text in texts
+        ]
+
+
+@pytest.fixture(autouse=True)
+def fake_predictor(monkeypatch):
+    """Mock du seam `api._get_predictor` pour tout le module (même convention
+    que tests/test_predict_validation.py). Les tests qui posent leur propre
+    mock (rate-limit, forwards_model_param) écrasent celui-ci dans le corps
+    du test — sans conflit."""
+    monkeypatch.setattr(api, "_get_predictor", lambda model=None: _FakeBatchPredictor())
 
 
 def test_predict_batch_json_route():

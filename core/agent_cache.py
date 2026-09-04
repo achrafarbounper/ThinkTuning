@@ -725,9 +725,11 @@ def _multi_coordinator_kwargs() -> dict:
 
     ``AGENT_MULTI_MAX_TOOL_CALLS`` : plafond GLOBAL d'appels d'outils partagé
     par les workers d'un run (BudgetPool hiérarchique) ; ``0``/absent =
-    désactivé (comportement V1). Lecture env directe transitoire — à migrer
-    vers ``app/config/settings.py`` quand celui-ci sera chargeable sans
-    exigence de clé API (fail-fast actuel).
+    désactivé (comportement V1). ``AGENT_MULTI_PARALLEL`` : parallélisme des
+    sous-tâches indépendantes. ``AGENT_MULTI_THINKING`` : mode « Réflexion »
+    des workers (agent.worker.thinking persisté dans le flow store).
+    Lecture env directe transitoire — à migrer vers ``app/config/settings.py``
+    quand celui-ci sera chargeable sans exigence de clé API (fail-fast actuel).
     """
     import os as _os
 
@@ -735,7 +737,13 @@ def _multi_coordinator_kwargs() -> dict:
         total = int(_os.getenv("AGENT_MULTI_MAX_TOOL_CALLS", "0") or 0)
     except ValueError:
         total = 0
-    return {"max_total_tool_calls": total} if total > 0 else {}
+    kwargs: dict = {"max_total_tool_calls": total} if total > 0 else {}
+    _true = {"1", "true", "yes", "on"}
+    if _os.getenv("AGENT_MULTI_PARALLEL", "").strip().lower() in _true:
+        kwargs["parallel"] = True
+    if _os.getenv("AGENT_MULTI_THINKING", "").strip().lower() in _true:
+        kwargs["enable_thinking"] = True
+    return kwargs
 
 
 def _trace_multi_run(prompt: str, outcome: dict) -> None:
@@ -813,17 +821,30 @@ def reload_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordi
     return _multi_coordinator
 
 
-def ask_multi_agent(prompt: str, model: str | None = None, parallel: bool = False) -> dict:
-    """Exécute la demande via l'orchestration multi-agents (superviseur).
+def ask_multi_agent(
+    prompt: str,
+    model: str | None = None,
+    parallel: bool = False,
+    resume_request_id: str | None = None,
+    enable_thinking: bool = False,
+) -> dict:
+    """Exécute (ou REPREND) la demande via l'orchestration multi-agents.
 
     Retourne le contrat de sortie stable de l'orchestrateur :
     ``{"status", "final_answer", "plan", "workers", "unexecuted", "thinking"}``.
+    ``resume_request_id`` : reprise NATIVE d'un run interrompu sur une
+    validation humaine — l'action approuvée est rejouée dans le MÊME worker
+    (empreinte SHA-256 revérifiée) puis la synthèse finale est produite.
     Les erreurs réseau LLM sont traduites en HTTPException
     (Timeout -> 504, ConnectionError/HTTPError -> 502).
     """
     coordinator = get_multi_agent_coordinator(model)
     try:
-        result = coordinator.run(prompt)
+        result = coordinator.run(
+            prompt,
+            resume_request_id=resume_request_id,
+            enable_thinking=enable_thinking,
+        )
         _trace_multi_run(prompt, result)
         return result
     except requests.exceptions.Timeout:
@@ -847,19 +868,28 @@ def ask_multi_agent_streaming(
     prompt: str,
     model: str | None = None,
     parallel: bool = False,
+    resume_request_id: str | None = None,
+    enable_thinking: bool = False,
     on_event=None,
 ) -> dict:
     """Comme ``ask_multi_agent``, mais avec diffusion temps réel.
 
     ``on_event(event_type, data)`` reçoit les événements structurés de
-    l'orchestrateur (``agent.plan``, ``agent.worker.start``, ``agent.worker.tool``,
-    ``agent.worker.error``, ``agent.worker.result``, ``agent.synthesizing``,
-    ``agent.done``, ``agent.error``). Les erreurs réseau sont traduites en
-    HTTPException (même politique que le reste de l'agent).
+    l'orchestrateur (``agent.plan``, ``agent.resuming``, ``agent.worker.start``,
+    ``agent.worker.tool``, ``agent.worker.thinking``, ``agent.worker.error``,
+    ``agent.worker.result``, ``agent.synthesizing``, ``agent.done``,
+    ``agent.error``). ``resume_request_id`` : reprise native (voir
+    ``ask_multi_agent``). Les erreurs réseau sont traduites en HTTPException
+    (même politique que le reste de l'agent).
     """
     coordinator = get_multi_agent_coordinator(model)
     try:
-        result = coordinator.run(prompt, on_event=on_event)
+        result = coordinator.run(
+            prompt,
+            on_event=on_event,
+            resume_request_id=resume_request_id,
+            enable_thinking=enable_thinking,
+        )
         _trace_multi_run(prompt, result)
         return result
     except requests.exceptions.Timeout:

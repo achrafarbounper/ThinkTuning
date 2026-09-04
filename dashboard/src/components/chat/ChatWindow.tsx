@@ -700,18 +700,27 @@ export function ChatWindow() {
       assistantId: string,
       prompt: string,
       controller: AbortController,
+      resumeRequestId?: string,
     ): Promise<void> => {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const apiKey = resolveApiKey();
       if (apiKey) headers['X-API-Key'] = apiKey;
 
       // Contrat backend (schema MultiAskRequest) : champs snake_case.
+      // - parallel: true → les sous-tâches INDÉPENDANTES sont parallélisées ;
+      // - resume_request_id → REPRISE NATIVE : l'orchestrateur re-dispatche
+      //   UNIQUEMENT le worker bloqué (l'action approuvée est rejouée dans le
+      //   même worker, empreinte SHA-256 revérifiée) puis re-synthétise. Le
+      //   noyau mono-agent n'est JAMAIS utilisé pour rejouer une action
+      //   approuvée du mode multi-agents.
       const body: Record<string, unknown> = {
         prompt,
         mode: MULTI_SSE_MODE,
-        parallel: false,
+        parallel: true,
       };
       if (selectedModel) body.model = selectedModel;
+      if (resumeRequestId) body.resume_request_id = resumeRequestId;
+      if (enableThinking) body.enable_thinking = true;
 
       const response = await fetch(MULTI_ASK_STREAM_ENDPOINT, {
         method: 'POST',
@@ -759,6 +768,8 @@ export function ChatWindow() {
             tool: blockedTask.approval?.tool ?? 'outil inconnu',
             reason: blockedTask.approval?.reason ?? 'validation humaine requise',
             args: blockedTask.approval?.args,
+            origin: 'multi',
+            taskId: blockedTask.task_id,
           });
           return;
         }
@@ -835,8 +846,15 @@ export function ChatWindow() {
                 tool: event.approval?.tool ?? 'outil inconnu',
                 reason: event.approval?.reason ?? 'validation humaine requise',
                 args: event.approval?.args,
+                origin: 'multi',
+                taskId: event.task_id,
               });
             }
+            break;
+          case 'agent.worker.thinking':
+            // Mode « Réflexion » multi-agents : le raisonnement du worker est
+            // diffusé en temps réel (même bulle réflexion que le noyau v2).
+            if (event.thinking) appendThinkingDelta(assistantId, event.thinking);
             break;
           case 'agent.done':
             // Orchestration interrompue sur une validation : le texte final
@@ -856,7 +874,9 @@ export function ChatWindow() {
     },
     [
       appendDelta,
+      appendThinkingDelta,
       completeMultiWorker,
+      enableThinking,
       selectedModel,
       setMultiPlan,
       setPendingApproval,
@@ -1136,8 +1156,13 @@ export function ChatWindow() {
         throw new Error(await apiErrorMessage(response));
       }
 
-      // Reprise du run : nouvelle bulle, alimentée par la suite du run
-      // (toujours le noyau v2 depuis le décommissionnement du chemin v1).
+      // Reprise du run : nouvelle bulle, alimentée par la suite du run.
+      // - origin 'multi' → REPRISE NATIVE : l'action approuvée est rejouée
+      //   DANS le même worker via /multi/ask/stream + resume_request_id
+      //   (empreinte SHA-256 revérifiée côté orchestrateur), puis la synthèse
+      //   finale intègre l'ensemble des résultats.
+      // - origin 'core' (fallback documenté) → noyau v2 mono-agent : la
+      //   gateway n'accorde que l'action dont l'empreinte correspond.
       setMessages((previous) => [
         ...previous,
         {
@@ -1148,7 +1173,11 @@ export function ChatWindow() {
           streaming: true,
         },
       ]);
-      await askCoreTurn(assistantId, prompt, controller, requestId);
+      if (pendingApproval.origin === 'multi') {
+        await askMultiAgentTurn(assistantId, prompt, controller, requestId);
+      } else {
+        await askCoreTurn(assistantId, prompt, controller, requestId);
+      }
     } catch (error) {
       if (!controller.signal.aborted) {
         patchMessage(assistantId, {
@@ -1163,7 +1192,7 @@ export function ChatWindow() {
       setIsLoading(false);
       abortRef.current = null;
     }
-  }, [pendingApproval, isLoading, askCoreTurn, patchMessage]);
+  }, [pendingApproval, isLoading, askCoreTurn, askMultiAgentTurn, patchMessage]);
 
   /**
    * Décision humaine : REFUSER une action en attente. Aucune exécution ; un

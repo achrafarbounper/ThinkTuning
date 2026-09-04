@@ -12,7 +12,7 @@ Sortie ``ok=False`` -> error_code + message (bucket "abort" côté orchestrateur
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .errors import (
     PLAN_CYCLE,
@@ -146,8 +146,15 @@ def validate_plan(
     raw: str,
     roles: List[str],
     max_roles: int = 5,
+    preprocess: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
 ) -> ValidationResult:
     """Valide un plan brut contre les rôles connus et les contraintes d'intégrité.
+
+    ``preprocess`` : hook optionnel appliqué aux tâches brutes avant la
+    validation structurelle — utilisé par le planner hybride
+    (``plan_correct.correct_plan``) pour appliquer les règles métier
+    déterministes (diagnostics → ops, shell whitelisté, SQL mutant rejeté…).
+    La validation ici reste la DERNIÈRE barrière.
 
     Contraintes imposées (déterministes) :
       - format JSON strict (liste de tâches, ou {tasks:[...]}) ;
@@ -175,6 +182,13 @@ def validate_plan(
             message="Le plan est vide : aucune sous-tâche à exécuter.",
             valid_roles=valid_roles,
         )
+
+    # Passe de correction DÉTERMINISTE (planner hybride) : le superviseur (LLM)
+    # propose un plan, ``preprocess`` applique les règles métier (diagnostics →
+    # ops, shell whitelisté, SQL mutant rejeté…). Peut lever ``PlanRejected`` —
+    # l'orchestrateur traduit en abort global (même bucket qu'un plan invalide).
+    if preprocess is not None:
+        tasks_raw = list(preprocess(tasks_raw))
 
     if len(tasks_raw) > max_roles:
         return ValidationResult(
