@@ -169,6 +169,13 @@ export type Selection = { type: "node"; id: string } | { type: "edge"; id: strin
 /** Modes d'affichage : temps réel, replay chronologique, heatmap statique. */
 export type FlowMode = "live" | "replay" | "heatmap";
 
+/**
+ * Source d'un run Live : orchestration multi-agents (POST /api/agent/multi/
+ * ask/stream) ou noyau agentique v2 (POST /api/agent/ask/core/stream — un
+ * seul agent « noyau », mêmes événements d'outils).
+ */
+export type FlowSource = "multi" | "core";
+
 export const EMPTY_GRAPH: GraphState = {
   nodes: {},
   edges: {},

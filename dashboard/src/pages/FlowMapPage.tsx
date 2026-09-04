@@ -1,10 +1,13 @@
 /**
  * FlowMapPage.tsx — Page « Agent Flow Map ».
  *
- * Visualisation animée du pipeline multi-agents :
- *   - Live    : s'abonne au SSE /multi/ask/stream (mode « full ») et anime le
- *               graphe en temps réel ;
- *   - Replay  : rejoue la timeline capturée (ou la démo) à 1×/2×/4× ;
+ * Visualisation animée du pipeline agentique :
+ *   - Live    : lance un run et anime le graphe en temps réel — au choix
+ *               l'orchestration multi-agents (SSE /multi/ask/stream, mode
+ *               « full ») ou le noyau agentique v2 (SSE /ask/core/stream,
+ *               un seul agent « noyau ») ;
+ *   - Replay  : rejoue la timeline capturée (multi-agents OU noyau v2,
+ *               sessions persistées « core.* ») ou la démo à 1×/2×/4× ;
  *   - Heatmap : agrégation statique (chaleur = sollicitation, rouge = erreurs).
  *
  * Interactions : clic nœud/outil → panneau latéral, zoom fluide, pan, cadrage,
@@ -16,6 +19,7 @@ import "../styles/flowmap.css";
 import {
   getFlowSession,
   listFlowSessions,
+  streamCoreFlow,
   streamMultiFlow,
   type FlowSessionSummary,
 } from "../api/flowApi";
@@ -25,12 +29,14 @@ import { computeHeat } from "../components/flowmap/heat";
 import { NO_FILTER, Toolbar, type FlowFilters } from "../components/flowmap/Toolbar";
 import { FlowCanvas } from "../components/flowmap/FlowCanvas";
 import { DetailPanel } from "../components/flowmap/DetailPanel";
-import { type FlowMode, type FlowEvent, type GraphState, type Pulse, type Selection } from "../components/flowmap/types";
+import { type FlowMode, type FlowEvent, type FlowSource, type GraphState, type Pulse, type Selection } from "../components/flowmap/types";
 
 let pulseSeq = 0;
 
 export default function FlowMapPage() {
   const [mode, setMode] = useState<FlowMode>("live");
+  // Source du run live : orchestration multi-agents ou noyau agentique v2.
+  const [source, setSource] = useState<FlowSource>("multi");
   const [prompt, setPrompt] = useState("");
   const [running, setRunning] = useState(false);
   const [sourceEvents, setSourceEvents] = useState<FlowEvent[]>([]);
@@ -75,7 +81,7 @@ export default function FlowMapPage() {
   }, [edgeSig]);
 
   const onPulseDone = (id: string) => setPulses((prev) => prev.filter((p) => p.id !== id));
-/** Lance un run live (POST /multi/ask/stream, mode full). */
+/** Lance un run live (multi-agents /multi/ask/stream ou noyau v2 /ask/core/stream). */
   const runLive = async () => {
     if (running) {
       abortRef.current?.abort();
@@ -91,15 +97,19 @@ export default function FlowMapPage() {
 
     const controller = new AbortController();
     abortRef.current = controller;
+    const onEvent = (ev: FlowEvent) => {
+      applyEvent(liveGraphRef.current, ev);
+      setSourceEvents((curr) => [...curr, ev]);
+    };
     try {
-      await streamMultiFlow({
-        prompt,
-        signal: controller.signal,
-        onEvent: (ev) => {
-          applyEvent(liveGraphRef.current, ev);
-          setSourceEvents((curr) => [...curr, ev]);
-        },
-      });
+      if (source === "core") {
+        // Noyau agentique v2 : un seul agent « noyau », outils réels, policy
+        // sandbox (les refus apparaissent comme arcs d'erreur).
+        await streamCoreFlow({ prompt, signal: controller.signal, onEvent });
+      } else {
+        // Orchestration multi-agents : superviseur + workers spécialisés.
+        await streamMultiFlow({ prompt, signal: controller.signal, onEvent });
+      }
     } catch (err) {
       if (!controller.signal.aborted) {
         setError(err instanceof Error ? err.message : String(err));
@@ -266,10 +276,11 @@ export default function FlowMapPage() {
       <header className="page-head page-head--flow">
         <h1>Agent Flow Map</h1>
         <p>
-          Graphe orienté et animé de l'orchestration : nœuds = agents, arcs = tools,
-          impulsions = messages. Live, Replay et Heatmap.
+          Graphe orienté et animé du pipeline agentique : nœuds = agents (ou noyau
+          v2), arcs = outils, impulsions = messages. Live (multi-agents ou noyau
+          v2), Replay des sessions persistées et Heatmap.
         </p>
-        <StatusBar graph={displayGraph} running={running} mode={mode} />
+        <StatusBar graph={displayGraph} running={running} mode={mode} source={source} />
 
         {flowList.length > 0 && (
           <div className="fsessions">
@@ -297,6 +308,8 @@ export default function FlowMapPage() {
       <Toolbar
         mode={mode}
         setMode={setModeAndReset}
+        source={source}
+        setSource={setSource}
         prompt={prompt}
         setPrompt={setPrompt}
         onRunLive={runLive}
@@ -325,8 +338,8 @@ export default function FlowMapPage() {
         {visible.nodes.length === 0 ? (
           <div className="fempty">
             <p>
-              Aucune session chargée. Lancez un run (ou chargez la démo) pour voir le
-              pipeline s'animer.
+              Aucune session chargée. Lancez un run (multi-agents ou noyau v2) ou
+              chargez la démo pour voir le pipeline s'animer.
             </p>
             <button type="button" className="fempty__demo" onClick={loadDemo}>
               Charger la démo
@@ -352,13 +365,31 @@ export default function FlowMapPage() {
   );
 }
 /** Bandeau de résumé : statut du run, volume d'appels d'outils, mode. */
-function StatusBar({ graph, running, mode }: { graph: GraphState; running: boolean; mode: FlowMode }) {
+function StatusBar({
+  graph,
+  running,
+  mode,
+  source,
+}: {
+  graph: GraphState;
+  running: boolean;
+  mode: FlowMode;
+  source: FlowSource;
+}) {
   const modeLabel = mode === "live" ? "Temps réel" : mode === "replay" ? "Replay" : "Heatmap";
+  const sourceLabel = source === "core" ? "Noyau v2" : "Multi-agents";
+  // Libellés lisibles des statuts de la machine à états du run (domaine v2).
+  const statusLabels: Record<string, string> = {
+    completed: "Terminé",
+    error: "Erreur",
+    pending_approval: "Validation requise",
+    synthesizing: "Synthèse en cours…",
+  };
   return (
     <div className="fstatus">
       <span className="fstatus__item">
         <span className={running ? "fdot fdot--running" : "fdot fdot--ok"} />
-        {running ? "Run en cours" : graph.runStatus ?? "Prêt"}
+        {running ? "Run en cours" : statusLabels[graph.runStatus ?? ""] ?? "Prêt"}
       </span>
       <span className="fstatus__item">
         Outils : <strong>{graph.toolCalls}</strong>
@@ -367,6 +398,7 @@ function StatusBar({ graph, running, mode }: { graph: GraphState; running: boole
         Agents : <strong>{graph.nodeOrder.length}</strong>
       </span>
       <span className="fstatus__item">Mode : {modeLabel}</span>
+      <span className="fstatus__item">Source : {sourceLabel}</span>
       {graph.error && (
         <span className="fstatus__item fstatus__item--error">{graph.error}</span>
       )}

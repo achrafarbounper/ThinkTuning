@@ -81,6 +81,11 @@
   border-radius: 8px; background: var(--tt-surface-2, #0d1117);
   color: var(--tt-text, #e7eaee); font-size: 0.85rem;
 }
+.frun__source {
+  padding: 8px 10px; border: 1px solid var(--tt-border, #1e242c);
+  border-radius: 8px; background: var(--tt-surface-2, #0d1117);
+  color: var(--tt-text, #e7eaee); font-size: 0.82rem; cursor: pointer;
+}
 .frun__go {
   border: 0; padding: 8px 16px; border-radius: 8px; cursor: pointer;
   background: linear-gradient(135deg, #5b8def, #8b5cf6);

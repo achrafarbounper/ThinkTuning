@@ -5,7 +5,7 @@
  * filtres (agent / outil / statut).
  */
 
-import type { FlowMode } from "./types";
+import type { FlowMode, FlowSource } from "./types";
 
 export interface FlowFilters {
   agent: string;
@@ -19,6 +19,9 @@ export const NO_FILTER = "__all__";
 interface ToolbarProps {
   mode: FlowMode;
   setMode: (m: FlowMode) => void;
+  /** Source du run live : orchestration multi-agents ou noyau v2. */
+  source: FlowSource;
+  setSource: (s: FlowSource) => void;
   prompt: string;
   setPrompt: (p: string) => void;
   onRunLive: () => void;
@@ -40,6 +43,8 @@ interface ToolbarProps {
 export function Toolbar({
   mode,
   setMode,
+  source,
+  setSource,
   prompt,
   setPrompt,
   onRunLive,
@@ -93,12 +98,28 @@ export function Toolbar({
               if (enabled && !running) onRunLive();
             }}
           >
+            <select
+              className="frun__source"
+              value={source}
+              onChange={(e) => setSource(e.target.value as FlowSource)}
+              aria-label="Source du run : orchestration multi-agents ou noyau v2"
+              title="Orchestration : superviseur + workers spécialisés. Noyau v2 : agent unique (Intent → Plan → Policy → Budget → Action)."
+            >
+              <option value="multi">Multi-agents</option>
+              <option value="core">Noyau v2</option>
+            </select>
             <input
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Tâche globale pour l'orchestrateur (optionnel)"
-              aria-label="Prompt de l'orchestrateur"
+              placeholder={
+                source === "core"
+                  ? "Tâche pour le noyau agentique (optionnel)"
+                  : "Tâche globale pour l'orchestrateur (optionnel)"
+              }
+              aria-label={
+                source === "core" ? "Prompt du noyau agentique" : "Prompt de l'orchestrateur"
+              }
             />
             <button type="submit" className="frun__go" disabled={running}>
               {running ? "En cours… / Arrêter" : "Lancer le run"}

@@ -6,12 +6,17 @@
  * prêts à être réduits dans le graphe.
  */
 
-import { readNamedSseEvents, type NamedSseEvent } from "../components/chat/streamSse";
-import { resetSseCounter, sseToFlowEvent } from "../components/flowmap/events";
+import { readNamedSseEvents, readSseEvents, type NamedSseEvent } from "../components/chat/streamSse";
+import {
+  coreFrameToFlowEvent,
+  resetSseCounter,
+  sseToFlowEvent,
+} from "../components/flowmap/events";
 import type { FlowEvent } from "../components/flowmap/types";
 import { DEFAULT_BASE_URL } from "./clientCore";
 
 const MULTI_ASK_STREAM_ENDPOINT = "/api/agent/multi/ask/stream";
+const CORE_ASK_STREAM_ENDPOINT = "/api/agent/ask/core/stream";
 const API_CONFIG_KEY = "thinktuning.apiConfig";
 
 /** Clé API (X-API-Key) persistée localement, si présente. */
@@ -94,6 +99,68 @@ export async function streamMultiFlow({ prompt, model, signal, onEvent }: FlowSt
 
   for await (const frame of readNamedSseEvents(response.body)) {
     onSseFrame(frame, startedAt, roleSubtask, onEvent);
+  }
+}
+
+/**
+ * Ouvre le flux du NOYAU V2 (POST /api/agent/ask/core/stream) et diffuse les
+ * FlowEvent normalisés (nœud « noyau »). Frames SSE non nommées
+ * ({"core_tool": …} | {"final": …} | …) → `coreFrameToFlowEvent`. Résout à la
+ * fin, ou lève en cas d'erreur HTTP précoce (LLM injoignable, repli legacy…).
+ *
+ * Le noyau v2 utilise le modèle configuré côté backend (Settings AGENT_*) :
+ * aucun champ `model` n'est transmis (contrairement au flux multi-agents).
+ */
+export async function streamCoreFlow({ prompt, signal, onEvent }: FlowStreamOptions): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const apiKey = resolveApiKey();
+  if (apiKey) headers["X-API-Key"] = apiKey;
+
+  const controller = new AbortController();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+
+  const body: Record<string, unknown> = {
+    prompt: prompt && prompt.trim() ? prompt.trim() : "Analyse ce sujet et produis une synthèse structurée.",
+  };
+
+  const base = DEFAULT_BASE_URL.replace(/\/+$/, "");
+  const response = await fetch(`${base}${CORE_ASK_STREAM_ENDPOINT}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+
+  if (!response.ok || !response.body) {
+    let detail = `Statut ${response.status} sur /ask/core/stream`;
+    try {
+      const err = (await response.json()) as { detail?: string };
+      if (err.detail) detail = String(err.detail);
+    } catch {
+      /* corps non-JSON */
+    }
+    throw new Error(detail);
+  }
+
+  resetSseCounter();
+  const startedAt = performance.now();
+
+  // Nœud « noyau » présent dès l'ouverture du flux (miroir de l'événement
+  // core.start persisté côté backend) : l'arc planner -> noyau apparaît tôt.
+  onEvent({
+    t: "worker.start",
+    at: 0,
+    task_id: "core",
+    role: "noyau",
+    subtask: String(body.prompt),
+  });
+
+  for await (const payload of readSseEvents(response.body)) {
+    const ev = coreFrameToFlowEvent(payload, performance.now() - startedAt);
+    if (ev) onEvent(ev);
   }
 }
 

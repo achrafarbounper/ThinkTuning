@@ -185,6 +185,21 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       pings.push(edge.id);
       break;
     }
+    case "worker.approval": {
+      // La policy exige une validation humaine : le run est suspendu, l'agent
+      // attend la décision (carte Approuver / Refuser côté Assistant IA).
+      // L'empreinte SHA-256 de l'action garantit la reprise exacte.
+      const node = ensureNode(graph, event.role);
+      node.status = "ready";
+      graph.runStatus = "pending_approval";
+      break;
+    }
+    case "synthesizing": {
+      // Orchestration multi-agents : les workers ont rendu, la synthèse finale
+      // est en cours.
+      graph.runStatus = "synthesizing";
+      break;
+    }
     case "done": {
       graph.finalAnswer = event.answer;
       graph.runStatus = "completed";

@@ -3,7 +3,13 @@
  *
  * Gère :
  * - l'historique des messages (bulles utilisateur / IA),
- * - le streaming de la réponse via POST /api/ai (Server-Sent Events),
+ * - trois routages de conversation (mutuellement exclusifs) :
+ *     · Chat (défaut) : streaming POST /api/ai,
+ *     · Agent (v2)    : noyau agentique POST /api/agent/ask/core — boucle
+ *       Intent -> Plan -> Policy -> Budget -> Action, appels d'outils
+ *       streamés (core_tool) et carte de validation humaine,
+ *     · Multi-agents  : orchestration superviseur / workers
+ *       POST /api/agent/multi/ask/stream,
  * - l'authentification via l'en-tête X-API-Key (config dashboard ou VITE_API_KEY),
  * - le chargement (spinner + curseur clignotant),
  * - le défilement automatique vers le bas (avec respect du scroll manuel),
@@ -40,25 +46,6 @@ import './chat.css';
 const AI_ENDPOINT = '/api/ai';
 
 /**
- * Endpoint du mode Agent (POST /api/agent/ask) : contrairement au chat SSE
- * /api/ai, l'agent peut déclencher des outils ; une action à risque renvoie
- * status="awaiting_approval" et attend la décision humaine (approve/reject).
- */
-const AGENT_ASK_ENDPOINT = '/api/agent/ask';
-
-/**
- * Variante streaming du mode Agent (POST /api/agent/ask/stream) : mêmes
- * événements temps réel que /api/ai (thinking_delta, delta) PLUS la diffusion
- * des appels d'outils (tool_start / tool_result) et un payload final (« final »)
- * portant le statut du gate (completed / awaiting_approval / rejected).
- * Utilisé en priorité ; repli automatique sur POST /api/agent/ask si absent.
- */
-const AGENT_ASK_STREAM_ENDPOINT = '/api/agent/ask/stream';
-
-/** Base des endpoints de validation humaine (approve / reject). */
-const APPROVALS_ENDPOINT = '/api/agent/approvals';
-
-/**
  * Endpoint d orchestration multi-agents (POST /api/agent/multi/ask/stream) :
  * le superviseur planifie, dispatche des sous-taches a des workers isoles puis
  * synthetise. Evenements SSE nommes agent.plan / agent.worker.* / agent.done.
@@ -69,15 +56,20 @@ const MULTI_ASK_STREAM_ENDPOINT = '/api/agent/multi/ask/stream';
 const MULTI_SSE_MODE = 'compact';
 
 /**
- * Endpoint du nouveau noyau agentique :
- *  - POST /api/agent/ask/core/stream : streaming SSE (tool_start / tool_result
- *    / delta / final) — chemin principal ;
+ * Endpoint du NOYAU agentique v2 — chemin unique du mode Agent depuis le
+ * décommissionnement du chemin v1 (routes /ask et /ask/stream supprimées) :
+ *  - POST /api/agent/ask/core/stream : streaming SSE (core_tool / delta /
+ *    final) — chemin principal ;
  *  - POST /api/agent/ask/core : bloquant (réponse d'un bloc) — repli si le
  *    backend ne connaît pas encore le stream (404/405).
- * Le backend exige le flag AGENT_NEW_CORE=1 (sinon HTTP 503).
+ * Le noyau est ACTIF PAR DÉFAUT côté backend (AGENT_NEW_CORE) ; une réponse
+ * 503 signale un repli legacy volontaire.
  */
 const CORE_ASK_STREAM_ENDPOINT = '/api/agent/ask/core/stream';
 const CORE_ASK_ENDPOINT = '/api/agent/ask/core';
+
+/** Base des endpoints de validation humaine (approve / reject). */
+const APPROVALS_ENDPOINT = '/api/agent/approvals';
 
 /** Endpoint des conversations persistées (GET/POST /api/sessions…). */
 const SESSIONS_ENDPOINT = '/api/sessions';
@@ -98,24 +90,16 @@ const CHAT_MODEL_STORAGE_KEY = 'thinktuning.chatModel';
 const THINKING_STORAGE_KEY = 'thinktuning.enableThinking';
 
 /**
- * Clé de persistance du mode « Agent » (localStorage). Dans ce mode, les
- * messages partent vers /api/agent/ask au lieu du chat SSE /api/ai : l'agent
- * peut appeler ses outils, et une action à risque déclenche la carte de
- * validation humaine (auto_approve / approve / reject).
- */
-const AGENT_MODE_STORAGE_KEY = 'thinktuning.agentMode';
-
-/**
  * Cle de persistance du mode « Multi-agents » (orchestration superviseur /
  * workers via /api/agent/multi/ask/stream). Mutuellement exclusif avec le
- * mode Agent simple.
+ * mode Agent (noyau v2).
  */
 const MULTI_MODE_STORAGE_KEY = 'thinktuning.multiAgentMode';
 
 /**
- * Clé de persistance du mode « Noyau v2 » (nouvelle boucle agentique
- * Intent -> Plan -> Policy -> Budget -> Action via /api/agent/ask/core).
- * Mutuellement exclusif avec les modes Agent et Multi-agents.
+ * Clé de persistance du mode « Agent (v2) » — boucle agentique
+ * Intent -> Plan -> Policy -> Budget -> Action via /api/agent/ask/core.
+ * Mutuellement exclusif avec le mode Multi-agents.
  */
 const CORE_MODE_STORAGE_KEY = 'thinktuning.coreMode';
 
@@ -168,15 +152,6 @@ function loadStoredChatModel(): string {
 function loadStoredThinking(): boolean {
   try {
     return window.localStorage.getItem(THINKING_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-/** Relit l'état persisté du mode « Agent » (désactivé par défaut). */
-function loadStoredAgentMode(): boolean {
-  try {
-    return window.localStorage.getItem(AGENT_MODE_STORAGE_KEY) === 'true';
   } catch {
     return false;
   }
@@ -303,18 +278,15 @@ export function ChatWindow() {
   const [modelsLoading, setModelsLoading] = useState(true);
   // Mode « Réflexion » : transmis au backend (enable_thinking) pour chaque
   // message et persisté en localStorage comme le modèle sélectionné.
-      const [enableThinking, setEnableThinking] = useState<boolean>(loadStoredThinking);
+  const [enableThinking, setEnableThinking] = useState<boolean>(loadStoredThinking);
   const [modelsError, setModelsError] = useState('');
-  // Mode « Agent » : les messages passent par /api/agent/ask (l'agent peut
-  // appeler ses outils). Une action à risque affiche la carte d'approbation.
-  const [agentMode, setAgentMode] = useState<boolean>(loadStoredAgentMode);
   // Mode « Multi-agents » : les messages partent vers /api/agent/multi/ask/
   // stream (superviseur : plan -> dispatch -> synthese) et la trace temps reel
   // (plan + workers) est affichee dans la bulle de reponse.
   const [multiMode, setMultiMode] = useState<boolean>(loadStoredMultiMode);
-  // Mode « Noyau v2 » : les messages partent vers /api/agent/ask/core (boucle
-  // Intent -> Plan -> Policy -> Budget -> Action, flag AGENT_NEW_CORE requis
-  // côté backend, sinon le serveur répond 503).
+  // Mode « Agent (v2) » : les messages partent vers /api/agent/ask/core
+  // (boucle Intent -> Plan -> Policy -> Budget -> Action ; le noyau est actif
+  // par défaut côté backend, une réponse 503 signale un repli legacy volontaire).
   const [coreMode, setCoreMode] = useState<boolean>(loadStoredCoreMode);
   // Demande en attente de décision humaine (approve / reject), le cas échéant.
   const [pendingApproval, setPendingApproval] = useState<PendingApprovalData | null>(null);
@@ -510,33 +482,8 @@ export function ChatWindow() {
   }, []);
 
   /**
-   * Active/désactive le mode « Agent » et persiste le choix. Quitter le mode
-   * annule la carte d'approbation affichée (le backend reste maître de la
-   * demande, qui expire seule côté store).
-   */
-  const handleAgentToggle = useCallback(() => {
-    setAgentMode((previous) => {
-      const next = !previous;
-      try {
-        window.localStorage.setItem(AGENT_MODE_STORAGE_KEY, String(next));
-      } catch {
-        /* stockage indisponible : le choix reste valable pour la session */
-      }
-      return next;
-    });
-    setPendingApproval(null);
-    // Mutuellement exclusif avec le mode « Noyau v2 ».
-    setCoreMode(false);
-    try {
-      window.localStorage.setItem(CORE_MODE_STORAGE_KEY, 'false');
-    } catch {
-      /* idem */
-    }
-  }, []);
-
-  /**
-   * Bascule le mode « Multi-agents » (et desactive le mode Agent simple :
-   * les deux routages de message sont mutuellement exclusifs).
+   * Bascule le mode « Multi-agents » (et désactive le mode Agent : les deux
+   * routages de message sont mutuellement exclusifs).
    */
   const handleMultiToggle = useCallback(() => {
     setMultiMode((previous) => {
@@ -549,10 +496,8 @@ export function ChatWindow() {
       return next;
     });
     if (!multiMode) {
-      setAgentMode(false);
       setCoreMode(false);
       try {
-        window.localStorage.setItem(AGENT_MODE_STORAGE_KEY, 'false');
         window.localStorage.setItem(CORE_MODE_STORAGE_KEY, 'false');
       } catch {
         /* idem */
@@ -561,8 +506,10 @@ export function ChatWindow() {
   }, [multiMode]);
 
   /**
-   * Bascule le mode « Noyau v2 » (et desactive les modes Agent et
-   * Multi-agents : les trois routages de message sont mutuellement exclusifs).
+   * Active/désactive le mode « Agent (v2) » — routage vers le noyau agentique
+   * (/ask/core) — et persiste le choix. Quitter le mode annule la carte
+   * d'approbation affichée (le backend reste maître de la demande, qui expire
+   * seule côté store). Mutuellement exclusif avec le mode Multi-agents.
    */
   const handleCoreToggle = useCallback(() => {
     setCoreMode((previous) => {
@@ -575,10 +522,8 @@ export function ChatWindow() {
       return next;
     });
     setPendingApproval(null);
-    setAgentMode(false);
     setMultiMode(false);
     try {
-      window.localStorage.setItem(AGENT_MODE_STORAGE_KEY, 'false');
       window.localStorage.setItem(MULTI_MODE_STORAGE_KEY, 'false');
     } catch {
       /* idem */
@@ -919,129 +864,8 @@ export function ChatWindow() {
     ],
   );
 
-  const askAgentTurn = useCallback(
-    async (
-      assistantId: string,
-      prompt: string,
-      controller: AbortController,
-      resumeRequestId?: string,
-    ): Promise<void> => {
-      /**
-       * Applique le statut final du gate. ``alreadyStreamed`` vaut vrai quand
-       * le texte a déjà été affiché via les deltas SSE (on ne le duplique pas).
-       */
-      const handleFinal = (data: AgentAskResponse, alreadyStreamed: boolean): void => {
-        if (data.status === 'awaiting_approval' && data.request_id) {
-          const tool = data.approval?.tool ?? 'outil inconnu';
-          setPendingApproval({
-            requestId: data.request_id,
-            prompt,
-            tool,
-            reason: data.approval?.reason ?? 'validation humaine requise',
-            args: data.approval?.args,
-          });
-          if (!alreadyStreamed) {
-            appendDelta(assistantId, `[En attente de validation] L'action « ${tool} » nécessite votre décision avant exécution.`);
-          }
-          return;
-        }
-        // completed ou rejected : la réponse backend porte déjà l'explication.
-        if (!alreadyStreamed) appendDelta(assistantId, data.response || '');
-      };
-
-      /** Repli historique : POST bloquant /api/agent/ask (réponse d'un bloc). */
-      const askAgentBlocking = async (): Promise<void> => {
-        // Contrat backend (schéma AskRequest) : champ en snake_case, comme
-        // « enable_thinking » — la forme camelCase serait ignorée par Pydantic.
-        const blockingBody: { prompt: string; session_id?: string; resume_request_id?: string } = { prompt };
-        if (sessionId) blockingBody.session_id = sessionId;
-        if (resumeRequestId) blockingBody.resume_request_id = resumeRequestId;
-
-        const response = await fetch(AGENT_ASK_ENDPOINT, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(blockingBody),
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw new Error(await apiErrorMessage(response));
-        }
-        const data = (await response.json()) as AgentAskResponse;
-        handleFinal(data, false);
-      };
-
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const apiKey = resolveApiKey();
-      if (apiKey) headers['X-API-Key'] = apiKey;
-
-      // Contrat backend (schéma AskStreamRequest) : champs snake_case ; les
-      // sélecteurs de l'en-tête du chat (modèle, Réflexion) sont transmis.
-      const body: Record<string, unknown> = { prompt };
-      if (sessionId) body.session_id = sessionId;
-      if (resumeRequestId) body.resume_request_id = resumeRequestId;
-      if (selectedModel) body.model = selectedModel;
-      if (enableThinking) body.enable_thinking = true;
-
-      const response = await fetch(AGENT_ASK_STREAM_ENDPOINT, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      // Backend sans endpoint de streaming : repli transparent.
-      if (!response.ok && (response.status === 404 || response.status === 405)) {
-        await askAgentBlocking();
-        return;
-      }
-      if (!response.ok) {
-        throw new Error(await apiErrorMessage(response));
-      }
-
-      const contentType = response.headers.get('content-type') ?? '';
-      if (!(contentType.includes('text/event-stream') && response.body)) {
-        // Réponse JSON classique du gate (sans flux) : même rendu que le bloquant.
-        const data = (await response.json()) as AgentAskResponse;
-        handleFinal(data, false);
-        return;
-      }
-
-      let streamedChars = 0;
-      for await (const payload of readSseEvents(response.body)) {
-        if (payload === '[DONE]') break;
-
-        let event: ChatStreamEvent;
-        try {
-          event = JSON.parse(payload) as ChatStreamEvent;
-        } catch {
-          // Charge utile non JSON : affichée telle quelle (tolérance).
-          appendDelta(assistantId, payload);
-          streamedChars += payload.length;
-          continue;
-        }
-
-        if (event.error) throw new Error(event.error);
-        if (event.tool_start?.tool) {
-          appendToolCall(assistantId, {
-            tool: event.tool_start.tool,
-            args: event.tool_start.args,
-            status: 'running',
-          });
-        }
-        if (event.tool_result?.tool) completeToolCall(assistantId, event.tool_result);
-        if (event.thinking_delta) appendThinkingDelta(assistantId, event.thinking_delta);
-        if (event.delta) {
-          appendDelta(assistantId, event.delta);
-          streamedChars += event.delta.length;
-        }
-        if (event.final) handleFinal(event.final, streamedChars > 0);
-      }
-    },
-    [appendDelta, appendThinkingDelta, appendToolCall, completeToolCall, selectedModel, enableThinking, sessionId],
-  );
-
   /**
-   * Tour de chat via le NOUVEAU NOYAU agentique : POST /api/agent/ask/core/
+   * Tour de chat via le NOYAU agentique v2 : POST /api/agent/ask/core/
    * stream (SSE : core_tool / delta / final), avec repli transparent sur le
    * POST bloquant /api/agent/ask/core si le backend ne connaît pas le flux.
    * Même contrat AskResponse que /ask, y compris awaiting_approval -> carte
@@ -1206,17 +1030,13 @@ export function ChatWindow() {
       abortRef.current = controller;
 
       try {
-        // Mode Agent : POST /api/agent/ask (réponse d'un bloc, gate
-        // auto_approve/approve/reject) au lieu du chat SSE /api/ai.
+        // Mode Multi-agents : orchestration superviseur / workers (SSE nommé).
         if (multiMode) {
           await askMultiAgentTurn(assistantId, trimmed, controller);
           return;
         }
-        if (agentMode) {
-          await askAgentTurn(assistantId, trimmed, controller);
-          return;
-        }
-        // Mode Noyau v2 : boucle Intent -> Plan -> Policy -> Budget -> Action.
+        // Mode Agent (v2) : noyau agentique — boucle
+        // Intent -> Plan -> Policy -> Budget -> Action.
         if (coreMode) {
           await askCoreTurn(assistantId, trimmed, controller);
           return;
@@ -1286,7 +1106,7 @@ export function ChatWindow() {
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking, agentMode, coreMode, askAgentTurn, askCoreTurn, sessionId],
+    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking, multiMode, coreMode, askMultiAgentTurn, askCoreTurn, sessionId],
   );
 
   /**
@@ -1316,7 +1136,8 @@ export function ChatWindow() {
         throw new Error(await apiErrorMessage(response));
       }
 
-      // Reprise du run : nouvelle bulle, alimentée par la suite du run agent.
+      // Reprise du run : nouvelle bulle, alimentée par la suite du run
+      // (toujours le noyau v2 depuis le décommissionnement du chemin v1).
       setMessages((previous) => [
         ...previous,
         {
@@ -1327,22 +1148,7 @@ export function ChatWindow() {
           streaming: true,
         },
       ]);
-      // Reprise du run : via le noyau actif (Noyau v2 ou agent historique).
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          createdAt: nowIso(),
-          streaming: true,
-        },
-      ]);
-      if (coreMode) {
-        await askCoreTurn(assistantId, prompt, controller, requestId);
-      } else {
-        await askAgentTurn(assistantId, prompt, controller, requestId);
-      }
+      await askCoreTurn(assistantId, prompt, controller, requestId);
     } catch (error) {
       if (!controller.signal.aborted) {
         patchMessage(assistantId, {
@@ -1357,7 +1163,7 @@ export function ChatWindow() {
       setIsLoading(false);
       abortRef.current = null;
     }
-  }, [pendingApproval, isLoading, coreMode, askCoreTurn, askAgentTurn, patchMessage]);
+  }, [pendingApproval, isLoading, askCoreTurn, patchMessage]);
 
   /**
    * Décision humaine : REFUSER une action en attente. Aucune exécution ; un
@@ -1428,24 +1234,13 @@ export function ChatWindow() {
       <button
         type="button"
         className="copilot-chat__think-toggle"
-        data-active={agentMode || undefined}
-        onClick={handleAgentToggle}
-        aria-pressed={agentMode}
-        title="Mode Agent : l'agent peut exécuter ses outils ; une action à risque attend votre validation (approve / reject)"
-      >
-        <BotIcon />
-        <span className="copilot-chat__think-label">Agent</span>
-      </button>
-      <button
-        type="button"
-        className="copilot-chat__think-toggle"
         data-active={coreMode || undefined}
         onClick={handleCoreToggle}
         aria-pressed={coreMode}
-        title="Noyau v2 : nouvelle boucle agentique (Intent -> Plan -> Policy -> Budget -> Action). Nécessite AGENT_NEW_CORE=1 côté backend."
+        title="Mode Agent (Noyau v2) : boucle Intent -> Plan -> Policy -> Budget -> Action ; exécution réelle des outils, sandbox policy (AUTO_APPROVE / APPROVE / REJECT), budget plafonné. Une action à risque attend votre validation (approve / reject). Actif par défaut côté backend (AGENT_NEW_CORE)."
       >
-        <CoreIcon />
-        <span className="copilot-chat__think-label">Noyau v2</span>
+        <BotIcon />
+        <span className="copilot-chat__think-label">Agent (v2)</span>
       </button>
       <button
         type="button"
@@ -1614,7 +1409,7 @@ function TeamIcon() {
   );
 }
 
-/** Icône « robot » du bouton Mode Agent (outils + validation humaine). */
+/** Icône « robot » du bouton Mode Agent (noyau v2 : outils + validation humaine). */
 function BotIcon() {
   return (
     <svg
@@ -1636,27 +1431,4 @@ function BotIcon() {
   );
 }
 
-/** Icône « engrenages » du bouton Noyau v2 (boucle agentique Intent -> Action). */
-function CoreIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 2.5 20 7v10l-8 4.5L4 17V7l8-4.5Z" />
-      <circle cx="12" cy="12" r="2.6" />
-      <path d="M12 6.2v3.2" />
-      <path d="M12 14.6v3.2" />
-      <path d="M7.3 9.3l2.8 1.6" />
-      <path d="M13.9 13.1l2.8 1.6" />
-      <path d="M16.7 9.3l-2.8 1.6" />
-      <path d="M10.1 13.1l-2.8 1.6" />
-    </svg>
-  );
-}
 
