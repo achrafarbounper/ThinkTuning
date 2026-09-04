@@ -69,6 +69,8 @@ def test_build_core_openrouter_uses_key_and_url(monkeypatch) -> None:
 
 
 def test_build_core_respects_budget_settings(monkeypatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("AGENT_PROVIDER", "ollama")
     monkeypatch.setenv("AGENT_MAX_LLM_ROUNDS", "3")
     monkeypatch.setenv("AGENT_MAX_TOOL_CALLS", "7")
     core = factory.build_agent_core()

@@ -7,6 +7,27 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from src.dataset.loader import LABEL_NAMES
 from src.utils.flags import TEST_MODE
 _DEFAULT_MAX_LENGTH = 128
+# Taille de chunk d'inférence : au-delà, on découpe pour éviter de tokenizer
+# tout un lot géant en mémoire (OOM sur /predict/batch avec 100k lignes).
+_DEFAULT_CHUNK_SIZE = 64
+
+
+def _resolve_device() -> torch.device:
+    """Device d'inférence : PREDICT_DEVICE=auto|cpu|cuda (défaut auto).
+
+    Historiquement l'inférence était figée sur CPU (``map_location="cpu"``)
+    alors que l'entraînement supportait CUDA — on aligne les deux.
+    """
+    requested = os.getenv("PREDICT_DEVICE", "auto").lower()
+    if requested == "cpu":
+        return torch.device("cpu")
+    if requested == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "PREDICT_DEVICE=cuda mais CUDA est indisponible sur cette machine."
+            )
+        return torch.device("cuda")
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def _has_nonempty_weights(path: str) -> bool:
@@ -156,7 +177,7 @@ class Predictor:
             raise FileNotFoundError(f"Model path not found: {model_path}")
 
         resolved_model_path = _resolve_model_dir(model_path)
-        # MODE TEST : TinyModel + TinyTokenizer
+        # MODE TEST : TinyModel + TinyTokenizer (toujours sur CPU).
         if TEST_MODE:
             from src.inference.tiny_tokenizer import TinyTokenizer
             from src.model.tiny_model import TinyModel
@@ -169,6 +190,7 @@ class Predictor:
             self.model = TinyModel()
             self.model.load_state_dict(torch.load(state_dict_path, map_location="cpu"))
             self.model.eval()
+            self.device = torch.device("cpu")
             return
 
         self.model_path = resolved_model_path
@@ -238,6 +260,10 @@ class Predictor:
         # est quasi-aléatoire (qui produirait du `neutral` universel).
         _check_head_trained(self.model)
 
+        # Alignement inférence/entraînement : le modèle suit le device demandé
+        # (auto = CUDA si disponible, sinon CPU).
+        self.device = _resolve_device()
+        self.model.to(self.device)
 
     def predict(self, texts):
         """
@@ -249,6 +275,18 @@ class Predictor:
         Returns:
             Liste de dicts : {text, sentiment, confidence}
         """
+        if not texts:
+            # Garde-fou : tokenizer([]) lèverait une erreur obscure.
+            return []
+
+        chunk_size = int(os.getenv("PREDICT_CHUNK_SIZE", str(_DEFAULT_CHUNK_SIZE)))
+        results = []
+        for start in range(0, len(texts), chunk_size):
+            results.extend(self._predict_chunk(texts[start : start + chunk_size]))
+        return results
+
+    def _predict_chunk(self, texts):
+        """Inférence d'un chunk (l'API .predict découpe elle-même les gros lots)."""
         inputs = self.tokenizer(
             texts,
             padding=True,
@@ -258,22 +296,24 @@ class Predictor:
             return_token_type_ids=False,
         )
         inputs.pop("token_type_ids", None)
+        inputs = {key: value.to(self.device) for key, value in inputs.items()}
 
-        with torch.no_grad():
+        # inference_mode : plus rapide que no_grad (désactive aussi le
+        # tracking de version des tenseurs, pas seulement le graphe).
+        with torch.inference_mode():
             logits = self.model(**inputs).logits
 
-        probs = torch.softmax(logits, dim=-1)
+        probs = torch.softmax(logits, dim=-1).cpu()
         preds = torch.argmax(probs, dim=-1)
 
-        results = []
-        for text, pred, prob in zip(texts, preds, probs):
-            results.append({
+        return [
+            {
                 "text": text,
                 "sentiment": LABEL_NAMES[pred.item()],
                 "confidence": round(prob[pred].item(), 3),
-            })
-
-        return results
+            }
+            for text, pred, prob in zip(texts, preds, probs)
+        ]
 
     def predict_batch(self, texts):
         """

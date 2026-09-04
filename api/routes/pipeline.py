@@ -20,7 +20,6 @@ from core.models import PipelineRequest, TrainJob, JobStatus, JobListResponse
 router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
 
 _jobs_lock = threading.Lock()
-_job_cancel_events = {}
 
 
 @router.post("", response_model=TrainJob, status_code=202)
@@ -38,7 +37,9 @@ def start_pipeline(req: PipelineRequest, _: bool = Depends(require_api_key)):
     store = get_job_store()
     with _jobs_lock:
         store[job_id] = job
-        _job_cancel_events.setdefault(job_id, get_cancel_event(job_id))
+        # Pré-crée l'Event d'annulation côté runner (source unique partagée
+        # avec POST /pipeline/cancel/{job_id}) — plus de dict dupliqué route/runner.
+        get_cancel_event(job_id)
 
     thread = threading.Thread(target=run_pipeline, args=(job_id, req), daemon=True)
     thread.start()

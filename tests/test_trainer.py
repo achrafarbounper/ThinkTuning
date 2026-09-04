@@ -175,7 +175,15 @@ class _HFStyleModel:
         )
 
 
-def test_save_model_version_writes_training_report():
+def test_save_model_version_writes_training_report(monkeypatch, tmp_path):
+    # Redirige MODEL_ROOT vers un tmp : sans cela, chaque run pytest publie un
+    # dossier de stub dans experiments/models/ (pollution de l'état réel, qui
+    # cassait ensuite /predict et les tests résolvant la dernière version).
+    from core import model_versioning as _mv
+
+    monkeypatch.setattr(_mv, "MODEL_ROOT", str(tmp_path / "models"))
+    monkeypatch.setattr(_mv, "MODELS_ROOT", str(tmp_path / "models"))
+
     model = TinyTextModel()
     cfg = _make_cfg(model_name="distilbert-base-uncased")
     trainer = Trainer(model=model, cfg=cfg)
@@ -210,9 +218,14 @@ def test_save_model_version_writes_training_report():
     assert payload["metrics"]["accuracy_by_epoch"] == [0.85]
 
 
-def test_save_model_version_writes_config_and_safetensors_weights():
+def test_save_model_version_writes_config_and_safetensors_weights(monkeypatch, tmp_path):
     """Le dossier produit par POST /train doit être chargeable par /predict :
     il doit contenir config.json + model.safetensors pour un modèle HF."""
+    from core import model_versioning as _mv
+
+    monkeypatch.setattr(_mv, "MODEL_ROOT", str(tmp_path / "models"))
+    monkeypatch.setattr(_mv, "MODELS_ROOT", str(tmp_path / "models"))
+
     trainer = SimpleNamespace(
         model=_HFStyleModel(),
         cfg={"model_name": "distilbert-base-multilingual-cased"},

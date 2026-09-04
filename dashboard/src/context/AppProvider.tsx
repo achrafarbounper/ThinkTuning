@@ -36,58 +36,67 @@ const AGENT_DEFAULTS: AgentSettings = {
   temperature: 0.2,
 };
 
-function loadStoredConfig(): ApiConnectionConfig {
+/** Lecture + validation de la config API stockée (fusion avec les défauts). */
+function readStoredConfig(): ApiConnectionConfig {
   try {
-    const raw = window.localStorage.getItem("thinktuning.apiConfig");
-    if (!raw) return { baseUrl: DEFAULT_BASE_URL, apiKey: "" };
-    const parsed = JSON.parse(raw) as Partial<ApiConnectionConfig>;
+    const parsed = JSON.parse(
+      window.localStorage.getItem("thinktuning.apiConfig") ?? ""
+    ) as Partial<ApiConnectionConfig>;
     return { baseUrl: parsed.baseUrl || DEFAULT_BASE_URL, apiKey: parsed.apiKey || "" };
   } catch {
     return { baseUrl: DEFAULT_BASE_URL, apiKey: "" };
   }
 }
 
-function loadAgentSettings(): AgentSettings {
+/** Lecture des paramètres agent stockés (fusion avec les défauts). */
+function readStoredAgentSettings(): AgentSettings {
   try {
-    const raw = window.localStorage.getItem("thinktuning.agentSettings");
-    if (!raw) return { ...AGENT_DEFAULTS };
-    return { ...AGENT_DEFAULTS, ...(JSON.parse(raw) as Partial<AgentSettings>) };
+    const parsed = JSON.parse(
+      window.localStorage.getItem("thinktuning.agentSettings") ?? ""
+    ) as Partial<AgentSettings>;
+    return { ...AGENT_DEFAULTS, ...parsed };
   } catch {
     return { ...AGENT_DEFAULTS };
   }
 }
 
-function saveAgentSettings(settings: AgentSettings): void {
+/** Lecture de la taille max d'historique stockée (bornée). */
+function readStoredMaxHistorySize(): number {
   try {
-    window.localStorage.setItem("thinktuning.agentSettings", JSON.stringify(settings));
-  } catch {
-    /* stockage indisponible */
-  }
-}
-
-function loadStoredMaxHistorySize(): number {
-  try {
-    const raw = window.localStorage.getItem("thinktuning.maxHistorySize");
-    const size = parseInt(raw ?? "", 10);
+    const size = parseInt(
+      window.localStorage.getItem("thinktuning.maxHistorySize") ?? "",
+      10
+    );
     return Number.isNaN(size) ? DEFAULT_MAX_HISTORY : Math.max(1, size);
   } catch {
     return DEFAULT_MAX_HISTORY;
   }
 }
+
 export default function AppProvider({ children }: { children: ReactNode }) {
-  const [config, setConfig] = useState<ApiConnectionConfig>(loadStoredConfig);
+  // Persistance centralisée via useLocalStorage : un seul chemin de lecture/
+  // écriture/erreur (fini les try/catch + useEffect dupliqués par champ).
+  const [config, setConfig] = useLocalStorage<ApiConnectionConfig>(
+    "thinktuning.apiConfig",
+    readStoredConfig()
+  );
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelVersion[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState("");
-  // Historique persisté via le hook réutilisable (fini les try/catch dupliqués).
   const [predictionsHistory, setPredictionsHistory] = useLocalStorage<PredictionResult[]>(
     "thinktuning.predictionsHistory",
     []
   );
-  const [maxHistorySizeState, setMaxHistorySizeState] = useState(loadStoredMaxHistorySize);
-  const [agentSettings, setAgentSettings] = useState<AgentSettings>(loadAgentSettings);
+  const [maxHistorySizeState, setMaxHistorySizeState] = useLocalStorage<number>(
+    "thinktuning.maxHistorySize",
+    readStoredMaxHistorySize()
+  );
+  const [agentSettings, setAgentSettings] = useLocalStorage<AgentSettings>(
+    "thinktuning.agentSettings",
+    readStoredAgentSettings()
+  );
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
@@ -100,14 +109,6 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       [{ id: logIdRef.current, type, text, ts: Date.now() }, ...prev].slice(0, 25)
     );
   }, []);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("thinktuning.apiConfig", JSON.stringify(config));
-    } catch {
-      /* stockage indisponible */
-    }
-  }, [config]);
 
   // --- Polling santé & modèles (pause auto quand l'onglet est masqué) --------
   // Le premier tick est différé (initialDelayMs) : /health et listModels sont
@@ -152,10 +153,13 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     tick: refreshModels,
   });
 
-  const persistAgentSettings = useCallback((settings: AgentSettings) => {
-    saveAgentSettings(settings);
-    setAgentSettings(settings);
-  }, []);
+  const persistAgentSettings = useCallback(
+    (settings: AgentSettings | ((prev: AgentSettings) => AgentSettings)) => {
+      // useLocalStorage accepte un updater : écriture état + stockage atomique.
+      setAgentSettings(settings);
+    },
+    [setAgentSettings]
+  );
 
   // Réutilise le client memoïsé (même config) au lieu de le réinstancier.
   const updateAgentSettings = useCallback(
@@ -168,11 +172,13 @@ export default function AppProvider({ children }: { children: ReactNode }) {
         );
         if (resp) {
           const normalized = normalizeAgentSettings(resp.settings);
-          // La clé n'est jamais renvoyée par l'API : on conserve celle saisie.
-          persistAgentSettings({
+          persistAgentSettings((prev) => ({
             ...normalized,
-            openrouterApiKey: updates.openrouterApiKey || normalized.openrouterApiKey,
-          });
+            openrouterApiKey:
+              updates.openrouterApiKey !== undefined
+                ? updates.openrouterApiKey
+                : prev.openrouterApiKey,
+          }));
         }
         setAgentError(null);
         pushLog("success", "Paramètres assistant IA enregistrés.");
@@ -214,12 +220,13 @@ export default function AppProvider({ children }: { children: ReactNode }) {
         );
         if (res) {
           const normalized = normalizeAgentSettings(res.settings);
-          // La clé n'est jamais renvoyée par l'API : on réutilise la valeur locale.
-          const local = loadAgentSettings();
-          persistAgentSettings({
+          // L'API ne renvoie jamais les clés secrètes : on préserve la valeur
+          // locale via un updater (aucune closure obsolète, pas de relecture
+          // du stockage).
+          persistAgentSettings((prev) => ({
             ...normalized,
-            openrouterApiKey: local.openrouterApiKey || normalized.openrouterApiKey,
-          });
+            openrouterApiKey: prev.openrouterApiKey,
+          }));
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -256,15 +263,11 @@ export default function AppProvider({ children }: { children: ReactNode }) {
         size === "" || Number.isNaN(parsed)
           ? DEFAULT_MAX_HISTORY
           : Math.max(1, Math.min(1000, parsed));
+      // useLocalStorage persiste automatiquement (plus d'écriture manuelle).
       setMaxHistorySizeState(newSize);
-      try {
-        window.localStorage.setItem("thinktuning.maxHistorySize", String(newSize));
-      } catch {
-        /* stockage indisponible */
-      }
       setPredictionsHistory((prev) => prev.slice(0, newSize));
     },
-    [setPredictionsHistory]
+    [setMaxHistorySizeState, setPredictionsHistory]
   );
 
   const saveConfig = useCallback(

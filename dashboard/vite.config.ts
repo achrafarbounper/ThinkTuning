@@ -4,6 +4,13 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Tests unitaires (vitest) : environnement DOM pour React Testing Library.
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/test/setup.ts',
+    css: false,
+  },
   build: {
     outDir: 'dist', // Assurez-vous que c'est bien 'dist'
     // Désactive les sourcemaps en production : fichiers .map plus générés,

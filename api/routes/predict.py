@@ -1,16 +1,30 @@
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form
-from fastapi.responses import Response
-from pydantic import BaseModel
-from typing import Optional
-import pandas as pd
 import io
+import logging
+import os
+from typing import Annotated, Optional
+
+import pandas as pd
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field, StringConstraints
 
 from api.dependencies.auth import require_api_key
-from core.predictor_cache import get_predictor, reload_predictor
+from core.predictor_cache import reload_predictor
 import api
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Prediction"])
+
+# ---------------------------------------------------------------------------
+# Garde-fous d'entrée (validation + anti-DoS). Bornes configurables via
+# l'environnement pour s'adapter à la capacité mémoire du déploiement.
+# ---------------------------------------------------------------------------
+MAX_TEXTS_PER_REQUEST = int(os.getenv("PREDICT_MAX_TEXTS", "256"))
+MAX_TEXT_CHARS = int(os.getenv("PREDICT_MAX_TEXT_CHARS", "10000"))
+MAX_UPLOAD_BYTES = int(os.getenv("PREDICT_BATCH_MAX_BYTES", str(10 * 1024 * 1024)))
+MAX_BATCH_ROWS = int(os.getenv("PREDICT_BATCH_MAX_ROWS", "20000"))
+PREDICT_CHUNK_SIZE = int(os.getenv("PREDICT_BATCH_CHUNK_SIZE", "128"))
 
 
 # ---------------------------
@@ -18,7 +32,12 @@ router = APIRouter(tags=["Prediction"])
 # ---------------------------
 
 class PredictRequest(BaseModel):
-    texts: list[str]
+    # min_length/max_length sur la liste : refuse [] (qui ferait planter le
+    # tokenizer avec une 500) et borne la taille du lot (anti-DoS).
+    texts: list[Annotated[str, StringConstraints(max_length=MAX_TEXT_CHARS)]] = Field(
+        min_length=1,
+        max_length=MAX_TEXTS_PER_REQUEST,
+    )
 
 
 class Prediction(BaseModel):
@@ -57,17 +76,46 @@ async def predict_batch(
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty file")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Fichier trop volumineux ({len(raw)} octets, maximum {MAX_UPLOAD_BYTES}).",
+        )
 
     try:
         df = pd.read_csv(io.BytesIO(raw))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid CSV")
+    except Exception as exc:
+        # `from exc` : la cause réelle (encodage, séparateur…) reste visible
+        # dans les logs serveur au lieu d'être avalée silencieusement.
+        raise HTTPException(status_code=400, detail="Invalid CSV") from exc
 
     if text_column not in df.columns:
         raise HTTPException(status_code=400, detail="Missing text column")
 
-    predictor = get_predictor(model)
-    preds = predictor.predict(df[text_column].tolist())
+    if len(df) > MAX_BATCH_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Trop de lignes ({len(df)} > {MAX_BATCH_ROWS}). Découpez le fichier.",
+        )
+
+    # Un NaN pandas devient float : le tokenizer planterait sur autre chose
+    # que du texte. On refuse explicitement au lieu d'inférer silencieusement.
+    series = df[text_column]
+    if series.isna().any():
+        raise HTTPException(
+            status_code=400,
+            detail=f"La colonne '{text_column}' contient des valeurs vides.",
+        )
+    texts = series.astype(str).tolist()
+
+    predictor = api._get_predictor(model)
+
+    # Inférence par chunks : un seul appel predict() sur un gros lot
+    # tokenizerait tout en mémoire (OOM). Les résultats restent dans
+    # l'ordre du CSV.
+    preds: list[dict] = []
+    for start in range(0, len(texts), PREDICT_CHUNK_SIZE):
+        preds.extend(predictor.predict(texts[start : start + PREDICT_CHUNK_SIZE]))
 
     df["sentiment"] = [p["sentiment"] for p in preds]
     df["confidence"] = [p["confidence"] for p in preds]
@@ -88,8 +136,16 @@ async def predict_batch(
         )
 
     if response_format == "parquet":
-        buf = io.BytesIO()
-        df.to_parquet(buf, index=False)
+        # pyarrow est une dépendance optionnelle de pandas : sans elle,
+        # to_parquet lèverait une ImportError non gérée (500).
+        try:
+            buf = io.BytesIO()
+            df.to_parquet(buf, index=False)
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Le format 'parquet' nécessite pyarrow (pip install pyarrow).",
+            ) from exc
         return Response(
             content=buf.getvalue(),
             media_type="application/octet-stream",
@@ -137,7 +193,7 @@ class CompareRequest(BaseModel):
 
 @router.post("/compare")
 def compare_route(payload: CompareRequest, _: bool = Depends(require_api_key)):
-    predictor = api._get_predictor()   # ← FIX
+    predictor = api._get_predictor()
     a, b = predictor.predict([payload.text_a, payload.text_b])
 
     diff = abs(a["confidence"] - b["confidence"])

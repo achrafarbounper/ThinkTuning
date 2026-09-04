@@ -65,23 +65,14 @@ export class SentimentApiClient extends SentimentApiClientCore {
     return this._request<ApiHealth>("/health");
   }
 
+  /** Exposition Prometheus (texte brut), via le transport central. */
   async getMetricsRaw(): Promise<string> {
-    const url = this._buildUrl("/metrics");
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new ApiError(`Erreur HTTP ${response.status} sur /metrics`, response.status);
-    }
-    return response.text();
+    return this._requestText("/metrics");
   }
 
   /** Endpoint proxy JSON de secours (voir api/routes/metrics.py). */
   async getMetricsJson(): Promise<unknown> {
-    const url = this._buildUrl("/metrics/json");
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new ApiError(`Erreur HTTP ${response.status} sur /metrics/json`, response.status);
-    }
-    return response.json();
+    return this._request<unknown>("/metrics/json");
   }
 
   // -- /models --------------------------------------------------------------
@@ -111,8 +102,9 @@ export class SentimentApiClient extends SentimentApiClientCore {
     textColumn = "text",
     model,
   }: { file?: File; textColumn?: string; model?: string } = {}) {
+    if (!file) throw new ApiError("Aucun fichier CSV fourni.", 0, null);
     const form = new FormData();
-    form.append("file", file!);
+    form.append("file", file);
     form.append("text_column", textColumn);
     form.append("response_format", "json");
     return this._requestMultipart("/predict/batch", {
@@ -126,8 +118,9 @@ export class SentimentApiClient extends SentimentApiClientCore {
     textColumn = "text",
     model,
   }: { file?: File; textColumn?: string; model?: string } = {}) {
+    if (!file) throw new ApiError("Aucun fichier CSV fourni.", 0, null);
     const form = new FormData();
-    form.append("file", file!);
+    form.append("file", file);
     form.append("text_column", textColumn);
     form.append("response_format", "csv");
     return this._requestMultipart("/predict/batch", {
@@ -154,9 +147,12 @@ export class SentimentApiClient extends SentimentApiClientCore {
     method?: string;
     model?: string;
   } = {}) {
+    if (!fileA || !fileB) {
+      throw new ApiError("Deux fichiers CSV (A et B) sont requis.", 0, null);
+    }
     const form = new FormData();
-    form.append("file_a", fileA!);
-    form.append("file_b", fileB!);
+    form.append("file_a", fileA);
+    form.append("file_b", fileB);
     form.append("text_column", textColumn);
     if (threshold !== undefined && threshold !== "") form.append("threshold", String(threshold));
     if (method) form.append("method", method);
