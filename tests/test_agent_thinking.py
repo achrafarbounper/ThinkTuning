@@ -20,17 +20,17 @@ Lance avec : pytest tests/test_agent_thinking.py -v
 import json
 import os
 
-# Config test AVANT tout import (le cache insère ia/ dans sys.path).
+# Config test AVANT tout import de l'application.
 os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port factice
 
-from agent.thinking import extract_thinking  # noqa: E402
+from ia.agent.thinking import extract_thinking  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api import app  # noqa: E402
 
 # ORDRE IMPORTANT : importer agent_cache AVANT tout module « agent.* »,
-# c'est lui qui ajoute le dossier ia/ au sys.path.
+# c'est le point d'entrée historique (plus aucun hack sys.path).
 from core import agent_cache  # noqa: E402
 
 AgentCore = agent_cache.AgentCore
@@ -254,7 +254,7 @@ def test_llm_client_sends_think_flag_when_enabled(monkeypatch):
             ]
         )
 
-    import agent.llm_client as llm_module
+    import ia.agent.llm_client as llm_module
 
     monkeypatch.setattr(llm_module.requests, "post", fake_post)
 
@@ -281,7 +281,7 @@ def test_llm_client_streams_thinking_and_content_in_real_time(monkeypatch):
             ]
         )
 
-    import agent.llm_client as llm_module
+    import ia.agent.llm_client as llm_module
 
     monkeypatch.setattr(llm_module.requests, "post", fake_post)
 
@@ -307,7 +307,7 @@ def test_llm_client_omits_think_flag_by_default(monkeypatch):
             ['{"message": {"role": "assistant", "content": "OK"}, "done": true}']
         )
 
-    import agent.llm_client as llm_module
+    import ia.agent.llm_client as llm_module
 
     monkeypatch.setattr(llm_module.requests, "post", fake_post)
 
@@ -328,7 +328,7 @@ def test_llm_client_falls_back_to_inline_think_tags(monkeypatch):
             ]
         )
 
-    import agent.llm_client as llm_module
+    import ia.agent.llm_client as llm_module
 
     monkeypatch.setattr(llm_module.requests, "post", fake_post)
 
@@ -441,7 +441,7 @@ def _patch_web_search(monkeypatch, results):
         calls.append(query)
         return {"query": query, "results": list(results)}
 
-    from tools import tool_registry
+    from ia.tools import tool_registry
 
     monkeypatch.setitem(tool_registry.TOOLS, "web_search", fake_web_search)
     monkeypatch.setitem(tool_registry.REQUIRED_ARGS, "web_search", ["query"])
@@ -566,7 +566,7 @@ def test_thinking_section_forbids_simulated_results_and_premature_conclusion():
     """La section Réflexion enseigne explicitement les deux pièges observés :
     conclure sans le JSON après avoir annoncé un outil, et simuler dans le
     raisonnement le résultat d'un outil jamais exécuté."""
-    from agent.system_prompt import THINKING_PROMPT_SECTION
+    from ia.agent.system_prompt import THINKING_PROMPT_SECTION
 
     assert "conclure en TEXTE NORMAL sans ce JSON est INTERDIT" in (
         THINKING_PROMPT_SECTION

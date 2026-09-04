@@ -26,8 +26,8 @@ from core import agent_settings as agent_settings_module  # noqa: E402
 
 agent_settings_module.reset_store_for_tests(_SETTINGS_DB)
 
-from agent import llm_client as llm_module  # noqa: E402
-from agent.llm_client import LLMClient  # noqa: E402
+from ia.agent import llm_client as llm_module  # noqa: E402
+from ia.agent.llm_client import LLMClient  # noqa: E402
 
 
 DEFAULT_HF_URL = "https://router.huggingface.co/v1/chat/completions"

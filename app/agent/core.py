@@ -30,9 +30,9 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Callable
 from datetime import date
-from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -40,24 +40,22 @@ from pydantic import BaseModel, Field
 from app.agent.policies.budget import RunBudget
 from app.agent.policies.sandbox_policy import decide_action
 from app.domain.entities.plan import Action, Decision, Intent, Plan, PlanStep
+from app.domain.entities.run import RunStatus  # noqa: F401  # ré-export domaine
 from app.domain.errors import BudgetExceededError
-from app.domain.ports import LLMClientPort, Message, ToolRegistryPort
+from app.domain.ports import (
+    EventBusPort,
+    LLMClientPort,
+    Message,
+    ToolRegistryPort,
+)
 
 logger = logging.getLogger("thinktuning.agent.core")
 
 # ============================================================
 # MODÈLES DE RÉSULTAT
 # ============================================================
-
-
-class RunStatus(StrEnum):
-    """Statut terminal d'un run du noyau agentique."""
-
-    COMPLETED = "completed"                # réponse finale produite
-    PENDING_APPROVAL = "pending_approval"  # action en attente de validation
-    REJECTED_LOOP = "rejected_loop"        # le LLM reformule une action rejetée
-    BUDGET_EXHAUSTED = "budget_exhausted"  # budget épuisé sans réponse finale
-    FAILED = "failed"                      # erreur non récupérable
+# ``RunStatus`` est défini dans le domaine (app/domain/entities/run.py) et
+# ré-exporté ici pour préserver ``from app.agent.core import RunStatus``.
 
 
 class ActionTrace(BaseModel):
@@ -85,6 +83,33 @@ class AgentRunResult(BaseModel):
     tool_calls_used: int = 0
 
     model_config = {"frozen": True}
+
+
+# Marqueur de conclusion « FINAL » : les petits modèles le recrachent parfois
+# NU au lieu du contenu de la réponse (fuite du protocole de format).
+_FINAL_PREFIX_RE = re.compile(r"^FINAL\s*:\s*", re.IGNORECASE)
+_FINAL_MARKER_RE = re.compile(r"^FINAL\s*:?\s*$", re.IGNORECASE)
+
+
+def _sanitize_final_answer(response: str, traces: list[ActionTrace]) -> str:
+    """Assainit une réponse finale « texte direct » du noyau.
+
+    - retire un préfixe « FINAL: » éventuel ;
+    - si le reste est vide ou réduit au marqueur nu (« FINAL »), remplace par
+      le dernier résultat d'outil concluant, sinon par un message neutre
+      (jamais le marqueur brut exposé à l'utilisateur).
+    """
+    text = _FINAL_PREFIX_RE.sub("", (response or "").strip()).strip()
+    if not text or _FINAL_MARKER_RE.match(text):
+        done = [t for t in reversed(traces)
+                if t.status == "done" and t.result_summary]
+        if done:
+            logger.warning("final_answer_marker_leak -> fallback tool result")
+            return done[0].result_summary
+        logger.warning("final_answer_marker_leak -> neutral message")
+        return ("Je n'ai pas pu produire de réponse à partir des informations "
+                "collectées. Peux-tu reformuler ta demande ?")
+    return text
 
 
 # ============================================================
@@ -350,12 +375,19 @@ class AgentCore:
         on_tool_event: Callable[[dict], None] | None = None,
         enable_thinking: bool = False,
         on_thinking: Callable[[str], None] | None = None,
+        event_bus: EventBusPort | None = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
         self._approval_gateway = approval_gateway
         self._max_tool_calls = max_tool_calls
         self._on_tool_event = on_tool_event
+        # Bus d'événements (port pub/sub, optionnel) : le noyau publie les
+        # événements de cycle de vie (run_start, tool_start/tool_end, thinking,
+        # approval_pending, run_finished) sans dépendre d'un consommateur précis
+        # (SSE, audit, métriques). Compatible avec les callbacks legacy :
+        # ``on_tool_event`` / ``on_thinking`` restent diffusés en parallèle.
+        self._event_bus = event_bus
         # Mode « Réflexion » : ``enable_thinking`` active le reconnement du
         # modèle pendant CHAQUE round ; ``on_thinking`` diffuse la trace en
         # temps réel (SSE thinking_delta), un tampon interne la conserve pour
@@ -371,6 +403,8 @@ class AgentCore:
         # Nouveau run (rebouffrage du même AgentCore en tests / atelier) :
         # le tampon de réflexion est propre à chaque exécution.
         self._thinking_parts = []
+        if self._event_bus is not None:
+            self._safe_emit("agent.run_start", prompt=intent.prompt)
         budget = RunBudget(max_llm_rounds=intent.max_rounds, max_tool_calls=self._max_tool_calls)
         traces: list[ActionTrace] = []
         rejected_prints: set[str] = set()
@@ -438,7 +472,8 @@ class AgentCore:
                     continue
                 # Réponse texte directe (légitime)
                 return self._finalize(
-                    traces, budget, RunStatus.COMPLETED, answer=response.strip()
+                    traces, budget, RunStatus.COMPLETED,
+                    answer=_sanitize_final_answer(response, traces),
                 )
 
             outcome = self._execute_plan(plan, budget, traces, rejected_prints)
@@ -520,8 +555,10 @@ class AgentCore:
             # Émission temps réel (SSE) : annonce de l'appel d'outil.
             self._emit_tool_event({"event": "tool_start", "tool": action.tool,
                                    "args": action.args})
+            started = time.perf_counter()
             try:
                 value = func(**action.args)
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 results.append(f"[{step.task_id}] {action.tool} -> {self._summarize(value)}")
                 traces.append(ActionTrace(
                     tool=action.tool, args=action.args, decision=decision.value,
@@ -529,15 +566,18 @@ class AgentCore:
                 ))
                 self._emit_tool_event({"event": "tool_result", "tool": action.tool,
                                        "status": "ok",
-                                       "summary": self._summarize(value)})
+                                       "summary": self._summarize(value),
+                                       "duration_ms": duration_ms})
             except Exception as exc:  # auto-correction : l'erreur retourne au LLM
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 results.append(f"[{step.task_id}] ERREUR d'exécution ({action.tool}) : {exc}")
                 traces.append(ActionTrace(
                     tool=action.tool, args=action.args, decision=decision.value,
                     status="error", error=str(exc),
                 ))
                 self._emit_tool_event({"event": "tool_result", "tool": action.tool,
-                                       "status": "error", "error": str(exc)})
+                                       "status": "error", "error": str(exc),
+                                       "duration_ms": duration_ms})
         return "\n".join(results) if results else "Aucune action exécutée. Réponds à la question."
 
     def _capture_thinking(self, chunk: str) -> None:
@@ -554,19 +594,41 @@ class AgentCore:
                 self._on_thinking(chunk)
             except Exception:  # pragma: no cover - défensif
                 pass
+        if self._event_bus is not None:
+            self._safe_emit("agent.thinking", chunk=chunk)
 
-    def _emit_tool_event(self, event: dict) -> None:
-        """Transmet un événement d'outil au callback SSE (silencieux si absent).
-
-        Le journal ne doit JAMAIS faire échouer le run : toute exception du
-        callback est avalée (même convention que run_store.append_tool_event).
-        """
-        if self._on_tool_event is None:
+    def _safe_emit(self, event_type: str, **data: Any) -> None:
+        """Émet un événement sur le bus sans jamais faire échouer le run."""
+        if self._event_bus is None:
             return
         try:
-            self._on_tool_event(event)
-        except Exception:  # pragma: no cover - défensif
-            pass
+            self._event_bus.emit(event_type, **data)
+        except Exception:  # pragma: no cover - défensif (le bus ne bloque pas)
+            logger.exception("event_bus_emit_failed type=%s", event_type)
+
+    def _emit_tool_event(self, event: dict) -> None:
+        """Transmet un événement d'outil au callback SSE et/ou au bus.
+
+        Le journal ne doit JAMAIS faire échouer le run : toute exception du
+        callback ou de l'émission est avalée (même convention que
+        run_store.append_tool_event).
+        """
+        if self._on_tool_event is not None:
+            try:
+                self._on_tool_event(event)
+            except Exception:  # pragma: no cover - défensif
+                pass
+        if self._event_bus is not None:
+            kind = event.get("event")
+            if kind == "tool_start":
+                self._safe_emit("agent.tool_start", tool=event.get("tool"),
+                                args=event.get("args"))
+            elif kind == "tool_result":
+                self._safe_emit("agent.tool_end", tool=event.get("tool"),
+                                status=event.get("status"),
+                                summary=event.get("summary") or "",
+                                error=event.get("error") or "",
+                                duration_ms=event.get("duration_ms"))
 
         # --- Finalisation -------------------------------------------------------------
 
@@ -595,7 +657,7 @@ class AgentCore:
         answer: str = "",
         awaiting_action: Action | None = None,
     ) -> AgentRunResult:
-        return AgentRunResult(
+        result = AgentRunResult(
             answer=answer,
             status=status,
             thinking="\n\n".join(self._thinking_parts).strip(),
@@ -604,6 +666,22 @@ class AgentCore:
             rounds_used=budget.snapshot().llm_rounds_used,
             tool_calls_used=budget.snapshot().tool_calls_used,
         )
+        if self._event_bus is not None:
+            # Soufflet EXACTEMENT une fois par run (tous les chemins passent par
+            # _as_result, y compris _finalize) : observabilité / audit.
+            self._safe_emit(
+                "agent.run_finished",
+                status=status.value,
+                rounds_used=result.rounds_used,
+                tool_calls_used=result.tool_calls_used,
+            )
+            if status is RunStatus.PENDING_APPROVAL and awaiting_action is not None:
+                self._safe_emit(
+                    "agent.approval_pending",
+                    tool=awaiting_action.tool,
+                    args=awaiting_action.args,
+                )
+        return result
 
     def _finalize(
         self,

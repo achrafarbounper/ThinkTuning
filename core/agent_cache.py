@@ -6,32 +6,30 @@ Même schéma que `core/predictor_cache.py` : une instance unique construite
 paresseusement au premier appel puis mise en cache (accès protégé par un
 verrou), avec rechargement explicite via `reload_agent_runner()`.
 
-Les modules de l'agent utilisent des imports absolus racinés sur le dossier
-`ia/` (`from agent...`, `from tools...`) : ce fichier ajoute donc ce dossier
-au `sys.path` AVANT d'importer l'agent. Il constitue le point d'entrée
-unique : le reste de l'API n'accède à l'agent que via ce module, jamais par
-un import direct de `agent.*` / `tools.*`.
+Les modules de l'agent sont importés via l'identité de PAQUET réel
+(``ia.agent.*``, ``ia.tools.*``) : plus aucun hack ``sys.path`` (Phase 2 de
+la migration, cf. tests/test_sys_path_guard.py). Ce module reste le point
+d'entrée unique : le reste de l'API n'accède à l'agent que via ce module,
+jamais par un import direct de ``ia.agent.*``.
 """
 
-import os
-import sys
 import threading
 
 import requests
 from fastapi import HTTPException
 
-IA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ia")
-if IA_DIR not in sys.path:
-    sys.path.insert(0, IA_DIR)
-
 from core.agent_settings import get_agent_settings
-
-# --- Imports de l'agent (à placer APRÈS l'insertion du sys.path ci-dessus) ----
-from agent.agent_core import AgentCore  # noqa: E402
-from agent.llm_client import LLMClient  # noqa: E402
-from agent.orchestrator import MultiAgentCoordinator  # noqa: E402
-from agent.runner import AgentRunner  # noqa: E402
-from tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
+from core.run_store import (
+    AWAITING_APPROVAL as MULTI_RUN_AWAITING,
+    COMPLETED as MULTI_RUN_COMPLETED,
+    ERROR as MULTI_RUN_ERROR,
+    get_run_store,
+)
+from ia.agent.agent_core import AgentCore  # noqa: E402
+from ia.agent.llm_client import LLMClient  # noqa: E402
+from ia.agent.orchestrator import MultiAgentCoordinator  # noqa: E402
+from ia.agent.runner import AgentRunner  # noqa: E402
+from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
 
 # File de validation humaine — ré-exportée pour les routes /api/agent/approvals.
 from core.approval_store import ApprovalStore  # noqa: E402,F401
@@ -49,8 +47,6 @@ __all__ = [
     "agent_config",
     "ask_agent",
     "ask_agent_openrouter",
-    "ask_agent_decision",
-    "ask_agent_decision_streaming",
     "ask_agent_detailed",
     "ask_agent_detailed_streaming",
     "ask_multi_agent",
@@ -594,53 +590,6 @@ def _ask_runner_with_http_errors(
         raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).")
 
 
-def ask_agent_decision(
-    prompt: str,
-    model: str | None = None,
-    resume_request_id: str | None = None,
-    history_messages: list | None = None,
-) -> dict:
-    """Version consciente du gate de décision (auto_approve/approve/reject).
-
-    Alimente le flux API « approbation humaine » :
-        - ``completed``  : l'agent a répondu sans bloquer (réponse finale) ;
-        - ``awaiting_approval`` : une action attend `/approve` (request_id) ;
-        - ``rejected``  : une action a été bloquée par la policy (request_id).
-
-    ``history_messages`` (optionnel) : messages de la conversation rejoués en
-    tête du contexte LLM (mémoire de session, voir AgentCore.run_detailed).
-
-    Retourne toujours un dict JSON provenable pour les endpoints.
-    """
-    effective_model = (model or "").strip() or agent_config()["model"]
-    runner = get_agent_runner(effective_model)
-    result = _ask_runner_with_http_errors(
-        runner,
-        prompt,
-        effective_model,
-        resume_request_id=resume_request_id,
-        history_messages=history_messages,
-    )
-    agent = runner.agent
-    approval = agent.last_approval.to_dict() if agent.last_approval is not None else None
-
-    if agent.awaiting_request_id:
-        return {
-            "status": "awaiting_approval",
-            "request_id": agent.awaiting_request_id,
-            "approval": approval,
-            "response": result.answer,
-        }
-    if agent.rejected_request_id:
-        return {
-            "status": "rejected",
-            "request_id": agent.rejected_request_id,
-            "approval": approval,
-            "response": result.answer,
-        }
-    return {"status": "completed", "response": result.answer}
-
-
 def ask_agent(prompt: str, model: str | None = None) -> str:
     """Envoie le prompt à l'agent et traduit les erreurs réseau en HTTP.
 
@@ -732,90 +681,6 @@ def ask_agent_detailed_streaming(
     return {"answer": result.answer, "thinking": result.thinking}
 
 
-def ask_agent_decision_streaming(
-    prompt: str,
-    model: str | None = None,
-    enable_thinking: bool = False,
-    resume_request_id: str | None = None,
-    on_thinking=None,
-    on_tool_event=None,
-    history_messages: list | None = None,
-) -> dict:
-    """Comme ``ask_agent_decision``, mais avec diffusion temps réel.
-
-    Combine les deux flux temps réel de l'agent :
-        - ``on_thinking`` : fragments de la trace de réflexion (mode activé) ;
-        - ``on_tool_event`` : dicts ``tool_start`` / ``tool_result`` émis par
-          AgentCore à chaque appel d'outil (voir ``ia/agent/runner.py``).
-
-    ``history_messages`` (optionnel) : mémoire de conversation rejouée en tête
-    du contexte LLM (voir AgentCore.run_detailed).
-
-    Retour : même contrat que ``ask_agent_decision`` + ``thinking`` —
-    ``{"answer", "thinking", "status", "request_id", "approval"}``. Les
-    erreurs réseau sont traduites en HTTPException ; un ``ValueError`` sur
-    ``resume_request_id`` est propagé (traduit en 400 par la route).
-    """
-    effective_model = (model or "").strip() or agent_config()["model"]
-    runner = get_agent_runner(effective_model, enable_thinking)
-    try:
-        result = runner.run(
-            prompt,
-            resume_request_id=resume_request_id,
-            on_thinking=on_thinking,
-            on_tool_event=on_tool_event,
-            history_messages=history_messages,
-        )
-    except requests.exceptions.Timeout:
-        raise HTTPException(
-            status_code=504,
-            detail=(
-                f"Le LLM ({effective_model}) n'a pas répondu en "
-                f"{agent_config()['timeout']:.0f}s."
-            ),
-        )
-    except requests.exceptions.ConnectionError:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                f"LLM injoignable sur {agent_config()['ollama_url']}. "
-                "Vérifiez qu'Ollama tourne."
-            ),
-        )
-    except requests.exceptions.HTTPError as exc:
-        status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(
-            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
-        )
-
-    agent = runner.agent
-    approval = agent.last_approval.to_dict() if agent.last_approval is not None else None
-
-    payload: dict = {
-        "answer": result.answer,
-        "thinking": result.thinking,
-        "response": result.answer,
-        "model": effective_model,
-    }
-    if agent.awaiting_request_id:
-        payload.update(
-            {
-                "status": "awaiting_approval",
-                "request_id": agent.awaiting_request_id,
-                "approval": approval,
-            }
-        )
-    elif agent.rejected_request_id:
-        payload.update(
-            {
-                "status": "rejected",
-                "request_id": agent.rejected_request_id,
-                "approval": approval,
-            }
-        )
-    else:
-        payload["status"] = "completed"
-    return payload
 # --- Orchestration multi-agents (superviseur) -----------------------------
 
 # Coordonnateur partagé, mis en cache paresseusement (même pattern que
@@ -855,6 +720,59 @@ def _coordinator_key(model: str | None) -> str | None:
     return name
 
 
+def _multi_coordinator_kwargs() -> dict:
+    """Options du coordinateur multi-agents lues depuis l'environnement.
+
+    ``AGENT_MULTI_MAX_TOOL_CALLS`` : plafond GLOBAL d'appels d'outils partagé
+    par les workers d'un run (BudgetPool hiérarchique) ; ``0``/absent =
+    désactivé (comportement V1). Lecture env directe transitoire — à migrer
+    vers ``app/config/settings.py`` quand celui-ci sera chargeable sans
+    exigence de clé API (fail-fast actuel).
+    """
+    import os as _os
+
+    try:
+        total = int(_os.getenv("AGENT_MULTI_MAX_TOOL_CALLS", "0") or 0)
+    except ValueError:
+        total = 0
+    return {"max_total_tool_calls": total} if total > 0 else {}
+
+
+def _trace_multi_run(prompt: str, outcome: dict) -> None:
+    """Persistance du run superviseur dans le run_store (traçabilité unifiée).
+
+    Complète le flow_store (déjà écrit par la route) : ouvre un run
+    ``source="multi"``, journalise chaque worker bloqué en approbation
+    (``worker_approval`` : task_id / role / request_id / tool — résout la
+    reprise et le dashboard) puis clôture avec le statut mappé. Défensif :
+    la traçabilité ne doit JAMAIS faire échouer le run.
+    """
+    try:
+        store = get_run_store()
+        row = store.start_run(prompt, model="", source="multi")
+        for worker in outcome.get("workers", []) or []:
+            if worker.get("status") == "awaiting_approval":
+                store.append_tool_event(row["id"], {
+                    "event": "worker_approval",
+                    "task_id": worker.get("task_id"),
+                    "role": worker.get("role"),
+                    "request_id": worker.get("request_id"),
+                    "tool": (worker.get("approval") or {}).get("tool", ""),
+                })
+        status_map = {
+            "completed": MULTI_RUN_COMPLETED,
+            "awaiting_approval": MULTI_RUN_AWAITING,
+            "error": MULTI_RUN_ERROR,
+        }
+        store.finish_run(
+            row["id"],
+            status_map.get(outcome.get("status", "completed"), MULTI_RUN_COMPLETED),
+            answer_summary=(outcome.get("final_answer") or "")[:300],
+        )
+    except Exception:  # pragma: no cover - traçabilité jamais bloquante
+        pass
+
+
 def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinator:
     # Coordonnateur multi-agents mis en cache (construction paresseuse).
     # Le modele par defaut (config SQLite/env) utilise le singleton
@@ -867,7 +785,7 @@ def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinat
         with _multi_coordinator_lock:
             coord = _override_coordinators.get(key)
             if coord is None:
-                coord = MultiAgentCoordinator(_build_llm_client(key))
+                coord = MultiAgentCoordinator(_build_llm_client(key), **_multi_coordinator_kwargs())
                 _override_coordinators[key] = coord
         return coord
     global _multi_coordinator
@@ -875,7 +793,7 @@ def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinat
         with _multi_coordinator_lock:
             if _multi_coordinator is None:
                 llm = _build_llm_client(model)
-                _multi_coordinator = MultiAgentCoordinator(llm)
+                _multi_coordinator = MultiAgentCoordinator(llm, **_multi_coordinator_kwargs())
     return _multi_coordinator
 
 
@@ -886,12 +804,12 @@ def reload_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordi
     with _multi_coordinator_lock:
         if key is not None:
             _override_coordinators.pop(key, None)
-            coord = MultiAgentCoordinator(_build_llm_client(key))
+            coord = MultiAgentCoordinator(_build_llm_client(key), **_multi_coordinator_kwargs())
             _override_coordinators[key] = coord
             return coord
         _multi_coordinator = None
         llm = _build_llm_client(model)
-        _multi_coordinator = MultiAgentCoordinator(llm)
+        _multi_coordinator = MultiAgentCoordinator(llm, **_multi_coordinator_kwargs())
     return _multi_coordinator
 
 
@@ -900,12 +818,14 @@ def ask_multi_agent(prompt: str, model: str | None = None, parallel: bool = Fals
 
     Retourne le contrat de sortie stable de l'orchestrateur :
     ``{"status", "final_answer", "plan", "workers", "unexecuted", "thinking"}``.
-    Les erreurs réseau LLM sont traduites en HTTPException (même politique
-    que ``ask_agent_decision``).
+    Les erreurs réseau LLM sont traduites en HTTPException
+    (Timeout -> 504, ConnectionError/HTTPError -> 502).
     """
     coordinator = get_multi_agent_coordinator(model)
     try:
-        return coordinator.run(prompt)
+        result = coordinator.run(prompt)
+        _trace_multi_run(prompt, result)
+        return result
     except requests.exceptions.Timeout:
         raise HTTPException(
             status_code=504,
@@ -939,7 +859,9 @@ def ask_multi_agent_streaming(
     """
     coordinator = get_multi_agent_coordinator(model)
     try:
-        return coordinator.run(prompt, on_event=on_event)
+        result = coordinator.run(prompt, on_event=on_event)
+        _trace_multi_run(prompt, result)
+        return result
     except requests.exceptions.Timeout:
         raise HTTPException(
             status_code=504,

@@ -75,11 +75,14 @@ def build_role_agent(
     tools_registry: Dict[str, Any],
     required_args_registry: Dict[str, List[str]],
     on_tool_forbidden: Optional[Callable[[str, str], None]] = None,
+    max_rounds: Optional[int] = None,
 ) -> AgentCore:
     """Construit un AgentCore isolé pour un rôle (sous-ensemble d'outils).
 
     ``role_name`` est "lead" (aucun outil) ou un rôle spécialisé. Le prompt
     système est dérivé du rôle : sous-ensemble d'outils + préambule.
+    ``max_rounds`` borne les rounds LLM du worker (quota réservé du
+    ``BudgetPool`` global) — None = défaut historique de AgentCore.
     """
     from .roles import resolve_role_tools
     from .system_prompt import build_system_prompt
@@ -96,12 +99,17 @@ def build_role_agent(
         }
         system_prompt = build_system_prompt(tools, required)
 
+    extra: Dict[str, Any] = {}
+    if max_rounds is not None and max_rounds > 0:
+        extra["max_rounds"] = int(max_rounds)
+
     return AgentCore(
         llm_client,
         system_prompt=system_prompt,
         tools=tools,
         required_args=required,
         on_tool_forbidden=on_tool_forbidden,
+        **extra,
     )
 
 
@@ -127,6 +135,7 @@ class MultiAgentCoordinator:
         max_worker_rounds: int = 6,
         max_worker_tokens: int = 1200,
         context_chars: int = 2400,
+        max_total_tool_calls: Optional[int] = None,
     ):
         self._llm_client = llm_client
         self._lead_llm_client = lead_llm_client or llm_client
@@ -139,20 +148,27 @@ class MultiAgentCoordinator:
         self._max_worker_tokens = max_worker_tokens
         self._context_chars = context_chars
         self._lead_subject = None
+        # Budget hiérarchique : plafond GLOBAL d'appels d'outils partagé par
+        # les workers (None = désactivé, comportement V1 inchangé).
+        from .budget_pool import build_budget_pool
+        self._budget_pool = build_budget_pool(max_total_tool_calls, max_worker_rounds)
 # --- Constitution des agents (lazy, DI-friendly) ----------------------
 
-    def _make_agent(self, role_name: str) -> Any:
-        """Construit un agent (worker/lead) pour un rôle."""
+    def _make_agent(self, role_name: str, max_rounds: Optional[int] = None) -> Any:
+        """Construit un agent (worker/lead) pour un rôle.
+
+        ``max_rounds`` : quota de rounds réservé au worker via le
+        ``BudgetPool`` (None = défaut). Via le DI ``role_builder``, le quota
+        n'est pas injectable (signature ``(role_name)``) : la réserve du pool
+        borne toujours l'ADMISSION du worker, indépendamment du builder.
+        """
         if self._role_builder is not None:
             return self._role_builder(role_name)
-        try:  # paquet « ia.tools »
-            from ..tools.tool_registry import REQUIRED_ARGS as _RA
-            from ..tools.tool_registry import TOOLS as _T
-        except ImportError:  # racine « tools » (core/agent_cache.py)
-            from tools.tool_registry import REQUIRED_ARGS as _RA
-            from tools.tool_registry import TOOLS as _T
+        # Identité de paquet réel uniquement (plus de double identité d'import).
+        from ..tools.tool_registry import REQUIRED_ARGS as _RA
+        from ..tools.tool_registry import TOOLS as _T
         return build_role_agent(
-            role_name, self._llm_client, _T, _RA
+            role_name, self._llm_client, _T, _RA, max_rounds=max_rounds
         )
 
     def _on_event(self, on_event, event_type: str, data: Dict[str, Any]):
@@ -247,7 +263,20 @@ class MultiAgentCoordinator:
                 "Budget de jetons dépassé avant exécution.", started,
             )
 
-        agent = self._make_agent(task.role)
+        # Budget hiérarchique : réservation ferme dans le pool GLOBAL du run.
+        # Quota refusé (pool épuisé) => worker refusé AVANT tout appel LLM.
+        effective_rounds: Optional[int] = None
+        if self._budget_pool is not None:
+            granted = self._budget_pool.reserve(self._max_worker_rounds)
+            if granted <= 0:
+                return self._worker_error(
+                    task, TOKEN_BUDGET_EXCEEDED,
+                    "Budget global du run superviseur épuisé "
+                    "(quota d'appels d'outils partagé).", started,
+                )
+            effective_rounds = min(granted, self._max_worker_rounds)
+
+        agent = self._make_agent(task.role, max_rounds=effective_rounds)
 
         def tool_hook(payload):
             self._on_event(on_event, EV_WORKER_TOOL, {
@@ -409,6 +438,8 @@ class MultiAgentCoordinator:
                 "thinking": "",
                 "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
             }
+            if self._budget_pool is not None:
+                outcome["budget"] = self._budget_pool.snapshot()
             self._on_event(on_event, EV_DONE, {
                 "status": outcome["status"],
                 "answer": final_answer,
@@ -444,6 +475,8 @@ class MultiAgentCoordinator:
             "thinking": "",
             "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
         }
+        if self._budget_pool is not None:
+            outcome["budget"] = self._budget_pool.snapshot()
         self._on_event(on_event, EV_DONE, {
             "status": outcome["status"],
             "answer": final_answer,

@@ -193,7 +193,7 @@ export default function SentimentPage() {
                 const showExplain =
                   explainUnit.state.text === r.text && !explainUnit.state.loading;
                 return (
-                  <li key={i} className="tt-result-row">
+                  <li key={`${r.text}-${i}`} className="tt-result-row">
                     <div className="tt-result-main">
                       <span className={`tt-badge tt-badge-${r.sentiment}`}>
                         {sentimentLabel(r.sentiment)}
@@ -363,7 +363,7 @@ export default function SentimentPage() {
               </thead>
               <tbody>
                 {predictionsHistory.slice(0, 50).map((pred, idx) => (
-                  <React.Fragment key={idx}>
+                  <React.Fragment key={`${pred.timestamp ?? "na"}-${pred.text}-${idx}`}>
                     <tr>
                       <td className="tt-mono tt-history-time">
                         {pred.timestamp ? new Date(pred.timestamp).toLocaleString() : "—"}

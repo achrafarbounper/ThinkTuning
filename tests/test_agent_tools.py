@@ -17,19 +17,14 @@ import time
 import types
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IA_DIR = os.path.join(PROJECT_ROOT, "ia")
-for _p in (PROJECT_ROOT, IA_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 # Config API avant tout import de l'app : clé de l'API principale (routes
 # /api/agent/*), cohérent avec tests/test_agent_api.py et test_api_ai_chat.py.
 os.environ.setdefault("API_KEY", "test-key")
 
 import pytest
-from tools import sandbox
-from tools.docker_tools import docker_exec, docker_logs, docker_ps
-from tools.system_tools import (
+from ia.tools import sandbox
+from ia.tools.docker_tools import docker_exec, docker_logs, docker_ps
+from ia.tools.system_tools import (
     copy_path,
     find_file,
     list_dir,
@@ -68,7 +63,7 @@ def test_safe_resolve_blocks_absolute_outside_root(sandbox_root):
 # --- Outils fichiers ---------------------------------------------------------------
 
 def test_write_list_read_roundtrip(sandbox_root):
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     message = write_file("notes/a.txt", "bonjour agent")
     assert "écrit" in message
@@ -79,7 +74,7 @@ def test_write_list_read_roundtrip(sandbox_root):
 
 
 def test_copy_move_and_remove(sandbox_root):
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     write_file("d1/f.txt", "contenu")
     copy_path("d1/f.txt", "d2/copie.txt")
@@ -91,7 +86,7 @@ def test_copy_move_and_remove(sandbox_root):
 
 
 def test_remove_non_empty_dir_requires_recursive_flag(sandbox_root):
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     write_file("dossier/f.txt", "x")
     with pytest.raises(ValueError, match="recursive"):
@@ -109,7 +104,7 @@ def test_remove_blocks_git_and_root_itself(sandbox_root):
 
 
 def test_read_file_truncates_large_content(sandbox_root):
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     write_file("gros.txt", "x" * 200_000)
     out = read_file("gros.txt", max_bytes=100)
@@ -119,7 +114,7 @@ def test_read_file_truncates_large_content(sandbox_root):
 
 def test_find_file_by_regex_returns_relative_paths(sandbox_root):
     """find_file localise un fichier n'importe où sous la racine via une regex."""
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     write_file("configs/default.yaml", "cle: valeur")
     write_file("configs/other.yaml", "autre: valeur")
@@ -133,7 +128,7 @@ def test_find_file_by_regex_returns_relative_paths(sandbox_root):
 
 
 def test_find_file_anchored_name_matches_at_any_depth(sandbox_root):
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     write_file("a/b/profond.yaml", "x")
     result = find_file(r"^profond\.yaml$")  # ancré sur le NOM du fichier
@@ -146,7 +141,7 @@ def test_find_file_invalid_regex_raises_value_error(sandbox_root):
 
 
 def test_find_file_max_results_and_truncated_flag(sandbox_root):
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     for i in range(5):
         write_file(f"lot/fichier_{i}.txt", "x")
@@ -177,7 +172,7 @@ class _FakeResponse:
 
 
 def test_http_get_returns_structured_result(monkeypatch):
-    from tools import network_tools
+    from ia.tools import network_tools
 
     seen = {}
 
@@ -192,7 +187,7 @@ def test_http_get_returns_structured_result(monkeypatch):
 
 
 def test_http_post_json_payload(monkeypatch):
-    from tools import network_tools
+    from ia.tools import network_tools
 
     captured = {}
 
@@ -208,7 +203,7 @@ def test_http_post_json_payload(monkeypatch):
 
 
 def test_http_blocks_bad_scheme_and_private_hosts(sandbox_root, monkeypatch):
-    from tools.network_tools import http_get
+    from ia.tools.network_tools import http_get
 
     with pytest.raises(ValueError, match="Schéma interdit"):
         http_get("ftp://example.test/f")
@@ -251,7 +246,7 @@ class _FakeHtmlResponse(_FakeResponse):
 
 
 def test_web_search_parses_duckduckgo_results(monkeypatch):
-    from tools import web_tools
+    from ia.tools import web_tools
 
     seen = {}
 
@@ -272,7 +267,7 @@ def test_web_search_parses_duckduckgo_results(monkeypatch):
 
 
 def test_web_search_max_results_and_empty_query(monkeypatch):
-    from tools import web_tools
+    from ia.tools import web_tools
 
     monkeypatch.setattr(
         web_tools.requests, "post", lambda *a, **k: _FakeHtmlResponse(_LITE_HTML)
@@ -284,7 +279,7 @@ def test_web_search_max_results_and_empty_query(monkeypatch):
 
 
 def test_web_search_reports_http_error_without_raising(monkeypatch):
-    from tools import web_tools
+    from ia.tools import web_tools
 
     monkeypatch.setattr(
         web_tools.requests, "post",
@@ -296,7 +291,7 @@ def test_web_search_reports_http_error_without_raising(monkeypatch):
 
 def test_web_search_filters_duckduckgo_ad_links(monkeypatch):
     """Les annonces (URL finale restée sur duckduckgo.com/y.js) sont exclues."""
-    from tools import web_tools
+    from ia.tools import web_tools
 
     html = (
         "<html><body><table>"
@@ -319,7 +314,7 @@ def test_web_search_filters_duckduckgo_ad_links(monkeypatch):
 
 def test_web_search_blocks_private_hosts_like_http(monkeypatch):
     """Même politique SSRF que http_get : endpoint privé refusé si flag actif."""
-    from tools import web_tools
+    from ia.tools import web_tools
 
     monkeypatch.setattr(web_tools, "SEARCH_ENDPOINT", "http://127.0.0.1:9999/lite/")
     monkeypatch.setenv("AGENT_BLOCK_PRIVATE_HOSTS", "1")
@@ -328,7 +323,7 @@ def test_web_search_blocks_private_hosts_like_http(monkeypatch):
 
 
 def test_web_read_extracts_readable_text(monkeypatch):
-    from tools import web_tools
+    from ia.tools import web_tools
 
     monkeypatch.setattr(
         web_tools.requests, "get", lambda *a, **k: _FakeHtmlResponse(_PAGE_HTML)
@@ -343,7 +338,7 @@ def test_web_read_extracts_readable_text(monkeypatch):
 
 
 def test_web_fetch_returns_structured_page(monkeypatch):
-    from tools import web_tools
+    from ia.tools import web_tools
 
     seen = {}
 
@@ -363,7 +358,7 @@ def test_web_fetch_returns_structured_page(monkeypatch):
 
 
 def test_web_fetch_and_read_block_bad_scheme():
-    from tools.web_tools import web_fetch, web_read
+    from ia.tools.web_tools import web_fetch, web_read
 
     with pytest.raises(ValueError, match="Schéma interdit"):
         web_fetch("ftp://example.test/f")
@@ -374,7 +369,7 @@ def test_web_fetch_and_read_block_bad_scheme():
 # --- Outils Docker (sous-processus simulé) ---------------------------------------------
 
 def test_docker_ps_parses_json_lines(monkeypatch):
-    from tools import docker_tools
+    from ia.tools import docker_tools
 
     calls = []
 
@@ -389,7 +384,7 @@ def test_docker_ps_parses_json_lines(monkeypatch):
 
 
 def test_docker_logs_combines_stdout_stderr(monkeypatch):
-    from tools import docker_tools
+    from ia.tools import docker_tools
 
     monkeypatch.setattr(
         docker_tools, "run_subprocess",
@@ -400,7 +395,7 @@ def test_docker_logs_combines_stdout_stderr(monkeypatch):
 
 
 def test_docker_exec_reports_returncode(monkeypatch):
-    from tools import docker_tools
+    from ia.tools import docker_tools
 
     argv_seen = []
 
@@ -417,7 +412,7 @@ def test_docker_exec_reports_returncode(monkeypatch):
 
 
 def test_docker_failure_raises_clean_error(monkeypatch):
-    from tools import docker_tools
+    from ia.tools import docker_tools
 
     monkeypatch.setattr(
         docker_tools, "run_subprocess",
@@ -434,9 +429,9 @@ def test_docker_real_cli_skipped_by_default():
 # --- Outil GPU -------------------------------------------------------------------------
 
 def test_gpu_info_structure_without_hardware(monkeypatch):
-    from tools.gpu_tools import gpu_info
+    from ia.tools.gpu_tools import gpu_info
 
-    monkeypatch.setattr("tools.gpu_tools._query_nvidia_smi", lambda: {})
+    monkeypatch.setattr("ia.tools.gpu_tools._query_nvidia_smi", lambda: {})
     info = gpu_info()
     assert {"torch_available", "cuda_available", "devices", "source"} <= set(info)
     if not info["cuda_available"]:
@@ -444,7 +439,7 @@ def test_gpu_info_structure_without_hardware(monkeypatch):
 
 
 def test_gpu_info_merges_nvidia_smi_stats(monkeypatch):
-    from tools.gpu_tools import gpu_info
+    from ia.tools.gpu_tools import gpu_info
 
     fake_smi = {
         0: {
@@ -454,7 +449,7 @@ def test_gpu_info_merges_nvidia_smi_stats(monkeypatch):
             "memory_total_mb": 8192,
         }
     }
-    monkeypatch.setattr("tools.gpu_tools._query_nvidia_smi", lambda: fake_smi)
+    monkeypatch.setattr("ia.tools.gpu_tools._query_nvidia_smi", lambda: fake_smi)
     info = gpu_info()
     device = info["devices"][0]
     assert device["utilization_percent"] == 42
@@ -473,7 +468,7 @@ def _make_sqlite_db(path):
 
 
 def test_sqlite_readonly_select(sandbox_root):
-    from tools.database_tools import sqlite_query
+    from ia.tools.database_tools import sqlite_query
 
     db = sandbox_root / "data.db"
     _make_sqlite_db(db)
@@ -484,7 +479,7 @@ def test_sqlite_readonly_select(sandbox_root):
 
 
 def test_sqlite_readonly_blocks_writes(sandbox_root):
-    from tools.database_tools import sqlite_query
+    from ia.tools.database_tools import sqlite_query
 
     db = sandbox_root / "data.db"
     _make_sqlite_db(db)
@@ -494,7 +489,7 @@ def test_sqlite_readonly_blocks_writes(sandbox_root):
 
 
 def test_sqlite_write_mode_allowed_when_explicit(sandbox_root):
-    from tools.database_tools import sqlite_query
+    from ia.tools.database_tools import sqlite_query
 
     sqlite_query("new.db", "CREATE TABLE t (x INTEGER)", readonly=False)
     result = sqlite_query("new.db", "INSERT INTO t VALUES (7)", readonly=False)
@@ -502,7 +497,7 @@ def test_sqlite_write_mode_allowed_when_explicit(sandbox_root):
 
 
 def test_sqlite_blocks_escape_and_max_rows(sandbox_root):
-    from tools.database_tools import sqlite_query
+    from ia.tools.database_tools import sqlite_query
 
     with pytest.raises(PermissionError, match="hors sandbox"):
         sqlite_query("../outside.db", "SELECT 1")
@@ -566,7 +561,7 @@ def fake_psycopg2(monkeypatch):
 
 
 def test_postgres_requires_dsn(monkeypatch, fake_psycopg2):
-    from tools.database_tools import postgres_query
+    from ia.tools.database_tools import postgres_query
 
     monkeypatch.delenv("AGENT_PG_DSN", raising=False)
     with pytest.raises(RuntimeError, match="AGENT_PG_DSN"):
@@ -574,7 +569,7 @@ def test_postgres_requires_dsn(monkeypatch, fake_psycopg2):
 
 
 def test_postgres_select_ok(monkeypatch, fake_psycopg2):
-    from tools.database_tools import postgres_query
+    from ia.tools.database_tools import postgres_query
 
     monkeypatch.delenv("AGENT_PG_DSN", raising=False)
     result = postgres_query("SELECT col FROM t", dsn="postgresql://u:p@h:5432/db")
@@ -582,7 +577,7 @@ def test_postgres_select_ok(monkeypatch, fake_psycopg2):
 
 
 def test_postgres_readonly_guard(monkeypatch, fake_psycopg2):
-    from tools.database_tools import postgres_query
+    from ia.tools.database_tools import postgres_query
 
     for bad in ("DROP TABLE users", "WITH x AS (SELECT 1) DELETE FROM users"):
         with pytest.raises(PermissionError):
@@ -592,7 +587,7 @@ def test_postgres_readonly_guard(monkeypatch, fake_psycopg2):
 # --- Outils d'exécution ----------------------------------------------------------------
 
 def test_run_command_allows_git_version():
-    from tools.shell_tools import run_command
+    from ia.tools.shell_tools import run_command
 
     result = run_command(["git", "--version"], timeout=15)
     assert result["returncode"] == 0
@@ -600,7 +595,7 @@ def test_run_command_allows_git_version():
 
 
 def test_run_command_blocks_shell_and_string_arg():
-    from tools.shell_tools import run_command
+    from ia.tools.shell_tools import run_command
 
     with pytest.raises(PermissionError, match="[Bb]inaire interdit"):
         run_command(["powershell.exe", "-Command", "echo hi"])
@@ -611,7 +606,7 @@ def test_run_command_blocks_shell_and_string_arg():
 
 
 def test_run_python_executes_and_cleans_up(sandbox_root):
-    from tools.shell_tools import run_python
+    from ia.tools.shell_tools import run_python
 
     result = run_python("print('hello-from-agent')")
     assert result["returncode"] == 0 and "hello-from-agent" in result["stdout"]
@@ -619,7 +614,7 @@ def test_run_python_executes_and_cleans_up(sandbox_root):
 
 
 def test_run_python_timeout_kills_process(sandbox_root):
-    from tools.shell_tools import run_python
+    from ia.tools.shell_tools import run_python
 
     with pytest.raises(RuntimeError, match="[Tt]imeout"):
         run_python("import time; time.sleep(30)", timeout=1)
@@ -628,7 +623,7 @@ def test_run_python_timeout_kills_process(sandbox_root):
 # --- Registre et agent -------------------------------------------------------------------
 
 def test_registry_is_consistent():
-    from tools.tool_registry import REQUIRED_ARGS, TOOLS
+    from ia.tools.tool_registry import REQUIRED_ARGS, TOOLS
 
     assert set(TOOLS) == set(REQUIRED_ARGS)
     for name, fn in TOOLS.items():
@@ -637,7 +632,7 @@ def test_registry_is_consistent():
 
 
 def test_expected_tool_names_registered():
-    from tools.tool_registry import TOOLS
+    from ia.tools.tool_registry import TOOLS
 
     expected = {
         "add", "write_file",
@@ -683,7 +678,7 @@ def test_agent_core_self_corrects_missing_args(sandbox_root):
     Avant : mort immédiate sur « Arguments manquants pour … ».
     Maintenant : l'erreur repart au LLM qui renvoie un appel corrigé, exécuté.
     """
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     from ia.agent.agent_core import AgentCore
 
@@ -717,7 +712,7 @@ def test_agent_core_accepts_flat_tool_call(sandbox_root):
     read_file : ['path'] » EN BOUCLE jusqu'à épuisement du budget (3 messages
     d'auto-correction observés). Désormais l'appel à plat est compris du 1er coup.
     """
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     from ia.agent.agent_core import AgentCore
 
@@ -744,7 +739,7 @@ def test_agent_core_accepts_flat_tool_call(sandbox_root):
 def test_agent_core_accepts_scalar_args_for_single_required_arg(sandbox_root):
     """Quand le tool n'a qu'un argument obligatoire, la valeur brute est acceptée :
     {"tool": "read_file", "args": "chemin"} au lieu de {"args": {"path": ...}}."""
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     from ia.agent.agent_core import AgentCore
 
@@ -801,7 +796,7 @@ def test_agent_core_chains_find_then_read(sandbox_root):
     Après chaque succès, le LLM reçoit le résultat et peut enchaîner au lieu
     de devoir conclure immédiatement.
     """
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     from ia.agent.agent_core import AgentCore
 
@@ -824,7 +819,7 @@ def test_agent_core_chains_find_then_read(sandbox_root):
     core = AgentCore(ScriptedLLM())
     answer = core.run("lis le fichier secret")
     assert answer.startswith("J'ai trouvé et lu configs/secret.yaml.")
-    # Le 2e prompt contient bien le résultat de find_file injecté par l'agent.
+    # Le 2e prompt contient bien le résultat de find_file injecté par l'ia.agent.
     assert "configs/secret.yaml" in core.llm.prompts[1]
 
 
@@ -866,7 +861,7 @@ def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_SANDBOX_ROOT", str(tmp_path))
     monkeypatch.setenv("API_KEY", "test-key")
     from api import app as api_app
-    from core import agent_cache  # noqa: F401  (insère ia/ dans sys.path)
+    from core import agent_cache  # noqa: F401  (point d'entrée historique, plus de hack sys.path)
 
     headers = {"X-API-Key": "test-key"}
     with TestClient(api_app) as client:
@@ -906,8 +901,8 @@ def test_api_runs_new_tools_end_to_end(tmp_path, monkeypatch):
 # --- ia/tools/calc_tools.py) -------------------------------------------------------------
 
 def test_search_in_files_matches_content_with_line_numbers(sandbox_root):
-    from tools.file_tools import write_file
-    from tools.search_tools import search_in_files
+    from ia.tools.file_tools import write_file
+    from ia.tools.search_tools import search_in_files
 
     write_file("src/train.log", "epoch 1 done\nepoch 2 done\nloss=0.3\n")
     write_file("src/readme.md", "aucune correspondance ici\n")
@@ -921,8 +916,8 @@ def test_search_in_files_matches_content_with_line_numbers(sandbox_root):
 
 
 def test_search_in_files_skips_excluded_dirs_and_binaries(sandbox_root):
-    from tools.file_tools import write_file
-    from tools.search_tools import search_in_files
+    from ia.tools.file_tools import write_file
+    from ia.tools.search_tools import search_in_files
 
     # Fixtures dans des dossiers exclus : créées directement (pas via write_file,
     # dont le garde-fou interdit d'écrire sous .git/... — c'est volontaire).
@@ -938,8 +933,8 @@ def test_search_in_files_skips_excluded_dirs_and_binaries(sandbox_root):
 
 
 def test_search_in_files_invalid_regex_and_max_results(sandbox_root):
-    from tools.file_tools import write_file
-    from tools.search_tools import search_in_files
+    from ia.tools.file_tools import write_file
+    from ia.tools.search_tools import search_in_files
 
     write_file("multi.txt", "hit\nhit\nhit\n")
     with pytest.raises(ValueError, match="Regex invalide"):
@@ -950,8 +945,8 @@ def test_search_in_files_invalid_regex_and_max_results(sandbox_root):
 
 
 def test_tail_file_returns_last_lines_only(sandbox_root):
-    from tools.file_tools import write_file
-    from tools.search_tools import tail_file
+    from ia.tools.file_tools import write_file
+    from ia.tools.search_tools import tail_file
 
     write_file("long.log", "".join(f"ligne {i}\n" for i in range(1, 201)))
     out = tail_file("long.log", lines=5)
@@ -964,9 +959,9 @@ def test_tail_file_returns_last_lines_only(sandbox_root):
 
 
 def test_append_file_creates_parents_and_concatenates(sandbox_root):
-    from tools.file_tools import write_file
-    from tools.search_tools import append_file
-    from tools.system_tools import read_file
+    from ia.tools.file_tools import write_file
+    from ia.tools.search_tools import append_file
+    from ia.tools.system_tools import read_file
 
     append_file("logs/app.log", "ligne 1\n")
     append_file("logs/app.log", "ligne 2\n")
@@ -979,7 +974,7 @@ def test_append_file_creates_parents_and_concatenates(sandbox_root):
 def test_now_returns_parseable_iso_timestamp(sandbox_root):
     from datetime import datetime
 
-    from tools.search_tools import now
+    from ia.tools.search_tools import now
 
     stamp = now()
     parsed = datetime.fromisoformat(stamp)
@@ -989,7 +984,7 @@ def test_now_returns_parseable_iso_timestamp(sandbox_root):
 
 
 def test_calc_evaluates_arithmetic_safely(sandbox_root):
-    from tools.calc_tools import calc
+    from ia.tools.calc_tools import calc
 
     assert calc("(3 + 4) * 2")["result"] == 14
     assert calc("2 ** 10")["result"] == 1024
@@ -1040,7 +1035,7 @@ def jobs_db(sandbox_root):
 
 
 def test_job_list_orders_desc_and_filters_status(jobs_db):
-    from tools.ml_tools import job_list
+    from ia.tools.ml_tools import job_list
 
     listing = job_list()
     assert listing["job_count"] == 2
@@ -1055,7 +1050,7 @@ def test_job_list_orders_desc_and_filters_status(jobs_db):
 
 
 def test_job_list_rejects_unknown_status_and_missing_db(sandbox_root):
-    from tools.ml_tools import job_list
+    from ia.tools.ml_tools import job_list
 
     with pytest.raises(ValueError, match="Statut inconnu"):
         job_list(status="en_pause")
@@ -1065,7 +1060,7 @@ def test_job_list_rejects_unknown_status_and_missing_db(sandbox_root):
 
 
 def test_job_get_returns_full_payload(jobs_db):
-    from tools.ml_tools import job_get
+    from ia.tools.ml_tools import job_get
 
     payload = job_get("j1")
     assert payload["status"] == "completed"
@@ -1076,7 +1071,7 @@ def test_job_get_returns_full_payload(jobs_db):
 
 
 def test_job_store_connection_is_read_only(jobs_db):
-    from tools.ml_tools import _connect_readonly
+    from ia.tools.ml_tools import _connect_readonly
 
     conn = _connect_readonly(jobs_db)
     try:
@@ -1096,7 +1091,7 @@ class _FakePredictor:
 
 
 def test_predict_sentiment_validates_and_delegates(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     monkeypatch.setattr(ml_tools, "_get_predictor", lambda: _FakePredictor())
 
@@ -1116,8 +1111,8 @@ def test_predict_sentiment_validates_and_delegates(sandbox_root, monkeypatch):
 
 
 def test_dataset_stats_profiles_csv_and_rejects_other_formats(sandbox_root):
-    from tools.file_tools import write_file
-    from tools.ml_tools import dataset_stats
+    from ia.tools.file_tools import write_file
+    from ia.tools.ml_tools import dataset_stats
 
     csv_content = (
         "text,label,lang_code\n"
@@ -1141,7 +1136,7 @@ def test_dataset_stats_profiles_csv_and_rejects_other_formats(sandbox_root):
 
 
 def test_model_versions_flags_latest_as_active(sandbox_root):
-    from tools.ml_tools import model_versions
+    from ia.tools.ml_tools import model_versions
 
     models_root = sandbox_root / "experiments" / "models"
     (models_root / "20260101T000000Z").mkdir(parents=True)
@@ -1176,7 +1171,7 @@ class _FakeStreamResponse:
 
 def test_download_file_streams_into_sandbox(sandbox_root, monkeypatch):
     import requests as requests_module
-    from tools.ops_tools import download_file
+    from ia.tools.ops_tools import download_file
 
     monkeypatch.setattr(
         requests_module, "get",
@@ -1189,7 +1184,7 @@ def test_download_file_streams_into_sandbox(sandbox_root, monkeypatch):
 
 def test_download_file_http_error_leaves_no_partial(sandbox_root, monkeypatch):
     import requests as requests_module
-    from tools.ops_tools import download_file
+    from ia.tools.ops_tools import download_file
 
     monkeypatch.setattr(
         requests_module, "get",
@@ -1202,7 +1197,7 @@ def test_download_file_http_error_leaves_no_partial(sandbox_root, monkeypatch):
 
 def test_download_file_oversize_aborts_and_cleans(sandbox_root, monkeypatch):
     import requests as requests_module
-    from tools.ops_tools import download_file
+    from ia.tools.ops_tools import download_file
 
     big_chunks = [b"A" * (64 * 1024) for _ in range(20)]  # ~1,25 Mo au total
     monkeypatch.setattr(
@@ -1215,14 +1210,14 @@ def test_download_file_oversize_aborts_and_cleans(sandbox_root, monkeypatch):
 
 
 def test_download_file_rejects_non_http_scheme(sandbox_root):
-    from tools.ops_tools import download_file
+    from ia.tools.ops_tools import download_file
 
     with pytest.raises(ValueError, match="http/https"):
         download_file("ftp://example.com/f.bin", "f.bin")
 
 
 def test_env_info_reports_versions_without_secrets(sandbox_root):
-    from tools.ops_tools import env_info
+    from ia.tools.ops_tools import env_info
 
     info = env_info()
     assert info["cpu_count"] >= 1
@@ -1231,8 +1226,8 @@ def test_env_info_reports_versions_without_secrets(sandbox_root):
 
 
 def test_disk_usage_totals_and_children_sizes(sandbox_root):
-    from tools.file_tools import write_file
-    from tools.ops_tools import disk_usage
+    from ia.tools.file_tools import write_file
+    from ia.tools.ops_tools import disk_usage
 
     write_file("gros/donnees.txt", "x" * 1000)
     usage = disk_usage()
@@ -1242,9 +1237,9 @@ def test_disk_usage_totals_and_children_sizes(sandbox_root):
 
 
 def test_zip_then_unzip_roundtrip(sandbox_root):
-    from tools.file_tools import write_file
-    from tools.ops_tools import unzip_file, zip_path
-    from tools.system_tools import read_file
+    from ia.tools.file_tools import write_file
+    from ia.tools.ops_tools import unzip_file, zip_path
+    from ia.tools.system_tools import read_file
 
     write_file("projet/a/f1.txt", "un")
     write_file("projet/a/sub/f2.txt", "deux")
@@ -1264,7 +1259,7 @@ def test_zip_then_unzip_roundtrip(sandbox_root):
 def test_unzip_blocks_zip_slip_entries(sandbox_root):
     import zipfile as zipfile_module
 
-    from tools.ops_tools import unzip_file
+    from ia.tools.ops_tools import unzip_file
 
     evil = sandbox_root / "evil.zip"
     with zipfile_module.ZipFile(evil, "w") as archive:
@@ -1280,7 +1275,7 @@ def test_unzip_blocks_zip_slip_entries(sandbox_root):
 
 
 def test_git_wrappers_return_structured_results_without_raising(sandbox_root, monkeypatch):
-    from tools import ops_tools
+    from ia.tools import ops_tools
 
     def fake_run_subprocess(argv, **kwargs):
         if argv[2] == "status":
@@ -1299,8 +1294,8 @@ def test_git_wrappers_return_structured_results_without_raising(sandbox_root, mo
 
 
 def test_git_diff_appends_sandbox_relative_path(sandbox_root, monkeypatch):
-    from tools import ops_tools
-    from tools.file_tools import write_file
+    from ia.tools import ops_tools
+    from ia.tools.file_tools import write_file
 
     write_file("src/a.py", "print('ok')\n")
     captured = {}
@@ -1317,7 +1312,7 @@ def test_git_diff_appends_sandbox_relative_path(sandbox_root, monkeypatch):
 
 
 def test_docker_stats_parses_json_lines(sandbox_root, monkeypatch):
-    from tools import ops_tools
+    from ia.tools import ops_tools
 
     lines = [
         json.dumps({"Name": "api", "CPUPerc": "0.15%", "MemUsage": "50MiB / 1GiB"}),
@@ -1343,7 +1338,7 @@ def test_docker_stats_parses_json_lines(sandbox_root, monkeypatch):
 # --- Cohérence du registre central --------------------------------------------------------------
 
 def test_registry_is_consistent_between_tools_and_required_args():
-    from tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS
+    from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS
 
     assert set(TOOLS) == set(REQUIRED_ARGS)
     for name, func in TOOLS.items():
@@ -1369,7 +1364,7 @@ def test_registry_is_consistent_between_tools_and_required_args():
 
 
 def test_json_manifest_exposes_description_and_parameters():
-    from tools.tool_registry import TOOL_META
+    from ia.tools.tool_registry import TOOL_META
 
     # Le JSON est la source déclarative : les champs attendus y figurent.
     assert TOOL_META["calc"]["description"]
@@ -1384,7 +1379,7 @@ def test_json_manifest_exposes_description_and_parameters():
 # --- Nouveaux outils fichiers (file_tools) -------------------------------------------------------
 
 def test_write_file_is_atomic_and_guards_git_and_dir(sandbox_root):
-    from tools.file_tools import write_file
+    from ia.tools.file_tools import write_file
 
     msg = write_file("notes/a.txt", "bonjour")
     assert "écrit" in msg and "octets" in msg
@@ -1401,7 +1396,7 @@ def test_write_file_is_atomic_and_guards_git_and_dir(sandbox_root):
 
 
 def test_file_info_and_checksum_and_head_and_count(sandbox_root):
-    from tools.file_tools import (
+    from ia.tools.file_tools import (
         count_lines,
         file_checksum,
         file_info,
@@ -1427,7 +1422,7 @@ def test_file_info_and_checksum_and_head_and_count(sandbox_root):
 
 
 def test_touch_and_json_roundtrip(sandbox_root):
-    from tools.file_tools import read_json, touch, write_file, write_json
+    from ia.tools.file_tools import read_json, touch, write_file, write_json
 
     assert "créé" in touch("empty.txt")
     assert (sandbox_root / "empty.txt").exists()
@@ -1442,8 +1437,8 @@ def test_touch_and_json_roundtrip(sandbox_root):
 
 
 def test_find_duplicates_and_split_and_dedupe(sandbox_root):
-    from tools.file_tools import dedupe_lines, find_duplicates, split_file, write_file
-    from tools.system_tools import read_file
+    from ia.tools.file_tools import dedupe_lines, find_duplicates, split_file, write_file
+    from ia.tools.system_tools import read_file
 
     write_file("a/one/f.txt", "A")
     write_file("a/two/f.txt", "A")
@@ -1471,7 +1466,7 @@ class _FakeJobStore(dict):
 
 def _patch_ml_training(monkeypatch, runner):
     """Remplace job store et runner d'entraînement par des doublures offline."""
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     store = _FakeJobStore()
     monkeypatch.setattr(ml_tools, "_get_job_store", lambda: store)
@@ -1492,7 +1487,7 @@ def _finish_job(store, job_id, status, model_path=None, error=None):
 
 
 def _wait_terminal(store, job_id, deadline_seconds=5.0):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     limit = time.time() + deadline_seconds
     while time.time() < limit:
@@ -1504,7 +1499,7 @@ def _wait_terminal(store, job_id, deadline_seconds=5.0):
 
 
 def test_start_training_launches_background_job(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     seen = {}
 
@@ -1527,7 +1522,7 @@ def test_start_training_launches_background_job(sandbox_root, monkeypatch):
 
 
 def test_start_training_refuses_when_training_already_running(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     from core.models import JobStatus, TrainJob
 
@@ -1540,7 +1535,7 @@ def test_start_training_refuses_when_training_already_running(sandbox_root, monk
 
 
 def test_train_model_waits_until_completion(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     def fake_run_training(job_id, req):
         time.sleep(0.1)
@@ -1558,7 +1553,7 @@ def test_train_model_waits_until_completion(sandbox_root, monkeypatch):
 
 
 def test_train_model_reports_failure(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     def failing_run_training(job_id, req):
         _finish_job(ml_tools._get_job_store(), job_id, "failed",
@@ -1573,7 +1568,7 @@ def test_train_model_reports_failure(sandbox_root, monkeypatch):
 
 
 def test_train_model_times_out_and_returns_tracking_payload(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     # runner « coincé » : le job reste pending/running bien au-delà du timeout
     _patch_ml_training(monkeypatch, lambda job_id, req: time.sleep(1.0))
@@ -1586,7 +1581,7 @@ def test_train_model_times_out_and_returns_tracking_payload(sandbox_root, monkey
 
 
 def test_train_tools_validate_params_and_corrections_path(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     _patch_ml_training(monkeypatch, lambda job_id, req: None)
 
@@ -1601,7 +1596,7 @@ def test_train_tools_validate_params_and_corrections_path(sandbox_root, monkeypa
 
 
 def test_train_tools_are_registered_with_empty_required_args():
-    from tools.tool_registry import REQUIRED_ARGS, TOOLS
+    from ia.tools.tool_registry import REQUIRED_ARGS, TOOLS
 
     assert REQUIRED_ARGS["start_training"] == []
     assert REQUIRED_ARGS["train_model"] == []
@@ -1614,7 +1609,7 @@ def test_train_tools_are_registered_with_empty_required_args():
 
 def _patch_ml_canceller(monkeypatch, store):
     """Doublure offline de core.trainer_runner.cancel_training."""
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     def fake_cancel(job_id):
         _finish_job(store, job_id, "cancelled", error="Training cancelled by user")
@@ -1624,7 +1619,7 @@ def _patch_ml_canceller(monkeypatch, store):
 
 
 def test_cancel_training_stops_running_job(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     from core.models import JobStatus, TrainJob
 
@@ -1642,7 +1637,7 @@ def test_cancel_training_stops_running_job(sandbox_root, monkeypatch):
 
 
 def test_cancel_training_accepts_pending_and_stop_is_alias(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     from core.models import JobStatus, TrainJob
 
@@ -1657,7 +1652,7 @@ def test_cancel_training_accepts_pending_and_stop_is_alias(sandbox_root, monkeyp
 
 
 def test_cancel_training_rejects_unknown_and_finished_jobs(sandbox_root, monkeypatch):
-    from tools import ml_tools
+    from ia.tools import ml_tools
 
     from core.models import JobStatus, TrainJob
 
@@ -1675,7 +1670,7 @@ def test_cancel_training_rejects_unknown_and_finished_jobs(sandbox_root, monkeyp
 
 
 def test_cancel_tools_are_registered_with_job_id_required():
-    from tools.tool_registry import REQUIRED_ARGS, TOOLS
+    from ia.tools.tool_registry import REQUIRED_ARGS, TOOLS
 
     assert REQUIRED_ARGS["cancel_training"] == ["job_id"]
     assert REQUIRED_ARGS["stop_training"] == ["job_id"]

@@ -47,6 +47,8 @@ _FLAG_NAMES = (
     "copilot",
     "websocket",
     "multi_agent",
+    "new_core",  # bascule du noyau agentique v2 (AGENT_NEW_CORE)
+    "llm_v2",    # client LLM propre vs legacy (AGENT_LLM_V2)
 )
 
 
@@ -83,10 +85,12 @@ class Settings(BaseSettings):
     )
 
     # --- Agent : provider LLM -----------------------------------------------
-    agent_provider: AgentProvider = AgentProvider.OPENROUTER # OLLAMA
-    agent_model_name: str = "openrouter/free" #"llama3.1:8b"
+    agent_provider: AgentProvider = AgentProvider.OPENROUTER
+    agent_model_name: str = "openrouter/free"
     agent_ollama_url: str = "http://192.168.1.184:11434/api/chat"
     agent_openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"
+    # Aucune clé par défaut : le secret vient de l'environnement OPENROUTER_API_KEY.
+    # Le validateur `_validate_provider` échoue vite si le provider l'exige sans clé.
     openrouter_api_key: str | None = None
     hf_api_key: str | None = None
     hf_token: str | None = None  # repli historique si HF_API_KEY absent
@@ -112,6 +116,18 @@ class Settings(BaseSettings):
     flag_copilot: bool = 1
     flag_websocket: bool = 1
     flag_multi_agent: bool = 1
+    # Bascule du noyau agentique v2 : ACTIVÉ par défaut depuis la bascule en
+    # production (rollout terminé). Peut venir de l'environnement
+    # (AGENT_NEW_CORE) ou du fichier .env (lu par pydantic-settings,
+    # contrairement à os.getenv) ; ``AGENT_NEW_CORE=0`` conserve le repli
+    # legacy tant que le chemin v1 n'est pas décommissionné.
+    flag_new_core: bool = True
+
+    # Bascule du client LLM v2 (AGENT_LLM_V2). ACTIVÉ par défaut depuis la
+    # bascule en production : ``HttpLLMClient`` (implémentation propre du port
+    # LLMClientPort, retry + circuit breaker réutilisés) remplace le legacy.
+    # ``AGENT_LLM_V2=0`` conserve le repli legacy tant que le chemin v1 vit.
+    flag_llm_v2: bool = True
 
     @model_validator(mode="before")
     @classmethod
@@ -162,8 +178,15 @@ class Settings(BaseSettings):
         return {name: getattr(self, f"flag_{name}") for name in _FLAG_NAMES}
 
 
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    """Instance Settings mise en cache. Pour les tests :
-    ``get_settings.cache_clear()`` après modification de l'environnement."""
-    return Settings()  # type: ignore[call-arg]  # validation pydantic-settings
+@lru_cache(maxsize=8)
+def get_settings(*, env_file: str | None = ".env") -> Settings:
+    """Instance Settings mise en cache.
+
+    ``env_file`` : fichier d'environnement lu par pydantic-settings (défaut
+    ``.env``) ; passer ``None`` pour l'ignorer. Permet aux tests de rester
+    déterministes même si un ``.env`` local embarque des secrets.
+
+    Pour les tests : ``get_settings.cache_clear()`` après modification de
+    l'environnement (une entrée de cache par valeur de ``env_file``).
+    """
+    return Settings(_env_file=env_file)  # type: ignore[call-arg]

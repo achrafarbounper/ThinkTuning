@@ -16,7 +16,6 @@ Cas d'erreur couverts :
 """
 import json
 import os
-import threading
 import time
 
 import pytest
@@ -363,21 +362,16 @@ def isolated_api(monkeypatch, tmp_path):
     monkeypatch.setattr(_model_versioning, "MODEL_ROOT", root)
     monkeypatch.setattr(_model_versioning, "MODELS_ROOT", root)
 
-    # Réinitialise le store de jobs et le cache predictor entre chaque test.
-    previous_jobs = api._jobs
-    previous_events = api._job_cancel_events
-    previous_predictor = api._predictor
+    # Réinitialise le cache predictor entre chaque test. L'état du cache vit
+    # UNIQUEMENT dans core.predictor_cache (l'ancien alias api._predictor,
+    # importé « par valeur », devenait obsolète après un reload — état fantôme).
+    from core import predictor_cache as _predictor_cache
+
     previous_core_predictor = _predictor_cache._predictor
-    api._jobs = {}
-    api._job_cancel_events = {}
-    api._predictor = None
     _predictor_cache._predictor = None
 
     yield
 
-    api._jobs = previous_jobs
-    api._job_cancel_events = previous_events
-    api._predictor = previous_predictor
     _predictor_cache._predictor = previous_core_predictor
 
 
@@ -477,12 +471,11 @@ def test_train_status_predict_end_to_end(client, pipeline_mock):
     job_id = resp.json()["job_id"]
     assert job_id
 
-    # 2) L'entraînement part réellement dans un thread (comme en prod).
-    req = api.TrainRequest(max_per_lang=6, epochs=1, batch_size=2)
-    api_thread = threading.Thread(target=api._run_training, args=(job_id, req), daemon=True)
-    api_thread.start()
-
-    # 3) Polling du statut jusqu'à un état terminal.
+    # 2) POST /train a déjà démarré le worker (thread dédié dans train.py) :
+    # on ne fait que poller son statut jusqu'à un état terminal. (Auparavant le
+    # test lançait UN SECOND worker sur le même job_id -> double entraînement
+    # concurrent, collisions sur le dossier `.tmp` de sauvegarde et échecs
+    # internittents FileNotFoundError/PermissionError sous charge windows.)
     terminal = {"completed", "failed", "cancelled"}
     final_status = None
     for _ in range(200):
@@ -493,7 +486,6 @@ def test_train_status_predict_end_to_end(client, pipeline_mock):
             final_status = body
             break
         time.sleep(0.05)
-    api_thread.join(timeout=5)
 
     assert final_status is not None, "L'entraînement n'a pas abouti à un état terminal"
     assert final_status["status"] == "completed", f"Échec entraînement: {final_status.get('error')}"

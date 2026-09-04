@@ -3,7 +3,7 @@
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +422,7 @@ def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples,
         f"Sauvegarde du modèle | job_id={job_id} | {train_examples} train / {val_examples} val"
     )
     os.makedirs(MODEL_ROOT, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     logger.debug(f"Horodatage de la version : {timestamp}")
     model_dir = os.path.join(MODEL_ROOT, timestamp)
     os.makedirs(model_dir, exist_ok=True)

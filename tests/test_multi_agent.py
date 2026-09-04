@@ -20,14 +20,9 @@ import os
 import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IA_DIR = os.path.join(PROJECT_ROOT, "ia")
-for _p in (PROJECT_ROOT, IA_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
-
-from agent.agent_core import AgentCore  # noqa: E402
-from agent.orchestrator import (  # noqa: E402
+from ia.agent.agent_core import AgentCore  # noqa: E402
+from ia.agent.orchestrator import (  # noqa: E402
     EV_DONE,
     EV_PLAN,
     EV_SYNTHESIZING,

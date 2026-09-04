@@ -196,6 +196,21 @@ export interface ChatStreamEvent {
     duration_ms?: number;
   };
   /**
+   * Événement d'outil du NOYAU V2 (/api/agent/ask/core/stream) : frame unique
+   * « core_tool » portant {event: tool_start | tool_result, tool, args, status,
+   * summary, duration_ms}. Même sémantique que tool_start/tool_result du mode
+   * Agent, regroupée dans un seul champ côté backend.
+   */
+  core_tool?: {
+    event?: string;
+    tool: string;
+    args?: Record<string, unknown>;
+    status?: string;
+    summary?: string;
+    error?: string;
+    duration_ms?: number;
+  };
+  /**
    * Réponse finale du gate du mode Agent (même contrat que POST /api/agent/ask)
    * envoyée en toute fin de flux : statut, request_id et approbation éventuelle.
    */

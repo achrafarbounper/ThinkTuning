@@ -184,3 +184,4 @@ agent_workspace/
 /pytest_*.txt
 /fixtests_*.txt
 /dashboard/build_out.txt
+app/config/settings.py

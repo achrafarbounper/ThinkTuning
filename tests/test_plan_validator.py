@@ -19,19 +19,14 @@ import os
 import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IA_DIR = os.path.join(PROJECT_ROOT, "ia")
-for _p in (PROJECT_ROOT, IA_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
-
-from agent.errors import (  # noqa: E402
+from ia.agent.errors import (  # noqa: E402
     PLAN_CYCLE,
     PLAN_EMPTY,
     PLAN_VALIDATION_FAILED,
     TASK_INVALID,
 )
-from agent.plan_validator import validate_plan  # noqa: E402
+from ia.agent.plan_validator import validate_plan  # noqa: E402
 
 ROLES = ["web", "files", "data", "math"]
 

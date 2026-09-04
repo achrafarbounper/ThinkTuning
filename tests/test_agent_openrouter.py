@@ -19,7 +19,7 @@ Lance avec : pytest tests/test_agent_openrouter.py -v
 import os
 import tempfile
 
-# Config test AVANT tout import (le cache insère ia/ dans sys.path).
+# Config test AVANT tout import de l'application.
 os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port factice
 
@@ -35,14 +35,14 @@ import pytest  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
 # ORDRE IMPORTANT : importer agent_cache AVANT tout module « agent.* »,
-# c'est lui qui ajoute le dossier ia/ au sys.path.
+# c'est le point d'entrée historique (plus aucun hack sys.path).
 from core import agent_cache  # noqa: E402
 from core import agent_settings as agent_settings_module  # noqa: E402
 
 agent_settings_module.reset_store_for_tests(_SETTINGS_DB)
 
-from agent import llm_client as llm_module  # noqa: E402
-from agent.llm_client import LLMClient  # noqa: E402
+from ia.agent import llm_client as llm_module  # noqa: E402
+from ia.agent.llm_client import LLMClient  # noqa: E402
 
 DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 

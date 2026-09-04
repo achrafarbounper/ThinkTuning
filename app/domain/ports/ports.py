@@ -49,6 +49,47 @@ class LLMClientPort(Protocol):
 
 
 @runtime_checkable
+class ContextPort(Protocol):
+    """Contrat d'optimisation du contexte conversationnel (cf. ia/agent/context.py).
+
+    Fonctions pures (aucune I/O réseau) : bornage du budget en jetons,
+    fenêtre glissante + résumé, et mémoire inter-sessions.
+
+    - ``optimize_history`` renvoie ``(messages, meta)`` — ``meta`` porte
+      ``kept`` / ``dropped`` / ``summarized`` / ``estimated_tokens`` ;
+    - ``format_memory_note`` renvoie ``None`` quand le résumé est vide
+      (comportement historique : rien n'est injecté).
+    """
+
+    def estimate_tokens(self, text: str) -> int:
+        """Estimation du nombre de jetons (heuristique ~4 car./jeton)."""
+        ...
+
+    def optimize_history(
+        self,
+        messages: list[Message],
+        max_tokens: int = 1200,
+        summarize_fn: Callable[[str], str] | None = None,
+    ) -> tuple[list[Message], dict]:
+        """Fenêtre glissante + résumé éventuel ; ordre chronologique préservé."""
+        ...
+
+    def update_memory_summary(
+        self,
+        previous_summary: str,
+        prompt: str,
+        answer: str,
+        max_chars: int = 2000,
+    ) -> str:
+        """Résumé glissant déterministe (concaténation bornée), sans LLM."""
+        ...
+
+    def format_memory_note(self, summary: str) -> Message | None:
+        """Message de contexte portant la mémoire des sessions précédentes."""
+        ...
+
+
+@runtime_checkable
 class ToolRegistryPort(Protocol):
     """Contrat du registre d'outils (cf. ia/tools/tool_registry.py).
 
@@ -144,24 +185,41 @@ class AuditStorePort(Protocol):
 
 @runtime_checkable
 class RunStorePort(Protocol):
-    """Contrat de traçabilité des runs agent (cf. core/run_store.py)."""
+    """Contrat de traçabilité des runs agent (cf. core/run_store.py).
 
-    def start_run(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Ouvre un run (prompt, session, modèle…) et renvoie son état."""
+    Signatures alignées sur l'implémentation legacy : un adaptateur conforme
+    doit accepter exactement ces arguments (les tests de contrat vérifient
+    l'alignement par introspection des signatures)."""
+
+    def start_run(
+        self, prompt: str, model: str = "", source: str = "api"
+    ) -> dict[str, Any]:
+        """Ouvre un run ``running`` et renvoie sa ligne (dict, clé ``id``)."""
         ...
 
     def append_tool_event(self, run_id: str, event: dict[str, Any]) -> None:
         """Journalise un événement d'outil (tool_start / tool_result / error)."""
         ...
 
-    def finish_run(self, run_id: str, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
-        """Clôture le run (answer, status, duration…)."""
+    def finish_run(
+        self,
+        run_id: str,
+        status: str,
+        answer_summary: str = "",
+        error: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Clôture le run (statut final, résumé de réponse ou erreur)."""
         ...
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         ...
 
-    def list(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    def list(
+        self,
+        limit: int = 50,
+        status: str | None = None,
+        tool: str | None = None,
+    ) -> list[dict[str, Any]]:
         ...
 
 
@@ -170,11 +228,25 @@ class ApprovalStorePort(Protocol):
     """Contrat de la file d'approbation humaine (cf. core/approval_store.py).
 
     Flux : ``create`` (status pending) -> ``approve``/``reject`` -> le runner
-    reprend l'action si ``approved``. Signature alignée sur le legacy : les
-    identifiants sont des ``request_id``, le filtrage passe par ``list(status)``."""
+    reprend l'action si ``approved``. Le filtrage passe par ``list(status)``.
 
-    def create(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Enregistre une action pending (tool, args, category, reason…)."""
+    Convention ``create`` : l'adaptateur de référence
+    (``app/infrastructure/legacy_approval_store``) renvoie la LIGNE créée
+    (dict avec ``request_id``) et non l'identifiant brut du legacy — les
+    use-cases s'appuient sur ``record.get("request_id")``."""
+
+    def create(
+        self,
+        tool: str,
+        args: Any,
+        category: str,
+        decision: str,
+        reason: str,
+        prompt: str = "",
+        args_hash: str = "",
+        status: str = "pending",
+    ) -> dict[str, Any]:
+        """Enregistre une demande (pending ou trace de rejet) et renvoie la ligne."""
         ...
 
     def get(self, request_id: str) -> dict[str, Any] | None:
@@ -188,4 +260,50 @@ class ApprovalStorePort(Protocol):
 
     def list(self, status: str | None = None) -> list[dict[str, Any]]:
         """Liste les demandes (toutes si status=None, sinon filtrées par statut)."""
+        ...
+
+
+@runtime_checkable
+class EventBusPort(Protocol):
+    """Contrat du bus d'événements pub/sub (cf. ia/agent/event_bus.py).
+
+    Découple l'émission d'événements (``emit`` / ``emit_async``) du transport de
+    publication (SSE/WS, audit, métriques) : les use-cases émettent sur une
+    interface anonyme, les adaptateurs (legacy ou in-process) acheminent.
+
+    Événements typiques de l'agent : ``agent.tool_start``, ``agent.tool_result``,
+    ``agent.run_finished``, ``agent.approval_pending``. Chaque payload porte
+    ``event_type`` + ``timestamp`` injectés par l'implémentation, plus les
+    champs passés à ``emit``.
+
+    L'isolation d'erreurs est une responsabilité de l'implémentation : un
+    handler fautif ne doit jamais propager d'exception à l'émetteur.
+    """
+
+    def on(self, event_type: str, handler: Callable[..., Any]) -> None:
+        """Enregistre un handler pour un type d'événement."""
+        ...
+
+    def once(self, event_type: str, handler: Callable[..., Any]) -> None:
+        """Enregistre un handler one-shot (désabonné après sa première exécution)."""
+        ...
+
+    def off(self, event_type: str, handler: Callable[..., Any]) -> None:
+        """Supprime un handler."""
+        ...
+
+    def emit(self, event_type: str, **kwargs: Any) -> None:
+        """Émet un événement de manière synchrone (jamais d'exception remontée)."""
+        ...
+
+    def emit_async(self, event_type: str, **kwargs: Any) -> Any:
+        """Émet un événement de manière asynchrone (awaitable)."""
+        ...
+
+    def clear(self, event_type: str | None = None) -> None:
+        """Supprime tous les handlers (ou ceux d'un seul type)."""
+        ...
+
+    def listener_count(self, event_type: str) -> int:
+        """Nombre de handlers enregistrés pour un type."""
         ...

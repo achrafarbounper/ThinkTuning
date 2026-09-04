@@ -3,6 +3,7 @@
 import os
 import json
 import sqlite3
+import threading
 import time
 from typing import Dict
 
@@ -15,6 +16,10 @@ class PersistentJobStore(dict):
     def __init__(self, path: str = JOB_STORE_PATH):
         super().__init__()
         self.path = path
+        # Les jobs sont écrits par les threads workers (train/pipeline) ET par
+        # les threads de requêtes API (statut, cancel) : toute écriture est
+        # verrouillée pour garantir la cohérence dict <-> SQLite.
+        self._write_lock = threading.RLock()
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self._ensure_db()
         self._refresh_from_db()
@@ -143,32 +148,38 @@ class PersistentJobStore(dict):
             raise TypeError("PersistentJobStore accepts only TrainJob instances.")
 
         payload = self._serialize_job(value)
-        conn = self._connect()
-        conn.execute("""
-            INSERT INTO jobs (job_id, payload, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(job_id) DO UPDATE SET
-                payload = excluded.payload,
-                updated_at = excluded.updated_at
-        """, (key, payload, time.time()))
-        conn.commit()
-        conn.close()
+        with self._write_lock:
+            conn = self._connect()
+            conn.execute("""
+                INSERT INTO jobs (job_id, payload, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+            """, (key, payload, time.time()))
+            conn.commit()
+            conn.close()
 
-        super().__setitem__(key, value)
+            super().__setitem__(key, value)
 
     def get(self, key, default=None):
         try:
             return super().__getitem__(key)
         except KeyError:
-            conn = self._connect()
-            row = conn.execute("SELECT payload FROM jobs WHERE job_id = ?", (key,)).fetchone()
-            conn.close()
-            if row is None:
-                return default
-            data = json.loads(row[0])
-            job = TrainJob(**data)
-            super().__setitem__(key, job)
-            return job
+            with self._write_lock:
+                # Re-vérifie sous verrou : un worker a pu insérer le job
+                # entre l' KeyError et la prise du verrou.
+                if key in self:
+                    return self[key]
+                conn = self._connect()
+                row = conn.execute("SELECT payload FROM jobs WHERE job_id = ?", (key,)).fetchone()
+                conn.close()
+                if row is None:
+                    return default
+                data = json.loads(row[0])
+                job = TrainJob(**data)
+                super().__setitem__(key, job)
+                return job
 
     def save_epoch_metrics(self, job_id: str, records):
         """Persiste les métriques d'entraînement par epoch (SCRUM-73).
@@ -284,9 +295,105 @@ class PersistentJobStore(dict):
 
         return items, total
 
+    # ------------------------------------------------------------------
+    # Rétention (cleanup_old_jobs)
+    # ------------------------------------------------------------------
+    def update_job_timestamp(self, job_id: str, timestamp: float) -> bool:
+        """Force ``updated_at`` d'un job (outillage/tests de rétention).
+
+        Renvoie True si le job existait.
+        """
+        with self._write_lock:
+            conn = self._connect()
+            cur = conn.execute(
+                "UPDATE jobs SET updated_at = ? WHERE job_id = ?", (timestamp, job_id)
+            )
+            conn.commit()
+            conn.close()
+        return cur.rowcount > 0
+
+    def remove_job(self, job_id: str) -> bool:
+        """Supprime un job de la mémoire ET du SQLite (avec ses métriques)."""
+        with self._write_lock:
+            conn = self._connect()
+            cur = conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+            conn.execute("DELETE FROM train_metrics WHERE job_id = ?", (job_id,))
+            conn.commit()
+            conn.close()
+            super().pop(job_id, None)
+        if cur.rowcount > 0:
+            # Purge aussi le buffer de logs du job (job_logs, cf. rétention).
+            try:
+                from core.job_logs import reset_job_logs
+
+                reset_job_logs(job_id)
+            except Exception:
+                pass
+        return cur.rowcount > 0
+
+    def cleanup_old_jobs(self, max_age_days: int = 30, dry_run: bool = False) -> dict:
+        """Purge les jobs terminés plus vieux que ``max_age_days`` jours.
+
+        Utilise l'index ``idx_jobs_updated_at`` : pas de scan complet.
+        Ne touche jamais aux jobs actifs (pending/running).
+        """
+        cutoff = time.time() - max_age_days * 86400
+        placeholders = ", ".join("?" for _ in TERMINAL_STATUSES)
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT job_id FROM jobs
+                WHERE updated_at < ?
+                  AND json_extract(payload, '$.status') IN ({placeholders})
+                """,
+                (cutoff, *TERMINAL_STATUSES),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        job_ids = [row[0] for row in rows]
+        if not dry_run:
+            for job_id in job_ids:
+                self.remove_job(job_id)
+        return {"deleted": 0 if dry_run else len(job_ids), "job_ids": job_ids}
+
 
 _store = PersistentJobStore()
 
 
 def get_job_store() -> PersistentJobStore:
     return _store
+
+
+# ---------------------------------------------------------------------------
+# Rétention : purge des jobs terminés obsolètes (CLI cleanup_old_jobs.py,
+# appelable aussi programmatiquement). Les jobs actifs (pending/running) ne
+# sont JAMAIS supprimés.
+# ---------------------------------------------------------------------------
+TERMINAL_STATUSES = ("completed", "failed", "cancelled")
+
+
+def cleanup_old_jobs(
+    max_age_days: int = 30,
+    dry_run: bool = False,
+    db_path: str | None = None,
+) -> dict:
+    """Supprime les jobs TERMINAUX datant de plus de ``max_age_days`` jours.
+
+    Args:
+        max_age_days: Âge maximal de rétention des jobs terminés.
+        dry_run: Si True, liste les jobs qui seraient supprimés sans rien faire.
+        db_path: Chemin SQLite optionnel (défaut : store singleton).
+
+    Returns:
+        {"deleted": int, "job_ids": list[str]} — ``deleted`` vaut 0 en dry-run.
+
+    Note :
+        Avec ``db_path`` (hors singleton), une instance dédiée est créée ; les
+        caches mémoire d'autres instances déjà instanciées ne sont PAS
+        synchronisés (seul SQLite fait foi entre instances).
+    """
+    store = PersistentJobStore(path=db_path) if db_path else get_job_store()
+    return store.cleanup_old_jobs(max_age_days=max_age_days, dry_run=dry_run)
+

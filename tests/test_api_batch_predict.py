@@ -267,8 +267,6 @@ def test_batch_empty_file():
 
 def test_batch_predict_forwards_model_param(monkeypatch):
     """The optional `model` query param must be forwarded to get_predictor()."""
-    from api.routes import predict as predict_module
-
     captured_model = {"value": None}
 
     class FakePredictor:
@@ -282,7 +280,9 @@ def test_batch_predict_forwards_model_param(monkeypatch):
         captured_model["value"] = model_name
         return FakePredictor()
 
-    monkeypatch.setattr(predict_module, "get_predictor", fake_get_predictor)
+    # La route /predict/batch utilise le même seam que les autres routes
+    # (api._get_predictor) : un seul point d'accès au cache de prédictteurs.
+    monkeypatch.setattr(api, "_get_predictor", fake_get_predictor)
 
     csv_payload = "text\nhello\n"
     response = client.post(

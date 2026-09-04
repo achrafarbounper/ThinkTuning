@@ -120,3 +120,11 @@ class BudgetExceededError(AgentError):
 
     code = "budget_exceeded"
     http_status = 429
+
+
+class AgentRunError(AgentError):
+    """Échec non récupérable d'un run agentique (noyau v2 ou legacy) :
+    le run a été clôturé en ``error`` côté run_store avant la levée."""
+
+    code = "agent_run_error"
+    http_status = 502

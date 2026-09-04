@@ -17,7 +17,7 @@ import requests  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api import app  # noqa: E402
-from core import agent_cache  # noqa: E402  (insère ia/ dans sys.path)
+from core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 HEADERS = {"X-API-Key": "test-key"}
 
@@ -144,7 +144,7 @@ def test_agent_protected_routes_reject_missing_key():
         client.post("/api/agent/tools/run", json={"tool": "add", "args": {}}).status_code
         == 401
     )
-    assert client.post("/api/agent/ask", json={"prompt": "salut"}).status_code == 401
+    assert client.post("/api/agent/ask/core", json={"prompt": "salut"}).status_code == 401
 @pytest.fixture()
 def fake_llm(monkeypatch):
     """Injecte un FakeLLM dans le cache de l'agent (restauré après le test)."""
@@ -215,26 +215,23 @@ def test_run_tool_missing_args_returns_400(fake_llm):
     assert "'b'" in resp.json()["detail"]
 
 
-# --- POST /api/agent/ask -----------------------------------------------------------------
+# --- Boucle agent historique (moteur du chat /api/ai) ------------------------------------
 
 
 def test_ask_executes_tool_then_explains(fake_llm):
-    resp = client.post(
-        "/api/agent/ask",
-        json={"prompt": "Additionne 12 + 30 avec l'outil add."},
-        headers=HEADERS,
+    """La boucle historique planifie un outil puis explique le résultat —
+    le même moteur sert au chat /api/ai (le noyau v2 a ses propres tests)."""
+    result = agent_cache.ask_agent_detailed_streaming(
+        "Additionne 12 + 30 avec l'outil add."
     )
 
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["model"]
-    assert "additionné" in body["response"]
+    assert "additionné" in result["answer"]
     # Deux appels LLM : planification JSON puis explication finale.
     assert len(fake_llm.calls) == 2
     assert fake_llm.calls[1][-1]["content"].startswith("Dernier résultat")
     assert "42" in fake_llm.calls[1][-1]["content"]
 
 
-def test_ask_empty_prompt_rejected(fake_llm):
-    resp = client.post("/api/agent/ask", json={"prompt": ""}, headers=HEADERS)
+def test_ask_core_empty_prompt_rejected():
+    resp = client.post("/api/agent/ask/core", json={"prompt": ""}, headers=HEADERS)
     assert resp.status_code == 422

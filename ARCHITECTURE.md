@@ -105,7 +105,7 @@ api/routes/agent.py               # POST /ask/core (flag AGENT_NEW_CORE)
 core/ ia/ src/                    # legacy — migré progressivement
 ```
 
-### Les 6 ports (`app/domain/ports/ports.py`)
+### Les 7 ports (`app/domain/ports/ports.py`)
 
 | Port | Legacy implémentant déjà le contrat |
 |---|---|
@@ -115,10 +115,21 @@ core/ ia/ src/                    # legacy — migré progressivement
 | `AuditStorePort` | `core/audit_store.py` |
 | `RunStorePort` | `core/run_store.py` |
 | `ApprovalStorePort` | `core/approval_store.py` |
+| `ContextPort` | `ia/agent/context.py` — wrapper `app/infrastructure/context/` |
 
-Les tests de conformité (`tests/test_domain_ports.py`) vérifient que les
-classes legacy **satisfont les Protocols** : impossible de faire dériver un
-contrat de l'implémentation sans casser un test.
+Les tests de conformité (`tests/test_domain_ports.py`, `tests/test_context_port.py`)
+vérifient que les classes legacy **satisfont les Protocols** : impossible de faire
+dériver un contrat de l'implémentation sans casser un test.
+
+**Bascule client LLM (`AGENT_LLM_V2`)** : deux implémentations derrière
+`LLMClientPort` — `HttpLLMClient` (**défaut** depuis la bascule v2 en
+production) et le client legacy en repli (`AGENT_LLM_V2=0`, tant que le
+chemin v1 vit). `build_llm_client()` sélectionne via le flag sans changer les
+use-cases (`tests/test_llm_v2.py`).
+
+**Bascule contexte (`AGENT_CONTEXT`)** : `default_context_provider()` choisit le
+wrapper legacy (comportement v1) ou `NullContextProvider` (profil `AGENT_CONTEXT=0`,
+aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
 
 ---
 
@@ -131,7 +142,10 @@ contrat de l'implémentation sans casser un test.
 - Feature flags agent : `AGENT_<NOM>` = 1/true/yes/on
   (`reliability`, `audit`, `tool_analytics`, `context`, `copilot`,
   `websocket`, `multi_agent`) — même convention que `core/feature_flags.py`.
-- Bascule du noyau : **`AGENT_NEW_CORE=1`** active `/ask/core` (503 sinon).
+- Bascule du noyau : **v2 activé par défaut depuis la bascule en production** ;
+  `AGENT_NEW_CORE=0` force le repli legacy (`/ask/core` répond alors 503).
+- Bascule du client LLM : **`HttpLLMClient` activé par défaut** ;
+  `AGENT_LLM_V2=0` force le repli legacy (ia/agent/llm_client.py).
 - Pour les tests : `get_settings.cache_clear()` après modification de l'env.
 
 ---
@@ -173,11 +187,71 @@ permettent au runner de distinguer retry / recovery / rejet.
 
 ## 6. Migration restante (backlog)
 
-1. Migration physique des stores legacy vers `app/infrastructure/persistence/`
-   (SQLAlchemy + Alembic pour le schéma SQLite).
-2. Suppression progressive des hacks `sys.path` (double identité
-   `ia.tools` / `tools`) — un paquet installable unique.
+1. ~~Migration physique des stores legacy vers `app/infrastructure/persistence/`
+   (SQLAlchemy + Alembic pour le schéma SQLite)~~ **Annulé (décision projet)** :
+   les stores restent dans `core/` ; les wrappers `app/infrastructure/persistence/`
+   demeurent des délégations permanentes (ports + adaptateurs, sans remplacement
+   physique du stockage).
+2. ~~Suppression progressive des hacks `sys.path`~~ **FAIT (Phase 2)** :
+   tous les imports passent par les paquets réels (`ia.agent.*`, `ia.tools.*`,
+   `ia.copilot.*`, `ia.logging_setup`) — plus aucun insert `sys.path` dans
+   `api/`, `core/`, `app/` ni les tests. Garde-fous CI :
+   `tests/test_sys_path_guard.py` (statique AST + dynamique sous-processus).
 3. Étendre ruff/mypy à `api/`, `core/`, `ia/`, `tests/`.
-4. Streaming SSE de `/ask/core` (événements tool_start/tool_result
-   réutilisant l'event bus legacy).
+4. ~~Streaming SSE de `/ask/core` (événements tool_start/tool_result
+   réutilisant l'event bus legacy)~~ **Port `EventBusPort` câblé sur le SSE** :
+   le port pub/sub est en place (`app/infrastructure/events/`) et le flux
+   `/ask/core/stream` s'y appuie — le noyau publie, la route s'abonne via un
+   bus PAR RUN (`InMemoryEventBus`) ; see `tests/test_event_bus_wiring.py`.
 5. Baseline GPU : `gpu_info` et `nvidia-smi` restent hors sandbox Windows CI.
+6. **Machine à états du run (domaine)** : `RunStatus` déplacé de `app/agent/core.py`
+   vers `app/domain/entities/run.py` (source de vérité unique, ré-exporté par le
+   moteur pour rétro-compatibilité) ; `RunStateMachine` valide PUREMENT les
+   transitions de la durée de vie persistée — dont l'invariant central : la
+   reprise `awaiting_approval -> running` (empreinte validée) est la SEULE façon
+   de relancer un run, jamais depuis un état terminal. `run_lifecycle.finish_run_status`
+   passe par la FSM avant chaque `run_store.finish_run` (`tests/test_run_state_machine.py`).
+7. ~~Décommission du chemin v1 HTTP/WS~~ **FAIT (bascule `AGENT_NEW_CORE` par
+   défaut)** : routes `/ask` et `/ask/stream` supprimées (remplacées par
+   `/ask/core` et `/ask/core/stream`), worker WebSocket legacy retiré (le canal
+   `/ws` passe toujours par le noyau v2), use-case `run_legacy_ask` et ponts
+   `ask_agent_decision` / `ask_agent_decision_streaming` supprimés ; tests
+   portés sur le noyau v2 à contrat SSE/WS/sessions inchangé.
+8. **Reste v1** : chat `/api/ai` (`core.agent_cache.ask_agent_detailed_streaming`),
+   `/complete` + summarizer de session (v1 `AgentRunner`), coordinateur
+   multi-agents (`MultiAgentCoordinator`) — tous construits sur
+   `ia/agent/agent_core.py` + `ia/agent/llm_client.py` ; leur migration vers le
+   client/noyau v2 conditionne la suppression de `ia/agent/llm_client.py`.
+
+### Avancée Phase 3 (client LLM v2 + contexte)
+
+- **Port `ContextPort` absorbé** : `ia/agent/context.py` → wrapper
+  `app/infrastructure/context/legacy_context.py`, faux déterministe
+  `null_context.py`, bascule `AGENT_CONTEXT` (`tests/test_context_port.py`).
+- **`HttpLLMClient` (v2) implémenté** : client HTTP httpx propre derrière
+  `LLMClientPort` — streaming NDJSON/SSE, payloads `ollama`/`openrouter`/`hf`,
+  retry + circuit breaker réutilisés de `ia/agent/reliability.py` (classifieur
+  d'erreurs httpx dans `errors.py`), thinking + réparation d'encodage.
+  Bascule via `AGENT_LLM_V2` → `build_llm_client()` (`tests/test_llm_http_client.py`,
+  transport `httpx.MockTransport` hors réseau). Le stub déterministe
+  (`StubLLMClient`) reste disponible pour les tests de use-cases.
+  **Bascule en production réalisée** : `HttpLLMClient` est l'implémentation
+  par défaut (`flag_llm_v2=True`, repli legacy via `AGENT_LLM_V2=0` ;
+  `tests/test_llm_v2.py`, `tests/test_agent_factory.py`).
+  **Reste à faire** : décommissionner `ia/agent/llm_client.py` — il reste
+  importé par le chemin v1 résiduel (`core/agent_cache.py` : coordinateur
+  multi-agents + runners du chat `/api/ai`, cf. backlog item 8).
+- **Port `EventBusPort` (8e) ajouté puis câblé sur le SSE** : contrat pub/sub
+  aligné sur `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` (wrapper
+  strangler vers le singleton, isolation d'erreurs préservée) et
+  `InMemoryEventBus` (faux déterministe async, avec `history`) — dans
+  `app/infrastructure/events/` (`tests/test_event_bus_port.py`).
+  **Câblage** : le noyau (`AgentCore`) accepte un `EventBusPort` optionnel et
+  publie son cycle de vie (`agent.run_start`, `agent.tool_start`/`tool_end`,
+  `agent.thinking`, `agent.approval_pending`, `agent.run_finished`) via
+  `_safe_emit` (défensif, jamais bloquant). `/ask/core/stream` injecte un bus
+  PAR RUN (`InMemoryEventBus`) et s'abonne pour régénérer les frames SSE
+  `core_tool` / `thinking_delta` à l'identique — aucun cross-talk entre flux
+  concurrents, et la route n'est plus qu'un abonné
+  (`tests/test_event_bus_wiring.py`). Les callbacks legacy `on_tool_event` /
+  `on_thinking` restent pris en charge (compatibilité `/ask/core` et tests).

@@ -16,19 +16,19 @@ from .main import app
 from core.models import JobStatus, TrainJob, TrainRequest, ModelVersion, JobListResponse
 
 # === Expose job store ===
-from core.job_store import get_job_store, PersistentJobStore
+from core.job_store import get_job_store, PersistentJobStore, cleanup_old_jobs
 _jobs = get_job_store()
-_job_cancel_events = {}
 
 # === Expose training runner ===
 from core.trainer_runner import run_training as _run_training, cancel_training
 
 # === Expose predictor ===
-from core.predictor_cache import (
-    get_predictor as _get_predictor,
-    _predictor,
-    _predictor_lock,
-)
+# Seule la FONCTION est ré-exportée : elle est monkeypatchée par les tests
+# (`api._get_predictor`) et appelée à l'exécution, donc toujours à jour.
+# Les variables privées `_predictor` / `_predictor_lock` ne sont PAS
+# ré-exportées : importées « par valeur », elles devenaient des références
+# obsolètes dès que predictor_cache rechargeait un modèle (état fantôme).
+from core.predictor_cache import get_predictor as _get_predictor
 
 # === Expose config loader ===
 from src.utils.config import load_config

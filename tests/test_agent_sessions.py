@@ -8,7 +8,7 @@ Lance avec : pytest tests/test_agent_sessions.py -v
 
 import os
 
-# Config test AVANT tout import (le cache insère ia/ dans sys.path).
+# Config test AVANT tout import de l'application.
 os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("AGENT_OLLAMA_URL", "http://127.0.0.1:9/api/chat")  # port factice
 
@@ -17,7 +17,28 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import api  # noqa: E402,F401  (initialise le job store avant le routage)
 from api.routes import agent as agent_routes  # noqa: E402
+from app.agent.core import AgentRunResult, RunStatus  # noqa: E402
 from core import session_store  # noqa: E402
+
+
+def _patch_core(monkeypatch, answer="ok", captured_history=None):
+    """Injecte un noyau v2 scripté ; capture l'historique reçu si demandé."""
+
+    class FakeCore:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, intent, history=None):
+            if captured_history is not None:
+                captured_history.append(history)
+            return AgentRunResult(
+                answer=answer,
+                status=RunStatus.COMPLETED,
+                rounds_used=1,
+                tool_calls_used=0,
+            )
+
+    monkeypatch.setattr(agent_routes, "build_agent_core", lambda *a, **kw: FakeCore())
 
 
 @pytest.fixture()
@@ -92,23 +113,16 @@ def test_sessions_crud_api(client):
     assert deleted.status_code == 200 and deleted.json()["deleted"] is True
 
 
-def test_ask_persists_exchange_in_session(client, monkeypatch):
-    """POST /api/agent/ask avec session_id journalise l'échange user/assistant."""
-    monkeypatch.setattr(
-        agent_routes,
-        "ask_agent_decision",
-        lambda prompt, resume_request_id=None, **kwargs: {
-            "response": "Réponse finale.",
-            "status": "completed",
-        },
-    )
+def test_ask_core_persists_exchange_in_session(client, monkeypatch):
+    """POST /api/agent/ask/core avec session_id journalise l'échange user/assistant."""
+    _patch_core(monkeypatch, answer="Réponse finale.")
 
     session = client.post(
         "/api/sessions", headers=HEADERS, json={"model": "llama3.1:8b"}
     ).json()
 
     response = client.post(
-        "/api/agent/ask",
+        "/api/agent/ask/core",
         headers=HEADERS,
         json={"prompt": "Calcule 2+2", "session_id": session["id"]},
     )
@@ -125,15 +139,11 @@ def test_ask_persists_exchange_in_session(client, monkeypatch):
     assert refreshed["title"] == "Calcule 2+2"
 
 
-def test_ask_with_unknown_session_still_succeeds(client, monkeypatch):
+def test_ask_core_with_unknown_session_still_succeeds(client, monkeypatch):
     """Une session absente ne fait pas échouer le tour (persistance best-effort)."""
-    monkeypatch.setattr(
-        agent_routes,
-        "ask_agent_decision",
-        lambda prompt, resume_request_id=None, **kwargs: {"response": "ok", "status": "completed"},
-    )
+    _patch_core(monkeypatch, answer="ok")
     response = client.post(
-        "/api/agent/ask",
+        "/api/agent/ask/core",
         headers=HEADERS,
         json={"prompt": "salut", "session_id": "inexistant"},
     )
@@ -183,16 +193,15 @@ def test_load_session_history_purges_tool_calls_and_trims():
     assert agent_routes._load_session_history(None, resume_request_id=None) == []
 
 
-def test_ask_injects_history_messages_for_memory(client, monkeypatch):
-    """La route /api/agent/ask passe bien l'historique de session à l'agent
+def test_ask_core_injects_history_messages_for_memory(client, monkeypatch):
+    """La route /api/agent/ask/core passe bien l'historique de session au noyau
     (mémoire de conversation : l'agent doit se souvenir du nom)."""
-    captured = {}
-
-    def fake_decision(prompt, resume_request_id=None, history_messages=None, **kwargs):
-        captured["history"] = history_messages or []
-        return {"response": "Je me souviens de toi, Mahrez.", "status": "completed"}
-
-    monkeypatch.setattr(agent_routes, "ask_agent_decision", fake_decision)
+    received: list = []
+    _patch_core(
+        monkeypatch,
+        answer="Je me souviens de toi, Mahrez.",
+        captured_history=received,
+    )
 
     session = client.post("/api/sessions", headers=HEADERS, json={}).json()
     sid = session["id"]
@@ -203,33 +212,29 @@ def test_ask_injects_history_messages_for_memory(client, monkeypatch):
     s.append_message(sid, "assistant", "Salut Mahrez !")
 
     response = client.post(
-        "/api/agent/ask",
+        "/api/agent/ask/core",
         headers=HEADERS,
         json={"prompt": "comment je m'appelle ?", "session_id": sid},
     )
     assert response.status_code == 200
-    assert captured["history"] == [
+    history = received[0]
+    assert history == [
         {"role": "user", "content": "je suis mahrez bou derbela"},
         {"role": "assistant", "content": "Salut Mahrez !"},
     ]
     # Le prompt courant n'est pas rejoué dans l'historique.
     assert all(
-        m["content"] != "comment je m'appelle ?" for m in captured["history"]
+        m["content"] != "comment je m'appelle ?" for m in history
     )
 
 
-def test_ask_no_history_without_session(client, monkeypatch):
+def test_ask_core_no_history_without_session(client, monkeypatch):
     """Sans session_id, aucun historique n'est injecté (comportement d'origine)."""
-    captured = {}
-
-    def fake_decision(prompt, resume_request_id=None, history_messages=None, **kwargs):
-        captured["history"] = history_messages or []
-        return {"response": "ok", "status": "completed"}
-
-    monkeypatch.setattr(agent_routes, "ask_agent_decision", fake_decision)
-    resp = client.post("/api/agent/ask", headers=HEADERS, json={"prompt": "salut"})
+    received: list = []
+    _patch_core(monkeypatch, answer="ok", captured_history=received)
+    resp = client.post("/api/agent/ask/core", headers=HEADERS, json={"prompt": "salut"})
     assert resp.status_code == 200
-    assert captured["history"] == []
+    assert received[0] == []
 
 
 def test_store_repairs_mojibake_on_read():

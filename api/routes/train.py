@@ -33,8 +33,10 @@ from core.models import (
 
 router = APIRouter(prefix="/train", tags=["Training"])
 
+# L'Event d'annulation vit uniquement dans core.trainer_runner
+# (`get_cancel_event`) : source unique partagée par la route et le worker,
+# ce qui supprime le dict dupliqué historique (source d'annulations perdues).
 _jobs_lock = threading.Lock()
-_job_cancel_events = {}
 
 
 @router.post("", response_model=TrainJob, status_code=202)
@@ -45,7 +47,6 @@ def start_training(req: TrainRequest, _: bool = Depends(require_api_key)):
     store = get_job_store()
     with _jobs_lock:
         store[job_id] = job
-        _job_cancel_events.setdefault(job_id, threading.Event())
 
     thread = threading.Thread(target=run_training, args=(job_id, req), daemon=True)
     thread.start()

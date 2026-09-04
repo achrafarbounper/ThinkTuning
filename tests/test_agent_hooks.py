@@ -56,6 +56,12 @@ class TestMiddlewareIntegration(unittest.TestCase):
     def setUp(self):
         clear_middlewares()
 
+    def tearDown(self):
+        # Indispensable : les middlewares enregistrés ici sont globaux —
+        # sans nettoyage, ils fuient dans les tests suivants (l'identité
+        # unique ia.agent.middleware partage l'état avec agent_core).
+        clear_middlewares()
+
     def test_middleware_modifies_result(self):
         """Vérifie qu'un middleware peut modifier le résultat."""
 

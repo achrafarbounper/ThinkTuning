@@ -14,14 +14,9 @@ import os
 import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IA_DIR = os.path.join(PROJECT_ROOT, "ia")
-for _p in (PROJECT_ROOT, IA_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 import pytest  # noqa: E402
 
-from core import agent_cache  # noqa: E402  (insère ia/ dans sys.path)
+from core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 AGENT_LOGGER = "thinktuning.agent"
 

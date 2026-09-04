@@ -20,7 +20,7 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api import app  # noqa: E402
-from core import agent_cache  # noqa: E402  (insère ia/ dans sys.path)
+from core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 from core.approval_store import (  # noqa: E402
     APPROVED,
     PENDING,
@@ -29,12 +29,8 @@ from core.approval_store import (  # noqa: E402
     reset_approval_store,
 )
 
-# Le moteur vit dans « ia/agent/approvals.py » : on garantit la racine « ia/ »
-# dans sys.path (comme le fait core.agent_cache au runtime) avant l'import.
-_IA_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ia")
-if _IA_ROOT not in sys.path:
-    sys.path.insert(0, _IA_ROOT)
-import agent.approvals as approvals_module  # noqa: E402
+# Le moteur vit dans « ia/agent/approvals.py » (paquet réel, import direct).
+import ia.agent.approvals as approvals_module  # noqa: E402
 
 classify = approvals_module.classify          # moteur de décision
 Decision = approvals_module.Decision          # enum auto/approve/reject

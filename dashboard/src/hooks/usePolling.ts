@@ -47,14 +47,25 @@ export function usePolling({
     let initialTimeoutId: number | undefined;
     let intervalId: number | undefined;
 
+    // Exécute le tick en interceptant les rejets : un tick qui lève sans
+    // catch interne produirait sinon un « unhandled rejection » silencieux
+    // à chaque intervalle. Les ticks gèrent leurs erreurs métier eux-mêmes ;
+    // ce catch n'est qu'un filet de sécurité.
     const run = () => {
-      if (active) void tick();
+      if (!active) return;
+      Promise.resolve()
+        .then(tick)
+        .catch(() => {
+          /* erreur déjà journalisée par le tick */
+        });
     };
 
     // Démarre le cycle complet (tick initial optionnel + setInterval).
     const start = () => {
       if (!active) return;
-      if (immediate) run();
+      // Onglet déjà masqué au démarrage : skip du premier tick (il sera
+      // déclenché par visibilitychange au retour, données plus fraîches).
+      if (immediate && !(pauseWhenHidden && document.hidden)) run();
       intervalId = window.setInterval(() => {
         if (pauseWhenHidden && document.hidden) return;
         run();

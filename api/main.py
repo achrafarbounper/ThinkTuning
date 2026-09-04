@@ -1,31 +1,29 @@
 # project/api/main.py
 
 import os
-import sys
 
 # --- Configuration logging ----------------------------------------------------
-# Sans cette configuration, les loggers de l'agent (`agent.*`, cf. paquet ia/)
-# n'ont AUCUN handler : Python n'affiche alors que les WARNING+ sur stderr via
-# son handler « last resort », et uvicorn ne configure que ses propres loggers
-# (`uvicorn`, `uvicorn.error`, `uvicorn.access`) — jamais ceux de votre app.
+# Sans cette configuration, les loggers de l'agent (`ia.agent.*`, cf. paquet
+# ia/) n'ont AUCUN handler : Python n'affiche alors que les WARNING+ sur stderr
+# via son handler « last resort », et uvicorn ne configure que ses propres
+# loggers (`uvicorn`, `uvicorn.error`, `uvicorn.access`) — jamais ceux de votre
+# app.
 #
 # On branche ici un handler CONSOLE COLORÉ (rich, cf. ia/logging_setup.py) sur
 # la racine : tous les logs de l'API ET de l'agent s'affichent lisiblement dans
 # le terminal (niveaux en couleur, durées, tracebacks riches). Idempotent :
 # aucun doublon même si uvicorn recharge le module. Niveau réglable via la
 # variable d'environnement AGENT_LOG_LEVEL (DEBUG/INFO/...).
-IA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ia")
-if IA_DIR not in sys.path:
-    sys.path.insert(0, IA_DIR)
-
-from logging_setup import setup_agent_logging  # noqa: E402
+from ia.logging_setup import setup_agent_logging  # noqa: E402
 
 setup_agent_logging(os.getenv("AGENT_LOG_LEVEL", "INFO"))
 
 from contextlib import asynccontextmanager
+import threading
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 
 # SCRUM-74 : sanity check comportemental du modèle au démarrage de l'API.
 # Exécute Predictor.predict() sur un jeu fixe de phrases FR/EN polarisées
@@ -62,7 +60,17 @@ def _run_startup_model_sanity() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Cycle de vie de l'application (remplace @app.on_event, déprécié)."""
-    _run_startup_model_sanity()
+    from api.dependencies.auth import warn_if_insecure_api_key
+
+    warn_if_insecure_api_key()
+    # Le sanity check charge potentiellement le modèle (plusieurs secondes) :
+    # exécuté en thread daemon pour ne pas retarder la disponibilité de l'API.
+    # L'état reste visible via GET /health/model-sanity.
+    threading.Thread(
+        target=_run_startup_model_sanity,
+        name="startup-model-sanity",
+        daemon=True,
+    ).start()
     yield
 
 
@@ -72,13 +80,23 @@ from api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E40
 from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
 from api.middlewares.metrics import request_metrics_middleware  # noqa: E402
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+
+def _cors_allowed_origins() -> list[str]:
+    """Origines CORS : variable d'environnement (CSV), sinon defaults locaux.
+
+    docker-compose injecte déjà CORS_ALLOWED_ORIGINS ; le hardcode historique
+    empêchait tout déploiement hors localhost sans modifier le code.
+    """
+    raw = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return origins or [
+        "http://localhost",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
 
 app = FastAPI(
     title="Sentiment Analysis API",
@@ -87,17 +105,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Ordonancement explicite — en Starlette, le DERNIER middleware ajouté est le
+# plus EXTERNE. Ordre final : CORS (extérieur) → maintenance → rate limit →
+# métriques (intérieur). Ainsi les preflights OPTIONS sont répondues par CORS
+# avant tout le reste et ne polluent ni les métriques ni le rate limit.
+app.add_middleware(BaseHTTPMiddleware, dispatch=request_metrics_middleware)
+app.add_middleware(BaseHTTPMiddleware, dispatch=rate_limit_middleware)
+app.add_middleware(BaseHTTPMiddleware, dispatch=maintenance_mode_middleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_origins=_cors_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.middleware("http")(maintenance_mode_middleware)
-app.middleware("http")(rate_limit_middleware)
-app.middleware("http")(request_metrics_middleware)
 
 app.include_router(train.router)
 app.include_router(predict.router)

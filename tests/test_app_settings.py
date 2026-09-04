@@ -4,21 +4,51 @@
 import pytest
 
 
+# Variables d'environnement qui peuvent impacter les défauts testés : on les
+# retire pour que chaque test parte d'un environnement propre (un ``.env``
+# local ou des variables machine ne doivent pas faire flakker les tests).
+_SETTINGS_ENV_KEYS = (
+    "API_KEY",
+    "AGENT_PROVIDER",
+    "AGENT_MODEL_NAME",
+    "AGENT_MAX_LLM_ROUNDS",
+    "AGENT_NEW_CORE",
+    "AGENT_LLM_V2",
+    "OPENROUTER_API_KEY",
+    "HF_API_KEY",
+    "HF_TOKEN",
+    "DASHBOARD_WS_TOKEN",
+)
+
+
 @pytest.fixture()
 def fresh_settings(monkeypatch):
-    """Settings reconstruites dans un environnement contrôlé."""
+    """Settings reconstruites dans un environnement contrôlé.
+
+    Le provider par défaut étant OpenRouter (fail-fast), une clé dummy est
+    posée par défaut comme le ferait le ``.env`` de prod ; les tests qui
+    testent l'absence de clé la retirent explicitement.
+    """
     from app.config.settings import get_settings
 
+    for key in _SETTINGS_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-test")
     get_settings.cache_clear()
     yield None
     get_settings.cache_clear()
 
 
-def test_defaults(fresh_settings) -> None:
+def test_defaults(fresh_settings, monkeypatch) -> None:
     from app.config.settings import AgentProvider, get_settings
 
+    # Le provider par défaut est OpenRouter (fail-fast) : on fournit uniquement
+    # la clé qu'il exige, sans surcharger les autres défauts.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-test")
+
     s = get_settings()
-    assert s.agent_provider is AgentProvider.OLLAMA
+    assert s.agent_provider is AgentProvider.OPENROUTER
+    assert s.agent_model_name == "openrouter/free"
     assert s.agent_max_llm_rounds == 6
     assert s.effective_ws_token == s.api_key
     assert s.active_flags() == {
@@ -29,6 +59,8 @@ def test_defaults(fresh_settings) -> None:
         "copilot": True,
         "websocket": True,
         "multi_agent": True,
+        "new_core": True,
+        "llm_v2": True,
     }
 
 
@@ -49,8 +81,10 @@ def test_openrouter_requires_key(monkeypatch, fresh_settings) -> None:
 
     monkeypatch.setenv("AGENT_PROVIDER", "openrouter")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    with pytest.raises(Exception, match="OPENROUTER_API_KEY"):
-        get_settings()
+    # env_file=None : ignore tout .env local qui définirait la clé (sinon
+    # le test serait fiable uniquement sur les machines sans .env).
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        get_settings(env_file=None)
 
 
 def test_hf_fallback_token(monkeypatch, fresh_settings) -> None:

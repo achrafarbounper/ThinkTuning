@@ -8,14 +8,10 @@ import os
 import sys
 import types
 
-_IA_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ia")
-if _IA_ROOT not in sys.path:
-    sys.path.insert(0, _IA_ROOT)
-
 import pytest
-import tools.plugin as plugin_mod
-import tools.tool_analytics as analytics
-from tools.tool_discovery import suggest_tools
+import ia.tools.plugin as plugin_mod
+import ia.tools.tool_analytics as analytics
+from ia.tools.tool_discovery import suggest_tools
 
 # ---------------------------------------------------------------------------
 # Découverte / recommandation
@@ -121,7 +117,7 @@ def test_plugin_load_registers_tool(fake_plugin):
     out = plugin_mod.load_plugin("fake_tt_plugin")
     assert out["plugin"] == "FakeTT"
     assert out["registered"] == ["fake_echo"]
-    from tools.tool_registry import REQUIRED_ARGS, TOOLS
+    from ia.tools.tool_registry import REQUIRED_ARGS, TOOLS
     assert "fake_echo" in TOOLS
     assert REQUIRED_ARGS["fake_echo"] == ["text"]
     assert TOOLS["fake_echo"](text="hi") == "echo:hi"
@@ -146,7 +142,7 @@ def test_plugin_rejects_conflicting_tool_name(fake_plugin):
             plugin_mod.load_plugin("fake_tt_dup")
     finally:
         sys.modules.pop("fake_tt_dup", None)
-    from tools.tool_registry import TOOLS
+    from ia.tools.tool_registry import TOOLS
     assert "fake_echo" in TOOLS  # le plugin initial est intact
 
 

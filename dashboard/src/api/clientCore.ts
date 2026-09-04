@@ -96,21 +96,17 @@ export class SentimentApiClientCore {
     }
     return url;
   }
-  async _request<T = unknown>(
-    path: string,
-    options: RequestOptions = {}
-  ): Promise<T | null> {
-    const { method = "GET", body, query, timeoutMs, signal } = options;
-    const url = this._buildUrl(path, query);
-    const init: RequestInit = { method, headers: this._headers(body !== undefined) };
-    if (body !== undefined) init.body = JSON.stringify(body);
-
+  /**
+   * Transport partagé : applique timeout + annulation externe (AbortSignal
+   * couplés sur un seul controller) puis fetch. Toute requête du client
+   * passe par ici — y compris /metrics qui, via un fetch brut, échappait
+   * au timeout, à la clé API et à la normalisation des erreurs.
+   */
+  async _send(url: string, init: RequestInit, timeoutMs?: number, signal?: AbortSignal): Promise<Response> {
     const { controller, cleanup } = this._startRequest(timeoutMs, signal);
     init.signal = controller.signal;
-
-    let response: Response;
     try {
-      response = await fetch(url, init);
+      return await fetch(url, init);
     } catch (networkErr) {
       throw new ApiError(
         this._networkErrorMessage(
@@ -123,6 +119,18 @@ export class SentimentApiClientCore {
     } finally {
       cleanup();
     }
+  }
+
+  async _request<T = unknown>(
+    path: string,
+    options: RequestOptions = {}
+  ): Promise<T | null> {
+    const { method = "GET", body, query, timeoutMs, signal } = options;
+    const url = this._buildUrl(path, query);
+    const init: RequestInit = { method, headers: this._headers(body !== undefined) };
+    if (body !== undefined) init.body = JSON.stringify(body);
+
+    const response = await this._send(url, init, timeoutMs, signal);
 
     if (response.status === 204) return null;
 
@@ -146,6 +154,39 @@ export class SentimentApiClientCore {
     return payload as T;
   }
 
+  /**
+   * Requête renvoyant le corps TEXTUEL brut (ex. exposition Prometheus de
+   * /metrics). Même transport que _request : timeout, X-API-Key, erreurs
+   * ApiError normalisées.
+   */
+  async _requestText(
+    path: string,
+    options: RequestOptions = {}
+  ): Promise<string> {
+    const { method = "GET", query, timeoutMs, signal } = options;
+    const url = this._buildUrl(path, query);
+    const init: RequestInit = { method, headers: this._headers(false) };
+
+    const response = await this._send(url, init, timeoutMs, signal);
+
+    if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => null);
+      // Le détail FastAPI vit sous la clé "detail" (comme dans _request).
+      const detail =
+        payload !== null && typeof payload === "object" && "detail" in payload
+          ? (payload as { detail?: unknown }).detail
+          : payload;
+      throw new ApiError(
+        typeof detail === "string" && detail
+          ? detail
+          : `Erreur HTTP ${response.status} sur ${path}`,
+        response.status,
+        detail
+      );
+    }
+    return response.text();
+  }
+
   async _requestMultipart<T = unknown>(
     path: string,
     { formData, query, expectBlob = false, timeoutMs, signal }: MultipartOptions
@@ -155,31 +196,12 @@ export class SentimentApiClientCore {
       ? { "X-API-Key": this.apiKey }
       : {};
 
-    const { controller, cleanup } = this._startRequest(
+    const response = await this._send(
+      url,
+      { method: "POST", headers, body: formData },
       timeoutMs ?? DEFAULT_MULTIPART_TIMEOUT_MS,
       signal
     );
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: formData,
-        signal: controller.signal,
-      });
-    } catch (networkErr) {
-      throw new ApiError(
-        this._networkErrorMessage(
-          networkErr instanceof Error ? networkErr : new Error(String(networkErr)),
-          controller.signal.reason === "timeout"
-        ),
-        0,
-        null
-      );
-    } finally {
-      cleanup();
-    }
 
     if (!response.ok) {
       let detail: unknown = `Erreur HTTP ${response.status} sur ${path}`;

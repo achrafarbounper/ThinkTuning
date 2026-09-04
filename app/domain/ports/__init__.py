@@ -4,6 +4,8 @@
 from .ports import (  # noqa: F401
     ApprovalStorePort,
     AuditStorePort,
+    ContextPort,
+    EventBusPort,
     LLMClientPort,
     Message,
     RunStorePort,
@@ -14,6 +16,8 @@ from .ports import (  # noqa: F401
 __all__ = [
     "ApprovalStorePort",
     "AuditStorePort",
+    "ContextPort",
+    "EventBusPort",
     "LLMClientPort",
     "Message",
     "RunStorePort",

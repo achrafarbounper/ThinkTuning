@@ -43,8 +43,6 @@ from core.agent_cache import (
     _openrouter_chat_url,
     _hf_chat_url,
     agent_config,
-    ask_agent_decision,
-    ask_agent_decision_streaming,
     ask_multi_agent,
     ask_multi_agent_streaming,
     reload_agent_runner,
@@ -57,25 +55,28 @@ from core.approval_store import (
     get_approval_store,
 )
 from core.run_store import (
-    AWAITING_APPROVAL as RUN_AWAITING_APPROVAL,
-    COMPLETED as RUN_COMPLETED,
     ERROR as RUN_ERROR,
-    REJECTED as RUN_REJECTED,
     STATUSES as RUN_STATUSES,
     get_run_store,
 )
+from core.flow_store import (
+    AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
+    COMPLETED as FLOW_COMPLETED,
+    ERROR as FLOW_ERROR,
+    REJECTED as FLOW_REJECTED,
+    STATUSES as FLOW_STATUSES,
+    get_flow_store,
+)
 from core.session_store import get_session_store
 from core.feature_flags import active_features, flag  # Phase A (flags)
-from tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
-from tools.tool_discovery import suggest_tools  # Phase B (découverte)
-from tools.plugin import loaded_plugins  # Phase B (plugins)
-from ia.agent.context import (  # Phase C (contexte / mémoire)
-    DEFAULT_HISTORY_BUDGET_TOKENS,
-    format_memory_note,
-    optimize_history,
-    summarize_conversation,
-    update_memory_summary,
+from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
+from ia.copilot.suggestions import (  # Phase D (copilot)
+    complete_text,
+    suggest_for_context,
 )
+from ia.tools.plugin import loaded_plugins  # Phase B (plugins)
+from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
+from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
 from core.audit_store import (  # Phase A (audit / conformité)
     ACT_APPROVAL,
     ACT_CONFIG,
@@ -84,17 +85,26 @@ from core.audit_store import (  # Phase A (audit / conformité)
     ACT_TOOL,
     get_audit_store,
 )
-from copilot.feedback import get_feedback_store  # Phase D (copilot)
-from copilot.suggestions import (  # Phase D (copilot)
-    complete_text,
-    suggest_for_context,
-)
 
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
 from app.agent.factory import build_agent_core, new_core_enabled
 from app.domain.entities.plan import Intent
+from app.domain.errors import AgentRunError
 from app.infrastructure.legacy_approval_store import build_approval_store
+from app.infrastructure.events.in_memory import InMemoryEventBus
+# Use-cases (couche application) : la logique métier des runs vit ici,
+# les routes ci-dessous ne sont plus que des adaptateurs HTTP minces.
+from app.application.ask_usecase import run_ask_core
+from app.application.run_lifecycle import (
+    core_api_status,
+    core_store_status,
+    core_tool_events,
+    create_approval_request,
+    make_approval_gateway,
+    resolve_resume_hash,
+)
+from app.application.session_memory import load_session_history, persist_exchange
 
 router = APIRouter(prefix="/api/agent", tags=["Agent IA"])
 
@@ -131,7 +141,7 @@ class AskRequest(BaseModel):
 
 
 class AskStreamRequest(BaseModel):
-    """Corps de POST /api/agent/ask/stream (mode Agent temps réel).
+    """Corps de POST /api/agent/ask/core/stream (mode Agent temps réel).
 
     Même contrat que ``AskRequest`` avec en plus la sélection du modèle LLM
     et du mode « Réflexion » (sélecteurs de l'en-tête du chat).
@@ -390,79 +400,15 @@ def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     return {"completion": complete_text(llm, request.messages, request.draft)}
 
 
-@router.post("/ask", response_model=AskResponse)
-def ask(request: AskRequest, _: bool = Depends(require_api_key)):
-    """Prompt libre : l'agent décide des outils, puis renvoie sa réponse finale.
-
-    Ponte le gate de décision (auto_approve / approve / reject) : quand une
-    action requiert une validation humaine, la réponse porte
-    ``status="awaiting_approval"`` (avec ``request_id``) — l'agent n'attend
-    pas, il s'arrête et l'UI peut proposer approve/reject puis relancer via
-    ``resume_request_id``. S'il y a un refus (policy), ``status="rejected"``.
-
-    Traduction des erreurs réseau (Timeout -> 504, ConnectionError -> 502)
-    centralisée dans ``core.agent_cache``.
-    """
-    run_store = get_run_store()
-    run_row = run_store.start_run(
-        request.prompt, model=agent_config()["model"], source="ask"
-    )
-    _audit_log(
-        ACT_RUN,
-        subject="ask",
-        detail={"status": "started", "model": agent_config()["model"]},
-        run_id=run_row["id"],
-    )
-    try:
-        decision = ask_agent_decision(
-            request.prompt,
-            resume_request_id=request.resume_request_id,
-            # Mémoire de session : rejoue les tours précédents en contexte pour
-            # que l'agent se souvienne de la conversation (ex. le nom).
-            history_messages=_load_session_history(
-                request.session_id, request.resume_request_id
-            ),
-        )
-    except ValueError as exc:
-        run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
-        raise HTTPException(status_code=400, detail=str(exc))
-
-    status_map = {
-        "completed": RUN_COMPLETED,
-        "awaiting_approval": RUN_AWAITING_APPROVAL,
-        "rejected": RUN_REJECTED,
-    }
-    run_store.finish_run(
-        run_row["id"],
-        status_map.get(decision.get("status", "completed"), RUN_COMPLETED),
-        answer_summary=(decision.get("response") or "")[:300],
-    )
-    _audit_log(
-        ACT_RUN,
-        subject="ask",
-        detail={
-            "status": decision.get("status", "completed"),
-            "model": agent_config()["model"],
-        },
-        run_id=run_row["id"],
-    )
-    _persist_exchange(
-        request.session_id, request.prompt, decision.get("response") or ""
-    )
-
-    return AskResponse(
-        response=decision["response"] or "",
-        model=agent_config()["model"],
-        status=decision.get("status", "completed"),
-        request_id=decision.get("request_id"),
-        approval=decision.get("approval"),
-    )
+# --- Noyau agentique v2 (POST /api/agent/ask/core) -----------------------------------
+# Utilise app/agent/core.py (Intent -> Plan -> Policy -> Budget -> Action).
+# Bascule en production : le noyau v2 est le DÉFAUT ; ``AGENT_NEW_CORE=0``
+# répond 503 (repli legacy, tant que le chemin v1 n'est pas décommissionné).
 
 
-# --- Nouveau noyau agentique (POST /api/agent/ask/core) ------------------------------
-# Endpoint ADDITIF : utilise app/agent/core.py (Intent -> Plan -> Policy ->
-# Budget -> Action) sans modifier le comportement de /ask. Tant que le flag
-# AGENT_NEW_CORE est absent, il répond 503 (bascule incrémentale).
+def _core_tool_events(result) -> list[dict]:
+    """Délègue au use-case (app/application/run_lifecycle.core_tool_events)."""
+    return core_tool_events(result)
 
 
 @router.post("/ask/core", response_model=AskResponse)
@@ -478,90 +424,28 @@ def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
             detail="Nouveau noyau agentique désactivé (AGENT_NEW_CORE non activé).",
         )
 
-    run_store = get_run_store()
-    run_row = run_store.start_run(
-        request.prompt, model=agent_config()["model"], source="ask_core"
-    )
-    _audit_log(ACT_RUN, subject="ask_core",
-               detail={"status": "started"}, run_id=run_row["id"])
-
-    # Gateway d'approbation : si le run reprend après validation humaine
-    # (resume_request_id -> action approuvée), la gateway accorde UNIQUEMENT
-    # l'action dont l'empreinte (args_hash) correspond à la demande approuvée.
-    approval_store = build_approval_store()
-    resume_record = (
-        approval_store.get(request.resume_request_id)
-        if request.resume_request_id else None
-    )
-    resume_hash = (
-        resume_record.get("args_hash")
-        if resume_record and resume_record.get("status") == APPROVED else None
-    )
-
-    def _approval_gateway(action) -> bool:
-        return bool(resume_hash and action.fingerprint() == resume_hash)
-
     try:
-        core = build_agent_core(approval_gateway=_approval_gateway)
-        history = _load_session_history(request.session_id, request.resume_request_id)
-        result = core.run(
-            Intent(prompt=request.prompt, session_id=request.session_id or "default"),
-            history=history,
+        outcome = run_ask_core(
+            prompt=request.prompt,
+            session_id=request.session_id,
+            resume_request_id=request.resume_request_id,
+            model=agent_config()["model"],
+            run_store=get_run_store(),
+            approval_store=build_approval_store(),
+            build_core=build_agent_core,
+            load_history=_load_session_history,
+            persist_exchange=_persist_exchange,
+            audit_log=_audit_log,
         )
-    except Exception as exc:
-        run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+    except AgentRunError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    approval_payload = None
-    if result.status is RunStatus.PENDING_APPROVAL and result.awaiting_action:
-        action = result.awaiting_action
-        record = approval_store.create(
-            action.tool,
-            action.args,
-            action.category.value,
-            "approve",
-            "Policy : validation humaine requise",
-            prompt=request.prompt,
-            args_hash=action.fingerprint(),
-        )
-        approval_payload = {
-            "request_id": record.get("request_id") or record.get("id"),
-            "tool": action.tool,
-            "args": action.args,
-        }
-        _audit_log(
-            ACT_APPROVAL, subject="ask_core",
-            detail={"request_id": approval_payload["request_id"], "tool": action.tool},
-            run_id=run_row["id"],
-        )
-
-    status_map = {
-        RunStatus.COMPLETED: "completed",
-        RunStatus.PENDING_APPROVAL: "awaiting_approval",
-        RunStatus.REJECTED_LOOP: "rejected",
-        RunStatus.BUDGET_EXHAUSTED: "error",
-        RunStatus.FAILED: "error",
-    }
-    api_status = status_map.get(result.status, "completed")
-    run_store.finish_run(
-        run_row["id"], status_map.get(result.status, RUN_COMPLETED),
-        answer_summary=(result.answer or "")[:300],
-    )
-    _audit_log(
-        ACT_RUN, subject="ask_core",
-        detail={"status": api_status, "actions": len(result.actions),
-                "rounds": result.rounds_used, "tool_calls": result.tool_calls_used},
-        run_id=run_row["id"],
-    )
-    if api_status != "error":
-        _persist_exchange(request.session_id, request.prompt, result.answer or "")
-
     return AskResponse(
-        response=result.answer or "",
-        model=agent_config()["model"],
-        status=api_status,
-        request_id=approval_payload["request_id"] if approval_payload else run_row["id"],
-        approval=approval_payload,
+        response=outcome.answer,
+        model=outcome.model,
+        status=outcome.api_status,
+        request_id=outcome.request_id,
+        approval=outcome.approval,
     )
 
 
@@ -593,36 +477,72 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     _audit_log(ACT_RUN, subject="ask_core_stream",
                detail={"status": "started"}, run_id=run_row["id"])
 
-    approval_store = build_approval_store()
-    resume_record = (
-        approval_store.get(request.resume_request_id)
-        if request.resume_request_id else None
-    )
-    resume_hash = (
-        resume_record.get("args_hash")
-        if resume_record and resume_record.get("status") == APPROVED else None
-    )
+    # --- Persistance « Agent Flow Map » ---------------------------------------
+    # Même convention que /multi/ask/stream : chaque run du noyau v2 crée une
+    # session de flux (timeline horodatée rejouable dans le dashboard). La
+    # persistance est défensive et ne doit JAMAIS faire échouer le streaming.
+    flow_record = get_flow_store().start_flow(request.prompt, agent_config()["model"])
+    flow_t0 = time.perf_counter()
 
-    def _approval_gateway(action) -> bool:
-        return bool(resume_hash and action.fingerprint() == resume_hash)
-
-    def _on_tool_event(event: dict) -> None:
-        events.put(("tool", event))
+    def _flow_record(event_type: str, data: dict) -> None:
         try:
-            run_store.append_tool_event(run_row["id"], event)
+            get_flow_store().append_event(
+                flow_record["id"],
+                event_type,
+                data,
+                (time.perf_counter() - flow_t0) * 1000.0,
+            )
+        except Exception:  # pragma: no cover - persistance jamais bloquante
+            pass
+
+    _flow_record("core.start", {"role": "noyau", "prompt": request.prompt})
+
+    approval_store = build_approval_store()
+    resume_hash = resolve_resume_hash(approval_store, request.resume_request_id)
+    _approval_gateway = make_approval_gateway(resume_hash)
+
+    tool_events: list[dict] = []
+
+    # --- Câblage SSE via EventBusPort -----------------------------------------
+    # Le noyau publie ses événements de cycle de vie sur un bus PAR RUN
+    # (InMemoryEventBus) : aucun cross-talk entre flux concurrents, et la route
+    # n'est plus qu'un abonné. On reconstruit ici EXACTEMENT les frames SSE
+    # historiques (core_tool / thinking_delta) pour ne rien casser côté IHM.
+    bus = InMemoryEventBus()
+
+    def _push_tool(payload: dict) -> None:
+        events.put(("tool", payload))
+        tool_events.append(payload)
+        _flow_record("core.tool", payload)
+        try:
+            run_store.append_tool_event(run_row["id"], payload)
         except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
             pass
 
-    def _on_thinking(chunk: str) -> None:
+    def _on_bus_tool_start(*, tool, args=None, **_event) -> None:
+        _push_tool({"event": "tool_start", "tool": tool, "args": args or {}})
+
+    def _on_bus_tool_end(*, tool, status, summary="", error="",
+                         duration_ms=None, **_event) -> None:
+        payload = {"event": "tool_result", "tool": tool,
+                   "status": status, "duration_ms": duration_ms}
+        payload["summary" if status == "ok" else "error"] = (
+            summary if status == "ok" else error)
+        _push_tool(payload)
+
+    def _on_bus_thinking(*, chunk, **_event) -> None:
         events.put(("thinking", chunk))
+
+    bus.on("agent.tool_start", _on_bus_tool_start)
+    bus.on("agent.tool_end", _on_bus_tool_end)
+    bus.on("agent.thinking", _on_bus_thinking)
 
     def worker() -> None:
         try:
             core = build_agent_core(
                 approval_gateway=_approval_gateway,
-                on_tool_event=_on_tool_event,
                 enable_thinking=request.enable_thinking,
-                on_thinking=_on_thinking,
+                event_bus=bus,
             )
             history = _load_session_history(request.session_id, request.resume_request_id)
             result = core.run(
@@ -636,33 +556,25 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
             approval_payload = None
             if result.status is RunStatus.PENDING_APPROVAL and result.awaiting_action:
                 action = result.awaiting_action
-                record = approval_store.create(
-                    action.tool, action.args, action.category.value,
-                    "approve", "Policy : validation humaine requise",
-                    prompt=request.prompt, args_hash=action.fingerprint(),
+                approval_payload = create_approval_request(
+                    approval_store, action, request.prompt
                 )
-                approval_payload = {
-                    "request_id": record.get("request_id") or record.get("id"),
-                    "tool": action.tool,
-                    "args": action.args,
-                }
                 _audit_log(
                     ACT_APPROVAL, subject="ask_core_stream",
                     detail={"request_id": approval_payload["request_id"],
                             "tool": action.tool},
                     run_id=run_row["id"],
                 )
+                _flow_record("core.approval", {
+                    "role": "noyau",
+                    "request_id": approval_payload["request_id"],
+                    "tool": action.tool,
+                    "message": "Policy : validation humaine requise",
+                })
 
-            status_map = {
-                RunStatus.COMPLETED: "completed",
-                RunStatus.PENDING_APPROVAL: "awaiting_approval",
-                RunStatus.REJECTED_LOOP: "rejected",
-                RunStatus.BUDGET_EXHAUSTED: "error",
-                RunStatus.FAILED: "error",
-            }
-            api_status = status_map.get(result.status, "completed")
+            api_status = core_api_status(result.status)
             run_store.finish_run(
-                run_row["id"], status_map.get(result.status, RUN_COMPLETED),
+                run_row["id"], core_store_status(result.status),
                 answer_summary=(result.answer or "")[:300],
             )
             _audit_log(
@@ -675,7 +587,10 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
             )
             if api_status != "error":
                 _persist_exchange(request.session_id, request.prompt,
-                                  result.answer or "")
+                                  result.answer or "",
+                                  tool_events=(tool_events
+                                               or _core_tool_events(result))
+                                  or None)
 
             # Rejoue la réponse finale mot à mot (convention /ask/stream).
             for word in _stream_fragments(result.answer or ""):
@@ -689,11 +604,29 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                 "request_id": approval_payload["request_id"] if approval_payload else run_row["id"],
                 "approval": approval_payload,
             }))
+
+            # Clôture de la session de flux (mapping statut run -> statut flux).
+            _flow_record("core.done", {"answer": result.answer or "", "status": api_status})
+            flow_status = {
+                "completed": FLOW_COMPLETED,
+                "awaiting_approval": FLOW_AWAITING_APPROVAL,
+                "rejected": FLOW_REJECTED,
+            }.get(api_status, FLOW_ERROR)
+            get_flow_store().finish_flow(
+                flow_record["id"],
+                flow_status,
+                answer_summary=(result.answer or "")[:300] or "",
+            )
         except HTTPException as exc:  # panne réseau déjà traduite par agent_cache
             run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc.detail))
+            get_flow_store().finish_flow(flow_record["id"], FLOW_ERROR, error=str(exc.detail))
             events.put(("http_error", exc))
         except Exception as exc:
             run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
+            _flow_record("core.error", {"message": f"{type(exc).__name__}: {exc}"})
+            get_flow_store().finish_flow(
+                flow_record["id"], FLOW_ERROR, error=f"{type(exc).__name__}: {exc}"
+            )
             events.put(("error", str(exc)))
         finally:
             events.put(("done", None))
@@ -747,7 +680,7 @@ _CORE_STREAM_FIELDS = {
 }
 
 
-# --- Streaming du mode Agent (POST /api/agent/ask/stream) ----------------------------
+# --- Helpers de streaming SSE partagés (noyau v2) ------------------------------------
 
 # Cadence (secondes) de l'émission mot à mot de la réponse finale ; la
 # réflexion et les événements d'outils, eux, sont diffusés en temps réel.
@@ -776,72 +709,9 @@ def _load_session_history(
     session_id: Optional[str],
     resume_request_id: Optional[str],
 ) -> list[dict]:
-    """Recharge les messages précédents d'une session pour nourrir le contexte.
-
-    Mémoire de session en mode Agent : sans cela chaque tour est atomique et
-    l'agent « oublie » ce qui a été dit avant (ex. le nom de l'utilisateur).
-
-    Règles :
-        - ``session_id`` absent -> historique vide (pas de conversation à relire) ;
-        - ``resume_request_id`` présent -> historique vide : la reprise relance
-          l'état interne de l'agent, pas besoin de rejouer la conversation ;
-        - sinon, on relit les ``get_messages`` de la session et on garde les
-          ``MAX_SESSION_CONTEXT_TURNS`` dernières paires. Le tour courant n'y
-          figure pas encore (``_persist_exchange`` écrit après coup).
-        - Les ``tool_calls`` sont écartés (pas de JSON d'outils en contexte).
-
-    Retourne une liste de ``{"role": "user"|"assistant", "content": str}``,
-    vide par défaut.
-    """
-    if not session_id or resume_request_id:
-        return []
-    try:
-        store = get_session_store()
-        if store.get_session(session_id) is None:
-            messages = []  # session inconnue : la mémoire inter-sessions
-            # (Phase C) pourra tout de même être injectée plus bas.
-        else:
-            messages = store.get_messages(session_id, limit=500)
-    except Exception:  # pragma: no cover - mémoire optionnelle, jamais bloquante
-        return []
-    kept: list[dict] = []
-    for message in messages:
-        role = str(message.get("role") or "").strip().lower()
-        content = message.get("content")
-        text = content if isinstance(content, str) else str(content or "")
-        if role not in ("user", "assistant") or not text.strip():
-            continue
-        kept.append({"role": role, "content": text.strip()})
-    # Conserve seulement les N dernières paires user/assistant (les plus récents).
-    kept = kept[-MAX_SESSION_CONTEXT_TURNS * 2 :]
-
-    # Phase C (flag ``AGENT_CONTEXT``) : budget en jetons avec résumé LLM des
-    # tours débordants, puis mémoire inter-sessions si la session est neuve.
-    # Sans le flag : comportement historique strictement préservé.
-    if not flag("context"):
-        return kept
-    try:
-        import os as _os
-
-        from core.agent_cache import get_agent_runner
-
-        budget = int(_os.getenv("AGENT_CONTEXT_BUDGET_TOKENS", "0")) or (
-            DEFAULT_HISTORY_BUDGET_TOKENS
-        )
-        summarize_fn = lambda transcript: summarize_conversation(
-            get_agent_runner().core.llm, transcript
-        )  # noqa: E731 - injection paresseuse, jamais appelée si pas de débordement
-        optimized, _meta = optimize_history(kept, max_tokens=budget, summarize_fn=summarize_fn)
-    except Exception:  # pragma: no cover - mémoire optionnelle, jamais bloquante
-        optimized = kept
-    if not optimized:
-        try:
-            note = format_memory_note(store.get_memory("global"))
-            if note is not None:
-                optimized = [note]
-        except Exception:  # pragma: no cover
-            pass
-    return optimized
+    """Délègue au use-case de mémoire conversationnelle
+    (app/application/session_memory.load_session_history)."""
+    return load_session_history(session_id, resume_request_id)
 
 
 def _persist_exchange(
@@ -850,195 +720,9 @@ def _persist_exchange(
     answer: str,
     tool_events: Optional[list[dict]] = None,
 ) -> None:
-    """Journalise l'échange (user + assistant) dans la session demandée.
-
-    Best-effort : une session absente ou une erreur de base ne doivent jamais
-    faire échouer le tour de chat lui-même.
-    """
-    if not session_id:
-        return
-    try:
-        store = get_session_store()
-        store.append_message(session_id, "user", prompt)
-        store.append_message(session_id, "assistant", answer or "", tool_calls=tool_events)
-        # Phase C (flag ``AGENT_CONTEXT``) : mémoire glissante inter-sessions.
-        # Résumé déterministe (sans LLM) conservé sous la clé « global » et
-        # réinjecté uniquement dans les NOUVELLES sessions (cf.
-        # _load_session_history). Best-effort : ne casse jamais le tour.
-        if flag("context"):
-            previous = store.get_memory("global")
-            store.save_memory(
-                "global",
-                update_memory_summary(previous, prompt, answer or ""),
-            )
-    except Exception:  # pragma: no cover - persistance optionnelle
-        pass
-
-
-@router.post("/ask/stream")
-def ask_stream(request: AskStreamRequest, _: bool = Depends(require_api_key)):
-    """Mode Agent en streaming SSE — le temps réel de /api/ai pour l'agent.
-
-    Contrat d'entrée : POST JSON ``AskStreamRequest``.
-    Contrat de sortie : flux SSE ->
-        data: {"tool_start":  {tool, args}}             appel d'outil annoncé
-        data: {"tool_result": {tool, status, summary…}} résultat (ok/error)
-        data: {"thinking_delta": "..."}                 réflexion (mode activé)
-        data: {"delta": "..."}                          réponse finale, mot à mot
-        data: {"final": {...AskResponse...}}            statut du gate + ids
-        data: [DONE]
-
-    Réutilisation du schéma éprouvé de /api/ai (queue.Queue + thread worker +
-    générateur asynchrone) complété par le journal des runs : chaque appel
-    crée une ligne ``running`` dans core/run_store, enrichie au vol via le
-    callback d'événements d'outils.
-    """
-    events: queue.Queue[tuple[str, object]] = queue.Queue()
-    run_store = get_run_store()
-    run_row = run_store.start_run(
-        request.prompt,
-        model=(request.model or "").strip() or agent_config()["model"],
-        source="ask-stream",
-    )
-    _audit_log(
-        ACT_RUN,
-        subject="ask-stream",
-        detail={
-            "status": "started",
-            "model": (request.model or "").strip() or agent_config()["model"],
-            "enable_thinking": request.enable_thinking,
-        },
-        run_id=run_row["id"],
-    )
-
-    def _emit_thinking(chunk: str) -> None:
-        events.put(("thinking", chunk))
-
-    def _on_tool_event(event: dict) -> None:
-        kind = event.get("event", "tool_result")
-        events.put((kind, event))
-        tool_events.append(event)
-        try:
-            run_store.append_tool_event(run_row["id"], event)
-        except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
-            pass
-
-    tool_events: list[dict] = []
-
-    def worker() -> None:
-        try:
-            result = ask_agent_decision_streaming(
-                request.prompt,
-                model=request.model or None,
-                enable_thinking=request.enable_thinking,
-                resume_request_id=request.resume_request_id,
-                # Sans « Réflexion », aucun thinking_delta n'est émis.
-                on_thinking=_emit_thinking if request.enable_thinking else None,
-                on_tool_event=_on_tool_event,
-                # Mémoire de session : rejoue les tours précédents en contexte.
-                history_messages=_load_session_history(
-                    request.session_id, request.resume_request_id
-                ),
-            )
-            answer = result.get("answer") or ""
-            for word in _stream_fragments(answer):
-                events.put(("delta", word))
-                time.sleep(ANSWER_STREAM_CADENCE_SECONDS)
-            status_map = {
-                "completed": RUN_COMPLETED,
-                "awaiting_approval": RUN_AWAITING_APPROVAL,
-                "rejected": RUN_REJECTED,
-            }
-            run_store.finish_run(
-                run_row["id"],
-                status_map.get(result.get("status", "completed"), RUN_COMPLETED),
-                answer_summary=answer[:300],
-            )
-            _audit_log(
-                ACT_RUN,
-                subject="ask-stream",
-                detail={
-                    "status": result.get("status", "completed"),
-                    "n_tools": len(tool_events),
-                },
-                run_id=run_row["id"],
-            )
-            # Persistance de l'échange dans la session demandée (best-effort),
-            # avec la trace complète des événements d'outils observés.
-            _persist_exchange(
-                request.session_id,
-                request.prompt,
-                answer,
-                tool_events=tool_events or None,
-            )
-            events.put(
-                (
-                    "final",
-                    {
-                        "response": answer,
-                        "model": result.get("model"),
-                        "status": result.get("status", "completed"),
-                        "request_id": result.get("request_id"),
-                        "approval": result.get("approval"),
-                    },
-                )
-            )
-        except ValueError as exc:
-            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
-            events.put(("bad_request", str(exc)))
-        except HTTPException as exc:  # panne réseau déjà traduite par agent_cache
-            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc.detail))
-            events.put(("http_error", exc))
-        except Exception as exc:
-            run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
-            events.put(("error", str(exc)))
-        finally:
-            events.put(("done", None))
-
-    # Thread daemon : l'agent se termine seul même si le client coupe (Stop).
-    threading.Thread(target=worker, daemon=True).start()
-
-    # Réception SYNCHRONE du premier événement : une panne précoce (LLM
-    # injoignable, resume_request_id invalide) reste une vraie erreur HTTP.
-    first_kind, first_payload = events.get()
-    if first_kind == "bad_request":
-        raise HTTPException(status_code=400, detail=str(first_payload))
-    if first_kind == "http_error":
-        raise first_payload  # noqa: TRY201 - re-lever l'HTTPException d'origine
-    if first_kind == "error":
-        raise HTTPException(status_code=502, detail=str(first_payload))
-
-    async def _sse_stream() -> AsyncIterator[str]:
-        try:
-            if first_kind != "done":
-                # Rejoue le premier événement déjà consommé ci-dessus.
-                field = "thinking_delta" if first_kind == "thinking" else first_kind
-                yield _sse({field: first_payload})
-
-            while True:
-                kind, payload = await asyncio.to_thread(events.get)
-                if kind == "done":
-                    break
-                if kind in ("bad_request", "http_error", "error"):
-                    detail = payload.detail if kind == "http_error" else str(payload)
-                    yield _sse({"error": detail})
-                    break
-                field = "thinking_delta" if kind == "thinking" else kind
-                yield _sse({field: payload})
-            yield "data: [DONE]\n\n"
-        except asyncio.CancelledError:
-            # Le client a interrompu la génération (bouton Stop du chat).
-            raise
-
-    return StreamingResponse(
-        _sse_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # désactive le buffering nginx
-        },
-    )
+    """Délègue au use-case de mémoire conversationnelle
+    (app/application/session_memory.persist_exchange)."""
+    persist_exchange(session_id, prompt, answer, tool_events=tool_events)
 
 
 # --- Approbation humaine (approve / reject) -----------------------------------------
@@ -1335,7 +1019,7 @@ def agent_features(_: bool = Depends(require_api_key)):
 
 # --- WebSocket bidirectionnel (Phase E, flag AGENT_WEBSOCKET) -------------------------
 #
-# Canal temps réel duplex, miroir WebSocket de POST /api/agent/ask/stream :
+# Canal temps réel duplex, miroir WebSocket de POST /api/agent/ask/core/stream :
 #
 #   client -> serveur : {"action": "ask", "prompt": "...", "session_id"?,
 #                        "enable_thinking"?, "model"?, "resume_request_id"?}
@@ -1421,7 +1105,11 @@ async def _ws_handle_approval(websocket: WebSocket, msg: dict, action: str) -> N
 
 
 async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
-    """Exécute un tour d'agent en diffusant les événements en temps réel."""
+    """Exécute un tour d'agent via le noyau v2, événements en temps réel.
+
+    Les événements temps réel (thinking, tool_start/tool_result, delta, final)
+    sortent dans la même file puis sont poussés sur le canal WebSocket.
+    """
     prompt = str(msg.get("prompt") or "").strip()
     if not prompt:
         await websocket.send_json({
@@ -1434,61 +1122,102 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
     session_id = msg.get("session_id") or None
     model = str(msg.get("model") or "").strip() or None
 
-    events: "queue.Queue[tuple]" = queue.Queue()
+    # Noyau v2 par défaut (bascule en production) : le flux WS legacy est
+    # décommissionné ; les événements viennent du bus par-run du noyau.
+    worker = _ws_core_worker(
+        prompt=prompt, session_id=session_id,
+        resume_request_id=resume_request_id,
+        enable_thinking=enable_thinking, model=model,
+    )
+    # `worker` est (events_queue, thread) déjà lancé par la fabrique.
+    events, _thread = worker
+    loop = asyncio.get_event_loop()
+    while True:
+        item = await loop.run_in_executor(None, events.get)
+        if item is None:
+            break
+        await websocket.send_json(item[1])
+
+def _ws_core_worker(*, prompt, session_id, resume_request_id,
+                    enable_thinking, model):
+    """Worker WebSocket du noyau v2 — événements publiés sur un bus par-run.
+
+    Le noyau ``AgentCore`` publie son cycle de vie sur un ``InMemoryEventBus``
+    local ; les abonnés ci-dessous traduisent ces événements vers le contrat
+    WebSocket historique (``thinking`` / ``tool_start`` / ``tool_result`` /
+    ``delta`` / ``final``), puis les mettent dans la file. Un bus PAR RUN
+    isole les tours d'agent concurrents (aucun cross-talk).
+    """
+    events = queue.Queue()
     run_store = get_run_store()
     run_row = run_store.start_run(
         prompt, model=model or agent_config()["model"], source="ws"
     )
     tool_events: list[dict] = []
+    bus = InMemoryEventBus()
 
-    def on_thinking(chunk: str) -> None:
+    def on_thinking(*, chunk, **_event) -> None:
         events.put(("thinking", {"event": "thinking", "text": chunk}))
 
-    def on_tool_event(event: dict) -> None:
-        events.put(("tool", event))
-        tool_events.append(event)
+    def on_tool_start(*, tool, args=None, **_event) -> None:
+        payload = {"event": "tool_start", "tool": tool, "args": args or {}}
+        events.put(("tool", payload))
+        tool_events.append(payload)
         try:
-            run_store.append_tool_event(run_row["id"], event)
+            run_store.append_tool_event(run_row["id"], payload)
         except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
             pass
 
-    def worker() -> None:
+    def on_tool_end(*, tool, status, summary="", error="",
+                    duration_ms=None, **_event) -> None:
+        payload = {"event": "tool_result", "tool": tool,
+                   "status": status, "duration_ms": duration_ms}
+        payload["summary" if status == "ok" else "error"] = (
+            summary if status == "ok" else error)
+        events.put(("tool", payload))
+        tool_events.append(payload)
         try:
-            result = ask_agent_decision_streaming(
-                prompt,
-                model=model,
+            run_store.append_tool_event(run_row["id"], payload)
+        except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
+            pass
+
+    bus.on("agent.thinking", on_thinking)
+    bus.on("agent.tool_start", on_tool_start)
+    bus.on("agent.tool_end", on_tool_end)
+
+    def _worker() -> None:
+        try:
+            approval_store = build_approval_store()
+            resume_hash = resolve_resume_hash(approval_store, resume_request_id)
+            core = build_agent_core(
+                approval_gateway=make_approval_gateway(resume_hash),
                 enable_thinking=enable_thinking,
-                resume_request_id=resume_request_id,
-                on_thinking=on_thinking if enable_thinking else None,
-                on_tool_event=on_tool_event,
-                history_messages=_load_session_history(
-                    session_id, resume_request_id
-                ),
+                event_bus=bus,
             )
-            answer = result.get("answer") or ""
+            result = core.run(
+                Intent(prompt=prompt,
+                       session_id=session_id or "default")
+            )
+            answer = result.answer or ""
             for word in _stream_fragments(answer):
                 events.put(("delta", {"event": "delta", "text": word}))
-            status_map = {
-                "completed": RUN_COMPLETED,
-                "awaiting_approval": RUN_AWAITING_APPROVAL,
-                "rejected": RUN_REJECTED,
-            }
             run_store.finish_run(
                 run_row["id"],
-                status_map.get(result.get("status", "completed"), RUN_COMPLETED),
+                core_store_status(result.status),
                 answer_summary=answer[:300],
             )
             _persist_exchange(
-                session_id, prompt, answer, tool_events=tool_events or None
+                session_id, prompt, answer,
+                tool_events=tool_events or core_tool_events(result),
             )
             events.put((
                 "final",
                 {
                     "event": "final",
                     "response": answer,
-                    "model": result.get("model"),
-                    "status": result.get("status", "completed"),
-                    "request_id": result.get("request_id"),
+                    "model": agent_config()["model"],
+                    "status": core_api_status(result.status),
+                    "request_id": None,
                 },
             ))
         except Exception as exc:  # pragma: no cover - défensif
@@ -1508,14 +1237,9 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
         finally:
             events.put(None)
 
-    threading.Thread(target=worker, daemon=True).start()
-    loop = asyncio.get_event_loop()
-    while True:
-        item = await loop.run_in_executor(None, events.get)
-        if item is None:
-            break
-        await websocket.send_json(item[1])
-        
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    return events, thread
 # --- Orchestration multi-agents (superviseur / workers) --------------------
 
 
@@ -1569,7 +1293,32 @@ def multi_ask_stream(
     events: queue.Queue = queue.Queue()
     compact = (request.mode or "full").strip().lower() == "compact"
 
+    # --- Persistance « Agent Flow Map » ---------------------------------------
+    # Tous les événements SSE sont enregistrés (quel que soit le mode full/
+    # compact) avec un horodatage relatif au début de session : la timeline
+    # rejouable du dashboard (Replay / Heatmap). La persistance est défensive
+    # et ne doit JAMAIS faire échouer le streaming.
+    flow_record = get_flow_store().start_flow(
+        request.prompt, request.model or agent_config()["model"]
+    )
+    flow_t0 = time.perf_counter()
+    flow_errored = {"v": False}
+
+    def _record(event_type: str, data: dict) -> None:
+        try:
+            get_flow_store().append_event(
+                flow_record["id"],
+                event_type,
+                data,
+                (time.perf_counter() - flow_t0) * 1000.0,
+            )
+            if event_type == "agent.error":
+                flow_errored["v"] = True
+        except Exception:  # pragma: no cover - persistance jamais bloquante
+            pass
+
     def _emit(event_type: str, data: dict) -> None:
+        _record(event_type, data)
         if compact and event_type in _MULTI_OBSERVABILITY_EVENTS:
             return  # observabilité : aucun envoi au front en mode compact
         events.put((event_type, data))
@@ -1583,9 +1332,27 @@ def multi_ask_stream(
                 on_event=_emit,
             )
             events.put(("agent.done", result))
+            if flow_errored["v"] or (result or {}).get("status") == "error":
+                get_flow_store().finish_flow(
+                    flow_record["id"],
+                    FLOW_ERROR,
+                    error=(result or {}).get("message") or "erreur multi-agents",
+                )
+            else:
+                get_flow_store().finish_flow(
+                    flow_record["id"],
+                    FLOW_COMPLETED,
+                    answer_summary=(result or {}).get("final_answer")
+                    or (result or {}).get("answer")
+                    or "",
+                )
         except HTTPException as exc:  # panne réseau déjà traduite
+            get_flow_store().finish_flow(flow_record["id"], FLOW_ERROR, error=str(exc.detail))
             events.put(("agent.error", {"message": str(exc.detail)}))
         except Exception as exc:  # pragma: no cover
+            get_flow_store().finish_flow(
+                flow_record["id"], FLOW_ERROR, error=f"{type(exc).__name__}: {exc}"
+            )
             events.put(("agent.error", {"message": f"{type(exc).__name__}: {exc}"}))
         finally:
             events.put(("__done__", None))
@@ -1629,3 +1396,51 @@ def multi_ask_stream(
             "X-Accel-Buffering": "no",  # désactive le buffering nginx
         },
     )
+
+# --- Journal « Agent Flow Map » (sessions multi-agents persistées) -------------------
+
+
+@router.get("/flow")
+def list_flow_sessions(
+    limit: int = 50,
+    status: Optional[str] = None,
+    _: bool = Depends(require_api_key),
+):
+    """Liste paginée des sessions multi-agents (Flow Map), plus récentes d'abord.
+
+    Chaque entrée porte un résumé (prompt, statut, réponse, compteurs
+    ``tool_calls`` / ``agents``) sans la timeline complète : le détail est
+    servi par ``GET /flow/{flow_id}``.
+    """
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=422, detail="limit doit être entre 1 et 200.")
+    if status is not None and status not in FLOW_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Statut inconnu : '{status}'. Valeurs : {', '.join(FLOW_STATUSES)}",
+        )
+    return {
+        "flows": get_flow_store().list(limit=limit, status=status),
+        "statuses": list(FLOW_STATUSES),
+    }
+
+
+@router.get("/flow/{flow_id}")
+def get_flow_session(flow_id: str, _: bool = Depends(require_api_key)):
+    """Détail complet d'une session Flow Map : timeline horodatée des événements.
+
+    ``events`` est une liste ``{"event", "data", "at_ms"}`` prête à rejouer par
+    le dashboard (``at_ms`` = millisecondes relatives au début de la session).
+    """
+    flow = get_flow_store().get(flow_id)
+    if flow is None:
+        raise HTTPException(status_code=404, detail=f"Session introuvable : {flow_id}")
+    return flow
+
+
+@router.delete("/flow/{flow_id}")
+def delete_flow_session(flow_id: str, _: bool = Depends(require_api_key)):
+    """Supprime une session enregistrée (nettoyage du journal Flow Map)."""
+    if not get_flow_store().delete(flow_id):
+        raise HTTPException(status_code=404, detail=f"Session introuvable : {flow_id}")
+    return {"deleted": flow_id}

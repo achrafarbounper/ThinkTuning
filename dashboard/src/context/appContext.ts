@@ -50,7 +50,15 @@ export interface AppState {
   setMaxHistorySize: (size: number | string) => void;
   // --- Assistant IA --------------------------------------------------------
   agentSettings: AgentSettings;
-  persistAgentSettings: (settings: AgentSettings) => void;
+  /**
+   * Persiste les paramètres agent (état + localStorage). Accepte un updater
+   * fonctionnel pour fusionner sans closure obsolète — nécessaire car
+   * l'API ne renvoie JAMAIS les clés secrètes (openrouter_api_key…) :
+   * la valeur locale doit être préservée sans relire le stockage.
+   */
+  persistAgentSettings: (
+    settings: AgentSettings | ((prev: AgentSettings) => AgentSettings)
+  ) => void;
   updateAgentSettings: (updates: Partial<AgentSettings>) => Promise<void>;
   testAgentConnection: (testParams: Partial<AgentSettings>) => Promise<unknown>;
   agentLoading: boolean;
