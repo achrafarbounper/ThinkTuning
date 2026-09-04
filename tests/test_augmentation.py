@@ -1,6 +1,7 @@
 import random
 
 import pandas as pd
+import pytest
 from datasets import Dataset
 
 import src.augmentation.eda as eda
@@ -11,6 +12,32 @@ from src.augmentation.eda import (
     recompose,
 )
 from src.dataset.loader import augment_dataset
+
+# Synonymes déterministes injectés par la fixture `fake_synonyms` : rend les
+# tests de recompose indépendants des corpus NLTK (WordNet/OMW), qui sont
+# téléchargés à la demande (réseau) et peuvent être absents en CI / Docker.
+_FAKE_SYNONYMS = {
+    "bonjour": ["salut"],
+    "monde": ["planète", "globe", "univers"],
+    "film": ["movie", "long-métrage"],
+    "vraiment": ["réellement"],
+    "génial": ["super", "excellent"],
+    "excellent": ["génial"],
+}
+
+
+@pytest.fixture()
+def fake_synonyms(monkeypatch):
+    """Remplace _get_synonyms par un dictionnaire déterministe.
+
+    Court-circuite entièrement _ensure_nltk_data (aucun accès réseau) : le
+    comportement de recompose est identique avec ou sans corpus installés.
+    """
+    monkeypatch.setattr(
+        eda,
+        "_get_synonyms",
+        lambda word, lang: _FAKE_SYNONYMS.get(word.lower(), []),
+    )
 
 
 def test_random_swap_preserves_length():
@@ -27,7 +54,14 @@ def test_random_deletion_never_returns_empty():
     assert all(w in words for w in deleted)
 
 
-def test_recompose_returns_expected_variants():
+def test_recompose_returns_expected_variants(fake_synonyms):
+    """Hermétique : le test de la LOGIQUE de recompose ne doit pas dépendre
+    des corpus WordNet (téléchargement réseau via _ensure_nltk_data). En CI,
+    si les corpus sont absents, _get_synonyms retourne [] et les opérations
+    synonym_replacement / random_insertion retombent sur le texte original :
+    recompose ne produisait qu'une seule variante (le random swap) et le test
+    échouait (« assert 1 == 2 »). La fixture `fake_synonyms` injecte des
+    synonymes déterministes -> comportement identique en CI et en local."""
     random.seed(42)
     variants = recompose("Bonjour le monde", lang="fr", num_variants=2, alpha=0.5)
     assert len(variants) == 2
@@ -147,8 +181,12 @@ class _FakePipeline:
         return [{"translation_text": self.output}]
 
 
-def test_back_translation_disabled_by_default(monkeypatch):
-    """Sans use_back_translation, aucun modèle de traduction n'est chargé."""
+def test_back_translation_disabled_by_default(monkeypatch, fake_synonyms):
+    """Sans use_back_translation, aucun modèle de traduction n'est chargé.
+
+    `fake_synonyms` garantit que recompose produit bien num_variants variantes
+    même sans corpus WordNet installés (sinon les opérations SR/RI sont
+    inopérantes en CI et la boucle ne génère qu'une variante)."""
     def _boom(*args, **kwargs):
         raise AssertionError("Le modèle de traduction ne doit pas être chargé")
 

@@ -27,6 +27,15 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
 
+      # Corpus NLTK pour l'augmentation EDA (synonymes WordNet via OMW).
+      # Sans eux, _get_synonyms() avale silencieusement l'erreur et retourne
+      # [] : synonym_replacement / random_insertion retombent sur le texte
+      # original. Téléchargement visible mais non bloquant.
+      - name: Pre-download NLTK corpora (wordnet, omw-1.4, punkt)
+        run: |
+          python -m nltk.downloader wordnet omw-1.4 punkt punkt_tab \
+            || echo "::warning::NLTK corpora unavailable - EDA augmentation will run without synonyms"
+
       - name: Lint (ruff — périmètre app/ ; étendu à mesure de la migration)
         run: |
           pip install ruff
