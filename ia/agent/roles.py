@@ -30,12 +30,17 @@ _ML = [
 ]
 _DATA = ["sqlite_query", "postgres_query"]
 _MATH = ["calc", "add"]
+# Le rôle « ops » porte TOUS les diagnostics lecture seule : env_info / disk_usage
+# / gpu_info (aligné sur les outils RÉELS du registre, cf. plan_correct.py qui
+# fixe les plans hors-périmètre vers ops). Le bloc _SYSTEM historique est devenu
+# un alias de _OPS pour ne pas dupliquer la vérité.
 _OPS = [
-    "env_info", "disk_usage", "zip_path", "unzip_file",
+    "env_info", "disk_usage", "gpu_info",
+    "zip_path", "unzip_file",
     "git_status", "git_log", "git_diff", "download_file",
 ]
 _SHELL = ["run_command", "run_python"]
-_SYSTEM = ["env_info", "disk_usage", "gpu_info"]
+_SYSTEM = _OPS  # alias conservé (rétro-compatibilité, aucun rôle ne le référence)
 _DOCKER = ["docker_ps", "docker_logs", "docker_exec", "docker_stats", "gpu_info"]
 
 
@@ -140,6 +145,20 @@ def role_names() -> List[str]:
 def get_role(name: str) -> Optional[Role]:
     """Récupère un rôle par nom (None si inconnu)."""
     return ROLES.get(name)
+
+
+def role_tools() -> Dict[str, List[str]]:
+    """Outils réels par rôle — injectés au prompt du planner (build_planner_prompt).
+
+    Le superviseur (LLM) doit connaître les CAPACITÉS des rôles pour choisir le
+    bon rôle : sans cela il choisit « shell » pour des diagnostics que le rôle
+    « ops » couvre déjà, ou assigne une lecture à un rôle à risque.
+    """
+    return {
+        name: list(role.tools)
+        for name, role in ROLES.items()
+        if name != "lead" and role.tools
+    }
 
 
 def resolve_role_tools(name: str, registry: Dict[str, object]) -> Dict[str, object]:

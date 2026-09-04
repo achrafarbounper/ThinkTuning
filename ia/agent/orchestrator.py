@@ -30,6 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .agent_core import AgentCore
 from .errors import (
     LLM_UNREACHABLE,
+    PLAN_VALIDATION_FAILED,
     SUPERVISOR_FAILED,
     SYNTHESIS_FAILED,
     TOOL_NOT_ALLOWED,
@@ -42,14 +43,18 @@ from .prompts import (
     build_synthesis_system,
     truncate_context,
 )
-from .roles import ROLE_ORDER
+from .roles import ROLE_ORDER, role_tools
+from .plan_correct import PlanRejected, correct_plan
+from .multi_run_fsm import MultiRunFSM, MultiRunState
 
 logger = logging.getLogger("thinktuning.agent")
 
 # --- Événements diffusés via ``on_event`` (voir also API/streaming) ---
 EV_PLAN = "agent.plan"
+EV_RESUMING = "agent.resuming"
 EV_WORKER_START = "agent.worker.start"
 EV_WORKER_TOOL = "agent.worker.tool"
+EV_WORKER_THINKING = "agent.worker.thinking"
 EV_WORKER_RESULT = "agent.worker.result"
 EV_WORKER_ERROR = "agent.worker.error"
 EV_WORKER_APPROVAL = "agent.worker.approval"
@@ -76,6 +81,7 @@ def build_role_agent(
     required_args_registry: Dict[str, List[str]],
     on_tool_forbidden: Optional[Callable[[str, str], None]] = None,
     max_rounds: Optional[int] = None,
+    enable_thinking: bool = False,
 ) -> AgentCore:
     """Construit un AgentCore isolé pour un rôle (sous-ensemble d'outils).
 
@@ -83,6 +89,9 @@ def build_role_agent(
     système est dérivé du rôle : sous-ensemble d'outils + préambule.
     ``max_rounds`` borne les rounds LLM du worker (quota réservé du
     ``BudgetPool`` global) — None = défaut historique de AgentCore.
+    ``enable_thinking`` : mode « Réflexion » du worker (multi-agents) — le
+    raisonnement est diffusé via ``on_thinking`` (événement
+    ``agent.worker.thinking``) et archivé dans le résultat du worker.
     """
     from .roles import resolve_role_tools
     from .system_prompt import build_system_prompt
@@ -102,6 +111,8 @@ def build_role_agent(
     extra: Dict[str, Any] = {}
     if max_rounds is not None and max_rounds > 0:
         extra["max_rounds"] = int(max_rounds)
+    if enable_thinking:
+        extra["enable_thinking"] = True
 
     return AgentCore(
         llm_client,
@@ -136,6 +147,7 @@ class MultiAgentCoordinator:
         max_worker_tokens: int = 1200,
         context_chars: int = 2400,
         max_total_tool_calls: Optional[int] = None,
+        enable_thinking: bool = False,
     ):
         self._llm_client = llm_client
         self._lead_llm_client = lead_llm_client or llm_client
@@ -148,6 +160,15 @@ class MultiAgentCoordinator:
         self._max_worker_tokens = max_worker_tokens
         self._context_chars = context_chars
         self._lead_subject = None
+        # Mode « Réflexion » des workers (multi-agents). Le run peut le
+        # surcharger par requête (``run(..., enable_thinking=...)``).
+        self._enable_thinking = bool(enable_thinking)
+        # Registre de REPRISE NATIVE : ``request_id`` -> snapshot du run interrompu
+        # (plan, résultats workers déjà obtenus, tâche bloquée). La reprise ne
+        # re-planifie PAS et ne re-dispatche QUE le worker bloqué (rounds LLM
+        # minimaux). Borne mémoire : FIFO, entrées les plus anciennes évincées.
+        self._resume_registry: Dict[str, Dict[str, Any]] = {}
+        self._resume_registry_max = 32
         # Budget hiérarchique : plafond GLOBAL d'appels d'outils partagé par
         # les workers (None = désactivé, comportement V1 inchangé).
         from .budget_pool import build_budget_pool
@@ -168,8 +189,30 @@ class MultiAgentCoordinator:
         from ..tools.tool_registry import REQUIRED_ARGS as _RA
         from ..tools.tool_registry import TOOLS as _T
         return build_role_agent(
-            role_name, self._llm_client, _T, _RA, max_rounds=max_rounds
+            role_name, self._llm_client, _T, _RA,
+            max_rounds=max_rounds,
+            enable_thinking=self._thinking_enabled(),
         )
+
+    def _thinking_enabled(self) -> bool:
+        """Réflexion effective pour ce run (per-requête si fournie)."""
+        override = getattr(self, "_run_thinking", None)
+        return self._enable_thinking if override is None else bool(override)
+
+    def _worker_prompt_for(self, task: PlanTask, prompt: str) -> str:
+        """Prompt d'isolation stricte d'un worker (contexte résumé + sous-tâche)."""
+        context_summary = truncate_context(prompt, self._context_chars)
+        return (
+            f"CONTEXTE GLOBAL (résumé) :\n{context_summary}\n\n"
+            f"VOTRE SOUS-TÂCHE :\n{task.subtask}"
+        )
+
+    def _remember_resume(self, request_id: str, entry: Dict[str, Any]) -> None:
+        """Enregistre un snapshot de reprise (FIFO borné)."""
+        self._resume_registry[str(request_id)] = entry
+        while len(self._resume_registry) > self._resume_registry_max:
+            oldest = next(iter(self._resume_registry))
+            self._resume_registry.pop(oldest, None)
 
     def _on_event(self, on_event, event_type: str, data: Dict[str, Any]):
         """Diffuse un événement (no-op si aucun callback)."""
@@ -182,9 +225,14 @@ class MultiAgentCoordinator:
     # --- Plan --------------------------------------------------------------
 
     def _plan(self, prompt: str, on_event) -> Tuple[Optional[List[PlanTask]], Optional[Dict[str, Any]], Optional[str]]:
-        """Planifie via le lead + valide. Retourne (tasks, error_dict, raw)."""
+        """Planifie via le lead + valide. Retourne (tasks, error_dict, raw).
+
+        Planner hybride : le LLM (lead) propose un plan, puis ``correct_plan``
+        applique les règles métier DÉTERMINISTES (diagnostics → ops, shell
+        whitelisté, SQL mutant rejeté…) avant la validation structurelle.
+        """
         planner_prompt = (
-            build_planner_prompt(prompt, self._roles)
+            build_planner_prompt(prompt, self._roles, role_tools=role_tools())
             + "\n\nRéponds avec un unique JSON valide."
         )
         lead = self._build_lead()
@@ -201,9 +249,18 @@ class MultiAgentCoordinator:
                 "message": f"Le superviseur n'a pas pu planifier : {exc}",
             }, raw
 
-        validation = validate_plan(
-            raw or "", self._roles, max_roles=self._max_roles
-        )
+        try:
+            validation = validate_plan(
+                raw or "",
+                self._roles,
+                max_roles=self._max_roles,
+                preprocess=correct_plan,
+            )
+        except PlanRejected as exc:  # règle dure : SQL mutant / shell non whitelisté
+            return None, {
+                "error_code": PLAN_VALIDATION_FAILED,
+                "message": exc.reason,
+            }, raw
         if not validation.ok:
             return None, {
                 "error_code": validation.error_code,
@@ -219,15 +276,13 @@ class MultiAgentCoordinator:
 # --- Dispatch ----------------------------------------------------------
 
     def _dispatch(self, tasks: List[PlanTask], prompt: str, on_event) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Exécute chaque sous-tâche sur son worker. Retourne (workers, unexecuted)."""
-        context_summary = truncate_context(prompt, self._context_chars)
-        specs = []
-        for task in tasks:
-            worker_prompt = (
-                f"CONTEXTE GLOBAL (résumé) :\n{context_summary}\n\n"
-                f"VOTRE SOUS-TÂCHE :\n{task.subtask}"
-            )
-            specs.append((task, worker_prompt))
+        """Exécute chaque sous-tâche sur son worker. Retourne (workers, unexecuted).
+
+        La REPRISE d'un worker bloqué ne passe PAS par ici : ``run(...)`` en
+        mode reprise appelle ``_run_worker(..., resume_request_id=...)``
+        directement sur la tâche bloquée (rounds LLM minimaux).
+        """
+        specs = [(task, self._worker_prompt_for(task, prompt)) for task in tasks]
 
         workers: List[Dict[str, Any]] = []
         unexecuted: List[Dict[str, Any]] = []
@@ -248,8 +303,18 @@ class MultiAgentCoordinator:
                 unexecuted.append(res)
         return workers, unexecuted
 
-    def _run_worker(self, task: PlanTask, worker_prompt: str, on_event) -> Dict[str, Any]:
-        """Exécute une sous-tâche et normalise le résultat/erreur."""
+    def _run_worker(
+        self,
+        task: PlanTask,
+        worker_prompt: str,
+        on_event,
+        resume_request_id: str | None = None,
+    ) -> Dict[str, Any]:
+        """Exécute une sous-tâche et normalise le résultat/erreur.
+
+        ``resume_request_id`` : si fourni (reprise après validation humaine),
+        le worker rejoue l'action approuvée au lieu de redemander un approve.
+        """
         started = time.perf_counter()
         self._on_event(on_event, EV_WORKER_START, {
             "task_id": task.task_id, "role": task.role,
@@ -291,20 +356,38 @@ class MultiAgentCoordinator:
                 "message": message,
             })
 
+        def thinking_hook(chunk):
+            # Réflexion du worker (mode « Réflexion » multi-agents) — diffusée
+            # en temps réel (agent.worker.thinking) et archivée par le flow store.
+            self._on_event(on_event, EV_WORKER_THINKING, {
+                "task_id": task.task_id, "role": task.role, "thinking": chunk,
+            })
+
         return self._run_worker_core(
-            agent, task, worker_prompt, tool_hook, forbidden_hook, started, on_event
+            agent, task, worker_prompt, tool_hook, forbidden_hook, started,
+            on_event, resume_request_id=resume_request_id,
+            on_thinking=thinking_hook,
         )
 
-    def _run_worker_core(self, agent, task, worker_prompt, tool_hook, forbidden_hook, started, on_event) -> Dict[str, Any]:
+    def _run_worker_core(
+        self, agent, task, worker_prompt, tool_hook, forbidden_hook, started, on_event,
+        resume_request_id: str | None = None,
+        on_thinking=None,
+    ) -> Dict[str, Any]:
+        thinking_parts: List[str] = []
         try:
             result = agent.run_detailed(
-                worker_prompt, on_tool_event=tool_hook, on_thinking=None
+                worker_prompt, on_tool_event=tool_hook,
+                on_thinking=on_thinking, resume_request_id=resume_request_id,
             )
         except Exception as exc:
             logger.error("Worker %s échoué : %s", task.task_id, exc)
             return self._worker_error(task, LLM_UNREACHABLE, str(exc), started)
 
         answer = getattr(result, "answer", str(result))
+        thinking = getattr(result, "thinking", "")
+        if thinking and not thinking_parts:
+            thinking_parts.append(str(thinking))
         duration_ms = (time.perf_counter() - started) * 1000.0
 
         # Gate de décision : le worker s'est arrêté sur une action qui exige
@@ -344,6 +427,8 @@ class MultiAgentCoordinator:
             "duration_ms": round(duration_ms, 2),
             # Produit mais NON consommé en V1 (isolation stricte) — porte V2.
             "shareable_summary": (answer or "")[:300],
+            "thinking": "\n".join(thinking_parts).strip(),
+            "resumed": bool(resume_request_id),
         }
         self._on_event(on_event, EV_WORKER_RESULT, {
             "task_id": task.task_id, "role": task.role, "status": "ok",
@@ -377,56 +462,106 @@ class MultiAgentCoordinator:
 
     # --- API publique ------------------------------------------------------
 
-    def run(self, prompt: str, on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None) -> Dict[str, Any]:
-        """Exécute le cycle complet et rend le contrat de sortie stable."""
+    def run(
+        self,
+        prompt: str,
+        on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        resume_request_id: Optional[str] = None,
+        enable_thinking: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Exécute (ou REPREND) le cycle complet — contrat de sortie stable.
+
+        Machine à états (``MultiRunFSM``) :
+            planning → dispatch → waiting_workers
+                → awaiting_approval (worker bloqué sur un approve)
+                → resuming (reprise native) → synthesizing → completed
+
+        En reprise (``resume_request_id``), le plan et les résultats des
+        workers déjà exécutés proviennent du registre de reprise : le planning
+        N'EST PAS relancé et seul le worker bloqué est re-dispatché — l'action
+        approuvée est rejouée DANS le même worker (jamais dans le noyau
+        mono-agent), puis la synthèse finale intègre l'ensemble des résultats.
+        """
         started = time.perf_counter()
-        if not prompt or not str(prompt).strip():
-            return {
-                "status": "error",
-                "error_code": SUPERVISOR_FAILED,
-                "message": "Prompt vide.",
-                "final_answer": "",
-                "plan": [], "workers": [], "unexecuted": [],
-            }
+        if enable_thinking is not None:
+            self._run_thinking = bool(enable_thinking)
+        try:
+            if not prompt or not str(prompt).strip():
+                return {
+                    "status": "error",
+                    "error_code": SUPERVISOR_FAILED,
+                    "message": "Prompt vide.",
+                    "final_answer": "",
+                    "plan": [], "workers": [], "unexecuted": [],
+                }
 
-        # 1. Plan
-        tasks, plan_error, raw_plan = self._plan(str(prompt), on_event)
-        if tasks is None:
-            self._on_event(on_event, EV_ERROR, plan_error or {})
-            return {
-                "status": "error",
-                "error_code": (plan_error or {}).get("error_code", SUPERVISOR_FAILED),
-                "message": (plan_error or {}).get("message", "Plan invalide."),
-                "final_answer": "",
-                "plan": [], "workers": [], "unexecuted": [],
-            }
-        self._on_event(on_event, EV_PLAN, {"plan": [
-            {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
-            for t in tasks
-        ]})
+            # --- Reprise native : AUCUNE re-planification (FSM : resuming) ------
+            if resume_request_id:
+                return self._resume(str(resume_request_id), on_event, started)
 
-        # 2. Dispatch
-        workers, unexecuted = self._dispatch(tasks, str(prompt), on_event)
+            # 1. Plan (planning → dispatch)
+            fsm = MultiRunFSM.start()  # planning
+            tasks, plan_error, raw_plan = self._plan(str(prompt), on_event)
+            if tasks is None:
+                fsm = fsm.transition(MultiRunState.ERROR)
+                self._on_event(on_event, EV_ERROR, plan_error or {})
+                return {
+                    "status": "error",
+                    "error_code": (plan_error or {}).get("error_code", SUPERVISOR_FAILED),
+                    "message": (plan_error or {}).get("message", "Plan invalide."),
+                    "final_answer": "",
+                    "plan": [], "workers": [], "unexecuted": [],
+                    "fsm_state": fsm.state.value,
+                }
+            fsm = fsm.transition(MultiRunState.DISPATCH)
+            self._on_event(on_event, EV_PLAN, {"plan": [
+                {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
+                for t in tasks
+            ]})
 
-        # Validation humaine requise : au moins une sous-tâche est bloquée sur
-        # un approve. On interrompt AVANT la synthèse (une synthèse sans le
-        # résultat du worker bloqué serait trompeuse) ; le front affiche la
-        # carte Approuver/Refuser puis relance la sous-tâche concernée.
-        pending_approvals = [w for w in workers if w.get("status") == "awaiting_approval"]
+            # 2. Dispatch (dispatch → waiting_workers)
+            workers, unexecuted = self._dispatch(tasks, str(prompt), on_event)
+            fsm = fsm.transition(MultiRunState.WAITING_WORKERS)
 
-        if pending_approvals:
-            listing = "; ".join(
-                f"[{w['role']}] {w.get('approval', {}).get('tool', '?')} "
-                f"({w.get('approval', {}).get('reason', 'validation requise')})"
-                for w in pending_approvals
+            # Validation humaine requise : au moins une sous-tâche est bloquée
+            # sur un approve. On interrompt AVANT la synthèse (une synthèse sans
+            # le résultat du worker bloqué serait trompeuse) ; le front affiche
+            # la carte Approuver/Refuser puis relance via resume_request_id —
+            # la reprise passe par l'orchestrateur (FSM : awaiting_approval).
+            pending_approvals = [w for w in workers if w.get("status") == "awaiting_approval"]
+
+            if pending_approvals:
+                fsm = fsm.transition(MultiRunState.AWAITING_APPROVAL)
+                snapshot = {
+                    "prompt": str(prompt),
+                    "tasks": tasks,
+                    "workers": workers,
+                    "unexecuted": unexecuted,
+                    "fsm": fsm,
+                }
+                for w in pending_approvals:
+                    self._remember_resume(str(w.get("request_id")), {
+                        **snapshot,
+                        "resume_task": next(
+                            (t for t in tasks if t.task_id == w.get("task_id")),
+                            tasks[0],
+                        ),
+                    })
+                return self._awaiting_outcome(
+                    tasks, workers, unexecuted, pending_approvals, started, fsm,
+                    on_event=on_event,
+                )
+
+            # 3. Synthèse (continueBroken) — garde FSM : JAMAIS si un worker
+            # attend une validation (can_synthesize : waiting_workers only).
+            final_answer, thinking = self._final_synthesis(
+                str(prompt), workers, unexecuted, on_event
             )
-            final_answer = (
-                "Validation humaine requise avant de poursuivre. "
-                f"Action(s) en attente : {listing}. "
-                "Approuvez ou refusez dans l'interface pour relancer la sous-tâche."
-            )
+            fsm = fsm.transition(MultiRunState.SYNTHESIZING)
+            fsm = fsm.transition(MultiRunState.COMPLETED)
+
             outcome = {
-                "status": "awaiting_approval",
+                "status": "completed",
                 "final_answer": final_answer,
                 "plan": [
                     {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
@@ -434,9 +569,9 @@ class MultiAgentCoordinator:
                 ],
                 "workers": workers,
                 "unexecuted": unexecuted,
-                "pending_approvals": pending_approvals,
-                "thinking": "",
+                "thinking": thinking,
                 "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
+                "fsm_state": fsm.state.value,
             }
             if self._budget_pool is not None:
                 outcome["budget"] = self._budget_pool.snapshot()
@@ -446,22 +581,116 @@ class MultiAgentCoordinator:
                 "duration_ms": outcome["duration_ms"],
             })
             return outcome
+        finally:
+            self._run_thinking = None
 
-        # 3. Synthèse (continueBroken) — tentée si au moins un ok.
-        if any(w["status"] == "ok" for w in workers):
-            try:
-                final_answer = self._synthesize(str(prompt), workers, unexecuted, on_event)
-            except WorkerError as exc:
-                final_answer = (
-                    "La synthèse finale n'a pas pu être produite. "
-                    f"Résultats partiels : {len(workers)} exécuté(s), "
-                    f"{len(unexecuted)} en échec."
-                )
-        else:
-            final_answer = (
-                "Aucune sous-tâche n'a pu être exécutée. "
-                "Détails : " + json.dumps(unexecuted, ensure_ascii=False)
+    # --- Reprise native (FSM : awaiting_approval → resuming → …) -------------
+
+    @staticmethod
+    def _approval_row(request_id: str) -> Optional[Dict[str, Any]]:
+        """Charge une demande d'approbation (store legacy partagé, import lazy)."""
+        try:
+            from core.approval_store import get_approval_store  # import local
+            return get_approval_store().get(request_id)
+        except Exception:  # pragma: no cover - store indisponible : refuse la reprise
+            return None
+
+    def _resume(
+        self, resume_request_id: str, on_event, started: float
+    ) -> Dict[str, Any]:
+        """Reprise native : re-dispatch du worker bloqué, puis synthèse finale.
+
+        Garde dures :
+            - le snapshot de reprise doit exister (sinon erreur claire — JAMAIS
+              de re-planification implicite) ;
+            - la demande doit être APPROUVÉE (l'empreinte SHA-256 des arguments
+              est revérifiée par le worker AgentCore au moment du rejeu) ;
+            - l'action approuvée est rejouée dans le MÊME worker (même rôle,
+              même sous-tâche) — jamais dans le noyau mono-agent.
+        """
+        entry = self._resume_registry.pop(resume_request_id, None)
+        if entry is None:
+            return {
+                "status": "error",
+                "error_code": SUPERVISOR_FAILED,
+                "message": (
+                    "Reprise impossible : aucune orchestration en attente pour "
+                    f"la demande « {resume_request_id} » (session expirée ou "
+                    "inconnue)."
+                ),
+                "final_answer": "",
+                "plan": [], "workers": [], "unexecuted": [],
+            }
+
+        approval_row = self._approval_row(resume_request_id)
+        if approval_row is None or approval_row.get("status") != "approved":
+            return {
+                "status": "error",
+                "error_code": SUPERVISOR_FAILED,
+                "message": (
+                    f"Demande {resume_request_id} non approuvée : la reprise "
+                    "exige une validation humaine préalable."
+                ),
+                "final_answer": "",
+                "plan": [], "workers": [], "unexecuted": [],
+            }
+
+        fsm: MultiRunFSM = entry["fsm"]  # awaiting_approval
+        task: PlanTask = entry["resume_task"]
+        prompt: str = entry["prompt"]
+        workers: List[Dict[str, Any]] = list(entry["workers"])
+        unexecuted: List[Dict[str, Any]] = list(entry["unexecuted"])
+        tasks: List[PlanTask] = list(entry["tasks"])
+
+        fsm = fsm.transition(MultiRunState.RESUMING)
+        self._on_event(on_event, EV_RESUMING, {
+            "request_id": resume_request_id,
+            "task_id": task.task_id,
+            "role": task.role,
+        })
+
+        # Re-dispatch CIBLÉ : uniquement le worker bloqué, avec l'identifiant de
+        # reprise (l'AgentCore rejoue l'action approuvée, empreinte validée).
+        resumed = self._run_worker(
+            task, self._worker_prompt_for(task, prompt), on_event,
+            resume_request_id=resume_request_id,
+        )
+        resumed["resumed"] = True
+
+        # Fusion : remplace l'ancien worker bloqué par son résultat rejoué.
+        workers = [
+            resumed if w.get("task_id") == task.task_id else w for w in workers
+        ]
+        unexecuted = [w for w in unexecuted if w.get("task_id") != task.task_id]
+        if resumed.get("status") != "ok":
+            unexecuted.append(resumed)
+
+        if resumed.get("status") == "awaiting_approval":
+            # La reprise a déclenché une NOUVELLE demande de validation
+            # (action suivante du worker) : FSM resuming → awaiting_approval.
+            fsm = fsm.transition(MultiRunState.AWAITING_APPROVAL)
+            self._remember_resume(str(resumed.get("request_id")), {
+                "prompt": prompt,
+                "tasks": tasks,
+                "workers": workers,
+                "unexecuted": unexecuted,
+                "fsm": fsm,
+                "resume_task": next(
+                    (t for t in tasks if t.task_id == resumed.get("task_id")), task
+                ),
+            })
+            return self._awaiting_outcome(
+                tasks, workers, unexecuted, [resumed], started, fsm,
+                on_event=on_event,
             )
+
+        # Synthèse finale : les résultats des workers (dont celui repris)
+        # sont tous intégrés — synthèse cohérente, jamais partielle par oubli.
+        fsm = fsm.transition(MultiRunState.SYNTHESIZING)
+        final_answer, thinking = self._final_synthesis(
+            prompt, workers, unexecuted, on_event
+        )
+        fsm = fsm.transition(MultiRunState.COMPLETED)
 
         outcome = {
             "status": "completed",
@@ -472,8 +701,9 @@ class MultiAgentCoordinator:
             ],
             "workers": workers,
             "unexecuted": unexecuted,
-            "thinking": "",
+            "thinking": thinking,
             "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            "fsm_state": fsm.state.value,
         }
         if self._budget_pool is not None:
             outcome["budget"] = self._budget_pool.snapshot()
@@ -483,3 +713,76 @@ class MultiAgentCoordinator:
             "duration_ms": outcome["duration_ms"],
         })
         return outcome
+
+    def _awaiting_outcome(
+        self,
+        tasks: List[PlanTask],
+        workers: List[Dict[str, Any]],
+        unexecuted: List[Dict[str, Any]],
+        pending_approvals: List[Dict[str, Any]],
+        started: float,
+        fsm: MultiRunFSM,
+        on_event=None,
+    ) -> Dict[str, Any]:
+        """Contrat de sortie « awaiting_approval » — AUCUNE synthèse émise."""
+        listing = "; ".join(
+            f"[{w['role']}] {w.get('approval', {}).get('tool', '?')} "
+            f"({w.get('approval', {}).get('reason', 'validation requise')})"
+            for w in pending_approvals
+        )
+        final_answer = (
+            "Validation humaine requise avant de poursuivre. "
+            f"Action(s) en attente : {listing}. "
+            "Approuvez ou refusez dans l'interface pour relancer la sous-tâche."
+        )
+        outcome = {
+            "status": "awaiting_approval",
+            "final_answer": final_answer,
+            "plan": [
+                {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
+                for t in tasks
+            ],
+            "workers": workers,
+            "unexecuted": unexecuted,
+            "pending_approvals": pending_approvals,
+            "thinking": "",
+            "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            "fsm_state": fsm.state.value,
+        }
+        if self._budget_pool is not None:
+            outcome["budget"] = self._budget_pool.snapshot()
+        self._on_event(on_event, EV_DONE, {
+            "status": outcome["status"],
+            "answer": final_answer,
+            "duration_ms": outcome["duration_ms"],
+        })
+        return outcome
+
+    def _final_synthesis(
+        self,
+        prompt: str,
+        workers: List[Dict[str, Any]],
+        unexecuted: List[Dict[str, Any]],
+        on_event,
+    ) -> Tuple[str, str]:
+        """Synthèse finale (continueBroken) — dégradée mais cohérente si échec.
+
+        Retourne ``(final_answer, thinking)`` ; le ``thinking`` agrège les
+        traces de réflexion des workers (mode « Réflexion » multi-agents).
+        """
+        thinking = "\n\n".join(
+            str(w.get("thinking") or "") for w in workers if w.get("thinking")
+        ).strip()
+        if any(w.get("status") == "ok" for w in workers):
+            try:
+                return self._synthesize(prompt, workers, unexecuted, on_event), thinking
+            except WorkerError as exc:
+                return (
+                    "La synthèse finale n'a pas pu être produite. "
+                    f"Résultats partiels : {len(workers)} exécuté(s), "
+                    f"{len(unexecuted)} en échec."
+                ), thinking
+        return (
+            "Aucune sous-tâche n'a pu être exécutée. "
+            "Détails : " + json.dumps(unexecuted, ensure_ascii=False)
+        ), thinking

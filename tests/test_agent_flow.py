@@ -48,7 +48,7 @@ def client(monkeypatch, tmp_path):
     # L'endpoint lit le store partagé : on le pointe sur une base neuve.
     fs.reset_flow_store(str(tmp_path / "api_flow.db"))
 
-    def _streaming(prompt, model=None, parallel=False, on_event=None):
+    def _streaming(prompt, model=None, parallel=False, on_event=None, **_kwargs):
         if on_event is not None:
             on_event("agent.plan", {"plan": [
                 {"task_id": "task-1", "role": "web", "subtask": "cherche A"},
@@ -168,6 +168,85 @@ def test_flow_get_unknown_returns_404(client):
 def test_flow_list_invalid_status(client):
     resp = client.get("/api/agent/flow?status=bogus", headers=HEADERS)
     assert resp.status_code == 400
+
+
+def test_multi_stream_persists_awaiting_approval(client, monkeypatch):
+    """FAIBLESSE #1 : un run interrompu sur une validation humaine est
+    persisté « awaiting_approval » — JAMAIS « completed » tant qu'une
+    sous-tâche attend (invariant vérifié sur les workers)."""
+    _plan = [{"task_id": "task-1", "role": "files", "subtask": "écris rapport.txt"}]
+
+    def _streaming_awaiting(prompt, model=None, parallel=False, on_event=None, **_):
+        if on_event is not None:
+            on_event("agent.plan", {"plan": _plan})
+            on_event("agent.worker.approval", {
+                "task_id": "task-1", "role": "files",
+                "status": "awaiting_approval", "request_id": "req-9",
+                "approval": {"tool": "write_file"}, "message": "gate",
+            })
+        return {
+            "status": "awaiting_approval",
+            "final_answer": "Validation humaine requise avant de poursuivre.",
+            "plan": _plan,
+            "workers": [{
+                "task_id": "task-1", "role": "files",
+                "status": "awaiting_approval", "request_id": "req-9",
+            }],
+            "unexecuted": [], "thinking": "", "duration_ms": 5.0,
+        }
+
+    monkeypatch.setattr(agent_routes, "ask_multi_agent_streaming", _streaming_awaiting)
+
+    with client.stream(
+        "POST", "/api/agent/multi/ask/stream",
+        json={"prompt": "Écris rapport.", "mode": "full"}, headers=HEADERS,
+    ) as resp:
+        assert resp.status_code == 200
+        body = b"".join(resp.iter_bytes()).decode("utf-8", errors="replace")
+    assert "agent.worker.approval" in body
+
+    flows = client.get("/api/agent/flow", headers=HEADERS).json()["flows"]
+    assert len(flows) == 1
+    assert flows[0]["status"] == fs.AWAITING_APPROVAL, (
+        "un run awaiting_approval ne doit JAMAIS être clôturé completed"
+    )
+
+
+def test_multi_stream_persists_worker_thinking(client, monkeypatch):
+    """FAIBLESSE #4 : la réflexion des workers (agent.worker.thinking) est
+    enregistrée dans la timeline du Flow Map (replay/heatmap)."""
+
+    def _streaming_thinking(prompt, model=None, parallel=False, on_event=None, **_):
+        if on_event is not None:
+            on_event("agent.plan", {"plan": [
+                {"task_id": "task-1", "role": "ops", "subtask": "diagnostic"},
+            ]})
+            on_event("agent.worker.start", {"task_id": "task-1", "role": "ops"})
+            on_event("agent.worker.thinking", {
+                "task_id": "task-1", "role": "ops",
+                "thinking": "Je vérifie les ressources avant de répondre.",
+            })
+            on_event("agent.worker.result", {"task_id": "task-1", "role": "ops",
+                                             "status": "ok", "summary": "OK"})
+        return {
+            "status": "completed", "final_answer": "Diagnostic fait.",
+            "plan": [], "workers": [], "unexecuted": [],
+            "thinking": "Je vérifie les ressources avant de répondre.",
+            "duration_ms": 5.0,
+        }
+
+    monkeypatch.setattr(agent_routes, "ask_multi_agent_streaming", _streaming_thinking)
+
+    with client.stream(
+        "POST", "/api/agent/multi/ask/stream",
+        json={"prompt": "Diagnostic.", "mode": "full"}, headers=HEADERS,
+    ) as resp:
+        assert resp.status_code == 200
+
+    flows = client.get("/api/agent/flow", headers=HEADERS).json()["flows"]
+    detail = client.get(f"/api/agent/flow/{flows[0]['id']}", headers=HEADERS).json()
+    kinds = [e["event"] for e in detail["events"]]
+    assert "agent.worker.thinking" in kinds
 
 
 def test_core_stream_persists_flow(client, monkeypatch):

@@ -65,7 +65,7 @@ def client(monkeypatch):
         "duration_ms": 150.0,
     }
 
-    def _streaming(prompt, model=None, parallel=False, on_event=None):
+    def _streaming(prompt, model=None, parallel=False, on_event=None, **_kwargs):
         if on_event is not None:
             on_event("agent.plan", {"plan": _plan})
             on_event("agent.worker.start", {"task_id": "task-1", "role": "web"})
@@ -113,7 +113,7 @@ def test_stream_compact_filters_observability_events(monkeypatch):
         "unexecuted": [], "thinking": "", "duration_ms": 10.0,
     }
 
-    def _streaming(prompt, model=None, parallel=False, on_event=None):
+    def _streaming(prompt, model=None, parallel=False, on_event=None, **_kwargs):
         if on_event is not None:
             on_event("agent.plan", {"plan": _plan})
             on_event("agent.worker.start", {"task_id": "task-1", "role": "web"})

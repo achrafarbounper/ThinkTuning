@@ -164,7 +164,19 @@ class MultiAskRequest(BaseModel):
         None, max_length=100, description="Modèle LLM ; absent/vide = défaut serveur."
     )
     parallel: bool = Field(
-        False, description="Exécution parallèle des workers (défaut : séquentielle)."
+        True, description="Exécution parallèle des sous-tâches INDÉPENDANTES "
+        "(défaut : activé — les dépendances déclarées restent séquentielles)."
+    )
+    resume_request_id: Optional[str] = Field(
+        None,
+        description="REPRISE NATIVE multi-agents : relance l'orchestration "
+        "interrompue sur une validation humaine. L'action approuvée est "
+        "rejouée DANS le même worker (empreinte SHA-256 revérifiée), puis la "
+        "synthèse finale intègre l'ensemble des résultats. Ne passe JAMAIS "
+        "par le noyau mono-agent.",
+    )
+    enable_thinking: bool = Field(
+        False, description="Mode « Réflexion » des workers (agent.worker.thinking)."
     )
     mode: str = Field(
         "full",
@@ -176,6 +188,7 @@ class MultiAskRequest(BaseModel):
 # Événements « UX » : nécessaires au rendu, émis dans les deux modes.
 _MULTI_UX_EVENTS = {
     "agent.plan",
+    "agent.resuming",
     "agent.worker.start",
     "agent.worker.result",
     "agent.worker.approval",
@@ -185,6 +198,7 @@ _MULTI_UX_EVENTS = {
 # Événements « observabilité » : filtrés hors du mode « compact ».
 _MULTI_OBSERVABILITY_EVENTS = {
     "agent.worker.tool",
+    "agent.worker.thinking",
     "agent.worker.error",
     "agent.synthesizing",
 }
@@ -531,6 +545,10 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
         _push_tool(payload)
 
     def _on_bus_thinking(*, chunk, **_event) -> None:
+        # Faiblesse #4 (noyau v2) : la réflexion est non seulement diffusée en
+        # SSE (thinking_delta) mais AUSSI persistée dans la timeline du Flow
+        # Map (replay). La persistance est défensive, jamais bloquante.
+        _flow_record("core.thinking", {"chunk": chunk})
         events.put(("thinking", chunk))
 
     bus.on("agent.tool_start", _on_bus_tool_start)
@@ -1259,6 +1277,8 @@ def multi_ask(
         request.prompt,
         model=request.model or None,
         parallel=request.parallel,
+        resume_request_id=request.resume_request_id,
+        enable_thinking=request.enable_thinking,
     )
     return result
 
@@ -1329,14 +1349,31 @@ def multi_ask_stream(
                 request.prompt,
                 model=request.model or None,
                 parallel=request.parallel,
+                resume_request_id=request.resume_request_id,
+                enable_thinking=request.enable_thinking,
                 on_event=_emit,
             )
             events.put(("agent.done", result))
-            if flow_errored["v"] or (result or {}).get("status") == "error":
+            # Mapping statut orchestrateur -> statut flux (FAIBLESSE #1 corrigée) :
+            # un run interrompu sur une validation humaine est persisté
+            # « awaiting_approval » — JAMAIS « completed » tant qu'une
+            # sous-tâche attend une validation (invariant vérifié sur workers).
+            api_status = (result or {}).get("status")
+            workers = (result or {}).get("workers") or []
+            workers_awaiting = any(
+                w.get("status") == "awaiting_approval" for w in workers
+            )
+            if flow_errored["v"] or api_status == "error":
                 get_flow_store().finish_flow(
                     flow_record["id"],
                     FLOW_ERROR,
                     error=(result or {}).get("message") or "erreur multi-agents",
+                )
+            elif api_status == "awaiting_approval" or workers_awaiting:
+                get_flow_store().finish_flow(
+                    flow_record["id"],
+                    FLOW_AWAITING_APPROVAL,
+                    answer_summary=(result or {}).get("final_answer") or "",
                 )
             else:
                 get_flow_store().finish_flow(

@@ -19,26 +19,58 @@ from .context import estimate_tokens
 from .roles import get_role
 
 
-def build_planner_prompt(prompt: str, role_names: List[str]) -> str:
+def build_planner_prompt(
+    prompt: str,
+    role_names: List[str],
+    role_tools: Optional[Dict[str, List[str]]] = None,
+) -> str:
     """Prompt du LEAD : planifier (décomposer) la demande en sous-tâches.
 
     Sortie attendue : UN SEUL JSON, soit une liste de tâches, soit un objet
     ``{"tasks": [...]}``. Chaque tâche : ``{"task_id", "role", "subtask"}``
     (+ ``dependencies`` optionnel). ``role`` DOIT appartenir à
     ``role_names``. Le format est ensuite validé par ``plan_validator``.
+
+    ``role_tools`` (optionnel) : ``{rôle: [outils réels]}`` — injecte les
+    CAPACITÉS de chaque rôle pour que le superviseur ne choisisse pas un rôle
+    inadapté (diagnostics → ops, jamais shell pour du CPU simple).
     """
+    capabilities = ""
+    if role_tools:
+        lines = [
+            f"- {role} : {', '.join(role_tools[role])}"
+            for role in role_names
+            if role in role_tools
+        ]
+        capabilities = (
+            "\nCAPACITÉS RÉELLES DES RÔLES (outils disponibles) :\n"
+            + "\n".join(lines)
+            + "\n"
+        )
+
     return (
         "Tu es le superviseur d'une équipe d'agents spécialisés. "
         "Décompose la demande de l'utilisateur en sous-tâches, chacune "
         f"assignée à UN rôle parmi : {', '.join(role_names)}.\n\n"
         "Demande :\n"
         f"{prompt}\n\n"
+        f"{capabilities}\n"
         "RÈGLES DU PLAN :\n"
         "- Chaque sous-tâche doit être autonome et réalisable par UN SEUL rôle.\n"
         "- Ne crée AUCUNE sous-tâche inutile : au minimum nécessaire, "
         "au maximum 5.\n"
         "- N'utilise que des rôles de la liste, jamais d'autres noms.\n"
-        "- Une sous-tâche dont le rôle n'a pas d'outil adapté est à éviter.\n\n"
+        "- Une sous-tâche dont le rôle n'a pas d'outil adapté est à éviter.\n"
+        "- DIAGNOSTIC / information système (OS, CPU, RAM, disque, GPU, "
+        "versions python, variables d'env) : rôle « ops » (env_info, "
+        "disk_usage, gpu_info). JAMAIS « shell » pour cela.\n"
+        "- LECTURE SEULE (consulter, lister, chercher, interroger) : "
+        "aucun risque → le worker n'a pas besoin de validation humaine.\n"
+        "- « shell » est RÉSERVÉ aux commandes d'exécution simple ; une "
+        "commande complexe ou non sûre est à éviter.\n"
+        "- DONNÉES (SQL) : rôle « data » ; uniquement SELECT/WITH/EXPLAIN/PRAGMA."
+        " Toute mutation SQL (INSERT/UPDATE/DELETE/DROP…) est INTERDITE.\n"
+        "- RECHERCHE / LECTURE WEB : rôle « web ».\n\n"
         'Réponds UNIQUEMENT avec UN SEUL JSON, en français. Soit une liste '
         'de tâches, soit :\n'
         '{"tasks": [\n'
