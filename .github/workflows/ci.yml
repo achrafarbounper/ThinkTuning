@@ -39,7 +39,9 @@ jobs:
 
       - name: Tests (pytest)
         env:
-          API_KEY: ci-test-key
+          # NB : pas de API_KEY ici — conftest.py pose API_KEY=test-key pour
+          # toute la session (aligné avec les en-têtes X-API-Key des tests).
+          # Une valeur différente ici faisait échouer 134 tests en 401.
           AGENT_PROVIDER: ollama  # aucun appel réseau : les tests mockent le LLM
         run: |
           pip install pytest

@@ -1,10 +1,9 @@
-import io
 import json
+import logging
 import os
 import sys
 import tempfile
 import types
-from contextlib import redirect_stdout
 
 # Stub du module feuille src.inference.predictor AVANT d'importer
 # label_dataset, exactement comme dans tests/test_active_learning.py, pour
@@ -71,22 +70,55 @@ def test_load_texts_from_jsonl():
         assert rows == ["Tout va bien", "Très mauvais"]
 
 
-def test_cli_accepts_min_confidence_flag():
+def test_cli_accepts_min_confidence_flag(monkeypatch, tmp_path, caplog):
+    """Le CLI accepte `--min_confidence` : test hermétique.
+
+    Deux pièges corrigés :
+    - `resolve_model_path(None)` exige un modèle entraîné dans
+      experiments/models (absent en CI, dossier gitignore) -> on court-circuite
+      la résolution ;
+    - le stub sys.modules ci-dessus ne suffit pas en suite complète :
+      api/__init__.py importe déjà le VRAI src.inference.predictor, donc on
+      patche Predictor dans le namespace du module label_dataset.
+    Le message « Exported » passe par logging (stderr), pas par stdout : on
+    l'assertion via caplog, et on écrit l'entrée/sortie dans tmp_path.
+    """
+    input_path = tmp_path / "in.jsonl"
+    input_path.write_text(
+        json.dumps({"text": "Tout va bien"})
+        + "\n"
+        + json.dumps({"text": "Très mauvais"})
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "tmp_out.jsonl"
+
+    monkeypatch.setattr(
+        "label_dataset.resolve_model_path", lambda model_arg=None: "dummy-model-dir"
+    )
+    monkeypatch.setattr("label_dataset.Predictor", DummyPredictor)
+
     original_argv = sys.argv[:]
-    stdout = io.StringIO()
     try:
         sys.argv = [
             "label_dataset.py",
             "--input",
-            "data/train.jsonl",
+            str(input_path),
             "--output",
-            "tmp_out.jsonl",
+            str(output_path),
             "--min_confidence",
             "0.85",
         ]
-        with redirect_stdout(stdout):
+        with caplog.at_level(logging.INFO, logger="label_dataset"):
             main()
     finally:
         sys.argv = original_argv
 
-    assert "Exported" in stdout.getvalue()
+    assert "Exported" in caplog.text
+    records = [
+        json.loads(line)
+        for line in output_path.read_text(encoding="utf-8").splitlines()
+    ]
+    # Confiance fictive 0.9 >= seuil 0.85 : les deux textes sont exportés.
+    assert len(records) == 2
+    assert all(record["confidence"] == 0.9 for record in records)
