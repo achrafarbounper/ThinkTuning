@@ -427,9 +427,50 @@ export class SentimentApiClient extends SentimentApiClientCore {
   listPipelineJobs({ status, limit, offset }: { status?: string; limit?: number; offset?: number } = {}) {
     return this._request("/pipeline/jobs", { query: { status, limit, offset } });
   }
+
+  // -- /train/intent (entraînement du classifieur d'intention, SCRUM-95) ----
+
+  /** Lance l'entraînement du classifieur d'intention (202 → TrainJob kind="intent"). */
+  startIntentTraining(payload: unknown) {
+    return this._request("/train/intent", { method: "POST", body: payload });
+  }
+
+  /** Statut d'un job d'entraînement d'intention. */
+  getIntentTrainingStatus(jobId: string) {
+    return this._request(`/train/intent/status/${encodeURIComponent(jobId)}`);
+  }
+
+  /** Annule un job d'entraînement d'intention. */
+  cancelIntentTraining(jobId: string) {
+    return this._request(`/train/intent/cancel/${encodeURIComponent(jobId)}`, {
+      method: "POST",
+    });
+  }
+
+  /** Historique paginé des jobs d'intention uniquement (tri started_at DESC). */
+  listIntentTrainingJobs({
+    status,
+    limit,
+    offset,
+  }: { status?: string; limit?: number; offset?: number } = {}) {
+    return this._request("/train/intent/jobs", { query: { status, limit, offset } });
+  }
+
+  /** Versions d'intention valides + pointeur actif : { total, items, active }. */
+  getIntentModelVersions() {
+    return this._request("/train/intent/versions");
+  }
+
+  /** Active une version d'intention (422 si artefacts invalides). */
+  activateIntentVersion(version: string) {
+    return this._request("/train/intent/activate", {
+      method: "POST",
+      body: { version },
+    });
+  }
 }
 
 export default SentimentApiClient;
 
 export * from "./agentSettings";
-export { TRAIN_STEPS, PIPELINE_STEPS } from "./jobSteps";
+export { TRAIN_STEPS, PIPELINE_STEPS, INTENT_TRAIN_STEPS } from "./jobSteps";

@@ -213,3 +213,64 @@ python -m pytest tests/test_classifiers.py tests/test_async_batching.py \
 ```
 # immédiatement (le 503 disparaît), rétablissement automatique en HALF_OPEN.
 ```
+
+---
+
+## 9. Entraînement du classifieur d'intention (SCRUM-95)
+
+L'entraînement du classifieur d'intention n'est plus réservé au CLI
+(`scripts/train_intent.py`) : il est exposé par l'API et pilotable depuis le
+dashboard (page « Classification d'intention »), en réutilisant le même
+pattern de jobs que l'entraînement sentiment.
+
+### Routes (`api/routes/intent_train.py`)
+
+| Méthode | Route | Clé API | Description |
+|---|---|---|---|
+| `POST` | `/train/intent` | oui | Lance l'entraînement (dataset JSONL `{"text","label"}`), réponse 202 + `TrainJob` (`kind="intent"`). |
+| `GET`  | `/train/intent/status/{job_id}` | oui | Statut / étape / progression du job. |
+| `GET`  | `/train/intent/jobs` | oui | Historique paginé, filtré sur `kind="intent"` (sans mélange avec sentiment/pipeline). |
+| `POST` | `/train/intent/cancel/{job_id}` | oui | Annulation coopérative (Event vérifié batch par batch). |
+| `GET`  | `/train/intent/versions` | oui | Versions valides de `experiments/intent_models/` + pointeur actif. |
+| `POST` | `/train/intent/activate` | oui | Pointe `active.json` sur une version (l'IHM chaîne ensuite `/classifiers/intent/reload`). |
+
+Validations précoces en 422 : dataset introuvable, `base_model_version`
+invalide (continual training), hyper-paramètres hors bornes (pydantic).
+
+### Runner (`core/intent_trainer.py`)
+
+Refactor de `scripts/train_intent.py` en module importable, exécuté dans un
+thread daemon (`run_intent_training(job_id, req)`) avec le contrat de job du
+sentiment (`core/trainer_runner.py`) : étapes canoniques
+`INTENT_TRAIN_JOB_STEPS` (`core/models.py`, alignées sur
+`dashboard/src/api/jobSteps.ts`), `job.progress` (pourcentage global),
+métriques par epoch dans la table `train_metrics` existante (diffusées par le
+WebSocket `/train/stream/{job_id}` sans changement), logs capturés par
+`core/job_logs.py`, annulation via `IntentTrainingCancelled` — l'exception est
+attrapée AVANT `Exception` afin de conserver le statut `cancelled`.
+
+Étapes : `queued → loading_dataset → splitting_dataset → loading_model →
+training → saving_model → done`. Les imports lourds (torch / transformers /
+datasets) sont faits dans le thread du job, à l'étape `loading_model` :
+importer le module reste léger.
+
+Requête (`IntentTrainRequest`, `core/models.py`) : `dataset_path`,
+`base_model`, `base_model_version` (continual training depuis une version
+d'intention existante), `epochs`, `batch_size`, `learning_rate`,
+`max_length`, `test_size`, `quantize_int8`, `activate`.
+
+### Dashboard
+
+`IntentPage` (`#/intention`) expose : formulaire d'entraînement + tracker
+(`IntentTrainJobTracker`, étapes `INTENT_TRAIN_STEPS` de
+`dashboard/src/api/jobSteps.ts`), historique des jobs d'intention, tableau des
+versions avec activation (activation → rechargement du classifieur, chaînage
+côté client). La façade `dashboard/src/api/intentTrainApi.ts` regroupe les
+appels et les types.
+
+### Tests
+
+```bash
+python -m pytest tests/test_intent_train_api.py -q
+cd dashboard && npx vitest run src/api/intentTrainApi.test.ts src/components/IntentTrainJobTracker.test.tsx
+```

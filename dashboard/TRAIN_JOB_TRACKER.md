@@ -194,3 +194,53 @@ Voir [api.py](../../api.py) pour les détails sur :
 - `TrainJob` modèle Pydantic
 - `PersistentJobStore` (stockage SQLite)
 - Endpoints `/train/*`
+
+---
+
+## IntentTrainJobTracker (SCRUM-95)
+
+Variante du tracker pour l'entraînement du **classifieur d'intention**
+(chat / action), utilisée par la page `#/intention` (`pages/IntentPage.tsx`) :
+
+```jsx
+import IntentTrainJobTracker from "../components/IntentTrainJobTracker";
+
+<IntentTrainJobTracker
+  job={currentJob}
+  onCancel={handleCancelIntentTraining}
+  cancelLoading={cancelLoading}
+/>
+```
+
+### Différences avec TrainJobTracker
+
+- **Étapes réduites** — la constante `INTENT_TRAIN_STEPS`
+  (`src/api/jobSteps.ts`, alignée sur `INTENT_TRAIN_JOB_STEPS` côté backend)
+  compte 7 étapes au lieu de 10 (dataset JSONL local : pas de dataset HF,
+  pas d'EDA, pas de poids de classe) :
+
+  | Étape | Libellé |
+  |---|---|
+  | `queued` | En file d'attente |
+  | `loading_dataset` | Chargement du dataset |
+  | `splitting_dataset` | Split train/val |
+  | `loading_model` | Chargement du modèle |
+  | `training` | Entraînement |
+  | `saving_model` | Sauvegarde du modèle |
+  | `done` | Terminé |
+
+- **Barre de progression** — affiche `job.progress.global_pct` (pourcentage
+  global pondéré côté serveur : préparation 20 %, entraînement 70 %,
+  sauvegarde 10 %), alimenté par le runner `core/intent_trainer.py`.
+- **Types dédiés** — `IntentTrainJob` / `IntentTrainJobTrackerProps` dans
+  `src/components/types.ts` ; façade d'appels dans `src/api/intentTrainApi.ts`.
+
+### Endpoints consommés
+
+Voir `docs/CLASSIFIERS.md` §9 : `POST /train/intent`,
+`GET /train/intent/status/{job_id}`, `POST /train/intent/cancel/{job_id}`,
+`GET /train/intent/jobs`, `GET /train/intent/versions`,
+`POST /train/intent/activate` — avec chaînage
+`POST /classifiers/intent/reload` après activation.
+
+Tests : `npx vitest run src/components/IntentTrainJobTracker.test.tsx`.

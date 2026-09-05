@@ -161,6 +161,29 @@ export interface PipelineJobTrackerProps {
   cancelLoading?: boolean;
 }
 
+// --- Jobs d'intention (SCRUM-95) -------------------------------------------
+
+/** Avancement temps réel d'un job d'entraînement d'intention (job.progress). */
+export interface IntentTrainProgress {
+  step?: string;
+  global_pct?: number;
+  phase?: string;
+  epoch?: number;
+  epochs_total?: number;
+  [key: string]: unknown;
+}
+
+/** TrainJob d'intention (kind="intent") : ajoute l'avancement au job de base. */
+export interface IntentTrainJob extends TrainJob {
+  progress?: IntentTrainProgress | null;
+}
+
+export interface IntentTrainJobTrackerProps {
+  job: IntentTrainJob | null | undefined;
+  onCancel: () => void;
+  cancelLoading?: boolean;
+}
+
 export interface ModelSanityPanelProps {
   client: SentimentApiClient;
   models: Array<{ name: string; path?: string; active?: boolean; created_at?: string }>;
