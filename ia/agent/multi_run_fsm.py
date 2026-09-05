@@ -8,10 +8,14 @@ testable sans I/O.
 Cycle de vie d'un run SUPERVISEUR :
 
     planning -> dispatch -> waiting_workers -> awaiting_approval -> resuming
-       |            |            |
-       |            |            +------------> synthesizing -> completed
-       |            +-------------------------> synthesizing
-       +--------------------------------------> error
+        |            |            |             |
+        |            |            |             +------------> synthesizing -> completed
+        |            |            +--------------------------> synthesizing
+        |            +---------------------------------------> synthesizing
+        |---> fallback_chat (intention « chat » : plan vide ou tout filtré)
+        |            |
+        +------------+---------------------------------------> synthesizing -> completed
+        +-----------------------------------------------------> error
 
 Invariants rendus explicites par ce module :
     - la reprise ``awaiting_approval -> resuming`` est la SEULE transition qui
@@ -19,8 +23,13 @@ Invariants rendus explicites par ce module :
       terminal ni depuis ``waiting_workers`` (jamais de contournement de
       l'orchestrateur) ;
     - la synthèse n'est EXÉCUTABLE que depuis ``awaiting_approval`` (via
-      ``resuming``) ou ``waiting_workers`` : jamais tant qu'un worker est en
-      attente de validation (garde portée par ``can_synthesize``).
+      ``resuming``), ``waiting_workers`` ou ``fallback_chat`` : jamais tant
+      qu'un worker est en attente de validation (garde portée par
+      ``can_synthesize``) ;
+    - ``fallback_chat`` (Approche B) est un repli MANDATOIRE : quand
+      l'intention détectée rend TOUT le plan hors périmètre (workers filtrés)
+      ou que le planner renvoie un plan vide sur une intention « chat », le
+      superviseur répond directement — jamais de silence utilisateur.
 """
 
 from __future__ import annotations
@@ -37,6 +46,7 @@ class MultiRunState(StrEnum):
     WAITING_WORKERS = "waiting_workers"
     AWAITING_APPROVAL = "awaiting_approval"
     RESUMING = "resuming"
+    FALLBACK_CHAT = "fallback_chat"
     SYNTHESIZING = "synthesizing"
     COMPLETED = "completed"
     ERROR = "error"
@@ -45,12 +55,17 @@ class MultiRunState(StrEnum):
 _TERMINAL = frozenset({MultiRunState.COMPLETED, MultiRunState.ERROR})
 
 _TRANSITIONS: dict[MultiRunState, frozenset[MultiRunState]] = {
-    MultiRunState.PLANNING: frozenset({MultiRunState.DISPATCH, MultiRunState.ERROR}),
+    MultiRunState.PLANNING: frozenset({
+        MultiRunState.DISPATCH,
+        MultiRunState.FALLBACK_CHAT,  # plan vide + intention « chat » → réponse directe
+        MultiRunState.ERROR,
+    }),
     MultiRunState.DISPATCH: frozenset(
         {MultiRunState.WAITING_WORKERS, MultiRunState.ERROR}
     ),
     MultiRunState.WAITING_WORKERS: frozenset({
         MultiRunState.AWAITING_APPROVAL,
+        MultiRunState.FALLBACK_CHAT,  # toutes les sous-tâches filtrées par l'intention
         MultiRunState.SYNTHESIZING,
         MultiRunState.ERROR,
     }),
@@ -62,6 +77,10 @@ _TRANSITIONS: dict[MultiRunState, frozenset[MultiRunState]] = {
         MultiRunState.WAITING_WORKERS,    # re-dispatch du worker repris
         MultiRunState.SYNTHESIZING,       # reprise aboutie → synthèse finale
         MultiRunState.AWAITING_APPROVAL,  # nouvelle validation requise
+        MultiRunState.ERROR,
+    }),
+    MultiRunState.FALLBACK_CHAT: frozenset({
+        MultiRunState.SYNTHESIZING,  # la réponse conversationnelle devient la réponse finale
         MultiRunState.ERROR,
     }),
     MultiRunState.SYNTHESIZING: frozenset({

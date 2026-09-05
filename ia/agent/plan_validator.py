@@ -26,15 +26,36 @@ from .json_parser import extract_json_blocks
 
 
 class PlanTask:
-    """Une sous-tâche validée, prête pour le dispatch."""
+    """Une sous-tâche validée, prête pour le dispatch.
 
-    __slots__ = ("task_id", "role", "subtask", "dependencies")
+    ``intent`` / ``intent_confidence`` : intention GLOBALE détectée par le
+    superviseur (classifieur chat/action, Phase 4), stampée par l'orchestrateur
+    APRÈS validation du plan puis appliquée au dispatch (Approche B : filtrage
+    local par rôle, ``roles.INTENT_POLICY``). Défaut ``"action"`` : sans
+    classification, le comportement historique est conservé (les workers
+    outillés s'exécutent).
+    """
 
-    def __init__(self, task_id: str, role: str, subtask: str, dependencies: List[str]):
+    __slots__ = (
+        "task_id", "role", "subtask", "dependencies",
+        "intent", "intent_confidence",
+    )
+
+    def __init__(
+        self,
+        task_id: str,
+        role: str,
+        subtask: str,
+        dependencies: List[str],
+        intent: str = "action",
+        intent_confidence: float = 0.0,
+    ):
         self.task_id = task_id
         self.role = role
         self.subtask = subtask
         self.dependencies = dependencies
+        self.intent = intent
+        self.intent_confidence = intent_confidence
 
 
 class ValidationResult:
@@ -66,6 +87,8 @@ class ValidationResult:
                         "role": t.role,
                         "subtask": t.subtask,
                         "dependencies": t.dependencies,
+                        "intent": t.intent,
+                        "intent_confidence": t.intent_confidence,
                     }
                     for t in self.tasks
                 ],

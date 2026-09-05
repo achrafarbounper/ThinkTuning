@@ -23,6 +23,8 @@ def build_planner_prompt(
     prompt: str,
     role_names: List[str],
     role_tools: Optional[Dict[str, List[str]]] = None,
+    intent: Optional[str] = None,
+    intent_confidence: Optional[float] = None,
 ) -> str:
     """Prompt du LEAD : planifier (décomposer) la demande en sous-tâches.
 
@@ -34,6 +36,12 @@ def build_planner_prompt(
     ``role_tools`` (optionnel) : ``{rôle: [outils réels]}`` — injecte les
     CAPACITÉS de chaque rôle pour que le superviseur ne choisisse pas un rôle
     inadapté (diagnostics → ops, jamais shell pour du CPU simple).
+
+    ``intent`` / ``intent_confidence`` (optionnels, Approche B) : intention
+    GLOBALE détectée AVANT la planification — le plan lui-même s'adapte :
+    intention « chat » ⇒ sous-tâches uniquement si une action réelle est
+    clairement nécessaire (sinon liste vide, le repli conversationnel répond) ;
+    intention « action » ⇒ plan outillé normal.
     """
     capabilities = ""
     if role_tools:
@@ -48,13 +56,29 @@ def build_planner_prompt(
             + "\n"
         )
 
+    intent_block = ""
+    if intent == "chat":
+        intent_block = (
+            "\nINTENTION DÉTECTÉE (classifieur) : « chat » — la demande semble "
+            "CONVERSATIONNELLE (salutation, question générale, opinion). Ne "
+            "crée des sous-tâches QUE si une action réelle avec un outil est "
+            "clairement nécessaire ; sinon renvoie une liste vide [].\n"
+        )
+    elif intent == "action":
+        intent_block = (
+            "\nINTENTION DÉTECTÉE (classifieur) : « action » — la demande "
+            "exige une exécution réelle : planifie les sous-tâches outillées "
+            "nécessaires.\n"
+        )
+
     return (
         "Tu es le superviseur d'une équipe d'agents spécialisés. "
         "Décompose la demande de l'utilisateur en sous-tâches, chacune "
         f"assignée à UN rôle parmi : {', '.join(role_names)}.\n\n"
         "Demande :\n"
         f"{prompt}\n\n"
-        f"{capabilities}\n"
+        f"{capabilities}"
+        f"{intent_block}\n"
         "RÈGLES DU PLAN :\n"
         "- Chaque sous-tâche doit être autonome et réalisable par UN SEUL rôle.\n"
         "- Ne crée AUCUNE sous-tâche inutile : au minimum nécessaire, "
@@ -164,6 +188,27 @@ def build_synthesis_system() -> str:
         "à partir des résultats des agents. Sois fidèle à ces résultats, "
         "signale explicitement ce qui n'a pas pu être fait, et ne réponds "
         "jamais de mémoire sur un fait que les agents n'ont pas obtenu."
+    )
+
+
+def build_fallback_system() -> str:
+    """Prompt système du repli conversationnel (intention « chat »).
+
+    Approche B : utilisé quand AUCUNE sous-tâche outillée n'est exécutée
+    (filtrage par intention) ou que le planner a renvoyé un plan vide sur
+    une intention « chat ». Le superviseur répond DIRECTEMENT, sans outils,
+    sans prétendre avoir exécuté quoi que ce soit.
+    """
+    return (
+        "Tu es l'assistant de la plateforme ThinkTuning. La demande de "
+        "l'utilisateur a été détectée comme CONVERSATIONNELLE : aucune "
+        "sous-tâche outillée n'était nécessaire et AUCUNE n'a été exécutée. "
+        "Réponds directement à la demande, en français, en texte normal "
+        "(aucun JSON), de façon claire et utile. Si la demande nécessitait "
+        "en réalité une action (recherche web, calcul, manipulation de "
+        "fichiers…), dis-le honnêtement et invite l'utilisateur à reformuler "
+        "sa demande d'exécution. N'invente aucun fait précis que tu ne peux "
+        "pas connaître."
     )
 
 
