@@ -32,6 +32,11 @@ LLM_UNREACHABLE = "LLMUnreachable"
 TOKEN_BUDGET_EXCEEDED = "TokenBudgetExceeded"
 MAX_ROUNDS_EXCEEDED = "MaxRoundsExceeded"
 
+# Proposition de tool (SCRUM-99) -> bucket "failed" : le plan continue SANS le
+# tool proposé (rejet au review, ou plafond de propositions par plan atteint).
+TOOL_PROPOSAL_REJECTED = "ToolProposalRejected"
+TOOL_PROPOSAL_LIMITED = "ToolProposalLimited"
+
 # Superviseur / synthèse -> bucket "abort".
 SYNTHESIS_FAILED = "SynthesisFailed"
 SUPERVISOR_FAILED = "SupervisorFailed"
@@ -52,6 +57,8 @@ CODE_BUCKET: Dict[str, Bucket] = {
     LLM_UNREACHABLE: "failed",
     TOKEN_BUDGET_EXCEEDED: "failed",
     MAX_ROUNDS_EXCEEDED: "failed",
+    TOOL_PROPOSAL_REJECTED: "failed",
+    TOOL_PROPOSAL_LIMITED: "failed",
     SYNTHESIS_FAILED: "abort",
     SUPERVISOR_FAILED: "abort",
 }

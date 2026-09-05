@@ -77,6 +77,11 @@ from ia.copilot.suggestions import (  # Phase D (copilot)
 from ia.tools.plugin import loaded_plugins  # Phase B (plugins)
 from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
 from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
+from ia.tools.registry import (  # SCRUM-99 (tools personnalisés)
+    ToolRegistryError,
+    get_global_registry,
+)
+from ia.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard v1)
 from core.audit_store import (  # Phase A (audit / conformité)
     ACT_APPROVAL,
     ACT_CONFIG,
@@ -201,6 +206,9 @@ _MULTI_OBSERVABILITY_EVENTS = {
     "agent.worker.thinking",
     "agent.worker.error",
     "agent.synthesizing",
+    # SCRUM-99 : pipeline des tools personnalisés (observabilité).
+    "agent.tool.proposed",
+    "agent.tool.reviewed",
 }
 
 
@@ -222,6 +230,35 @@ class ToolInfo(BaseModel):
 class ToolRunRequest(BaseModel):
     tool: str = Field(..., description="Nom de l'outil (ex: 'add', 'write_file').")
     args: dict[str, Any] = Field(default_factory=dict, description="Arguments de l'outil.")
+
+
+class CustomToolCreateRequest(BaseModel):
+    """Enregistrement d'un tool personnalisé (SCRUM-99, phase 1).
+
+    ``definition`` suit le standard ``thinktuning.tool/v1`` (name,
+    description, required_args, parameters, safety…). ``code`` est
+    l'implémentation Python : elle DOIT définir une fonction du même nom que
+    le tool. Source humaine authentifiée (flag + API key + audit) :
+    l'orchestrateur, lui, n'enregistre jamais un tool de lui-même.
+    """
+
+    definition: dict[str, Any] = Field(
+        ..., description="Définition thinktuning.tool/v1 complète du tool.",
+    )
+    code: str = Field(
+        ..., min_length=1,
+        description="Implémentation Python : doit définir une fonction du "
+        "même nom que le tool.",
+    )
+    owner: str = Field("api", max_length=120, description="Société/origine du tool.")
+    overwrite: bool = Field(
+        False, description="Remplace un tool DYNAMIQUE existant (jamais un natif).",
+    )
+    allow_auto_approval: bool = Field(
+        False,
+        description="Honore la déclaration « safety » (auto-approbation) au "
+        "lieu de forcer « manual ». Réservé aux sources humaines de confiance.",
+    )
 
 
 class AgentSettingsUpdate(BaseModel):
@@ -332,6 +369,164 @@ def recommend_tools(
     if not flag("tool_analytics"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_TOOL_ANALYTICS)")
     return {"query": q, "suggestions": suggest_tools(q, k=k)}
+
+
+# --- Tools personnalisés (SCRUM-99, flag ``AGENT_CUSTOM_TOOLS_API``) -----------
+
+ENV_TOOL_REGISTERED = "agent.tool.registered"  # via event_bus global
+ENV_TOOL_REMOVED = "agent.tool.removed"
+
+
+@router.get("/tools/custom")
+def list_custom_tools(_: bool = Depends(require_api_key)):
+    """Liste les tools DYNAMIQUES enregistrés (état runtime inclus)."""
+    if not flag("custom_tools"):
+        raise HTTPException(
+            status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
+        )
+    registry = get_global_registry()
+    tools = []
+    for rt in registry.list_registered(dynamic_only=True):
+        tools.append({
+            "name": rt.name,
+            "definition": rt.definition,
+            "approval": rt.approval,
+            "enabled": rt.enabled,
+            "experimental": rt.experimental,
+            "owner": rt.owner,
+            "registered_at": rt.registered_at,
+            "source_file": rt.source_file,
+        })
+    return {"tools": tools, "max_dynamic_tools": registry.max_dynamic_tools}
+
+
+@router.post("/tools/custom", status_code=201)
+def create_custom_tool(
+    request: CustomToolCreateRequest, _: bool = Depends(require_api_key),
+):
+    """Enregistre un tool personnalisé (décision HUMAINE — fail-closed).
+
+    Le planner ne s'auto-équipe JAMAIS : les propositions relues « approve »
+    par le reviewer sont finalisées ICI (définition + code), derrière le flag
+    ``AGENT_CUSTOM_TOOLS_API`` et l'authentification API. Par défaut le tool
+    dynamique est forcé « manual » (validation humaine de chaque appel) ;
+    ``allow_auto_approval=true`` (source humaine de confiance) honore la
+    déclaration « safety » de la définition.
+    """
+    if not flag("custom_tools"):
+        raise HTTPException(
+            status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
+        )
+    definition = request.definition
+    ok, errors = validate_tool_definition(definition)
+    if not ok:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Définition invalide.", "errors": errors},
+        )
+    name = str(definition.get("name", ""))
+    registry = get_global_registry()
+    if registry.has_native(name):
+        raise HTTPException(
+            status_code=409,
+            detail=f"« {name} » est un tool natif du registre (non écrasable).",
+        )
+    if registry.has_tool(name) and not request.overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Le tool dynamique « {name} » existe déjà "
+                "(overwrite=true pour le remplacer)."
+            ),
+        )
+
+    # Implémentation : le code fourni définit une fonction `name`. Source
+    # humaine authentifiée (flag + API key + audit) — niveau de confiance
+    # d'un plugin installé manuellement.
+    namespace: dict[str, Any] = {"__name__": f"custom_tool_{name}"}
+    try:
+        exec(  # noqa: S102 — see trust note above
+            compile(request.code, f"<custom-tool:{name}>", "exec"), namespace,
+        )
+    except SyntaxError as exc:
+        raise HTTPException(status_code=422, detail=f"Code invalide (syntaxe) : {exc}")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422, detail=f"Code invalide (erreur au chargement) : {exc}",
+        )
+    func = namespace.get(name)
+    if not callable(func):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Le code doit définir une fonction « {name} » callable.",
+        )
+
+    try:
+        registered = registry.add_tool(
+            func,
+            definition,
+            owner=request.owner or "api",
+            overwrite=request.overwrite,
+            allow_auto_approval=request.allow_auto_approval,
+        )
+    except ToolRegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _audit_log(
+        ACT_TOOL, subject=f"custom_tool:{name}",
+        detail={
+            "action": "register",
+            "owner": registered.owner,
+            "approval": registered.approval,
+            "dynamic": True,
+        },
+    )
+    try:
+        from ia.agent.event_bus import emit as _emit
+        _emit(
+            ENV_TOOL_REGISTERED,
+            name=name, owner=registered.owner, approval=registered.approval,
+        )
+    except Exception:  # noqa: BLE001 — l'événement ne doit jamais casser l'API
+        pass
+    return {
+        "registered": True,
+        "tool": {
+            "name": name,
+            "approval": registered.approval,
+            "definition": registered.definition,
+        },
+    }
+
+
+@router.delete("/tools/custom/{name}")
+def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
+    """Retire un tool DYNAMIQUE (les tools natifs ne sont jamais retirables)."""
+    if not flag("custom_tools"):
+        raise HTTPException(
+            status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
+        )
+    registry = get_global_registry()
+    if not registry.has_tool(name):
+        raise HTTPException(status_code=404, detail=f"Tool inconnu : « {name} ».")
+    if registry.has_native(name):
+        raise HTTPException(
+            status_code=409,
+            detail=f"« {name} » est un tool natif : retrait interdit.",
+        )
+    try:
+        registry.remove_tool(name)
+    except ToolRegistryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    _audit_log(
+        ACT_TOOL, subject=f"custom_tool:{name}", detail={"action": "unregister"},
+    )
+    try:
+        from ia.agent.event_bus import emit as _emit
+        _emit(ENV_TOOL_REMOVED, name=name)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"removed": True, "name": name}
 
 
 @router.get("/tools/stats")

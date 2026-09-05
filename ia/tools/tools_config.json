@@ -49,30 +49,61 @@
         }
       }
     },
-    "cancel_training": {
-
-        "name": "cancel_training",
-
-        "description": "Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au prochain point de contrÃ´le, confirmez avec job_get",
-
-        "required_args": [
-
-            "job_id"
-
-        ],
-
-        "parameters": {
-
-            "job_id": {
-
-                "required": true,
-
-                "type": "string"
-
-            }
-
+    "call_api": {
+      "name": "call_api",
+      "description": "Appel HTTP générique GET/POST vers une API externe (schéma http/https, sortie tronquée). GET sans corps ; POST avec `body` brut ou `json_payload` (exclusifs).",
+      "required_args": [
+        "url"
+      ],
+      "parameters": {
+        "url": {
+          "required": true,
+          "type": "string"
+        },
+        "method": {
+          "required": false,
+          "type": "string",
+          "default": "GET"
+        },
+        "headers": {
+          "required": false,
+          "type": "object",
+          "default": null
+        },
+        "body": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "json_payload": {
+          "required": false,
+          "type": "object",
+          "default": null
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 30.0
+        },
+        "max_chars": {
+          "required": false,
+          "type": "integer",
+          "default": 8000
         }
-
+      }
+    },
+    "cancel_training": {
+      "name": "cancel_training",
+      "description": "Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au prochain point de contrÃ´le, confirmez avec job_get",
+      "required_args": [
+        "job_id"
+      ],
+      "parameters": {
+        "job_id": {
+          "required": true,
+          "type": "string"
+        }
+      }
     },
     "copy_path": {
       "name": "copy_path",
@@ -690,6 +721,34 @@
         }
       }
     },
+    "run_shell": {
+      "name": "run_shell",
+      "description": "Exécute une commande SÛRE en liste d'arguments (allowlist AGENT_ALLOWED_BINARIES, jamais de shell, timeout plafonné). dry_run=true renvoie la commande qui serait exécutée sans la lancer.",
+      "required_args": [
+        "command"
+      ],
+      "parameters": {
+        "command": {
+          "required": true,
+          "type": "array"
+        },
+        "timeout": {
+          "required": false,
+          "type": "number",
+          "default": 60.0
+        },
+        "cwd": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "dry_run": {
+          "required": false,
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
     "search_in_files": {
       "name": "search_in_files",
       "description": "Cherche `pattern` (regex Python, insensible Ã  la casse) dans le contenu des fichiers sous `path`",
@@ -765,76 +824,64 @@
       }
     },
     "start_training": {
-        "name": "start_training",
-        "description": "Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_id ; suivez la progression avec job_get/job_list",
-        "required_args": [],
-        "parameters": {
-            "max_per_lang": {
-                "required": false,
-                "type": "integer",
-                "default": 500
-            },
-            "local_corrections_path": {
-                "required": false,
-                "type": "string",
-                "default": null
-            },
-            "augment_fraction": {
-                "required": false,
-                "type": "number",
-                "default": 0.4
-            },
-            "variants_per_example": {
-                "required": false,
-                "type": "integer",
-                "default": 2
-            },
-            "class_augment_weights": {
-                "required": false,
-                "type": "object",
-                "default": null
-            },
-            "epochs": {
-                "required": false,
-                "type": "integer",
-                "default": null
-            },
-            "batch_size": {
-                "required": false,
-                "type": "integer",
-                "default": null
-            },
-            "device": {
-                "required": false,
-                "type": "string",
-                "default": "auto"
-            }
+      "name": "start_training",
+      "description": "Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_id ; suivez la progression avec job_get/job_list",
+      "required_args": [],
+      "parameters": {
+        "max_per_lang": {
+          "required": false,
+          "type": "integer",
+          "default": 500
+        },
+        "local_corrections_path": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "augment_fraction": {
+          "required": false,
+          "type": "number",
+          "default": 0.4
+        },
+        "variants_per_example": {
+          "required": false,
+          "type": "integer",
+          "default": 2
+        },
+        "class_augment_weights": {
+          "required": false,
+          "type": "object",
+          "default": null
+        },
+        "epochs": {
+          "required": false,
+          "type": "integer",
+          "default": null
+        },
+        "batch_size": {
+          "required": false,
+          "type": "integer",
+          "default": null
+        },
+        "device": {
+          "required": false,
+          "type": "string",
+          "default": "auto"
         }
+      }
     },
     "stop_training": {
-
-        "name": "stop_training",
-
-        "description": "Alias de cancel_training : demande l'arrÃªt propre d'un entraÃ®nement en cours (pending/running) via son job_id",
-
-        "required_args": [
-
-            "job_id"
-
-        ],
-
-        "parameters": {
-
-            "job_id": {
-
-                "required": true,
-
-                "type": "string"
-
-            }
-
+      "name": "stop_training",
+      "description": "Alias de cancel_training : demande l'arrÃªt propre d'un entraÃ®nement en cours (pending/running) via son job_id",
+      "required_args": [
+        "job_id"
+      ],
+      "parameters": {
+        "job_id": {
+          "required": true,
+          "type": "string"
         }
-
+      }
     },
     "tail_file": {
       "name": "tail_file",
@@ -868,56 +915,56 @@
       }
     },
     "train_model": {
-        "name": "train_model",
-        "description": "Lance un entraÃ®nement et ATTEND sa fin (bloquant, timeout en secondes) ; retourne le statut final, le chemin du modÃ¨le sauvegardÃ© et l'erreur Ã©ventuelle (dÃ©tail via job_get)",
-        "required_args": [],
-        "parameters": {
-            "max_per_lang": {
-                "required": false,
-                "type": "integer",
-                "default": 500
-            },
-            "local_corrections_path": {
-                "required": false,
-                "type": "string",
-                "default": null
-            },
-            "augment_fraction": {
-                "required": false,
-                "type": "number",
-                "default": 0.4
-            },
-            "variants_per_example": {
-                "required": false,
-                "type": "integer",
-                "default": 2
-            },
-            "class_augment_weights": {
-                "required": false,
-                "type": "object",
-                "default": null
-            },
-            "epochs": {
-                "required": false,
-                "type": "integer",
-                "default": null
-            },
-            "batch_size": {
-                "required": false,
-                "type": "integer",
-                "default": null
-            },
-            "device": {
-                "required": false,
-                "type": "string",
-                "default": "auto"
-            },
-            "wait_timeout": {
-                "required": false,
-                "type": "number",
-                "default": 3600
-            }
+      "name": "train_model",
+      "description": "Lance un entraÃ®nement et ATTEND sa fin (bloquant, timeout en secondes) ; retourne le statut final, le chemin du modÃ¨le sauvegardÃ© et l'erreur Ã©ventuelle (dÃ©tail via job_get)",
+      "required_args": [],
+      "parameters": {
+        "max_per_lang": {
+          "required": false,
+          "type": "integer",
+          "default": 500
+        },
+        "local_corrections_path": {
+          "required": false,
+          "type": "string",
+          "default": null
+        },
+        "augment_fraction": {
+          "required": false,
+          "type": "number",
+          "default": 0.4
+        },
+        "variants_per_example": {
+          "required": false,
+          "type": "integer",
+          "default": 2
+        },
+        "class_augment_weights": {
+          "required": false,
+          "type": "object",
+          "default": null
+        },
+        "epochs": {
+          "required": false,
+          "type": "integer",
+          "default": null
+        },
+        "batch_size": {
+          "required": false,
+          "type": "integer",
+          "default": null
+        },
+        "device": {
+          "required": false,
+          "type": "string",
+          "default": "auto"
+        },
+        "wait_timeout": {
+          "required": false,
+          "type": "number",
+          "default": 3600
         }
+      }
     },
     "unzip_file": {
       "name": "unzip_file",

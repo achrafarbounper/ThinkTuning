@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -44,6 +45,8 @@ from .errors import (
     SUPERVISOR_FAILED,
     SYNTHESIS_FAILED,
     TOOL_NOT_ALLOWED,
+    TOOL_PROPOSAL_LIMITED,
+    TOOL_PROPOSAL_REJECTED,
     TOKEN_BUDGET_EXCEEDED,
 )
 from .plan_validator import PlanTask, validate_plan
@@ -76,10 +79,25 @@ EV_ERROR = "agent.error"
 EV_INTENT = "agent.intent"                  # intention globale détectée (superviseur)
 EV_WORKER_SKIPPED = "agent.worker.skipped"  # worker filtré par la politique d'intention
 EV_FALLBACK = "agent.fallback"              # repli conversationnel (aucun worker exécuté)
+# --- Tools personnalisés (SCRUM-99 : propositions du planner) ---------------
+EV_TOOL_PROPOSED = "agent.tool.proposed"    # le planner propose un nouveau tool
+EV_TOOL_REVIEWED = "agent.tool.reviewed"    # verdict de la relecture reviewer
 
 
 def _make_task_id() -> str:
     return "task-" + uuid.uuid4().hex[:8]
+
+
+def _dynamic_tools_enabled() -> bool:
+    """Interrupteur ENV global ``USE_DYNAMIC_TOOLS`` (défaut : activé).
+
+    ``USE_DYNAMIC_TOOLS=false`` (0/no) ⇒ mode legacy STRICT : aucune
+    proposition de tool n'est sollicitée ni traitée, quel que soit le
+    paramétrage du coordinateur (comportement historique garanti).
+    """
+    return str(os.environ.get("USE_DYNAMIC_TOOLS", "true")).strip().lower() not in (
+        "0", "false", "no", "off",
+    )
 
 
 class WorkerError(Exception):
@@ -178,6 +196,9 @@ class MultiAgentCoordinator:
         max_total_tool_calls: Optional[int] = None,
         enable_thinking: bool = False,
         intent_classifier=None,
+        tool_registry=None,
+        enable_tool_proposals: bool = False,
+        max_tool_proposals_per_plan: int = 1,
     ):
         self._llm_client = llm_client
         self._lead_llm_client = lead_llm_client or llm_client
@@ -197,6 +218,20 @@ class MultiAgentCoordinator:
         # (comportement V1 strictement inchangé).
         self._intent_classifier = intent_classifier
         self._intent_active = intent_classifier is not None
+        # SCRUM-99 : tools personnalisés. ``tool_registry`` (ToolRegistry
+        # injectée) enrichit l'outillage des workers (merged_registry) ;
+        # ``enable_tool_proposals`` active le pipeline proposer → relire du
+        # planner. FAIL-CLOSED : l'orchestrateur n'enregistre JAMAIS un tool
+        # lui-même — l'enregistrement est une décision humaine (API).
+        # ``USE_DYNAMIC_TOOLS=false`` ⇒ strict legacy (tout désactivé).
+        self._tool_registry = tool_registry
+        self._tool_proposals_requested = bool(enable_tool_proposals)
+        self._enable_tool_proposals = (
+            self._tool_proposals_requested and _dynamic_tools_enabled()
+        )
+        self._max_tool_proposals = max(0, int(max_tool_proposals_per_plan))
+        self._plan_tool_proposals: List[Dict[str, Any]] = []
+        self._plan_tool_notes: List[Dict[str, Any]] = []
         self._fallback_subject = None  # agent de repli conversationnel (lazy)
         # Mode « Réflexion » des workers (multi-agents). Le run peut le
         # surcharger par requête (``run(..., enable_thinking=...)``).
@@ -233,11 +268,17 @@ class MultiAgentCoordinator:
         """
         if self._role_builder is not None:
             return self._role_builder(role_name)
-        # Identité de paquet réel uniquement (plus de double identité d'import).
-        from ..tools.tool_registry import REQUIRED_ARGS as _RA
-        from ..tools.tool_registry import TOOLS as _T
+        # Registry injectée (SCRUM-99) : vue FUSIONNÉE (natifs + dynamiques
+        # enregistrés au fil de l'eau). Sinon dicts statiques historiques.
+        if self._tool_registry is not None:
+            tools_map, required_map = self._tool_registry.merged_registry()
+        else:
+            # Identité de paquet réel uniquement (plus de double identité d'import).
+            from ..tools.tool_registry import REQUIRED_ARGS as _RA
+            from ..tools.tool_registry import TOOLS as _T
+            tools_map, required_map = _T, _RA
         return build_role_agent(
-            role_name, self._llm_client, _T, _RA,
+            role_name, self._llm_client, tools_map, required_map,
             max_rounds=max_rounds,
             enable_thinking=self._thinking_enabled(),
             intent=intent,
@@ -375,10 +416,14 @@ class MultiAgentCoordinator:
         """
         intent = (intent_meta or {}).get("intent")
         confidence = (intent_meta or {}).get("confidence")
+        self._plan_tool_proposals = []
+        self._plan_tool_notes = []
         planner_prompt = (
             build_planner_prompt(
                 prompt, self._roles, role_tools=role_tools(),
                 intent=intent, intent_confidence=confidence,
+                allow_tool_proposals=self._enable_tool_proposals,
+                max_tool_proposals=self._max_tool_proposals,
             )
             + "\n\nRéponds avec un unique JSON valide."
         )
@@ -402,6 +447,7 @@ class MultiAgentCoordinator:
                 self._roles,
                 max_roles=self._max_roles,
                 preprocess=correct_plan,
+                max_tool_proposals=self._max_tool_proposals,
             )
         except PlanRejected as exc:  # règle dure : SQL mutant / shell non whitelisté
             return None, {
@@ -413,7 +459,137 @@ class MultiAgentCoordinator:
                 "error_code": validation.error_code,
                 "message": validation.message,
             }, raw
+        # SCRUM-99 : propositions de tools extraites du plan (pseudo-rôle
+        # propose_tool) — traitées par le pipeline de relecture (run()).
+        self._plan_tool_proposals = list(validation.tool_proposals)
+        self._plan_tool_notes = list(validation.tool_proposal_notes)
         return validation.tasks, None, raw
+
+    # --- Tools personnalisés : pipeline proposer → relire (SCRUM-99) --------
+
+    def _handle_tool_proposals(
+        self, on_event,
+    ) -> List[Dict[str, Any]]:
+        """Traite les propositions de tools extraites du plan (SCRUM-99).
+
+        Par proposition :
+          1. ``agent.tool.proposed`` (définition design-time complète) ;
+          2. RELUE par le worker « reviewer » (aucun outil : il JUGE, il ne
+             peut rien exécuter ni contourner) — verdict JSON strict ;
+          3. verdict « approve » → ``agent.tool.reviewed`` (approved) : la
+             proposition est RETOURNÉE à l'humain dans l'outcome ;
+             l'enregistrement effectif (code + registry.add_tool) reste une
+             décision HUMAINE via l'API — le planner ne s'auto-équipe JAMAIS ;
+          4. verdict « reject » → ``agent.tool.reviewed`` (rejected) + code
+             ``ToolProposalRejected`` (traçabilité : le plan continue SANS) ;
+          5. notes du validateur (plafond / duplicata / définition invalide)
+             → ``ToolProposalLimited`` ou ``ToolProposalRejected``.
+        """
+        results: List[Dict[str, Any]] = []
+        proposals = list(self._plan_tool_proposals)
+        notes = list(self._plan_tool_notes)
+        if not proposals and not notes:
+            return results
+        if not self._enable_tool_proposals:
+            # Pipeline désactivé (flag ou USE_DYNAMIC_TOOLS=false) : les
+            # propositions extraites sont JETÉES (strict legacy, zéro effet).
+            logger.info(
+                "tool_proposals ignorées (pipeline désactivé) : %d proposition(s)",
+                len(proposals),
+            )
+            return []
+        for note in notes:
+            reason = str(note.get("reason", ""))
+            code = (
+                TOOL_PROPOSAL_LIMITED
+                if "plafond" in reason else TOOL_PROPOSAL_REJECTED
+            )
+            entry = {
+                "name": note.get("name", ""),
+                "task_id": note.get("task_id", ""),
+                "status": "rejected",
+                "error_code": code,
+                "reason": reason,
+            }
+            results.append(entry)
+            self._on_event(on_event, EV_TOOL_REVIEWED, {**entry, "stage": "validation"})
+            logger.info(
+                "tool_proposal_validation name=%s code=%s reason=%s",
+                entry["name"], code, reason,
+            )
+        for proposal in proposals:
+            name = str(proposal.get("name", ""))
+            self._on_event(on_event, EV_TOOL_PROPOSED, {
+                "name": name,
+                "task_id": proposal.get("task_id", ""),
+                "definition": proposal,
+            })
+            approved, reason = self._review_tool_proposal(proposal)
+            entry: Dict[str, Any] = {
+                "name": name,
+                "task_id": proposal.get("task_id", ""),
+                "definition": proposal,
+                "status": "approved" if approved else "rejected",
+                "reason": reason,
+            }
+            if not approved:
+                entry["error_code"] = TOOL_PROPOSAL_REJECTED
+            results.append(entry)
+            self._on_event(on_event, EV_TOOL_REVIEWED, {
+                "name": name,
+                "task_id": proposal.get("task_id", ""),
+                "decision": "approved" if approved else "rejected",
+                "reason": reason,
+            })
+            logger.info(
+                "tool_proposal name=%s decision=%s reason=%s",
+                name, "approved" if approved else "rejected", reason,
+            )
+        return results
+
+    def _review_tool_proposal(self, proposal: Dict[str, Any]) -> Tuple[bool, str]:
+        """Relit une proposition via le worker « reviewer » (aucun outil).
+
+        Retourne ``(approved, raison)``. TOUT échec (agent indisponible,
+        verdict illisible ou inattendu) ⇒ ``(False, ...)`` : fail-closed.
+        """
+        review_prompt = (
+            "Vous êtes le relecteur sécurité d'une PROPOSITION d'outil pour "
+            "le registre dynamique. Analysez la définition ci-dessous.\n\n"
+            "DÉFINITION PROPOSÉE (standard thinktuning.tool/v1) :\n"
+            + json.dumps(proposal, ensure_ascii=False, indent=2, default=str)
+            + "\n\nCritères de relecture :\n"
+            "- nécessité réelle (capacité réellement manquante) et "
+            "description claire ;\n"
+            "- paramètres typés et nécessaires, pas de sur-privilège ;\n"
+            "- aucun effet destructeur, aucune exécution de code arbitraire, "
+            "aucun accès non filtré (shell libre, SQL mutant, réseau non "
+            "borné) ;\n"
+            "- nom correct (minuscules/underscores, pas un outil existant).\n\n"
+            'Répondez UNIQUEMENT avec un JSON : {"verdict": "approve" ou '
+            '"reject", "reason": "justification courte en français"}.'
+        )
+        try:
+            agent = self._make_agent("reviewer")
+            result = agent.run_detailed(
+                review_prompt, on_thinking=None, on_tool_event=None,
+            )
+            raw = str(getattr(result, "answer", str(result)) or "")
+        except Exception as exc:  # pragma: no cover - chemin défensif
+            logger.warning("Review de tool impossible : %s", exc)
+            return False, f"review indisponible : {exc}"
+        from .json_parser import extract_json_blocks
+        verdict, reason = "", ""
+        for block in extract_json_blocks(raw or ""):
+            if isinstance(block, dict) and "verdict" in block:
+                verdict = str(block.get("verdict", "")).strip().lower()
+                reason = str(block.get("reason", "") or "").strip()
+                break
+        if verdict == "approve":
+            return True, reason or "verdict reviewer : approve"
+        if verdict == "reject":
+            return False, reason or "verdict reviewer : reject"
+        return False, f"verdict reviewer illisible : {(raw or '')[:200]}"
 
     def _build_lead(self):
         if self._lead_subject is not None:
@@ -848,6 +1024,11 @@ class MultiAgentCoordinator:
             fsm = fsm.transition(MultiRunState.DISPATCH)
             self._on_event(on_event, EV_PLAN, {"plan": self._plan_dicts(tasks)})
 
+            # 1 bis. Pipeline des propositions de tools (SCRUM-99) : chaque
+            # proposition est relue par le reviewer ; RIEN n'est enregistré
+            # automatiquement (fail-closed, décision humaine via l'API).
+            tool_proposals = self._handle_tool_proposals(on_event)
+
             # 2. Dispatch (dispatch → waiting_workers)
             workers, unexecuted = self._dispatch(tasks, str(prompt), on_event)
             fsm = fsm.transition(MultiRunState.WAITING_WORKERS)
@@ -912,6 +1093,8 @@ class MultiAgentCoordinator:
                 "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
                 "fsm_state": fsm.state.value,
             }
+            if tool_proposals:
+                outcome["tool_proposals"] = tool_proposals
             if intent_meta is not None:
                 outcome["intent"] = intent_meta.get("intent")
                 outcome["intent_confidence"] = float(intent_meta.get("confidence", 0.0))

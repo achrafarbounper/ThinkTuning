@@ -25,6 +25,8 @@ def build_planner_prompt(
     role_tools: Optional[Dict[str, List[str]]] = None,
     intent: Optional[str] = None,
     intent_confidence: Optional[float] = None,
+    allow_tool_proposals: bool = False,
+    max_tool_proposals: int = 1,
 ) -> str:
     """Prompt du LEAD : planifier (décomposer) la demande en sous-tâches.
 
@@ -42,6 +44,12 @@ def build_planner_prompt(
     intention « chat » ⇒ sous-tâches uniquement si une action réelle est
     clairement nécessaire (sinon liste vide, le repli conversationnel répond) ;
     intention « action » ⇒ plan outillé normal.
+
+    ``allow_tool_proposals`` (SCRUM-99) : autorise le pseudo-rôle
+    ``propose_tool`` — le planner peut proposer au plus
+    ``max_tool_proposals`` NOUVEAU(x) outil(s) (objet ``tool`` embarqué).
+    La proposition est relue par un humain ; l'outil n'est PAS disponible
+    dans l'exécution en cours.
     """
     capabilities = ""
     if role_tools:
@@ -71,6 +79,39 @@ def build_planner_prompt(
             "nécessaires.\n"
         )
 
+    # SCRUM-99 : règles de proposition de tools (pseudo-rôle propose_tool).
+    if allow_tool_proposals:
+        proposal_block = (
+            "\nOUTILS PERSONNALISÉS (fonctionnalité activée) :\n"
+            "Si et seulement si la demande exige une capacité qu'AUCUN outil "
+            "existant ne couvre, vous pouvez PROPOSER au plus "
+            f"{max_tool_proposals} NOUVEAU(x) outil(s) via le pseudo-rôle "
+            "« propose_tool » (SEULE exception autorisée à la liste des "
+            "rôles). Format d'une proposition :\n"
+            '{"task_id": "propose-1", "role": "propose_tool", '
+            '"subtask": "Pourquoi cet outil est nécessaire", "tool": '
+            '{"name": "get_weather", "description": "...", "category": "api", '
+            '"required_args": ["city"], "parameters": {"city": {"type": '
+            '"string", "required": true, "description": "..."}}}}\n'
+            "RÈGLES DES PROPOSITIONS :\n"
+            "- « name » : minuscules, chiffres et underscores uniquement "
+            "(2 à 64 caractères) ; JAMAIS le nom d'un outil existant.\n"
+            "- L'outil proposé n'est PAS disponible dans cette exécution : "
+            "NE créez AUCUNE sous-tâche qui l'appelle ; planifiez le reste "
+            "avec les outils existants.\n"
+            "- Toute proposition est relue par un humain AVANT "
+            "enregistrement : ne proposez jamais d'outil destructeur, "
+            "d'accès non filtré ou d'exécution de code arbitraire.\n"
+            "- Zéro proposition si les outils existants suffisent.\n"
+        )
+        roles_rule = (
+            "- N'utilise que des rôles de la liste ; SEULE exception : le "
+            "pseudo-rôle « propose_tool » (voir OUTILS PERSONNALISÉS).\n"
+        )
+    else:
+        proposal_block = ""
+        roles_rule = "- N'utilise que des rôles de la liste, jamais d'autres noms.\n"
+
     return (
         "Tu es le superviseur d'une équipe d'agents spécialisés. "
         "Décompose la demande de l'utilisateur en sous-tâches, chacune "
@@ -78,12 +119,13 @@ def build_planner_prompt(
         "Demande :\n"
         f"{prompt}\n\n"
         f"{capabilities}"
-        f"{intent_block}\n"
+        f"{intent_block}"
+        f"{proposal_block}\n"
         "RÈGLES DU PLAN :\n"
         "- Chaque sous-tâche doit être autonome et réalisable par UN SEUL rôle.\n"
         "- Ne crée AUCUNE sous-tâche inutile : au minimum nécessaire, "
         "au maximum 5.\n"
-        "- N'utilise que des rôles de la liste, jamais d'autres noms.\n"
+        f"{roles_rule}\n"
         "- Une sous-tâche dont le rôle n'a pas d'outil adapté est à éviter.\n"
         "- DIAGNOSTIC / information système (OS, CPU, RAM, disque, GPU, "
         "versions python, variables d'env) : rôle « ops » (env_info, "

@@ -105,10 +105,14 @@ def fake_plugin():
     module.fake_echo = fake_echo
     sys.modules["fake_tt_plugin"] = module
     yield module
+    # SCRUM-99 : l'enregistrement passe par la ToolRegistry (projection dans
+    # TOOLS/TOOL_META/REQUIRED_ARGS incluse) — le retrait aussi.
+    registry = plugin_mod.get_global_registry()
     for name in ("fake_echo",):
-        plugin_mod.TOOLS.pop(name, None)
-        plugin_mod.TOOL_META.pop(name, None)
-        plugin_mod.REQUIRED_ARGS.pop(name, None)
+        try:
+            registry.remove_tool(name)
+        except plugin_mod.ToolRegistryError:
+            pass
     sys.modules.pop("fake_tt_plugin", None)
     plugin_mod._LOADED.pop("fake_tt_plugin", None)
 
@@ -161,7 +165,6 @@ def test_plugin_rejects_tool_without_meta(fake_plugin):
     finally:
         sys.modules.pop("fake_tt_nometa", None)
         plugin_mod._LOADED.pop("fake_tt_nometa", None)
-        plugin_mod.TOOLS.pop("rogue", None)
 
 
 # ---------------------------------------------------------------------------
