@@ -5,10 +5,12 @@
  * `page` est l'identifiant actif. Les items sont de vrais liens <a href> :
  * navigation native (retour navigateur, ouverture dans un onglet) et
  * sémantique correcte pour les lecteurs d'écran.
+ * Les entrées sont regroupées par thème en accordéons (MENU_GROUPS) ; le
+ * groupe de la page active est maintenu ouvert automatiquement.
  * L'état de santé de l'API (contexte) est affiché en bas du menu.
  */
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useApp } from "../../context/useApp";
 import "./Sidebar.css";
 
@@ -31,14 +33,73 @@ function Icon({ children }: { children: ReactNode }) {
 
 interface MenuItem {
   id: string;
+  /** Identifiant du groupe d'accordéon contenant l'entrée (cf. MENU_GROUPS). */
+  group: string;
   label: string;
   hint: string;
   icon: ReactNode;
 }
 
+interface MenuGroup {
+  id: string;
+  label: string;
+  icon: ReactNode;
+}
+
+/** Groupes thématiques du menu, dans l'ordre d'affichage. */
+const MENU_GROUPS: MenuGroup[] = [
+  {
+    id: "analyse",
+    label: "Analyse & Modèles",
+    icon: (
+      <Icon>
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+      </Icon>
+    ),
+  },
+  {
+    id: "labo",
+    label: "Laboratoire",
+    icon: (
+      <Icon>
+        <path d="M10 2v7.5a2 2 0 0 1-.2.9L4.7 20.5a1 1 0 0 0 .9 1.5h12.8a1 1 0 0 0 .9-1.5L14.2 10.4a2 2 0 0 1-.2-.9V2" />
+        <path d="M8.5 2h7" />
+        <path d="M7 16h10" />
+      </Icon>
+    ),
+  },
+  {
+    id: "outils",
+    label: "Outils",
+    icon: (
+      <Icon>
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+      </Icon>
+    ),
+  },
+  {
+    id: "configuration",
+    label: "Configuration",
+    icon: (
+      <Icon>
+        <line x1="4" y1="21" x2="4" y2="14" />
+        <line x1="4" y1="10" x2="4" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12" y2="3" />
+        <line x1="20" y1="21" x2="20" y2="16" />
+        <line x1="20" y1="12" x2="20" y2="3" />
+        <line x1="1" y1="14" x2="7" y2="14" />
+        <line x1="9" y1="8" x2="15" y2="8" />
+        <line x1="17" y1="16" x2="23" y2="16" />
+      </Icon>
+    ),
+  },
+];
+
 const MENU_ITEMS: MenuItem[] = [
   {
     id: "dashboard",
+    group: "analyse",
     label: "Tableau de bord",
     hint: "Vue d'ensemble",
     icon: (
@@ -52,6 +113,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "analyse",
+    group: "analyse",
     label: "Analyse de sentiments",
     hint: "Prédiction FR/EN",
     icon: (
@@ -64,6 +126,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "intention",
+    group: "analyse",
     label: "Classification d'intention",
     hint: "Chat vs action",
     icon: (
@@ -78,6 +141,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "comparer",
+    group: "analyse",
     label: "Comparer",
     hint: "Deux modèles, un texte",
     icon: (
@@ -92,6 +156,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "derive",
+    group: "analyse",
     label: "Dérive",
     hint: "Drift entre deux batches",
     icon: (
@@ -102,6 +167,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "assistant",
+    group: "outils",
     label: "Assistant IA",
     hint: "Chat en streaming",
     icon: (
@@ -112,6 +178,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "entrainement",
+    group: "labo",
     label: "Entraînement",
     hint: "Fine-tuning & jobs",
     icon: (
@@ -124,6 +191,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "annotation",
+    group: "labo",
     label: "Annotation",
     hint: "Active learning & cycle",
     icon: (
@@ -135,6 +203,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "pipeline",
+    group: "labo",
     label: "Pipeline LLM",
     hint: "Label → filtrage → LoRA",
     icon: (
@@ -149,6 +218,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "evaluation",
+    group: "labo",
     label: "Évaluation",
     hint: "Confusion & comparaison",
     icon: (
@@ -162,6 +232,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "monitoring",
+    group: "outils",
     label: "Monitoring",
     hint: "Métriques Prometheus live",
     icon: (
@@ -177,6 +248,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "flowmap",
+    group: "outils",
     label: "Agent Flow Map",
     hint: "Pipeline IA animé",
     icon: (
@@ -190,6 +262,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     id: "parametres",
+    group: "configuration",
     label: "Paramètres",
     hint: "Connexion & préférences",
     icon: (
@@ -209,6 +282,29 @@ interface SidebarProps {
 
 export default function Sidebar({ page }: SidebarProps) {
   const { health, healthError } = useApp();
+
+  // Accordéons : chaque groupe se replie indépendamment. À l'initialisation,
+  // seul le groupe contenant la page active est déplié (menu compact).
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    const activeGroup = MENU_ITEMS.find((item) => item.id === page)?.group;
+    return Object.fromEntries(
+      MENU_GROUPS.map((group) => [group.id, group.id !== activeGroup]),
+    );
+  });
+
+  // Navigation hors clic (retour navigateur, lien direct) : rouvre le groupe
+  // de la page affichée pour que l'entrée active reste visible.
+  useEffect(() => {
+    const activeGroup = MENU_ITEMS.find((item) => item.id === page)?.group;
+    if (activeGroup) {
+      setCollapsed((prev) =>
+        prev[activeGroup] ? { ...prev, [activeGroup]: false } : prev,
+      );
+    }
+  }, [page]);
+
+  const toggleGroup = (groupId: string) =>
+    setCollapsed((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
 
   const healthDotClass = healthError
     ? "tt-dot tt-dot-red"
@@ -235,21 +331,59 @@ export default function Sidebar({ page }: SidebarProps) {
       </div>
 
       <nav className="sidebar__nav" aria-label="Navigation principale">
-        {MENU_ITEMS.map((item) => (
-          <a
-            key={item.id}
-            href={`#/${item.id}`}
-            className={`sidebar__item${page === item.id ? " sidebar__item--active" : ""}`}
-            aria-current={page === item.id ? "page" : undefined}
-            title={item.label}
-          >
-            {item.icon}
-            <span className="sidebar__item-text">
-              <span className="sidebar__item-label">{item.label}</span>
-              <span className="sidebar__item-hint">{item.hint}</span>
-            </span>
-          </a>
-        ))}
+        {MENU_GROUPS.map((group) => {
+          const items = MENU_ITEMS.filter((item) => item.group === group.id);
+          const isCollapsed = collapsed[group.id] ?? false;
+          return (
+            <div
+              key={group.id}
+              className={`sidebar__group${isCollapsed ? " sidebar__group--collapsed" : ""}`}
+            >
+              <button
+                type="button"
+                className="sidebar__group-header"
+                onClick={() => toggleGroup(group.id)}
+                aria-expanded={!isCollapsed}
+                aria-controls={`sidebar-group-${group.id}`}
+              >
+                {group.icon}
+                <span className="sidebar__group-label">{group.label}</span>
+                <svg
+                  className="sidebar__group-chevron"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              <div
+                className="sidebar__group-items"
+                id={`sidebar-group-${group.id}`}
+              >
+                {items.map((item) => (
+                  <a
+                    key={item.id}
+                    href={`#/${item.id}`}
+                    className={`sidebar__item${page === item.id ? " sidebar__item--active" : ""}`}
+                    aria-current={page === item.id ? "page" : undefined}
+                    title={item.label}
+                  >
+                    {item.icon}
+                    <span className="sidebar__item-text">
+                      <span className="sidebar__item-label">{item.label}</span>
+                      <span className="sidebar__item-hint">{item.hint}</span>
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </nav>
 
       <div className="sidebar__footer" aria-busy={!health && !healthError}>
