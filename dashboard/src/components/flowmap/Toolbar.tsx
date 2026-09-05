@@ -196,7 +196,6 @@ export function Toolbar({
             <option value="error">Erreur</option>
           </select>
         </label>
-        <span className="ftoolbar__zoomhint">Molette = zoom · Glisser = déplacer · Double-clic = cadrer</span>
       </div>
     </div>
   );

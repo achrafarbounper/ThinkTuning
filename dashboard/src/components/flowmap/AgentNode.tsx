@@ -43,12 +43,14 @@ export function AgentNode({
   const centerX = x - NODE_W / 2;
   const centerY = y - NODE_H / 2;
   const running = node.status === "running";
+  const isPlanner = node.id === "role:planner";
 
   return (
     <g
       transform={`translate(${centerX}, ${centerY})`}
       className={[
         "fnode",
+        isPlanner ? "fnode--planner" : "",
         running ? "fnode--running" : "",
         node.status === "error" ? "fnode--error" : "",
         node.status === "awaiting" ? "fnode--awaiting" : "",
@@ -72,33 +74,33 @@ export function AgentNode({
         }
       }}
     >
-      {/* Halo pulsant en exécution */}
+      {/* Halo pulsant en exécution (plus large pour l'orchestrateur) */}
       <rect
         className="fnode__halo"
-        x={-6}
-        y={-6}
-        width={NODE_W + 12}
-        height={NODE_H + 12}
-        rx={18}
+        x={-7}
+        y={-7}
+        width={NODE_W + 14}
+        height={NODE_H + 14}
+        rx={20}
         fill="none"
         stroke={borderColor}
-        strokeWidth={2}
+        strokeWidth={isPlanner ? 2.5 : 2}
       />
       {/* Corps du nœud */}
       <rect
         className="fnode__body"
         width={NODE_W}
         height={NODE_H}
-        rx={14}
-        fill="rgba(18, 22, 28, 0.92)"
+        rx={16}
+        fill={isPlanner ? "rgba(22, 30, 46, 0.96)" : "rgba(18, 22, 28, 0.92)"}
         stroke={borderColor}
-        strokeWidth={selected ? 2 : 1.25}
+        strokeWidth={selected ? 2.2 : isPlanner ? 1.8 : 1.3}
       />
 
       {/* Icône */}
-      <g transform={`translate(26, ${NODE_H / 2})`}>
-        <circle r={18} fill={borderColor} fillOpacity={0.18} stroke={borderColor} strokeWidth={1.25} />
-        <text textAnchor="middle" dominantBaseline="central" fontSize={17}>
+      <g transform={`translate(30, ${NODE_H / 2})`}>
+        <circle r={isPlanner ? 21 : 19} fill={borderColor} fillOpacity={0.18} stroke={borderColor} strokeWidth={1.25} />
+        <text textAnchor="middle" dominantBaseline="central" fontSize={isPlanner ? 20 : 18}>
           {node.icon}
         </text>
       </g>
@@ -106,20 +108,20 @@ export function AgentNode({
       {/* Nom du rôle */}
       <text
         className="fnode__name"
-        x={54}
-        y={NODE_H / 2 - 4}
+        x={62}
+        y={NODE_H / 2 - 6}
         fill="#e7eaee"
-        fontSize={13}
-        fontWeight={600}
+        fontSize={isPlanner ? 15 : 14}
+        fontWeight={isPlanner ? 700 : 600}
         fontFamily="Space Grotesk, sans-serif"
       >
-        {truncate(node.role, 22)}
+        {truncate(node.role, 24)}
       </text>
 
       {/* Compteur d'outils */}
-      <g transform={`translate(54, ${NODE_H / 2 + 13})`} className="fnode__meta">
-        <circle r={3} fill={STATUS_DOT[node.status]} />
-        <text x={8} dy={3.5} fontSize={10.5} fill="#8b94a3" fontFamily="IBM Plex Mono, monospace">
+      <g transform={`translate(62, ${NODE_H / 2 + 16})`} className="fnode__meta">
+        <circle r={3.5} fill={STATUS_DOT[node.status]} />
+        <text x={9} dy={4} fontSize={11} fill="#8b94a3" fontFamily="IBM Plex Mono, monospace">
           {node.toolCount} outil{node.toolCount > 1 ? "s" : ""} · {node.calls} appels
         </text>
       </g>
@@ -128,10 +130,10 @@ export function AgentNode({
       {heatLabel && heatColor && (
         <text
           className="fnode__heat"
-          x={NODE_W - 10}
-          y={14}
+          x={NODE_W - 12}
+          y={16}
           textAnchor="end"
-          fontSize={10}
+          fontSize={11}
           fill="#e7eaee"
           fontFamily="IBM Plex Mono, monospace"
         >

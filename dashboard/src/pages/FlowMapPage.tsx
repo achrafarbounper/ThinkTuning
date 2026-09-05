@@ -289,13 +289,17 @@ export default function FlowMapPage() {
   return (
     <div className="flowmap">
       <header className="page-head page-head--flow">
-        <h1>Agent Flow Map</h1>
-        <p>
-          Graphe orienté et animé du pipeline agentique : nœuds = agents (ou noyau
-          v2), arcs = outils, impulsions = messages. Live (multi-agents ou noyau
-          v2), Replay des sessions persistées et Heatmap.
-        </p>
-        <StatusBar graph={displayGraph} running={running} mode={mode} source={source} />
+        <div className="pf-head">
+          <div className="pf-head__titles">
+            <h1>Agent Flow Map</h1>
+            <p>
+              Graphe orienté et animé du pipeline agentique : nœuds = agents (ou noyau v2),
+              arcs = outils, impulsions = messages. Live (multi-agents ou noyau v2), Replay
+              des sessions persistées et Heatmap.
+            </p>
+          </div>
+          <StatusBar graph={displayGraph} running={running} mode={mode} source={source} />
+        </div>
 
         {flowList.length > 0 && (
           <div className="fsessions">

@@ -9,10 +9,15 @@
 
 import type { AgentNodeData } from "./types";
 
-export const NODE_W = 200;
-export const NODE_H = 72;
-const ROW_GAP = 150;
-const NODE_GAP = 64;
+/**
+ * Dimensions de la toile (UX : lisibilité d'abord) — nœuds généreux pour un
+ * balayage rapide du graphe, espacements aérés pour laisser respirer les arcs
+ * et leurs étiquettes.
+ */
+export const NODE_W = 220;
+export const NODE_H = 80;
+const ROW_GAP = 180;
+const NODE_GAP = 76;
 
 export interface Position {
   x: number;
@@ -72,29 +77,79 @@ function bend(sy: number, ty: number): number {
   return sy < ty ? d : -d;
 }
 
+interface Pt {
+  x: number;
+  y: number;
+}
+
+/**
+ * Points de contrôle de la courbe quadratique d'un arc. `incoming` = vrai quand
+ * l'arc part d'un agent vers le planificateur (retour), sinon planner → agent.
+ * Un seul calcul partagé par le tracé (chemin) et le marqueur de direction,
+ * garantit que la flèche reste toujours posée « sur » la courbe.
+ */
+function controlPoints(
+  source: Position,
+  target: Position,
+  incoming: boolean,
+): [Pt, Pt, Pt] {
+  const [sx, sy] = incoming ? topCenter(source) : bottomCenter(source);
+  const [tx, ty] = incoming ? bottomCenter(target) : topCenter(target);
+  const c = incoming ? sy - bend(sy, ty) : sy + bend(sy, ty);
+  return [
+    { x: sx, y: sy },
+    { x: sx, y: c },
+    { x: tx, y: ty },
+  ];
+}
+
 /**
  * Chemin (attribut `d`) d'un arc entre deux positions. `incoming` = vrai quand
  * l'arc part d'un agent vers le planificateur (retour), sinon planner → agent.
  */
-export function edgePath(
-  source: Position,
-  target: Position,
-): string {
-  const [sx, sy] = bottomCenter(source);
-  const [tx, ty] = topCenter(target);
-  const c = sy + bend(sy, ty);
-  return `M ${sx} ${sy} C ${sx} ${c}, ${tx} ${c}, ${tx} ${ty}`;
+export function edgePath(source: Position, target: Position): string {
+  return curvePath(controlPoints(source, target, false));
 }
 
 /** Version « retour » : part de l'agent (haut) vers le planificateur (bas). */
-export function returnPath(
+export function returnPath(source: Position, target: Position): string {
+  return curvePath(controlPoints(source, target, true));
+}
+
+function curvePath([p0, p1, p2]: [Pt, Pt, Pt]): string {
+  return `M ${p0.x} ${p0.y} C ${p1.x} ${p1.y}, ${p2.x} ${p2.y}, ${p2.x} ${p2.y}`;
+}
+
+export interface ArrowGeometry {
+  x: number;
+  y: number;
+  angle: number;
+}
+
+/**
+ * Position + orientation d'une flèche de direction placée sur la courbe :
+ * point à l'abscisse `t` et tangente (dérivée de la quadratique). Rend le sens
+ * du flux (planner → worker, retour worker → planner) lisible d'un coup d'œil.
+ */
+export function arrowGeometry(
   source: Position,
   target: Position,
-): string {
-  const [sx, sy] = topCenter(source);
-  const [tx, ty] = bottomCenter(target);
-  const c = sy - bend(sy, ty);
-  return `M ${sx} ${sy} C ${sx} ${c}, ${tx} ${c}, ${tx} ${ty}`;
+  incoming: boolean,
+  t = 0.58,
+): ArrowGeometry {
+  const [p0, p1, p2] = controlPoints(source, target, incoming);
+  const mt = 1 - t;
+  return {
+    x: mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x,
+    y: mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y,
+    angle:
+      (Math.atan2(
+        2 * mt * (p1.y - p0.y) + 2 * t * (p2.y - p1.y),
+        2 * mt * (p1.x - p0.x) + 2 * t * (p2.x - p1.x),
+      ) *
+        180) /
+      Math.PI,
+  };
 }
 
 /** Bornes (min/max x,y) de tous les centres, pour cadrer la vue (fit-view). */
@@ -108,7 +163,7 @@ export function computeBounds(positions: Record<string, Position>): {
   if (values.length === 0) {
     return { minX: 0, minY: 0, maxX: NODE_W, maxY: NODE_H };
   }
-  const pad = 120;
+  const pad = 150;
   return {
     minX: Math.min(...values.map((p) => p.x - NODE_W / 2)) - pad,
     minY: Math.min(...values.map((p) => p.y - NODE_H)) - pad,

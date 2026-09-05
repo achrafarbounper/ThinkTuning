@@ -6,6 +6,7 @@
  * durcit l'arc ; le clic épingle sa fiche (input/output/durée).
  */
 
+import type { ArrowGeometry } from "./geometry";
 import type { FlowEdgeData } from "./types";
 
 interface FlowEdgeProps {
@@ -13,6 +14,8 @@ interface FlowEdgeProps {
   d: string;
   /** Position centrale approximative pour l'étiquette. */
   labelPos: { x: number; y: number };
+  /** Flèche de direction posée sur la courbe (sens du flux). */
+  arrow?: ArrowGeometry;
   color: string;
   strokeWidth: number;
   dimmed: boolean;
@@ -27,6 +30,7 @@ export function FlowEdge({
   edge,
   d,
   labelPos,
+  arrow,
   color,
   strokeWidth,
   dimmed,
@@ -69,6 +73,18 @@ export function FlowEdge({
         onMouseLeave={() => onHover(null)}
       />
 
+      {/* Flèche de direction : rend le sens du flux (aller/retour) explicite. */}
+      {arrow && (
+        <path
+          d="M 0 0 L -10.5 -5.5 L -3.25 0 L -10.5 5.5 Z"
+          transform={`translate(${arrow.x}, ${arrow.y}) rotate(${arrow.angle})`}
+          fill={color}
+          stroke="none"
+          className="fedge__arrow"
+          pointerEvents="none"
+        />
+      )}
+
       {/* Lueur répétée pendant l'exécution (outil en cours) */}
       {running && (
         <path
@@ -93,20 +109,20 @@ export function FlowEdge({
           }}
         >
           <rect
-            x={-Math.max(10, (edge.label.length * 6) / 2 + 8)}
-            y={-8}
-            width={Math.max(20, edge.label.length * 6 + 16)}
-            height={16}
-            rx={8}
-            fill="rgba(11, 14, 17, 0.92)"
+            x={-Math.max(12, (edge.label.length * 6.6) / 2 + 9)}
+            y={-10}
+            width={Math.max(24, edge.label.length * 6.6 + 18)}
+            height={20}
+            rx={10}
+            fill="rgba(11, 14, 17, 0.94)"
             stroke={color}
-            strokeOpacity={0.5}
-            strokeWidth={0.75}
+            strokeOpacity={0.55}
+            strokeWidth={0.9}
           />
           <text
             textAnchor="middle"
             dominantBaseline="central"
-            fontSize={9.5}
+            fontSize={11}
             fill={color}
             fontFamily="IBM Plex Mono, monospace"
           >
