@@ -1,16 +1,18 @@
-"""Auto-labellisation d'un corpus brut en dataset chat/action (Phase 4).
+"""Auto-labellisation et fusion de datasets chat/action (Phase 4).
 
-Lit un fichier texte (utilisateurs, tickets, conversation… une phrase par
-ligne) ou un CSV armé de la colonne texte fourni, et produit un dataset JSONL
-``{"text": …, "label": "chat"|"action"}`` en appliquant les règles métier du
-fallback (marqueurs d'action). Option ``--threshold`` : lignes sans marqueur
-clair → ``chat``.
+Deux modes :
+  - auto-labellisation d'un corpus brut (``--input``, .txt/.csv) via les
+    règles métier du fallback (marqueurs d'action) ;
+  - fusion de datasets déjà étiquetés (``--merge``, fichiers .jsonl) avec
+    déduplication par texte normalisé (casse/espaces).
 
 Usage :
-    python scripts/build_intent_dataset.py --input conversations.txt \\
+    python scripts/build_intent_dataset.py --input conversations.txt ^
         --output data/intent_dataset.jsonl [--min-action 1]
+    python scripts/build_intent_dataset.py --merge a.jsonl --merge b.jsonl ^
+        --output data/intent_dataset.jsonl
 
-Ce dataset alimente ensuite ``scripts/train_intent.py``.
+Le dataset produit alimente ensuite ``scripts/train_intent.py``.
 """
 
 from __future__ import annotations
@@ -59,9 +61,44 @@ def build_dataset(texts: list[str], min_action: int = 1) -> list[dict[str, str]]
     return records
 
 
+def _load_labeled(path: Path) -> list[dict[str, str]]:
+    """Charge un dataset JSONL déjà étiqueté (``{"text", "label"}``)."""
+    records: list[dict[str, str]] = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            records.append({"text": str(row["text"]), "label": str(row["label"])})
+    return records
+
+
+def _normalize(text: str) -> str:
+    """Clé de déduplication insensible à la casse et aux espaces superflus."""
+    return " ".join(text.lower().split())
+
+
+def merge_labeled(*datasets: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Fusionne des datasets étiquetés en préservant l'ordre (première
+    occurrence gagne sur texte normalisé identique)."""
+    merged: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for records in datasets:
+        for record in records:
+            key = _normalize(record["text"])
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(record)
+    return merged
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Auto-labellisation chat/action")
-    parser.add_argument("--input", required=True, help="Fichier .txt ou .csv source")
+    parser = argparse.ArgumentParser(description="Auto-labellisation + fusion chat/action")
+    parser.add_argument("--input", help="Fichier .txt ou .csv source (auto-labellisation)")
+    parser.add_argument("--merge", action="append", default=[], metavar="JSONL",
+                        help="Dataset JSONL déjà étiqueté à fusionner (répétable)")
     parser.add_argument("--output", default="data/intent_dataset.jsonl")
     parser.add_argument(
         "--min-action",
@@ -71,23 +108,35 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    texts = _read_texts(Path(args.input))
-    if not texts:
-        raise SystemExit("Aucun texte lisible dans le fichier source.")
+    sources: list[list[dict[str, str]]] = []
+    if args.merge:
+        for path in args.merge:
+            records = _load_labeled(Path(path))
+            if not records:
+                raise SystemExit(f"Aucune ligne valide dans {path}.")
+            sources.append(records)
+    if args.input:
+        texts = _read_texts(Path(args.input))
+        if not texts:
+            raise SystemExit("Aucun texte lisible dans le fichier source.")
+        sources.append(build_dataset(texts, min_action=args.min_action))
+    if not sources:
+        raise SystemExit("Rien à faire : fournissez --input ou --merge.")
 
-    records = build_dataset(texts, min_action=args.min_action)
+    records = merge_labeled(*sources)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:
         for record in records:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    counts = {"chat": 0, "action": 0}
+    counts: dict[str, int] = {"chat": 0, "action": 0}
     for record in records:
-        counts[record["label"]] += 1
+        label = record["label"]
+        counts[label] = counts.get(label, 0) + 1
     print(
         f"{out} écrit : {len(records)} lignes "
-        f"(chat={counts['chat']}, action={counts['action']})"
+        f"(chat={counts.get('chat', 0)}, action={counts.get('action', 0)})"
     )
 
 

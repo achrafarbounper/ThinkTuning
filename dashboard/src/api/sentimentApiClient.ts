@@ -54,6 +54,16 @@ export interface Explanation {
   [key: string]: unknown;
 }
 
+/** Résultat de `/classifiers/{name}/predict` (label + confiance). */
+export interface ClassifierPrediction {
+  text: string;
+  label: string;
+  confidence: number;
+  /** Distribution complète { label: probabilité } (présente selon le moteur). */
+  probabilities?: Record<string, number>;
+  [key: string]: unknown;
+}
+
 /**
  * Client API complet : étend le transport (clientCore) avec tous les endpoints
  * métier du backend FastAPI. Instancié une fois dans le contexte (AppProvider).
@@ -73,6 +83,41 @@ export class SentimentApiClient extends SentimentApiClientCore {
   /** Endpoint proxy JSON de secours (voir api/routes/metrics.py). */
   async getMetricsJson(): Promise<unknown> {
     return this._request<unknown>("/metrics/json");
+  }
+
+  // -- /classifiers (système de classification, Phase 5) -------------------
+
+  /** Liste des classifieurs enregistrés + synthèse de santé (monitoring). */
+  listClassifiers() {
+    return this._request<{
+      classifiers?: Array<Record<string, unknown>>;
+      summary?: { total?: number; healthy?: number; status?: string };
+    }>("/classifiers");
+  }
+
+  /** Instantané d'un classifieur (info, métriques, health, warmup). */
+  getClassifier(name: string) {
+    return this._request<Record<string, unknown>>(
+      `/classifiers/${encodeURIComponent(name)}`
+    );
+  }
+
+  /** Prédiction via un classifieur (ex. ``intent``), ordre préservé. */
+  predictClassifier(
+    name: string,
+    texts: string[]
+  ): Promise<{ results?: ClassifierPrediction[] } | null> {
+    return this._request(`/classifiers/${encodeURIComponent(name)}/predict`, {
+      method: "POST",
+      body: { texts },
+    });
+  }
+
+  /** Recharge le modèle actif d'un classifieur depuis le disque. */
+  reloadClassifier(name: string) {
+    return this._request(`/classifiers/${encodeURIComponent(name)}/reload`, {
+      method: "POST",
+    });
   }
 
   // -- /models --------------------------------------------------------------

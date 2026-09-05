@@ -8,11 +8,12 @@
  * - historique local des prédictions.
  */
 
-import React, { useState, type FormEvent } from "react";
+import React, { useCallback, useState, type FormEvent } from "react";
 import { useApp } from "../context/useApp";
 import type { PredictionResult } from "../api/sentimentApiClient";
 import ModelVersionSelector from "../components/ModelVersionSelector";
 import { useExplain } from "../hooks/useExplain";
+import { usePolling } from "../hooks/usePolling";
 import { sentimentLabel } from "../lib/sentiment";
 
 export default function SentimentPage() {
@@ -48,6 +49,41 @@ export default function SentimentPage() {
   const [batchResults, setBatchResults] = useState<PredictionResult[] | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
+
+  // Monitoring du classifieur `sentiment` (Phase 5) : engine, métriques,
+  // santé — rafraîchi par polling 15 s, silencieux en cas d'échec.
+  const [classifierInfo, setClassifierInfo] = useState<Record<string, unknown> | null>(null);
+  const [classifierError, setClassifierError] = useState<string | null>(null);
+
+  const refreshClassifier = useCallback(async () => {
+    try {
+      const listed = await client.listClassifiers();
+      const snap = listed?.classifiers?.find((c) => c?.name === "sentiment");
+      setClassifierInfo(snap ?? null);
+      setClassifierError(null);
+    } catch (err) {
+      setClassifierError(err instanceof Error ? err.message : String(err));
+    }
+  }, [client]);
+
+  usePolling({
+    intervalMs: 15_000,
+    immediate: true,
+    initialDelayMs: 3_000,
+    tick: refreshClassifier,
+  });
+
+  const classifierOf = (classifierInfo ?? {}) as {
+    info?: { engine?: string; labels?: string[] };
+    metrics?: { predictions?: number; cached_hits?: number; cached_misses?: number; errors?: number };
+    health?: { ok?: boolean };
+  };
+  const classifierHealth =
+    classifierOf.health?.ok === true
+      ? "ok"
+      : classifierOf.health?.ok === false
+      ? "hors-service"
+      : "—";
 
   // -- Prédiction unitaire ----------------------------------------------------
   const handlePredict = async (e: FormEvent) => {
@@ -172,6 +208,29 @@ export default function SentimentPage() {
             onModelChange={setActiveModel}
             loading={!models || models.length === 0}
           />
+
+          <dl className="tt-metrics-table" style={{ marginTop: 12 }}>
+            <div>
+              <dt>Classifieur</dt>
+              <dd className="tt-mono">
+                {classifierOf.info?.engine ?? "—"}
+                {classifierError ? " (indispo)" : ""}
+              </dd>
+            </div>
+            <div>
+              <dt>Santé</dt>
+              <dd className="tt-mono">{classifierHealth}</dd>
+            </div>
+            <div>
+              <dt>Prédictions</dt>
+              <dd className="tt-mono">{classifierOf.metrics?.predictions ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Erreurs</dt>
+              <dd className="tt-mono">{classifierOf.metrics?.errors ?? 0}</dd>
+            </div>
+          </dl>
+          <hr className="tt-divider" />
 
           <form onSubmit={handlePredict} className="tt-form">
             <textarea

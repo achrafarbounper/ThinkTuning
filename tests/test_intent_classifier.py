@@ -59,6 +59,24 @@ class TestIntentClassifierRules:
         results = classifier.predict(["Liste les fichiers du dossier"])
         assert results[0].label == "action"
 
+    def test_regles_exposent_distribution_complete(self) -> None:
+        classifier = IntentClassifier(engine="rules")
+        result = classifier.predict(["Peux-tu lancer l'entraînement du modèle ?"])[0]
+        assert result.probabilities is not None
+        assert set(result.probabilities) == {"chat", "action"}
+        # Invariant : probabilities[label] == confidence.
+        assert result.probabilities[result.label] == pytest.approx(result.confidence)
+        assert sum(result.probabilities.values()) == pytest.approx(1.0, abs=1e-3)
+
+    def test_seuil_bascule_recalcule_distribution(self) -> None:
+        classifier = IntentClassifier(engine="rules", threshold=0.99)
+        result = classifier.predict(["Supprime le fichier"])[0]
+        assert result.label == "chat"  # action sous le seuil -> chat (sécurité)
+        assert result.probabilities is not None
+        # La distribution reflète la DÉCISION rendue après bascule.
+        assert result.probabilities["chat"] == pytest.approx(result.confidence)
+        assert result.probabilities["action"] == pytest.approx(1.0 - result.confidence)
+
     def test_predict_empty(self) -> None:
         assert IntentClassifier(engine="rules").predict([]) == []
 

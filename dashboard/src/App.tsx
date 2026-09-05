@@ -19,6 +19,7 @@ const Sidebar = lazy(() => import("./components/layout/Sidebar"));
 // un bundle distinct, tiré au premier affichage. Le bundle initial reste minimal.
 const HomePage = lazy(() => import("./pages/HomePage"));
 const SentimentPage = lazy(() => import("./pages/SentimentPage"));
+const IntentPage = lazy(() => import("./pages/IntentPage"));
 const ComparePage = lazy(() => import("./pages/ComparePage"));
 const AssistantPage = lazy(() => import("./pages/AssistantPage"));
 const TrainingPage = lazy(() => import("./pages/TrainingPage"));
@@ -34,6 +35,7 @@ const FlowMapPage = lazy(() => import("./pages/FlowMapPage"));
 const ROUTES: Record<string, ComponentType<{ onNavigate?: (id: string) => void }>> = {
   dashboard: HomePage,
   analyse: SentimentPage,
+  intention: IntentPage,
   comparer: ComparePage,
   derive: DriftPage,
   assistant: AssistantPage,

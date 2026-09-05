@@ -1,0 +1,200 @@
+{"text": "Salut, tu vas bien ?", "label": "chat"}
+{"text": "Oui, merci, et toi ?", "label": "chat"}
+{"text": "Enchant? de faire ta connaissance.", "label": "chat"}
+{"text": "? plus tard, bonne journ?e !", "label": "chat"}
+{"text": "Bonsoir, comment s'est pass? ton week-end ?", "label": "chat"}
+{"text": "Merci, c'est vraiment gentil de ta part.", "label": "chat"}
+{"text": "Super, bien re?u !", "label": "chat"}
+{"text": "Excellent travail comme toujours.", "label": "chat"}
+{"text": "Pas grave, ne t'en fais pas.", "label": "chat"}
+{"text": "D'accord, compris.", "label": "chat"}
+{"text": "Ah je vois, c'est plus clair maintenant.", "label": "chat"}
+{"text": "Tu me conseilles de commencer par quoi ?", "label": "chat"}
+{"text": "Quelle est la diff?rence entre ces deux options ?", "label": "chat"}
+{"text": "Je me demande si c'est une bonne id?e.", "label": "chat"}
+{"text": "Et si on essayait autrement ?", "label": "chat"}
+{"text": "Dis-m'en un peu plus sur toi.", "label": "chat"}
+{"text": "C'est quoi ton mod?le pr?f?r? ?", "label": "chat"}
+{"text": "Tu penses que le temps va ?tre bon demain ?", "label": "chat"}
+{"text": "Je ne suis pas s?r d'avoir compris.", "label": "chat"}
+{"text": "Peux-tu m'expliquer comment fonctionne le cache ?", "label": "chat"}
+{"text": "Explique-moi simplement ce que fait ce script.", "label": "chat"}
+{"text": "Quand est-ce que le prochain run est pr?vu ?", "label": "chat"}
+{"text": "Est-ce que l'entra?nement va prendre longtemps ?", "label": "chat"}
+{"text": "C'est normal que la perte augmente au d?but ?", "label": "chat"}
+{"text": "Je pensais que le mod?le ?tait d?j? entra?n?.", "label": "chat"}
+{"text": "Ha ha, bien vu !", "label": "chat"}
+{"text": "Dommage, un peu d??u du r?sultat.", "label": "chat"}
+{"text": "C'est une blague ?", "label": "chat"}
+{"text": "Ravie de te revoir !", "label": "chat"}
+{"text": "On se reparle demain ?", "label": "chat"}
+{"text": "Merci pour la r?ponse, c'est parfait.", "label": "chat"}
+{"text": "Bonne id?e, je n'y avais pas pens?.", "label": "chat"}
+{"text": "Je suis curieux de savoir comment tu es entra?n?.", "label": "chat"}
+{"text": "T'as vu les derni?res actualit?s IA ?", "label": "chat"}
+{"text": "I was wondering if you like working here.", "label": "chat"}
+{"text": "That sounds interesting, tell me more.", "label": "chat"}
+{"text": "Thanks a lot for your help!", "label": "chat"}
+{"text": "Talk to you later!", "label": "chat"}
+{"text": "How is your day going?", "label": "chat"}
+{"text": "Cool, that makes sense now.", "label": "chat"}
+{"text": "Lance l'entra?nement du mod?le s'il te pla?t.", "label": "action"}
+{"text": "Peux-tu entra?ner le mod?le sur le nouveau dataset ?", "label": "action"}
+{"text": "Fais tourner une exp?rience avec un taux d'apprentissage plus bas.", "label": "action"}
+{"text": "D?marre le pipeline de fine-tuning pour le rapport.", "label": "action"}
+{"text": "Lance le job d'entra?nement en arri?re-plan.", "label": "action"}
+{"text": "Ex?cute le script d'entra?nement maintenant.", "label": "action"}
+{"text": "Peux-tu relancer l'entra?nement interrompu ?", "label": "action"}
+{"text": "Entra?ne le mini-BERT avec 3 ?poques.", "label": "action"}
+{"text": "Cherche le rapport du dernier trimestre.", "label": "action"}
+{"text": "Recherche un article sur la quantification INT8.", "label": "action"}
+{"text": "Trouve le fichier de configuration du classifieur.", "label": "action"}
+{"text": "Cherche dans les logs l'erreur d'hier soir.", "label": "action"}
+{"text": "Retrouve le commit qui a cass? le build.", "label": "action"}
+{"text": "Peux-tu rechercher des exemples de prompts pour le syst?me d'intention ?", "label": "action"}
+{"text": "Calcule la pr?cision moyenne du mod?le sur le jeu de test.", "label": "action"}
+{"text": "Compte le nombre de messages dans ce dataset.", "label": "action"}
+{"text": "Mesure la latence moyenne de l'inf?rence ONNX.", "label": "action"}
+{"text": "Additionne les m?triques des trois derniers runs.", "label": "action"}
+{"text": "Compile un tableau r?capitulatif des r?sultats.", "label": "action"}
+{"text": "G?n?re un r?sum? de ce long document.", "label": "action"}
+{"text": "Cr?e un rapport de classification d?taill?.", "label": "action"}
+{"text": "R?dige un mail de synth?se pour l'?quipe.", "label": "action"}
+{"text": "Produis une analyse des erreurs de classification.", "label": "action"}
+{"text": "G?n?re du code pour un classifieur binaire.", "label": "action"}
+{"text": "Traduis ce paragraphe en anglais.", "label": "action"}
+{"text": "Liste tous les mod?les disponibles dans experiments.", "label": "action"}
+{"text": "Affiche les derni?res m?triques du classifieur.", "label": "action"}
+{"text": "Montre-moi les courbes de perte des 3 derni?res ?poques.", "label": "action"}
+{"text": "Ouvre le tableau de bord de monitoring.", "label": "action"}
+{"text": "Please train the model now.", "label": "action"}
+{"text": "Search for the latest report.", "label": "action"}
+{"text": "Clear the cache please.", "label": "action"}
+{"text": "Run the training script.", "label": "action"}
+{"text": "Generate a summary of this document.", "label": "action"}
+{"text": "Je suis l?, pr?t ? t'?couter.", "label": "chat"}
+{"text": "Qu'est-ce que tu sais faire au juste ?", "label": "chat"}
+{"text": "Comment ?a marche le classement des intentions ?", "label": "chat"}
+{"text": "C'est bien pens? ton approche.", "label": "chat"}
+{"text": "Peux-tu me donner ton avis sur mon id?e ?", "label": "chat"}
+{"text": "Je pr?f?re discuter avant de lancer quoi que ce soit.", "label": "chat"}
+{"text": "On pourrait en parler de vive voix.", "label": "chat"}
+{"text": "C'est dr?le, moi aussi je pensais ?a.", "label": "chat"}
+{"text": "Tu as l'air de bien conna?tre le sujet.", "label": "chat"}
+{"text": "Je te remercie pour ton temps.", "label": "chat"}
+{"text": "Merci infiniment pour tes explications.", "label": "chat"}
+{"text": "Bonne nuit, ? demain.", "label": "chat"}
+{"text": "Okay, tr?s bien.", "label": "chat"}
+{"text": "Tant mieux alors.", "label": "chat"}
+{"text": "?a me convient.", "label": "chat"}
+{"text": "Je suis d'accord avec toi sur ce point.", "label": "chat"}
+{"text": "Pas de souci pour ?a.", "label": "chat"}
+{"text": "C'est une tr?s bonne question.", "label": "chat"}
+{"text": "J'y penserai, merci du conseil.", "label": "chat"}
+{"text": "Int?ressant, je ne savais pas.", "label": "chat"}
+{"text": "Explique-moi la diff?rence entre chat et action.", "label": "chat"}
+{"text": "Comment tu calcules la confiance d'une pr?diction ?", "label": "chat"}
+{"text": "Est-ce que tu cherches automatiquement des infos quand on te le demande ?", "label": "chat"}
+{"text": "? quoi sert exactement le seuil de s?curit? ?", "label": "chat"}
+{"text": "Je trouve que ton interface est bien con?ue.", "label": "chat"}
+{"text": "Franchement, je suis bluff? par tes r?ponses.", "label": "chat"}
+{"text": "C'est quoi le meilleur mod?le pour du fran?ais ?", "label": "chat"}
+{"text": "Tu peux me montrer un exemple concret ?", "label": "chat"}
+{"text": "Je vais r?fl?chir ? ta proposition.", "label": "chat"}
+{"text": "Ne te presse pas, prends ton temps.", "label": "chat"}
+{"text": "?a va, je g?re de mon c?t?.", "label": "chat"}
+{"text": "On en reparle plus tard, ok ?", "label": "chat"}
+{"text": "Merci encore, c'est tr?s appr?ci?.", "label": "chat"}
+{"text": "Sympa de ta part, vraiment.", "label": "chat"}
+{"text": "Tu es s?r de toi l?-dessus ?", "label": "chat"}
+{"text": "Hmm, je dois v?rifier ?a de mon c?t?.", "label": "chat"}
+{"text": "Reviens vers moi quand tu as un moment.", "label": "chat"}
+{"text": "Wait, I didn't quite catch that.", "label": "chat"}
+{"text": "No worries at all.", "label": "chat"}
+{"text": "Good to know, thanks.", "label": "chat"}
+{"text": "Cr?e un nouveau dossier pour les exp?riences.", "label": "action"}
+{"text": "Supprime les fichiers temporaires du cache.", "label": "action"}
+{"text": "Vide le cache de pr?dictions.", "label": "action"}
+{"text": "Nettoie les anciennes versions de mod?les.", "label": "action"}
+{"text": "Installe la nouvelle version de la biblioth?que.", "label": "action"}
+{"text": "Mets ? jour les d?pendances du projet.", "label": "action"}
+{"text": "Clone le d?p?t dans experiments.", "label": "action"}
+{"text": "Fais un commit avec le message pr?vu.", "label": "action"}
+{"text": "Push les changements sur la branche.", "label": "action"}
+{"text": "Lance les tests unitaires du classifieur.", "label": "action"}
+{"text": "Ex?cute l'export ONNX du mod?le entra?n?.", "label": "action"}
+{"text": "Envoie le rapport au responsable.", "label": "action"}
+{"text": "Appelle l'API pour r?cup?rer les m?triques.", "label": "action"}
+{"text": "Notifie l'?quipe une fois l'entra?nement termin?.", "label": "action"}
+{"text": "Publie le mod?le entra?n? sur le hub.", "label": "action"}
+{"text": "Peux-tu changer la version active du mod?le ?", "label": "action"}
+{"text": "D?finis la version active dans active.json.", "label": "action"}
+{"text": "Peux-tu chercher des infos sur les transformers ?", "label": "action"}
+{"text": "T?l?charge le dataset complet sur Hugging Face.", "label": "action"}
+{"text": "Enregistre cette configuration dans le fichier de suivi.", "label": "action"}
+{"text": "Vide les logs obsol?tes.", "label": "action"}
+{"text": "Cr?e une copie de secours du mod?le.", "label": "action"}
+{"text": "Planifie un run d'entra?nement pour cette nuit.", "label": "action"}
+{"text": "Fixe le seuil de s?curit? ? 0.6.", "label": "action"}
+{"text": "Envoie-moi le lien du rapport.", "label": "action"}
+{"text": "Identifie les doublons dans le dataset.", "label": "action"}
+{"text": "D?duplique les messages du corpus.", "label": "action"}
+{"text": "Normalise les textes avant l'entra?nement.", "label": "action"}
+{"text": "Compare les deux versions du mod?le.", "label": "action"}
+{"text": "?value le mod?le sur le jeu de validation.", "label": "action"}
+{"text": "Exporte les logits pour analyse.", "label": "action"}
+{"text": "Lance la v?rification de coh?rence des labels.", "label": "action"}
+{"text": "Archive l'ancienne version du mod?le.", "label": "action"}
+{"text": "Recherche les tickets ouverts li?s ? l'intention.", "label": "action"}
+{"text": "Affiche les hyperparam?tres actuels.", "label": "action"}
+{"text": "Configure un rappel quand le training s'arr?te.", "label": "action"}
+{"text": "G?n?re un graphique d'?volution de la pr?cision.", "label": "action"}
+{"text": "Envoie une notification ? la fin du run.", "label": "action"}
+{"text": "Parle-moi de tes capacit?s.", "label": "chat"}
+{"text": "Raconte-moi comment tu as ?t? construit.", "label": "chat"}
+{"text": "Quels outils peux-tu lancer ?", "label": "chat"}
+{"text": "Est-ce que tu peux lancer des scripts ?", "label": "chat"}
+{"text": "Peux-tu utiliser des outils pour r?pondre ?", "label": "chat"}
+{"text": "Comment d?cides-tu de lancer une action ?", "label": "chat"}
+{"text": "Explique-moi comment tu cr?es un plan.", "label": "chat"}
+{"text": "Tu sais faire beaucoup de choses, non ?", "label": "chat"}
+{"text": "J'adore discuter avec toi.", "label": "chat"}
+{"text": "Merci de m'avoir ?cout?.", "label": "chat"}
+{"text": "Passe une bonne fin de journ?e.", "label": "chat"}
+{"text": "C'?tait tout ce que j'avais ? dire.", "label": "chat"}
+{"text": "Ah bon ? Je ne m'en doutais pas.", "label": "chat"}
+{"text": "S?rieusement ?", "label": "chat"}
+{"text": "Bien s?r, pas de souci.", "label": "chat"}
+{"text": "Compris, merci.", "label": "chat"}
+{"text": "Do you like your job?", "label": "chat"}
+{"text": "Got it, thanks.", "label": "chat"}
+{"text": "Really? That's amazing.", "label": "chat"}
+{"text": "Vide le cache maintenant.", "label": "action"}
+{"text": "Peux-tu vider le cache des pr?dictions ?", "label": "action"}
+{"text": "Supprime les fichiers de cache de la veille.", "label": "action"}
+{"text": "Vide le dossier temporaire.", "label": "action"}
+{"text": "Transforme ce notebook en script.", "label": "action"}
+{"text": "Convertis le mod?le au format ONNX.", "label": "action"}
+{"text": "Exporte les pr?dictions dans un CSV.", "label": "action"}
+{"text": "Charge le dataset depuis le disque.", "label": "action"}
+{"text": "Sauvegarde la configuration actuelle.", "label": "action"}
+{"text": "R?initialise le cache du classifieur.", "label": "action"}
+{"text": "Red?marre le service d'inf?rence.", "label": "action"}
+{"text": "Arr?te le run en cours.", "label": "action"}
+{"text": "Reprends l'entra?nement depuis le dernier checkpoint.", "label": "action"}
+{"text": "Annule le job qui tourne.", "label": "action"}
+{"text": "Interromps la g?n?ration en cours.", "label": "action"}
+{"text": "Met ? jour le pointeur actif.", "label": "action"}
+{"text": "Choisis la derni?re version valide comme active.", "label": "action"}
+{"text": "Affiche le r?sum? du dernier run.", "label": "action"}
+{"text": "Assigne cette version au classifieur intent.", "label": "action"}
+{"text": "Copie les poids entra?n?s vers le dossier d'export.", "label": "action"}
+{"text": "D?place les logs dans l'archive.", "label": "action"}
+{"text": "Renomme le mod?le en intent_v2.", "label": "action"}
+{"text": "T?l?verse les m?triques vers le dashboard.", "label": "action"}
+{"text": "Fais un diff entre les deux datasets.", "label": "action"}
+{"text": "Valide la structure des fichiers de sortie.", "label": "action"}
+{"text": "V?rifie que les poids sont bien sauvegard?s.", "label": "action"}
+{"text": "Diagnostique le probl?me de latence.", "label": "action"}
+{"text": "Audite l'utilisation du cache.", "label": "action"}
+{"text": "Propose un plan pour am?liorer la pr?cision.", "label": "action"}
