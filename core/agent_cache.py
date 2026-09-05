@@ -728,6 +728,10 @@ def _multi_coordinator_kwargs() -> dict:
     désactivé (comportement V1). ``AGENT_MULTI_PARALLEL`` : parallélisme des
     sous-tâches indépendantes. ``AGENT_MULTI_THINKING`` : mode « Réflexion »
     des workers (agent.worker.thinking persisté dans le flow store).
+    ``AGENT_MULTI_INTENT`` (défaut : activé) : classification d'intention
+    chat/action au superviseur (Approche B) — filtrage par rôle au dispatch +
+    repli conversationnel FALLBACK_CHAT ; ``0``/« false » = désactivé
+    (comportement V1, aucun worker filtré).
     Lecture env directe transitoire — à migrer vers ``app/config/settings.py``
     quand celui-ci sera chargeable sans exigence de clé API (fail-fast actuel).
     """
@@ -743,7 +747,36 @@ def _multi_coordinator_kwargs() -> dict:
         kwargs["parallel"] = True
     if _os.getenv("AGENT_MULTI_THINKING", "").strip().lower() in _true:
         kwargs["enable_thinking"] = True
+    if _os.getenv("AGENT_MULTI_INTENT", "1").strip().lower() not in {
+        "0", "false", "no", "off",
+    }:
+        # Approche B (multi-agents) : classification d'intention au superviseur.
+        # Instance PARTAGÉE (le modèle n'est chargé qu'une fois) ; tout échec
+        # de construction laisse le coordinateur sans classifieur (comportement
+        # V1) au lieu de casser le démarrage.
+        try:
+            kwargs["intent_classifier"] = _get_shared_intent_classifier()
+        except Exception:  # pragma: no cover - défensif
+            pass
     return kwargs
+
+
+_intent_classifier_shared = None
+
+
+def _get_shared_intent_classifier():
+    """Singleton paresseux du classifieur d'intention (partagé multi-agents).
+
+    Instancié une seule fois et partagé par tous les coordinateurs (singleton
+    et overrides par modèle) : le modèle torch/ONNX n'est chargé qu'à la
+    première prédiction. Sans modèle entraîné, ``IntentClassifier`` bascule
+    automatiquement sur les règles métier (continuité de service).
+    """
+    global _intent_classifier_shared
+    if _intent_classifier_shared is None:
+        from ia.agent.classifiers.intent_classifier import IntentClassifier
+        _intent_classifier_shared = IntentClassifier()
+    return _intent_classifier_shared
 
 
 def _trace_multi_run(prompt: str, outcome: dict) -> None:

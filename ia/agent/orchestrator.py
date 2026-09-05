@@ -1,6 +1,15 @@
 """Orchestration multi-agents — superviseur (plan → dispatch → synthèse).
 
 Cycle de vie d'un run ``MultiAgentCoordinator.run`` :
+  0. INTENT   : (optionnel, Approche B) le classifieur chat/action est
+                consulté AVANT la planification ; l'intention GLOBALE est
+                stampée sur chaque sous-tâche puis appliquée au dispatch
+                (politique par rôle, ``roles.INTENT_POLICY``) : un rôle hors
+                périmètre est FILTRÉ (worker « ignored », ni appel LLM ni
+                outil). Si TOUTES les sous-tâches sont filtrées — ou plan
+                vide sur intention « chat » — le superviseur répond
+                directement en mode conversationnel (FSM : FALLBACK_CHAT),
+                repli MANDATOIRE contre tout silence utilisateur.
   1. PLAN     : le LEAD (prompt superviseur) décompose la demande en
                 sous-tâches assignées aux rôles (JSON). Le plan est ensuite
                 validé DÉTERMINISTIQUEMENT par ``plan_validator`` — un plan
@@ -30,6 +39,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .agent_core import AgentCore
 from .errors import (
     LLM_UNREACHABLE,
+    PLAN_EMPTY,
     PLAN_VALIDATION_FAILED,
     SUPERVISOR_FAILED,
     SYNTHESIS_FAILED,
@@ -38,12 +48,13 @@ from .errors import (
 )
 from .plan_validator import PlanTask, validate_plan
 from .prompts import (
+    build_fallback_system,
     build_planner_prompt,
     build_synthesis_prompt,
     build_synthesis_system,
     truncate_context,
 )
-from .roles import ROLE_ORDER, role_tools
+from .roles import ROLE_ORDER, intent_decision_for, role_tools
 from .plan_correct import PlanRejected, correct_plan
 from .multi_run_fsm import MultiRunFSM, MultiRunState
 
@@ -61,6 +72,10 @@ EV_WORKER_APPROVAL = "agent.worker.approval"
 EV_SYNTHESIZING = "agent.synthesizing"
 EV_DONE = "agent.done"
 EV_ERROR = "agent.error"
+# --- Intention (Approche B : classification globale + filtrage par rôle) ---
+EV_INTENT = "agent.intent"                  # intention globale détectée (superviseur)
+EV_WORKER_SKIPPED = "agent.worker.skipped"  # worker filtré par la politique d'intention
+EV_FALLBACK = "agent.fallback"              # repli conversationnel (aucun worker exécuté)
 
 
 def _make_task_id() -> str:
@@ -82,6 +97,8 @@ def build_role_agent(
     on_tool_forbidden: Optional[Callable[[str, str], None]] = None,
     max_rounds: Optional[int] = None,
     enable_thinking: bool = False,
+    intent: str = "action",
+    intent_confidence: float = 0.0,
 ) -> AgentCore:
     """Construit un AgentCore isolé pour un rôle (sous-ensemble d'outils).
 
@@ -114,7 +131,7 @@ def build_role_agent(
     if enable_thinking:
         extra["enable_thinking"] = True
 
-    return AgentCore(
+    agent = AgentCore(
         llm_client,
         system_prompt=system_prompt,
         tools=tools,
@@ -122,6 +139,13 @@ def build_role_agent(
         on_tool_forbidden=on_tool_forbidden,
         **extra,
     )
+    # Observabilité d'intention (Approche B) : l'agent porte l'intention
+    # GLOBALE stampée par l'orchestrateur. Lecture seule : la boucle LLM de
+    # ``AgentCore`` n'est PAS modifiée — le filtrage reste au niveau de
+    # l'orchestrateur (``roles.intent_decision_for``).
+    agent.intent = intent
+    agent.intent_confidence = intent_confidence
+    return agent
 
 
 class MultiAgentCoordinator:
@@ -132,6 +156,11 @@ class MultiAgentCoordinator:
         exposant ``run_detailed``. Par défaut ``build_role_agent``.
       - ``roles`` : noms des rôles spécialisés (pour la validation).
       - ``max_worker_rounds`` / ``max_worker_tokens`` : budgets du worker.
+      - ``intent_classifier`` : classifieur chat/action optionnel (Approche B).
+        Injecté ⇒ classification GLOBALE avant planification + filtrage LOCAL
+        par rôle au dispatch + repli conversationnel (FALLBACK_CHAT). Absent ⇒
+        comportement historique strictement inchangé (tous les workers
+        s'exécutent, aucun filtrage, aucun repli).
     """
 
     def __init__(
@@ -148,6 +177,7 @@ class MultiAgentCoordinator:
         context_chars: int = 2400,
         max_total_tool_calls: Optional[int] = None,
         enable_thinking: bool = False,
+        intent_classifier=None,
     ):
         self._llm_client = llm_client
         self._lead_llm_client = lead_llm_client or llm_client
@@ -160,6 +190,14 @@ class MultiAgentCoordinator:
         self._max_worker_tokens = max_worker_tokens
         self._context_chars = context_chars
         self._lead_subject = None
+        # Classifieur d'intention (chat/action, Phase 4) — Approche B :
+        # classification GLOBALE au superviseur AVANT planification, filtrage
+        # LOCAL par rôle au dispatch, repli conversationnel FALLBACK_CHAT si
+        # tout le plan est hors périmètre. ``None`` = fonctionnalité désactivée
+        # (comportement V1 strictement inchangé).
+        self._intent_classifier = intent_classifier
+        self._intent_active = intent_classifier is not None
+        self._fallback_subject = None  # agent de repli conversationnel (lazy)
         # Mode « Réflexion » des workers (multi-agents). Le run peut le
         # surcharger par requête (``run(..., enable_thinking=...)``).
         self._enable_thinking = bool(enable_thinking)
@@ -175,13 +213,23 @@ class MultiAgentCoordinator:
         self._budget_pool = build_budget_pool(max_total_tool_calls, max_worker_rounds)
 # --- Constitution des agents (lazy, DI-friendly) ----------------------
 
-    def _make_agent(self, role_name: str, max_rounds: Optional[int] = None) -> Any:
+    def _make_agent(
+        self,
+        role_name: str,
+        max_rounds: Optional[int] = None,
+        intent: str = "action",
+        intent_confidence: float = 0.0,
+    ) -> Any:
         """Construit un agent (worker/lead) pour un rôle.
 
         ``max_rounds`` : quota de rounds réservé au worker via le
         ``BudgetPool`` (None = défaut). Via le DI ``role_builder``, le quota
         n'est pas injectable (signature ``(role_name)``) : la réserve du pool
         borne toujours l'ADMISSION du worker, indépendamment du builder.
+        ``intent`` / ``intent_confidence`` : intention GLOBALE transmise au
+        builder PAR DÉFAUT (observabilité sur l'agent réel) ; le DI
+        ``role_builder`` n'a pas besoin de la connaître — le filtrage reste
+        côté orchestrateur.
         """
         if self._role_builder is not None:
             return self._role_builder(role_name)
@@ -192,6 +240,8 @@ class MultiAgentCoordinator:
             role_name, self._llm_client, _T, _RA,
             max_rounds=max_rounds,
             enable_thinking=self._thinking_enabled(),
+            intent=intent,
+            intent_confidence=intent_confidence,
         )
 
     def _thinking_enabled(self) -> bool:
@@ -200,11 +250,34 @@ class MultiAgentCoordinator:
         return self._enable_thinking if override is None else bool(override)
 
     def _worker_prompt_for(self, task: PlanTask, prompt: str) -> str:
-        """Prompt d'isolation stricte d'un worker (contexte résumé + sous-tâche)."""
+        """Prompt d'isolation stricte d'un worker (contexte résumé + sous-tâche).
+
+        Approche B : l'intention GLOBALE est rappelée au worker (guidage du
+        prompt, la boucle LLM n'est PAS modifiée). ``action`` ⇒ exécution
+        outillée attendue ; ``chat`` ⇒ réponse conversationnelle (outil en
+        dernier recours) pour les rôles pass_through/chat_first qui passent
+        le filtre.
+        """
         context_summary = truncate_context(prompt, self._context_chars)
+        intent_note = ""
+        if self._intent_active:
+            if task.intent == "action":
+                intent_note = (
+                    f"\n\nINTENTION DÉTECTÉE : action (confiance "
+                    f"{task.intent_confidence:.2f}) — la demande exige une "
+                    "exécution réelle : utilisez vos outils si nécessaire et "
+                    "fondez votre réponse sur leurs résultats."
+                )
+            else:
+                intent_note = (
+                    f"\n\nINTENTION DÉTECTÉE : chat (confiance "
+                    f"{task.intent_confidence:.2f}) — réponse conversationnelle "
+                    "attendue : n'utilisez un outil qu'en dernier recours."
+                )
         return (
             f"CONTEXTE GLOBAL (résumé) :\n{context_summary}\n\n"
             f"VOTRE SOUS-TÂCHE :\n{task.subtask}"
+            f"{intent_note}"
         )
 
     def _remember_resume(self, request_id: str, entry: Dict[str, Any]) -> None:
@@ -222,17 +295,91 @@ class MultiAgentCoordinator:
             except Exception as exc:  # pragma: no cover
                 logger.warning("on_event(%s) a échoué : %s", event_type, exc)
 
+    # --- Intention (Approche B : classification globale au superviseur) -----
+
+    def _classify_intent(
+        self, prompt: str, on_event,
+    ) -> Optional[Dict[str, Any]]:
+        """Classifie l'intention GLOBALE du prompt (chat/action).
+
+        Retourne ``{"intent", "confidence", "engine"}`` ou ``None`` si aucun
+        classifieur n'est injecté (fonctionnalité désactivée). DÉFENSIF : tout
+        échec du classifieur retombe sur ``action`` (comportement historique —
+        les workers s'exécutent) : une panne de classification ne doit JAMAIS
+        casser ni détourner un run.
+        """
+        if not self._intent_active:
+            return None
+        meta = {"intent": "action", "confidence": 0.0, "engine": "error"}
+        try:
+            results = self._intent_classifier.predict([prompt])
+            if results:
+                first = results[0]
+                label = str(getattr(first, "label", "") or "").strip().lower()
+                if label not in ("chat", "action"):
+                    label = "action"  # étiquette inattendue : comportement sûr
+                meta = {
+                    "intent": label,
+                    "confidence": float(getattr(first, "confidence", 0.0) or 0.0),
+                    "engine": str(
+                        getattr(self._intent_classifier, "engine", "") or ""
+                    ),
+                }
+        except Exception as exc:  # pragma: no cover - chemin défensif
+            logger.warning(
+                "Classification d'intention échouée (repli « action ») : %s", exc,
+            )
+        logger.info(
+            "intent_global intent=%s confidence=%.3f engine=%s",
+            meta["intent"], meta["confidence"], meta["engine"],
+        )
+        self._on_event(on_event, EV_INTENT, dict(meta))
+        return meta
+
+    def _stamp_intent(
+        self, tasks: List[PlanTask], intent_meta: Optional[Dict[str, Any]],
+    ) -> None:
+        """Stamp l'intention GLOBALE sur chaque sous-tâche (propagation)."""
+        if not self._intent_active or intent_meta is None:
+            return
+        for task in tasks:
+            task.intent = intent_meta.get("intent", "action")
+            task.intent_confidence = float(intent_meta.get("confidence", 0.0))
+
+    @staticmethod
+    def _plan_dicts(tasks: List[PlanTask]) -> List[Dict[str, Any]]:
+        """Plan sérialisé (contrat stable : task_id/role/subtask + intent)."""
+        return [
+            {
+                "task_id": t.task_id,
+                "role": t.role,
+                "subtask": t.subtask,
+                "intent": t.intent,
+            }
+            for t in tasks
+        ]
+
     # --- Plan --------------------------------------------------------------
 
-    def _plan(self, prompt: str, on_event) -> Tuple[Optional[List[PlanTask]], Optional[Dict[str, Any]], Optional[str]]:
+    def _plan(
+        self, prompt: str, on_event, intent_meta: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Optional[List[PlanTask]], Optional[Dict[str, Any]], Optional[str]]:
         """Planifie via le lead + valide. Retourne (tasks, error_dict, raw).
 
         Planner hybride : le LLM (lead) propose un plan, puis ``correct_plan``
         applique les règles métier DÉTERMINISTES (diagnostics → ops, shell
         whitelisté, SQL mutant rejeté…) avant la validation structurelle.
+        ``intent_meta`` : intention globale (Approche B) — le planner adapte
+        son plan : intention « chat » ⇒ sous-tâches uniquement si une action
+        réelle est clairement nécessaire (sinon plan vide → repli direct).
         """
+        intent = (intent_meta or {}).get("intent")
+        confidence = (intent_meta or {}).get("confidence")
         planner_prompt = (
-            build_planner_prompt(prompt, self._roles, role_tools=role_tools())
+            build_planner_prompt(
+                prompt, self._roles, role_tools=role_tools(),
+                intent=intent, intent_confidence=confidence,
+            )
             + "\n\nRéponds avec un unique JSON valide."
         )
         lead = self._build_lead()
@@ -278,11 +425,39 @@ class MultiAgentCoordinator:
     def _dispatch(self, tasks: List[PlanTask], prompt: str, on_event) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Exécute chaque sous-tâche sur son worker. Retourne (workers, unexecuted).
 
+        Approche B : filtrage LOCAL par rôle (politique d'intention) AVANT
+        toute construction d'agent — un worker « ignored » ne coûte NI appel
+        LLM NI appel d'outil, et n'entre JAMAIS dans le circuit d'approbation.
+        Les workers filtrés restent TRACÉS dans le contrat (status ``ignored``),
+        dans l'ordre du plan (flow map complet).
+
         La REPRISE d'un worker bloqué ne passe PAS par ici : ``run(...)`` en
         mode reprise appelle ``_run_worker(..., resume_request_id=...)``
         directement sur la tâche bloquée (rounds LLM minimaux).
         """
-        specs = [(task, self._worker_prompt_for(task, prompt)) for task in tasks]
+        skipped: Dict[str, Dict[str, Any]] = {}
+        runnable: List[PlanTask] = []
+        for task in tasks:
+            decision = intent_decision_for(
+                task.role, task.intent, active=self._intent_active,
+            )
+            if decision == "ignored":
+                skipped[task.task_id] = self._skipped_worker(task)
+                logger.info(
+                    "agent_decision role=%s task=%s intent=%s confidence=%.2f "
+                    "decision=ignored",
+                    task.role, task.task_id, task.intent,
+                    float(task.intent_confidence),
+                )
+                self._on_event(on_event, EV_WORKER_SKIPPED, {
+                    "task_id": task.task_id, "role": task.role,
+                    "intent": task.intent,
+                    "intent_decision": "ignored",
+                })
+            else:
+                runnable.append(task)
+
+        specs = [(task, self._worker_prompt_for(task, prompt)) for task in runnable]
 
         workers: List[Dict[str, Any]] = []
         unexecuted: List[Dict[str, Any]] = []
@@ -297,11 +472,37 @@ class MultiAgentCoordinator:
         else:
             results = [run_one(spec) for spec in specs]
 
-        for res in results:
+        # Ordre du PLAN conservé (workers filtrés inclus, traçabilité complète).
+        for task in tasks:
+            res = skipped.get(task.task_id)
+            if res is None and results:
+                res = results.pop(0)
+            if res is None:  # pragma: no cover - défensif (désalignement)
+                continue
             workers.append(res)
             if res["status"] != "ok":
                 unexecuted.append(res)
         return workers, unexecuted
+
+    def _skipped_worker(self, task: PlanTask) -> Dict[str, Any]:
+        """Contrat d'un worker FILTRÉ par la politique d'intention (Approche B).
+
+        Le worker n'est ni construit ni exécuté : le dict trace la décision
+        (statut ``ignored``) pour le flow map — ce n'est NI un échec (aucun
+        code d'erreur) NI une sous-tâche exécutée.
+        """
+        return {
+            "task_id": task.task_id,
+            "role": task.role,
+            "status": "ignored",
+            "intent": task.intent,
+            "intent_decision": "ignored",
+            "message": (
+                f"Sous-tâche non exécutée : le rôle « {task.role} » est hors "
+                f"périmètre de l'intention détectée (« {task.intent} »)."
+            ),
+            "duration_ms": 0.0,
+        }
 
     def _run_worker(
         self,
@@ -341,9 +542,16 @@ class MultiAgentCoordinator:
                 )
             effective_rounds = min(granted, self._max_worker_rounds)
 
-        agent = self._make_agent(task.role, max_rounds=effective_rounds)
+        agent = self._make_agent(
+            task.role, max_rounds=effective_rounds,
+            intent=task.intent, intent_confidence=task.intent_confidence,
+        )
+        # Compteur d'appels d'outils du worker (observabilité d'intention :
+        # ``tools_called`` remonté dans le contrat du worker).
+        tool_counter = {"count": 0}
 
         def tool_hook(payload):
+            tool_counter["count"] += 1
             self._on_event(on_event, EV_WORKER_TOOL, {
                 "task_id": task.task_id, "role": task.role, **payload,
             })
@@ -366,13 +574,14 @@ class MultiAgentCoordinator:
         return self._run_worker_core(
             agent, task, worker_prompt, tool_hook, forbidden_hook, started,
             on_event, resume_request_id=resume_request_id,
-            on_thinking=thinking_hook,
+            on_thinking=thinking_hook, tool_counter=tool_counter,
         )
 
     def _run_worker_core(
         self, agent, task, worker_prompt, tool_hook, forbidden_hook, started, on_event,
         resume_request_id: str | None = None,
         on_thinking=None,
+        tool_counter: Optional[Dict[str, int]] = None,
     ) -> Dict[str, Any]:
         thinking_parts: List[str] = []
         try:
@@ -389,6 +598,15 @@ class MultiAgentCoordinator:
         if thinking and not thinking_parts:
             thinking_parts.append(str(thinking))
         duration_ms = (time.perf_counter() - started) * 1000.0
+
+        # Observabilité d'intention (SCRUM-101) : décision + outils du worker.
+        tools_called = int((tool_counter or {}).get("count", 0))
+        logger.info(
+            "agent_decision role=%s task=%s intent=%s confidence=%.2f "
+            "decision=executed tools_called=%d",
+            task.role, task.task_id, task.intent,
+            float(task.intent_confidence), tools_called,
+        )
 
         # Gate de décision : le worker s'est arrêté sur une action qui exige
         # une validation humaine (approve). On NE compte PAS ce worker comme
@@ -407,6 +625,9 @@ class MultiAgentCoordinator:
                 "approval": approval,
                 "message": answer,
                 "duration_ms": round(duration_ms, 2),
+                "intent": task.intent,
+                "intent_decision": "executed",
+                "tools_called": tools_called,
             }
             self._on_event(on_event, EV_WORKER_APPROVAL, {
                 "task_id": task.task_id,
@@ -429,6 +650,9 @@ class MultiAgentCoordinator:
             "shareable_summary": (answer or "")[:300],
             "thinking": "\n".join(thinking_parts).strip(),
             "resumed": bool(resume_request_id),
+            "intent": task.intent,
+            "intent_decision": "executed",
+            "tools_called": tools_called,
         }
         self._on_event(on_event, EV_WORKER_RESULT, {
             "task_id": task.task_id, "role": task.role, "status": "ok",
@@ -445,6 +669,8 @@ class MultiAgentCoordinator:
             "error_code": error_code,
             "message": message,
             "duration_ms": round(duration_ms, 2),
+            "intent": getattr(task, "intent", "action"),
+            "intent_decision": "executed",
         }
 
     # --- Synthèse ----------------------------------------------------------
@@ -459,6 +685,89 @@ class MultiAgentCoordinator:
             logger.error("Synthèse échouée : %s", exc)
             raise WorkerError(SYNTHESIS_FAILED, f"La synthèse finale a échoué : {exc}") from exc
         return str(getattr(result, "answer", str(result)))
+
+    # --- Repli conversationnel (FSM : FALLBACK_CHAT, Approche B) ------------
+
+    def _build_fallback_agent(self):
+        """Agent de repli (aucun outil) : réponse conversationnelle directe.
+
+        Distinct du lead de synthèse : le prompt système
+        ``build_fallback_system`` couvre le cas « aucune sous-tâche exécutée »
+        sans prétendre agréger des résultats d'agents. Instancié une seule
+        fois (lazy, même client LLM dédié que le lead).
+        """
+        if self._fallback_subject is None:
+            # AUCUN outil (tools={} explicite : sans cela AgentCore retombe
+            # sur le registre global) — le repli ne doit RIEN exécuter.
+            self._fallback_subject = AgentCore(
+                self._lead_llm_client,
+                system_prompt=build_fallback_system(),
+                tools={},
+                required_args={},
+            )
+        return self._fallback_subject
+
+    def _fallback_answer(self, prompt: str) -> str:
+        """Réponse conversationnelle directe du superviseur (sans outils)."""
+        try:
+            result = self._build_fallback_agent().run_detailed(str(prompt))
+            return str(getattr(result, "answer", str(result)))
+        except Exception as exc:
+            logger.error("Repli conversationnel échoué : %s", exc)
+            return (
+                "Votre message semble conversationnel et aucune sous-tâche "
+                "outillée n'était requise. Je n'ai cependant pas pu produire "
+                f"de réponse : {exc}"
+            )
+
+    def _fallback_outcome(
+        self,
+        prompt: str,
+        tasks: List[PlanTask],
+        workers: List[Dict[str, Any]],
+        intent_meta: Optional[Dict[str, Any]],
+        started: float,
+        fsm: MultiRunFSM,
+        on_event,
+        reason: str,
+    ) -> Dict[str, Any]:
+        """Contrat de sortie du repli conversationnel (FSM : FALLBACK_CHAT).
+
+        Le ``fsm`` reçu est DÉJÀ dans ``fallback_chat`` (transition faite par
+        l'appelant) : le superviseur produit la réponse finale directement
+        (sans outils), puis synthesizing → completed. Le repli est MANDATOIRE
+        quand tout le plan a été filtré : jamais de silence utilisateur.
+        """
+        self._on_event(on_event, EV_FALLBACK, {
+            "reason": reason,
+            "intent": (intent_meta or {}).get("intent"),
+            "intent_confidence": (intent_meta or {}).get("confidence"),
+        })
+        final_answer = self._fallback_answer(prompt)
+        fsm = fsm.transition(MultiRunState.SYNTHESIZING)
+        fsm = fsm.transition(MultiRunState.COMPLETED)
+        meta = intent_meta or {}
+        outcome = {
+            "status": "completed",
+            "final_answer": final_answer,
+            "fallback_chat": True,
+            "plan": self._plan_dicts(tasks),
+            "workers": workers,
+            "unexecuted": [],
+            "thinking": "",
+            "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            "fsm_state": fsm.state.value,
+            "intent": meta.get("intent", "chat"),
+            "intent_confidence": float(meta.get("confidence", 0.0)),
+        }
+        if self._budget_pool is not None:
+            outcome["budget"] = self._budget_pool.snapshot()
+        self._on_event(on_event, EV_DONE, {
+            "status": outcome["status"],
+            "answer": final_answer,
+            "duration_ms": outcome["duration_ms"],
+        })
+        return outcome
 
     # --- API publique ------------------------------------------------------
 
@@ -499,10 +808,29 @@ class MultiAgentCoordinator:
             if resume_request_id:
                 return self._resume(str(resume_request_id), on_event, started)
 
+            # 0. Intention GLOBALE (Approche B) : classifiée AVANT la
+            # planification, pour que le plan lui-même s'adapte (chat ⇒
+            # sous-tâches minimales ou vides ; action ⇒ plan outillé).
+            intent_meta = self._classify_intent(str(prompt), on_event)
+
             # 1. Plan (planning → dispatch)
             fsm = MultiRunFSM.start()  # planning
-            tasks, plan_error, raw_plan = self._plan(str(prompt), on_event)
+            tasks, plan_error, raw_plan = self._plan(
+                str(prompt), on_event, intent_meta=intent_meta,
+            )
             if tasks is None:
+                if (
+                    (plan_error or {}).get("error_code") == PLAN_EMPTY
+                    and (intent_meta or {}).get("intent") == "chat"
+                ):
+                    # Intention « chat » + plan vide ⇒ le planner a jugé
+                    # qu'aucune action outillée n'était nécessaire : réponse
+                    # conversationnelle directe (JAMAIS d'abort pour du chat).
+                    fsm = fsm.transition(MultiRunState.FALLBACK_CHAT)
+                    return self._fallback_outcome(
+                        str(prompt), [], [], intent_meta, started, fsm,
+                        on_event, reason="plan_empty_chat",
+                    )
                 fsm = fsm.transition(MultiRunState.ERROR)
                 self._on_event(on_event, EV_ERROR, plan_error or {})
                 return {
@@ -513,11 +841,12 @@ class MultiAgentCoordinator:
                     "plan": [], "workers": [], "unexecuted": [],
                     "fsm_state": fsm.state.value,
                 }
+            # Stamp de l'intention GLOBALE sur chaque sous-tâche (Approche B) :
+            # propagée aux workers (guidage prompt + contrat) puis filtrée par
+            # rôle au dispatch.
+            self._stamp_intent(tasks, intent_meta)
             fsm = fsm.transition(MultiRunState.DISPATCH)
-            self._on_event(on_event, EV_PLAN, {"plan": [
-                {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
-                for t in tasks
-            ]})
+            self._on_event(on_event, EV_PLAN, {"plan": self._plan_dicts(tasks)})
 
             # 2. Dispatch (dispatch → waiting_workers)
             workers, unexecuted = self._dispatch(tasks, str(prompt), on_event)
@@ -552,6 +881,19 @@ class MultiAgentCoordinator:
                     on_event=on_event,
                 )
 
+            # 2bis. Repli MANDATOIRE (Approche B) : toutes les sous-tâches ont
+            # été filtrées par la politique d'intention ⇒ aucun worker n'a
+            # tourné. Sans repli, la synthèse n'aurait RIEN à agréger (réponse
+            # vide/silence) : le superviseur répond directement.
+            if workers and all(
+                w.get("intent_decision") == "ignored" for w in workers
+            ):
+                fsm = fsm.transition(MultiRunState.FALLBACK_CHAT)
+                return self._fallback_outcome(
+                    str(prompt), tasks, workers, intent_meta, started, fsm,
+                    on_event, reason="all_workers_ignored",
+                )
+
             # 3. Synthèse (continueBroken) — garde FSM : JAMAIS si un worker
             # attend une validation (can_synthesize : waiting_workers only).
             final_answer, thinking = self._final_synthesis(
@@ -563,16 +905,17 @@ class MultiAgentCoordinator:
             outcome = {
                 "status": "completed",
                 "final_answer": final_answer,
-                "plan": [
-                    {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
-                    for t in tasks
-                ],
+                "plan": self._plan_dicts(tasks),
                 "workers": workers,
                 "unexecuted": unexecuted,
                 "thinking": thinking,
                 "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
                 "fsm_state": fsm.state.value,
             }
+            if intent_meta is not None:
+                outcome["intent"] = intent_meta.get("intent")
+                outcome["intent_confidence"] = float(intent_meta.get("confidence", 0.0))
+                outcome["fallback_chat"] = False
             if self._budget_pool is not None:
                 outcome["budget"] = self._budget_pool.snapshot()
             self._on_event(on_event, EV_DONE, {
@@ -695,10 +1038,7 @@ class MultiAgentCoordinator:
         outcome = {
             "status": "completed",
             "final_answer": final_answer,
-            "plan": [
-                {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
-                for t in tasks
-            ],
+            "plan": self._plan_dicts(tasks),
             "workers": workers,
             "unexecuted": unexecuted,
             "thinking": thinking,
@@ -738,10 +1078,7 @@ class MultiAgentCoordinator:
         outcome = {
             "status": "awaiting_approval",
             "final_answer": final_answer,
-            "plan": [
-                {"task_id": t.task_id, "role": t.role, "subtask": t.subtask}
-                for t in tasks
-            ],
+            "plan": self._plan_dicts(tasks),
             "workers": workers,
             "unexecuted": unexecuted,
             "pending_approvals": pending_approvals,

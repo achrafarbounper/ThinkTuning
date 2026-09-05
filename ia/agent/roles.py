@@ -174,3 +174,49 @@ def resolve_role_tools(name: str, registry: Dict[str, object]) -> Dict[str, obje
     if not role.tools:
         return {}
     return {tool_name: registry[tool_name] for tool_name in role.tools if tool_name in registry}
+
+
+# --- Politique d'intention par rôle (Approche B : filtrage local) -------------
+# Le classifieur global (chat/action) stampé sur chaque PlanTask par
+# l'orchestrateur est appliqué au dispatch selon la politique DU RÔLE :
+#   - ``pass_through`` : s'exécute quelle que soit l'intention (superviseur…) ;
+#   - ``action_only``  : ne s'exécute que pour une intention « action » —
+#     un rôle outillé est inutile (et coûteux) pour du pur conversationnel ;
+#   - ``chat_first``   : ne s'exécute que pour une intention « chat »
+#     (réservé à des rôles rédactionnels futurs : rapport, explication…).
+# Ajouter un rôle à politique spécifique = ajouter une ligne ici (Open/Closed),
+# sans toucher à la logique de l'orchestrateur.
+INTENT_POLICY: Dict[str, str] = {
+    "lead": "pass_through",
+    "web": "action_only",
+    "files": "action_only",
+    "ml": "action_only",
+    "data": "action_only",
+    "math": "action_only",
+    "ops": "action_only",
+    "shell": "action_only",
+    "docker": "action_only",
+}
+DEFAULT_INTENT_POLICY = "action_only"
+
+_VALID_INTENT_POLICIES = frozenset({"pass_through", "action_only", "chat_first"})
+
+
+def intent_decision_for(role: str, intent: str, active: bool = True) -> str:
+    """Décision de dispatch d'un worker selon la politique d'intention du rôle.
+
+    Retourne ``"executed"`` ou ``"ignored"``. ``active=False`` (aucun
+    classifieur injecté) désactive le filtrage : comportement historique,
+    tous les workers s'exécutent.
+    """
+    if not active:
+        return "executed"
+    policy = INTENT_POLICY.get(role, DEFAULT_INTENT_POLICY)
+    if policy not in _VALID_INTENT_POLICIES:
+        return "executed"
+    if policy == "pass_through":
+        return "executed"
+    if policy == "action_only":
+        return "executed" if intent == "action" else "ignored"
+    # chat_first
+    return "executed" if intent == "chat" else "ignored"
