@@ -7,7 +7,7 @@
  * (engine, seuil, métriques, health) rafraîchi par polling.
  */
 
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useApp } from "../context/useApp";
 import {
   getIntentClassifierInfo,
@@ -15,6 +15,20 @@ import {
   reloadIntentModel,
   type IntentClassifierInfo,
 } from "../api/intentApi";
+import {
+  activateIntentVersion,
+  cancelIntentTraining,
+  getIntentModelVersions,
+  getIntentTrainingStatus,
+  listIntentTrainingJobs,
+  startIntentTraining,
+  DEFAULT_INTENT_BASE_MODEL,
+  DEFAULT_INTENT_DATASET,
+  type IntentModelVersions,
+  type IntentTrainPayload,
+} from "../api/intentTrainApi";
+import IntentTrainJobTracker from "../components/IntentTrainJobTracker";
+import type { IntentTrainJob } from "../components/types";
 import { useIntentCache } from "../hooks/useIntentCache";
 import { usePolling } from "../hooks/usePolling";
 import { formatDuration } from "../lib/format";
@@ -101,6 +115,147 @@ export default function IntentPage() {
       );
     } finally {
       setReloading(false);
+    }
+  };
+
+  // -- Entraînement du classifieur d'intention (SCRUM-95) --------------------
+  const [trainForm, setTrainForm] = useState<IntentTrainPayload>({
+    dataset_path: DEFAULT_INTENT_DATASET,
+    base_model: DEFAULT_INTENT_BASE_MODEL,
+    base_model_version: null,
+    epochs: 3,
+    batch_size: 32,
+    learning_rate: 2e-5,
+    max_length: 128,
+    test_size: 0.1,
+    quantize_int8: false,
+    activate: false,
+  });
+  const [trainLoading, setTrainLoading] = useState(false);
+  const [trainError, setTrainError] = useState<string | null>(null);
+  const [currentJob, setCurrentJob] = useState<IntentTrainJob | null>(null);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [jobs, setJobs] = useState<IntentTrainJob[]>([]);
+  const [versions, setVersions] = useState<IntentModelVersions | null>(null);
+  const [activating, setActivating] = useState(false);
+
+  const refreshTrainingHistory = useCallback(async () => {
+    try {
+      const page = await listIntentTrainingJobs(client, { limit: 10 });
+      setJobs(page?.items ?? []);
+    } catch {
+      // Historique non bloquant : la prédiction reste utilisable.
+    }
+  }, [client]);
+
+  const refreshVersions = useCallback(async () => {
+    try {
+      setVersions(await getIntentModelVersions(client));
+    } catch {
+      setVersions(null);
+    }
+  }, [client]);
+
+  // Chargement initial : versions (continual training) + historique des jobs.
+  useEffect(() => {
+    refreshVersions();
+    refreshTrainingHistory();
+  }, [refreshVersions, refreshTrainingHistory]);
+
+  // Suivi du job en cours (poll 4 s, comme la page Entraînement).
+  const jobId = currentJob?.job_id ?? null;
+  const jobActive =
+    currentJob?.status === "running" || currentJob?.status === "pending";
+  useEffect(() => {
+    if (!jobActive || !jobId) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const snap = await getIntentTrainingStatus(client, jobId);
+        if (!snap) return;
+        setCurrentJob(snap);
+        if (["completed", "failed", "cancelled"].includes(snap.status)) {
+          pushLog(
+            snap.status === "completed" ? "success" : "error",
+            `Entraînement d'intention ${snap.status} — job ${snap.job_id.slice(0, 8)}`
+          );
+          refreshTrainingHistory();
+          refreshVersions();
+          refreshInfo(); // engine/métriques peuvent changer si activate=true
+        }
+      } catch {
+        // Erreurs de polling tolérées : le tick suivant réessaie.
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [
+    jobActive,
+    jobId,
+    client,
+    pushLog,
+    refreshTrainingHistory,
+    refreshVersions,
+    refreshInfo,
+  ]);
+
+  const handleStartIntentTraining = async (e: FormEvent) => {
+    e.preventDefault();
+    setTrainError(null);
+    setTrainLoading(true);
+    const payload: IntentTrainPayload = {
+      ...trainForm,
+      base_model_version: trainForm.base_model_version || null,
+    };
+    try {
+      const job = await startIntentTraining(client, payload);
+      if (job) {
+        setCurrentJob(job);
+        pushLog(
+          "info",
+          `Entraînement d'intention lancé — job ${job.job_id.slice(0, 8)}` +
+            (payload.base_model_version
+              ? ` (continual depuis ${payload.base_model_version})`
+              : "")
+        );
+      }
+      refreshTrainingHistory();
+    } catch (err) {
+      setTrainError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTrainLoading(false);
+    }
+  };
+
+  const handleCancelIntentTraining = async () => {
+    if (!currentJob) return;
+    setCancelLoading(true);
+    try {
+      const job = await cancelIntentTraining(client, currentJob.job_id);
+      if (job) setCurrentJob(job);
+      pushLog("info", "Annulation de l'entraînement d'intention demandée.");
+    } catch (err) {
+      pushLog(
+        "error",
+        `Échec de l'annulation : ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  const handleActivateIntentVersion = async (version: string) => {
+    setActivating(true);
+    try {
+      // Active (active.json) PUIS recharge le classifieur en mémoire.
+      await activateIntentVersion(client, version);
+      pushLog("success", `Version d'intention active : ${version} (classifieur rechargé).`);
+      await Promise.all([refreshVersions(), refreshInfo()]);
+    } catch (err) {
+      pushLog(
+        "error",
+        `Activation impossible : ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setActivating(false);
     }
   };
 
@@ -255,6 +410,230 @@ export default function IntentPage() {
               : ""}
           </p>
         )}
+      </div>
+
+      <div className="tt-panel">
+        <div className="tt-panel-head">
+          <h2>Entraînement du classifieur d'intention</h2>
+        </div>
+        <p className="tt-hint">
+          Fine-tune un encodeur multilingue sur un dataset JSONL{" "}
+          <span className="tt-mono">{'{"text","label"}'}</span> (labels{" "}
+          <span className="tt-mono">chat</span>/<span className="tt-mono">action</span>) et
+          enregistre une version dans{" "}
+          <span className="tt-mono">experiments/intent_models/</span>.
+        </p>
+        <form onSubmit={handleStartIntentTraining} className="tt-form">
+          <div className="tt-field-grid">
+            <label>
+              dataset_path
+              <input
+                type="text"
+                value={trainForm.dataset_path}
+                onChange={(e) =>
+                  setTrainForm((f) => ({ ...f, dataset_path: e.target.value }))
+                }
+              />
+            </label>
+            <label>
+              epochs
+              <input
+                type="number"
+                min="1"
+                value={trainForm.epochs}
+                onChange={(e) =>
+                  setTrainForm((f) => ({ ...f, epochs: Number(e.target.value) }))
+                }
+              />
+            </label>
+            <label>
+              batch_size
+              <input
+                type="number"
+                min="1"
+                value={trainForm.batch_size}
+                onChange={(e) =>
+                  setTrainForm((f) => ({ ...f, batch_size: Number(e.target.value) }))
+                }
+              />
+            </label>
+            <label>
+              learning_rate
+              <input
+                type="number"
+                step="0.00001"
+                value={trainForm.learning_rate}
+                onChange={(e) =>
+                  setTrainForm((f) => ({ ...f, learning_rate: Number(e.target.value) }))
+                }
+              />
+            </label>
+            <label>
+              max_length
+              <input
+                type="number"
+                min="8"
+                value={trainForm.max_length}
+                onChange={(e) =>
+                  setTrainForm((f) => ({ ...f, max_length: Number(e.target.value) }))
+                }
+              />
+            </label>
+            <label>
+              Reprendre depuis
+              <select
+                value={trainForm.base_model_version ?? ""}
+                onChange={(e) =>
+                  setTrainForm((f) => ({
+                    ...f,
+                    base_model_version: e.target.value || null,
+                  }))
+                }
+              >
+                <option value="">Modèle de base (from scratch)</option>
+                {(versions?.items ?? []).map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                    {versions?.active === v ? " (active)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="tt-row" style={{ gap: 16 }}>
+            <label>
+              <input
+                type="checkbox"
+                checked={trainForm.quantize_int8}
+                onChange={(e) =>
+                  setTrainForm((f) => ({ ...f, quantize_int8: e.target.checked }))
+                }
+              />{" "}
+              Quantification INT8
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={trainForm.activate}
+                onChange={(e) =>
+                  setTrainForm((f) => ({ ...f, activate: e.target.checked }))
+                }
+              />{" "}
+              Activer la version produite
+            </label>
+          </div>
+          <div className="tt-train-actions">
+            <button
+              className="tt-btn tt-btn-primary"
+              type="submit"
+              disabled={trainLoading}
+            >
+              {trainLoading ? "Lancement…" : "Lancer l'entraînement d'intention"}
+            </button>
+          </div>
+        </form>
+        {trainError && <p className="tt-hint tt-hint-error">{trainError}</p>}
+
+        <IntentTrainJobTracker
+          job={currentJob}
+          onCancel={handleCancelIntentTraining}
+          cancelLoading={cancelLoading}
+        />
+
+        <div className="tt-history-section">
+          <h3 className="tt-subtitle">Historique des entraînements d'intention</h3>
+          {jobs.length === 0 ? (
+            <p className="tt-hint">Aucun job d'intention enregistré pour l'instant.</p>
+          ) : (
+            <table className="tt-table tt-history-table">
+              <caption className="sr-only">Jobs d'entraînement d'intention</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Job</th>
+                  <th scope="col">Statut</th>
+                  <th scope="col">Étape</th>
+                  <th scope="col">Début</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j) => (
+                  <tr key={j.job_id}>
+                    <td className="tt-mono">{j.job_id.slice(0, 8)}</td>
+                    <td>{j.status}</td>
+                    <td className="tt-mono">{j.step}</td>
+                    <td className="tt-mono">
+                      {j.started_at
+                        ? new Date(j.started_at * 1000).toLocaleString()
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div className="tt-panel">
+        <div className="tt-panel-head">
+          <h2>Versions du modèle d'intention</h2>
+          <button
+            className="tt-btn tt-btn-ghost"
+            type="button"
+            onClick={refreshVersions}
+          >
+            Rafraîchir
+          </button>
+        </div>
+        {!versions || versions.total === 0 ? (
+          <p className="tt-hint">
+            Aucun modèle d'intention entraîné — le classifieur utilise le repli de
+            règles. Lancez un entraînement ci-dessus ou via{" "}
+            <span className="tt-mono">scripts/train_intent.py</span>.
+          </p>
+        ) : (
+          <table className="tt-table tt-history-table">
+            <caption className="sr-only">Versions du modèle d'intention</caption>
+            <thead>
+              <tr>
+                <th scope="col">Version</th>
+                <th scope="col">Statut</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {versions.items.map((v) => (
+                <tr key={v}>
+                  <td className="tt-mono">{v}</td>
+                  <td>
+                    {versions.active === v ? (
+                      <span className="tt-badge tt-badge-positive">active</span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td>
+                    {versions.active !== v && (
+                      <button
+                        className="tt-btn tt-btn-ghost"
+                        type="button"
+                        disabled={activating}
+                        onClick={() => handleActivateIntentVersion(v)}
+                      >
+                        {activating ? "Activation…" : "Activer"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <p className="tt-hint">
+          L'activation met à jour le pointeur{" "}
+          <span className="tt-mono">active.json</span> puis recharge le classifieur
+          en mémoire (POST <span className="tt-mono">/classifiers/intent/reload</span>).
+        </p>
       </div>
 
       <div className="tt-panel">

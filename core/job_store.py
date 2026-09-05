@@ -237,8 +237,8 @@ class PersistentJobStore(dict):
             for jid, ep, loss, f1, acc in rows
         ]
 
-    def list_jobs(self, status=None, limit=100, offset=0):
-        """Renvoie les jobs paginés, filtrés par *status* et triés par
+    def list_jobs(self, status=None, kind=None, limit=100, offset=0):
+        """Renvoie les jobs paginés, filtrés par *status* / *kind* et triés par
         ``started_at DESC`` (les jobs non-démarrés arrivent en dernier).
 
         La requête SQL exploite l'index ``idx_jobs_updated_at`` et utilise
@@ -248,6 +248,10 @@ class PersistentJobStore(dict):
         Args:
             status: Valeur texte du status (ex. ``"completed"``) ou ``None``
                 pour désactiver le filtre.
+            kind: Type de job (``"train"``, ``"pipeline"``, ``"intent"`` —
+                SCRUM-95) ou ``None`` pour désactiver le filtre. Les payloads
+                antérieurs au champ ``kind`` (NULL) ne correspondent à aucun
+                filtre explicite, donc ``kind=None`` reste rétro-compatible.
             limit: Nombre maximum de résultats (``>= 1``).
             offset: Nombre de résultats à ignorer (``>= 0``).
 
@@ -258,32 +262,27 @@ class PersistentJobStore(dict):
         limit = max(1, limit)
         offset = max(0, offset)
 
+        where_clauses = []
+        params = []
         if status:
-            count_sql = (
-                "SELECT COUNT(*) FROM jobs "
-                "WHERE json_extract(payload, '$.status') = ?"
-            )
-            items_sql = (
-                "SELECT job_id, payload FROM jobs "
-                "WHERE json_extract(payload, '$.status') = ? "
-                "ORDER BY json_extract(payload, '$.started_at') DESC "
-                "LIMIT ? OFFSET ?"
-            )
-            count_params = (status,)
-            items_params = (status, limit, offset)
-        else:
-            count_sql = "SELECT COUNT(*) FROM jobs"
-            items_sql = (
-                "SELECT job_id, payload FROM jobs "
-                "ORDER BY json_extract(payload, '$.started_at') DESC "
-                "LIMIT ? OFFSET ?"
-            )
-            count_params = ()
-            items_params = (limit, offset)
+            where_clauses.append("json_extract(payload, '$.status') = ?")
+            params.append(status)
+        if kind:
+            where_clauses.append("json_extract(payload, '$.kind') = ?")
+            params.append(kind)
+        where = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        count_sql = f"SELECT COUNT(*) FROM jobs {where}"
+        items_sql = (
+            f"SELECT job_id, payload FROM jobs {where} "
+            "ORDER BY json_extract(payload, '$.started_at') DESC "
+            "LIMIT ? OFFSET ?"
+        )
+        items_params = params + [limit, offset]
 
         conn = self._connect()
         try:
-            total = conn.execute(count_sql, count_params).fetchone()[0]
+            total = conn.execute(count_sql, params).fetchone()[0]
             rows = conn.execute(items_sql, items_params).fetchall()
         finally:
             conn.close()

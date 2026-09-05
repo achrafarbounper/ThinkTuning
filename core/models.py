@@ -101,10 +101,78 @@ class TrainRequest(BaseModel):
         return cleaned
 
 
+class IntentTrainRequest(BaseModel):
+    """Paramètres de POST /train/intent (entraînement du classifieur d'intention).
+
+    Reprise des options du script ``scripts/train_intent.py`` : dataset JSONL
+    ``{"text", "label"}`` (labels fixés à chat/action), encodeur HF,
+    quantification INT8 optionnelle et activation de la version produite.
+    ``base_model_version`` déclenche le continual training depuis une version
+    existante de ``experiments/intent_models`` (validée tôt par la route).
+    """
+
+    dataset_path: str = "data/intent_dataset.jsonl"
+    base_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    base_model_version: Optional[str] = None
+    epochs: int = 3
+    batch_size: int = 32
+    learning_rate: float = 2e-5
+    max_length: int = 128
+    test_size: float = 0.1
+    quantize_int8: bool = False
+    activate: bool = False
+
+    @field_validator("epochs", "batch_size", "max_length")
+    @classmethod
+    def validate_positive_ints(cls, v: int, info) -> int:
+        """Rejette tôt (HTTP 422) les entiers non strictement positifs."""
+        if v <= 0:
+            raise ValueError(f"{info.field_name} doit être > 0")
+        return v
+
+    @field_validator("learning_rate")
+    @classmethod
+    def validate_learning_rate(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("learning_rate doit être > 0")
+        return v
+
+    @field_validator("test_size")
+    @classmethod
+    def validate_test_size(cls, v: float) -> float:
+        if not 0.0 < v < 1.0:
+            raise ValueError("test_size doit être compris dans ]0, 1[")
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "dataset_path": "data/intent_dataset.jsonl",
+                    "base_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                    "base_model_version": None,
+                    "epochs": 3,
+                    "batch_size": 32,
+                    "learning_rate": 2e-05,
+                    "max_length": 128,
+                    "test_size": 0.1,
+                    "quantize_int8": False,
+                    "activate": False,
+                }
+            ]
+        }
+    )
+
+
 class TrainJob(BaseModel):
     job_id: str
     status: JobStatus
     step: str = "queued"
+    # Type de job dans le store partagé : "train" (sentiment, défaut),
+    # "pipeline", "intent" (SCRUM-95). Champ additif : les payloads SQLite
+    # antérieurs (sans kind) restent lisibles (None) et les routes existantes
+    # ne filtrent pas, donc aucun changement de comportement.
+    kind: str = "train"
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     error: Optional[str] = None
@@ -133,6 +201,20 @@ TRAIN_JOB_STEPS = [
     "augmenting_dataset",
     "building_dataloaders",
     "computing_class_weights",
+    "loading_model",
+    "training",
+    "saving_model",
+    "done",
+]
+
+# Ordre canonique des étapes de l'entraînement d'intention
+# (core/intent_trainer.py et dashboard/src/api/jobSteps.ts — à garder
+# alignés). Plus court que le sentiment : dataset JSONL local, pas d'EDA,
+# pas de poids de classe (SCRUM-95).
+INTENT_TRAIN_JOB_STEPS = [
+    "queued",
+    "loading_dataset",
+    "splitting_dataset",
     "loading_model",
     "training",
     "saving_model",

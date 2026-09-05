@@ -31,3 +31,18 @@ export const PIPELINE_STEPS: readonly string[] = [
   "finetuning",
   "done",
 ] as const;
+
+/**
+ * Ordre des étapes de l'entraînement du classifieur d'intention
+ * (core/intent_trainer.py — SCRUM-95). Plus court que le sentiment :
+ * dataset JSONL local, pas d'EDA ni de poids de classe.
+ */
+export const INTENT_TRAIN_STEPS: readonly string[] = [
+  "queued",
+  "loading_dataset",
+  "splitting_dataset",
+  "loading_model",
+  "training",
+  "saving_model",
+  "done",
+] as const;

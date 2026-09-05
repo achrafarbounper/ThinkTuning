@@ -116,6 +116,7 @@ from api.routes import (  # noqa: E402
     evaluate,
     explain,
     health,
+    intent_train,
     maintenance,
     metrics,
     models,
@@ -183,6 +184,7 @@ app.include_router(drift.router)
 app.include_router(explain.router)
 app.include_router(pipeline.router)
 app.include_router(active_learning.router)
+app.include_router(intent_train.router)
 app.include_router(classifiers.router)
 
 # SCRUM-34 : démarre le scheduler APScheduler et recharge les planifications
