@@ -12,7 +12,6 @@ import {
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AgentNode } from "./AgentNode";
 import { FlowEdge } from "./FlowEdge";
@@ -178,6 +177,35 @@ export function FlowCanvas({
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // Zoom molette : listener NATIF non passif. React enregistre « wheel » en
+  // passif à la racine — y appeler preventDefault déclenche l'erreur
+  // « Unable to preventDefault inside passive event listener ». Attaché ici
+  // avec { passive: false }, le navigateur peut bloquer le défilement de la
+  // page pendant le zoom. setView fonctionnel : aucune closure sur l'état
+  // courant, le handler reste stable d'un rendu à l'autre.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      // Le « Journal des outils » (overlay) doit défiler normalement : le
+      // listener natif du conteneur reçoit l'événement AVANT tout
+      // stopPropagation React, d'où ce test explicite sur la cible.
+      if (e.target instanceof Element && e.target.closest(".fledger")) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015));
+      setView((v) => {
+        const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.k * factor));
+        const kf = k / v.k;
+        return { k, x: mx - (mx - v.x) * kf, y: my - (my - v.y) * kf };
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [setView]);
+
   const storePath = (edgeId: string) => (el: SVGPathElement | null) => {
     if (el) pathMap.current.set(edgeId, el);
     else pathMap.current.delete(edgeId);
@@ -200,7 +228,6 @@ return (
       onPointerCancel={() => {
         dragRef.current.active = false;
       }}
-      onWheel={(e) => handleWheel(e, setView)}
       onDoubleClick={() => fitView()}
     >
       <svg ref={svgRef} className="fc__svg" width="100%" height="100%">
@@ -357,19 +384,6 @@ function baseWidth(edge: FlowEdgeData): number {
   if (edge.kind === "tool") return edge.status === "error" ? 2.4 : 1.9;
   if (edge.kind === "error") return 1.7;
   return 1.35;
-}
-
-function handleWheel(e: ReactWheelEvent<HTMLDivElement>, setView: Dispatch<SetStateAction<View>>) {
-  e.preventDefault();
-  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-  const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015));
-  setView((v) => {
-    const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.k * factor));
-    const kf = k / v.k;
-    return { k, x: mx - (mx - v.x) * kf, y: my - (my - v.y) * kf };
-  });
 }
 
 function renderControls(

@@ -162,4 +162,57 @@ describe("FlowCanvas — lisibilité & hiérarchie visuelle", () => {
     expect(container.querySelectorAll(".fledger__item").length).toBe(ledger.length);
     expect(panel?.textContent).toContain("Journal des outils");
   });
+
+  it("zoome à la molette via un listener natif non passif (preventDefault effectif)", () => {
+    const { nodes, edges } = demoGraph();
+    const { container } = render(
+      <FlowCanvas
+        nodes={nodes}
+        edges={edges}
+        pulses={[]}
+        onPulseDone={() => {}}
+        selected={null}
+        onSelect={() => {}}
+        heat={null}
+        focusRelated={false}
+      />,
+    );
+    expect(container.querySelector(".fc__zoom-value")?.textContent).toBe("100%");
+    // dispatchEvent renvoie false quand preventDefault a été honoré : le
+    // listener n'est plus passif — plus d'erreur « Unable to preventDefault ».
+    const dispatched = fireEvent.wheel(container.querySelector(".fc")!, {
+      deltaY: -100,
+      cancelable: true,
+    });
+    expect(dispatched).toBe(false);
+    // exp(100 × 0.0015) ≈ 1.1618 → zoom ≈ 116 %, centré sur le curseur.
+    expect(container.querySelector(".fc__zoom-value")?.textContent).toBe("116%");
+  });
+
+  it("laisse le journal des outils défiler sans zoomer la toile", () => {
+    const g = initGraph();
+    Object.assign(g, reduceTimeline(demoTimeline()));
+    const ledger = buildToolLedger(g);
+    const { container } = render(
+      <FlowCanvas
+        nodes={Object.values(g.nodes)}
+        edges={g.edgeOrder.map((id) => g.edges[id])}
+        pulses={[]}
+        onPulseDone={() => {}}
+        selected={null}
+        onSelect={() => {}}
+        heat={null}
+        focusRelated={false}
+        ledger={ledger}
+      />,
+    );
+    // Molette SUR l'overlay : l'événement n'est ni annulé ni converti en zoom
+    // (le navigateur fait défiler la liste normalement).
+    const dispatched = fireEvent.wheel(container.querySelector(".fledger")!, {
+      deltaY: -100,
+      cancelable: true,
+    });
+    expect(dispatched).toBe(true);
+    expect(container.querySelector(".fc__zoom-value")?.textContent).toBe("100%");
+  });
 });
