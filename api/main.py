@@ -57,6 +57,29 @@ def _run_startup_model_sanity() -> None:
         )
 
 
+def _run_startup_classifier_warmup() -> None:
+    """Réchauffe le classifieur de sentiment en arrière-plan (Phase 2).
+
+    Idempotent et défensif : le warmup ne doit JAMAIS faire échouer le
+    démarrage. ``ModelWarmup.warm()`` capture toutes les exceptions (y compris
+    l'absence de modèle) et expose l'état via ``status()`` / ``snapshot()``.
+    """
+    import logging
+
+    _logger = logging.getLogger(__name__)
+    try:
+        from core.classifier_registry import get_registry
+        from core.model_warmup import get_warmup
+        from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
+
+        classifier = get_registry().get_or_create(
+            SentimentClassifier.name, SentimentClassifier
+        )
+        get_warmup().warm_in_background(classifier)
+    except Exception as exc:  # pragma: no cover - défensif
+        _logger.warning("Warmup classifieur au démarrage impossible : %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Cycle de vie de l'application (remplace @app.on_event, déprécié)."""
@@ -71,6 +94,16 @@ async def lifespan(_app: FastAPI):
         name="startup-model-sanity",
         daemon=True,
     ).start()
+    # Phase 2 : réchauffe le classifieur de sentiment en arrière-plan (le cold
+    # start est porté par un thread daemon pendant que l'API répond déjà).
+    # Désactivable via CLASSIFIER_WARMUP=0 (c'est le défaut des tests/CI : ne
+    # pas charger le modèle de 541 Mo à chaque TestClient).
+    if os.getenv("CLASSIFIER_WARMUP", "1") != "0":
+        threading.Thread(
+            target=_run_startup_classifier_warmup,
+            name="startup-classifier-warmup",
+            daemon=True,
+        ).start()
     yield
 
 

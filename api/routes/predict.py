@@ -1,16 +1,19 @@
 import io
 import logging
 import os
-from typing import Annotated, Optional
+import threading
+from typing import Annotated
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, StringConstraints
 
-from api.dependencies.auth import require_api_key
-from core.predictor_cache import reload_predictor
 import api
+from api.dependencies.auth import require_api_key
+from core.dynamic_batcher import DynamicBatcher
+from core.inference_executor import get_executor
+from core.predictor_cache import reload_predictor
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,50 @@ MAX_TEXT_CHARS = int(os.getenv("PREDICT_MAX_TEXT_CHARS", "10000"))
 MAX_UPLOAD_BYTES = int(os.getenv("PREDICT_BATCH_MAX_BYTES", str(10 * 1024 * 1024)))
 MAX_BATCH_ROWS = int(os.getenv("PREDICT_BATCH_MAX_ROWS", "20000"))
 PREDICT_CHUNK_SIZE = int(os.getenv("PREDICT_BATCH_CHUNK_SIZE", "128"))
+
+# ---------------------------------------------------------------------------
+# DynamicBatcher (Phase 2) : regroupement temporel des requêtes concurrentes.
+# Activable par environnement ; le singleton est créé paresseusement (le thread
+# worker ne démarre qu'à la première requête /predict/batched).
+# ---------------------------------------------------------------------------
+BATCHER_ENABLED = os.getenv("BATCHER_ENABLED", "1") == "1"
+BATCHER_MAX_BATCH = int(os.getenv("BATCHER_MAX_BATCH", "32"))
+BATCHER_WINDOW_MS = float(os.getenv("BATCHER_WINDOW_MS", "20")) / 1000.0
+BATCHER_MAX_QUEUE = int(os.getenv("BATCHER_MAX_QUEUE", "512"))
+
+_batcher: DynamicBatcher | None = None
+_batcher_lock = threading.Lock()
+
+
+def _batcher_infer(texts: list[str]) -> list[dict]:
+    """Inférence de lot : prédicteur actif (résolution courte à chaque lot)."""
+    predictor = api._get_predictor(None)
+    return predictor.predict(texts)
+
+
+def get_predict_batcher() -> DynamicBatcher:
+    """Batcher de prédiction singleton (créé paresseusement, thread-safe)."""
+    global _batcher
+    if _batcher is None:
+        with _batcher_lock:
+            if _batcher is None:
+                _batcher = DynamicBatcher(
+                    _batcher_infer,
+                    max_batch_size=BATCHER_MAX_BATCH,
+                    window_seconds=BATCHER_WINDOW_MS,
+                    max_queue=BATCHER_MAX_QUEUE,
+                    name="predict-batcher",
+                )
+    return _batcher
+
+
+def reset_predict_batcher() -> None:
+    """Arrête et réinitialise le batcher (tests / hot-reload)."""
+    global _batcher
+    with _batcher_lock:
+        if _batcher is not None:
+            _batcher.stop(wait=True, timeout=5.0)
+            _batcher = None
 
 
 # ---------------------------
@@ -50,10 +97,42 @@ class PredictResponse(BaseModel):
     results: list[Prediction]
 
 
+class BatchedPredictRequest(BaseModel):
+    # Mêmes garde-fous que PredictRequest (bornes globales du module).
+    texts: list[Annotated[str, StringConstraints(max_length=MAX_TEXT_CHARS)]] = Field(
+        min_length=1,
+        max_length=MAX_TEXTS_PER_REQUEST,
+    )
+    #: True : regroupement dynamique des textes de REQUÊTES CONCURRENTES en un
+    #: seul lot d'inférence (latence amortie sous charge). False : inférence
+    #: directe via le pool de threads (comportement de /predict).
+    use_batcher: bool = True
+
+
+@router.post("/predict/batched", response_model=PredictResponse)
+async def predict_batched(
+    req: BatchedPredictRequest,
+    _: bool = Depends(require_api_key),
+):
+    """Prédiction batch asynchrone (Phase 2).
+
+    ``submit()`` du batcher attend sur un ``threading.Event`` : l'antente
+    libère le GIL et ne fige PAS l'event loop — les autres requêtes continuent.
+    L'ordre des résultats suit l'ordre du corps de requête.
+    """
+    if req.use_batcher and BATCHER_ENABLED:
+        batcher = get_predict_batcher()
+        results = [batcher.submit(text) for text in req.texts]
+    else:
+        predictor = api._get_predictor(None)
+        results = await get_executor().run_async(predictor.predict, list(req.texts))
+    return {"results": results}
+
+
 @router.post("/predict", response_model=PredictResponse)
 def predict_route(
     req: PredictRequest,
-    model: Optional[str] = None,
+    model: str | None = None,
     _: bool = Depends(require_api_key),
 ):
     predictor = api._get_predictor(model)
@@ -70,7 +149,7 @@ async def predict_batch(
     file: UploadFile = File(...),
     text_column: str = Form("text"),
     response_format: str = Form("json"),
-    model: Optional[str] = None,
+    model: str | None = None,
     _: bool = Depends(require_api_key),
 ):
     raw = await file.read()
@@ -165,7 +244,7 @@ def reload_model(_: bool = Depends(require_api_key)):
 
     # SCRUM-74 : sanity check après rechargement — on refuse de confirmer le
     # rechargement avec un modèle non entraîné / fallback (erreur explicite).
-    from core.model_sanity import run_model_sanity, VERDICT_OK
+    from core.model_sanity import VERDICT_OK, run_model_sanity
 
     report = run_model_sanity(api._get_predictor())
     if report["verdict"] != VERDICT_OK:
