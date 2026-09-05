@@ -5,6 +5,9 @@ Couvre ``ia/agent/plan_correct.py`` :
     - web → rôle « web » ;
     - SQL mutant → rejet immédiat (PlanRejected) ;
     - shell → UNIQUEMENT si commande whitelistée (sinon PlanRejected) ;
+      faux assignement « shell » SANS intention d'exécution → re-ciblé « files »
+      (pas d'abort du run) ; le mot français « format » n'est PAS un marqueur
+      de danger ;
     - lecture seule → marquage ``auto_approve`` (réduction des approvals) ;
     - le prompt du planner expose les capacités RÉELLES des rôles.
 
@@ -99,6 +102,61 @@ def test_shell_non_whitelisted_command_is_rejected():
 def test_shell_dangerous_command_is_rejected():
     with pytest.raises(PlanRejected):
         correct_plan([{"task_id": "t", "role": "shell", "subtask": "Lance rm -rf sur le projet."}])
+
+
+# --- Faux assignement « shell » → re-ciblage « files » (pas d'abort) ------------
+
+
+def test_shell_role_with_formatting_subtask_is_retargeted_to_files():
+    """Incident SCRUM-99 : « structurer les résultats » n'est PAS du shell.
+
+    Le planner peut étiqueter à tort une sous-tâche de mise en forme avec le
+    rôle « shell » : le correcteur la re-cible vers « files » au lieu
+    d'abandonner tout le run (PlanRejected → abort global).
+    """
+    plan = [{
+        "task_id": "task-3",
+        "role": "shell",
+        "subtask": (
+            "Structurer les résultats en format demandé : titre, entreprise, "
+            "lien, localisation, justification de correspondance (3–5 lignes "
+            "par offre)."
+        ),
+    }]
+    corrected = correct_plan(plan)
+    assert corrected[0]["role"] == "files"
+
+
+def test_french_word_format_is_not_a_danger_marker():
+    """Régression : le nom commun « format » ne déclenche plus shell_dangerous.
+
+    Le marqueur nu « format » (commande DOS) matchait le mot français
+    (ex. « au format demandé ») et avaute des plans par ailleurs valides.
+    """
+    plan = [
+        {"task_id": "t1", "role": "web", "subtask": "Cherche des offres d'emploi data sur le web."},
+        {"task_id": "t2", "role": "files", "subtask": "Rédige un rapport au format demandé : titre, entreprise, lien."},
+    ]
+    corrected = correct_plan(plan)
+    assert [t["role"] for t in corrected] == ["web", "files"]
+
+
+def test_format_disk_command_is_still_rejected():
+    """La vraie commande DOS de formatage de disque reste un rejet immédiat."""
+    with pytest.raises(PlanRejected):
+        correct_plan([{
+            "task_id": "t", "role": "shell",
+            "subtask": "Lance format C: sur le disque.",
+        }])
+
+
+def test_shell_execution_intent_without_whitelist_is_still_rejected():
+    """L'intention d'exécution non whitelistée reste un abort (jamais re-dispatch)."""
+    with pytest.raises(PlanRejected):
+        correct_plan([{
+            "task_id": "t", "role": "files",
+            "subtask": "Exécute un script de nettoyage des logs.",
+        }])
 
 
 # --- Lecture seule → auto-approve ----------------------------------------------
