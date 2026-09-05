@@ -321,6 +321,160 @@
   white-space: pre-wrap;
 }
 
+/* ----------------- Rendu Markdown (réponses assistant) ------------------ */
+/*
+ * La bulle assistant passe par MarkdownContent (markdown.tsx) : les blocs
+ * gèrent eux-mêmes leurs espacements, on désactive donc le « pre-wrap »
+ * hérité de .chat-message__text (qui reste utile côté utilisateur).
+ */
+.chat-message__text--md {
+  white-space: normal;
+  font-size: 14.5px;
+}
+
+.chat-message__text--md > :first-child {
+  margin-top: 0;
+}
+
+.chat-message__text--md > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-message__text--md p {
+  margin: 0.4em 0;
+}
+
+/* Titres sémantiques (accessibles) mais tailles normalisées pour une bulle. */
+.chat-message__text--md h1,
+.chat-message__text--md h2,
+.chat-message__text--md h3,
+.chat-message__text--md h4,
+.chat-message__text--md h5,
+.chat-message__text--md h6 {
+  margin: 0.9em 0 0.35em;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.chat-message__text--md h1 {
+  font-size: 1.28em;
+}
+
+.chat-message__text--md h2 {
+  font-size: 1.16em;
+}
+
+.chat-message__text--md h3 {
+  font-size: 1.07em;
+}
+
+.chat-message__text--md h4,
+.chat-message__text--md h5,
+.chat-message__text--md h6 {
+  font-size: 1em;
+}
+
+.chat-message__text--md ul,
+.chat-message__text--md ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+
+.chat-message__text--md li {
+  margin: 0.15em 0;
+}
+
+.chat-message__text--md li > ul,
+.chat-message__text--md li > ol {
+  margin: 0.15em 0;
+}
+
+.chat-message__text--md code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  background: rgba(127, 127, 127, 0.14);
+}
+
+.chat-md-code {
+  margin: 0.55em 0;
+  overflow: hidden;
+  border: 1px solid var(--chat-border);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.chat-md-code[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  padding: 4px 12px 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--chat-text-muted);
+}
+
+.chat-md-code pre {
+  margin: 0;
+  padding: 8px 12px 10px;
+  overflow-x: auto;
+}
+
+.chat-md-code pre code {
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+.chat-message__text--md blockquote {
+  margin: 0.5em 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--chat-accent-border);
+  color: var(--chat-text-muted);
+}
+
+.chat-message__text--md hr {
+  margin: 0.9em 0;
+  border: none;
+  border-top: 1px solid var(--chat-border);
+}
+
+.chat-message__text--md a {
+  color: var(--chat-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-md-table {
+  margin: 0.55em 0;
+  overflow-x: auto;
+}
+
+.chat-md-table table {
+  border-collapse: collapse;
+  font-size: 0.93em;
+}
+
+.chat-md-table th,
+.chat-md-table td {
+  padding: 5px 10px;
+  border: 1px solid var(--chat-border);
+  text-align: left;
+}
+
+.chat-md-table th {
+  background: rgba(127, 127, 127, 0.1);
+  font-weight: 600;
+}
+
+.chat-message__text--md .chat-md-task {
+  margin-right: 6px;
+  accent-color: var(--chat-accent);
+  vertical-align: middle;
+}
+
 .chat-message__cursor {
   display: inline-block;
   margin-left: 2px;
@@ -1016,6 +1170,29 @@
 .multi-agent-trace__worker--running .multi-agent-trace__state {
   color: var(--accent-color, #58a6ff);
   opacity: 0.9;
+}
+
+/* --- Markdown en ligne (sous-tâches / résumés du LLM, MultiAgentTrace) --- */
+.multi-agent-trace__subtask strong {
+  font-weight: 650;
+}
+
+.multi-agent-trace__subtask em {
+  font-style: italic;
+}
+
+.multi-agent-trace__subtask code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: rgba(127, 127, 127, 0.14);
+}
+
+.multi-agent-trace__subtask a {
+  color: var(--accent-color, #58a6ff);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 @keyframes multi-agent-spin {

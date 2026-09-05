@@ -23,6 +23,7 @@ Interface de chat façon GitHub Copilot, en **React + TypeScript**, située dans
 src/components/chat/
 ├── ChatWindow.tsx     # État global + appel POST /api/ai en streaming (SSE)
 ├── ChatMessage.tsx    # Une bulle de message (utilisateur / IA)
+├── markdown.tsx       # Rendu Markdown des réponses de l'assistant (zéro dépendance)
 ├── ChatInput.tsx      # Textarea auto-extensible + bouton envoyer / stop
 ├── streamSse.ts       # Parseur de flux Server-Sent Events
 ├── types.ts           # Types partagés
@@ -31,7 +32,9 @@ src/components/chat/
 ```
 
 Fonctionnalités : streaming token par token, spinner de chargement,
-curseur clignotant, scroll automatique intelligent, bouton « Stop »
+curseur clignotant, rendu Markdown des réponses de l'assistant (titres,
+gras, listes, code, tableaux) et des sous-tâches multi-agents (en ligne —
+via `markdown.tsx`), scroll automatique intelligent, bouton « Stop »
 (AbortController), bouton « Nouvelle tâche » (nouvelle session : interrompt
 la génération en cours et vide la conversation), gestion des erreurs,
 thème clair/sombre automatique.

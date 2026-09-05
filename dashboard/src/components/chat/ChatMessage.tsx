@@ -1,6 +1,8 @@
+import { memo } from 'react';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallBlock } from './ToolCallBlock';
 import { MultiAgentTrace } from './MultiAgentTrace';
+import { MarkdownContent } from './markdown';
 import type { ChatMessageData } from './types';
 
 interface ChatMessageProps {
@@ -62,8 +64,14 @@ function TypingIndicator() {
   );
 }
 
-/** Bulle d'un message unique (utilisateur ou IA), façon GitHub Copilot Chat. */
-export function ChatMessage({ message }: ChatMessageProps) {
+/**
+ * Bulle d'un message unique (utilisateur ou IA), façon GitHub Copilot Chat.
+ *
+ * Mémoïsée : pendant le streaming, seuls le message actif (et ses blocs
+ * d'outils / réflexion) se re-rendent à chaque token — l'historique et son
+ * rendu Markdown ne sont pas recalculés.
+ */
+export const ChatMessage = memo(function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const classes = ['chat-message', `chat-message--${message.role}`];
   if (message.error) {
@@ -97,14 +105,16 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
         <div className="chat-message__bubble">
           {message.content ? (
-            <p className="chat-message__text">
-              {message.content}
-              {message.streaming && (
-                <span className="chat-message__cursor" aria-hidden="true">
-                  ▍
-                </span>
-              )}
-            </p>
+            isUser ? (
+              /* Utilisateur : texte brut fidèle, sauts de ligne préservés. */
+              <p className="chat-message__text">{message.content}</p>
+            ) : (
+              /* Assistant : Markdown rendu (markdown.tsx) ; le curseur de
+                 streaming est injecté en fin de dernier bloc. */
+              <div className="chat-message__text chat-message__text--md">
+                <MarkdownContent content={message.content} cursor={Boolean(message.streaming)} />
+              </div>
+            )
           ) : message.streaming ? (
             <TypingIndicator />
           ) : null}
@@ -118,4 +128,4 @@ export function ChatMessage({ message }: ChatMessageProps) {
       </div>
     </article>
   );
-}
+});
