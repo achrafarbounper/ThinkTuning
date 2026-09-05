@@ -35,6 +35,11 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "pyyaml>=6.0",
     "apscheduler>=3.10.0",
+    # Export ONNX (Phase 3) : conversion PyTorch -> ONNX + runtime CPU
+    "onnx>=1.14.0",
+    "onnxruntime>=1.17.0",
+    # Requis par le nouvel exporter onnx de torch>=2.4
+    "onnxscript>=0.12.0",
 ]
 
 [project.optional-dependencies]

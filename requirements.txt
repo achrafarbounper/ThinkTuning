@@ -32,3 +32,9 @@ pyyaml>=6.0
 apscheduler>=3.10.0
 # Configuration centralisée typée (app/config/settings.py, pydantic v2)
 pydantic-settings>=2.0.0
+# Export ONNX (Phase 3) : conversion PyTorch -> ONNX + runtime CPU. Le chemin
+# PyTorch reste le défaut ; ONNX est une optimisation additive optionnelle.
+# onnxscript est requis par le nouvel exporter onnx de torch>=2.4.
+onnx>=1.14.0
+onnxruntime>=1.17.0
+onnxscript>=0.12.0
