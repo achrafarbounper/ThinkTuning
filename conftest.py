@@ -45,3 +45,8 @@ if not os.getenv("AGENT_APPROVAL_PATH"):
     os.environ["AGENT_APPROVAL_PATH"] = os.path.join(
         tempfile.gettempdir(), "thinktuning-test-agent-approvals.db"
     )
+
+# Pas de warmup du classifieur de sentiment au démarrage du TestClient pendant
+# les tests : il chargerait le modèle de 541 Mo (coût CI). Les tests du warmup
+# sont isolés et posent explicitement CLASSIFIER_WARMUP=1.
+os.environ.setdefault("CLASSIFIER_WARMUP", "0")
