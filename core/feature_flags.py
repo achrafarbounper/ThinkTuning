@@ -28,6 +28,8 @@ import os
 #   copilot        (D) suggestions de type « GitHub Copilot »
 #   websocket      (E) canal bidirectionnel WebSocket
 #   multi_agent    (F) orchestration multi-agents (superviseur/workers)
+#   custom_tools   (G) tools personnalisés dynamiques (SCRUM-99 : registre +
+#                      propositions du planner + API d'enregistrement humain)
 FEATURES = (
     "reliability",
     "audit",
@@ -36,6 +38,7 @@ FEATURES = (
     "copilot",
     "websocket",
     "multi_agent",
+    "custom_tools",
 )
 
 # Valeurs considérées comme « activé » (insensible à la casse).

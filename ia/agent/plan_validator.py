@@ -12,7 +12,8 @@ Sortie ``ok=False`` -> error_code + message (bucket "abort" côté orchestrateur
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Dict, List, Optional
+import re
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .errors import (
     PLAN_CYCLE,
@@ -61,7 +62,10 @@ class PlanTask:
 class ValidationResult:
     """Résultat de la validation : succès (tasks) ou échec (error_code)."""
 
-    __slots__ = ("ok", "tasks", "error_code", "message", "valid_roles")
+    __slots__ = (
+        "ok", "tasks", "error_code", "message", "valid_roles",
+        "tool_proposals", "tool_proposal_notes",
+    )
 
     def __init__(
         self,
@@ -70,16 +74,22 @@ class ValidationResult:
         error_code: str = "",
         message: str = "",
         valid_roles: Optional[List[str]] = None,
+        tool_proposals: Optional[List[Dict[str, Any]]] = None,
+        tool_proposal_notes: Optional[List[Dict[str, Any]]] = None,
     ):
         self.ok = ok
         self.tasks = tasks or []
         self.error_code = error_code
         self.message = message
         self.valid_roles = valid_roles or []
+        # SCRUM-99 : propositions de tools embarquées dans le plan
+        # (pseudo-rôle ``propose_tool``), séparées des tâches exécutables.
+        self.tool_proposals = tool_proposals or []
+        self.tool_proposal_notes = tool_proposal_notes or []
 
     def to_dict(self) -> Dict[str, Any]:
         if self.ok:
-            return {
+            payload = {
                 "ok": True,
                 "tasks": [
                     {
@@ -93,12 +103,20 @@ class ValidationResult:
                     for t in self.tasks
                 ],
             }
-        return {
-            "ok": False,
-            "error_code": self.error_code,
-            "message": self.message,
-            "valid_roles": self.valid_roles,
-        }
+        else:
+            payload = {
+                "ok": False,
+                "error_code": self.error_code,
+                "message": self.message,
+                "valid_roles": self.valid_roles,
+            }
+        # SCRUM-99 : propositions de tools incluses seulement si présentes,
+        # pour ne pas modifier la forme des payloads historiques (tests, API).
+        if self.tool_proposals:
+            payload["tool_proposals"] = list(self.tool_proposals)
+        if self.tool_proposal_notes:
+            payload["tool_proposal_notes"] = list(self.tool_proposal_notes)
+        return payload
 
 
 def _extract_plan(raw: str) -> Optional[List[Dict[str, Any]]]:
@@ -165,11 +183,61 @@ def _topo_order_ok(tasks: List[PlanTask]) -> bool:
     return all(dfs(t.task_id) for t in tasks)
 
 
+# SCRUM-99 : pseudo-rôle du plan qui porte une PROPOSITION de tool (jamais
+# dispatché comme worker). Même règle de nom que le standard
+# ``thinktuning.tool/v1`` (cf. ``ia/tools/tool_schema.py``).
+TOOL_PROPOSAL_ROLE = "propose_tool"
+_TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+
+
+def _extract_tool_proposal(
+    item: Dict[str, Any], fallback_task_id: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Normalise une tâche ``propose_tool`` -> (proposition | None, raison).
+
+    Validation minimale DÉTERMINISTE (la validation complète du standard
+    ``thinktuning.tool/v1`` a lieu à l'enregistrement, dans la ToolRegistry) :
+    nom ^[a-z][a-z0-9_]{1,63}$, description non vide, parameters objet.
+    """
+    tool = item.get("tool")
+    if not isinstance(tool, dict):
+        return None, "proposition sans objet « tool » (attendu : tool: {...})"
+    name = tool.get("name")
+    if not isinstance(name, str) or not _TOOL_NAME_RE.match(name):
+        return None, f"nom de tool invalide : « {name} »"
+    description = tool.get("description")
+    if not isinstance(description, str) or not description.strip():
+        return None, f"« {name} » : description absente ou vide"
+    parameters = tool.get("parameters") or {}
+    if not isinstance(parameters, dict):
+        return None, f"« {name} » : « parameters » doit être un objet"
+    required_args = tool.get("required_args")
+    if not isinstance(required_args, list):
+        required_args = []
+    proposal: Dict[str, Any] = {
+        "name": name,
+        "description": description.strip(),
+        "category": (
+            tool.get("category") if isinstance(tool.get("category"), str)
+            and tool.get("category") else "custom"
+        ),
+        "version": str(tool.get("version") or "1.0"),
+        "required_args": [a for a in required_args if isinstance(a, str)],
+        "parameters": parameters,
+        "task_id": fallback_task_id,
+        "subtask": (item.get("subtask") or "").strip(),
+    }
+    if isinstance(tool.get("safety"), dict):
+        proposal["safety"] = tool["safety"]
+    return proposal, None
+
+
 def validate_plan(
     raw: str,
     roles: List[str],
     max_roles: int = 5,
     preprocess: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
+    max_tool_proposals: int = 1,
 ) -> ValidationResult:
     """Valide un plan brut contre les rôles connus et les contraintes d'intégrité.
 
@@ -186,6 +254,12 @@ def validate_plan(
       - pas de duplication (task_id / (role, subtask)) ;
       - pas de circularité si ``dependencies`` est fourni ;
       - nombre de tâches borné par ``max_roles``.
+
+    SCRUM-99 : les tâches de pseudo-rôle ``propose_tool`` (portant un objet
+    ``tool``) ne sont PAS dispatchées : elles sont extraites, validées
+    minimalement, bornées par ``max_tool_proposals`` et renvoyées dans
+    ``ValidationResult.tool_proposals`` (rejets tracés dans
+    ``tool_proposal_notes``) pour le pipeline de review/enregistrement.
     """
     valid_roles = list(roles)
 
@@ -225,6 +299,9 @@ def validate_plan(
     seen_ids = set()
     seen_pairs = set()
     errors: List[str] = []
+    # SCRUM-99 : collecte des propositions de tools du plan.
+    tool_proposals: List[Dict[str, Any]] = []
+    tool_notes: List[Dict[str, Any]] = []
 
     for index, item in enumerate(tasks_raw, start=1):
         task_id = item.get("task_id") if isinstance(item, dict) else None
@@ -233,6 +310,33 @@ def validate_plan(
         dependencies = (
             item.get("dependencies") if isinstance(item, dict) else None
         )
+
+        # SCRUM-99 : pseudo-rôle « propose_tool » — extraire, ne pas dispatch.
+        if role == TOOL_PROPOSAL_ROLE:
+            proposal_id = task_id if isinstance(task_id, str) and task_id else f"task-{index}"
+            proposal, reason = _extract_tool_proposal(
+                item if isinstance(item, dict) else {}, proposal_id,
+            )
+            if proposal is None:
+                tool_notes.append({"task_id": proposal_id, "reason": reason})
+                continue
+            if any(p["name"] == proposal["name"] for p in tool_proposals):
+                tool_notes.append({
+                    "task_id": proposal_id, "name": proposal["name"],
+                    "reason": f"tool « {proposal['name']} » déjà proposé dans ce plan",
+                })
+                continue
+            if len(tool_proposals) >= max_tool_proposals:
+                tool_notes.append({
+                    "task_id": proposal_id, "name": proposal["name"],
+                    "reason": (
+                        f"plafond de {max_tool_proposals} proposition(s) "
+                        "de tool par plan atteint"
+                    ),
+                })
+                continue
+            tool_proposals.append(proposal)
+            continue
 
         if not isinstance(role, str) or role not in roles:
             errors.append(
@@ -275,7 +379,7 @@ def validate_plan(
             valid_roles=valid_roles,
         )
 
-    if not tasks:
+    if not tasks and not tool_proposals:
         return ValidationResult(
             ok=False,
             error_code=TASK_UNDEFINED,
@@ -291,4 +395,9 @@ def validate_plan(
             valid_roles=valid_roles,
         )
 
-    return ValidationResult(ok=True, tasks=tasks)
+    return ValidationResult(
+        ok=True,
+        tasks=tasks,
+        tool_proposals=tool_proposals,
+        tool_proposal_notes=tool_notes,
+    )

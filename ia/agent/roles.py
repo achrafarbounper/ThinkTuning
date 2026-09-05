@@ -40,6 +40,8 @@ _OPS = [
     "git_status", "git_log", "git_diff", "download_file",
 ]
 _SHELL = ["run_command", "run_python"]
+# SCRUM-99 : outils personnalisés d'exemple (shell allowlisté + HTTP générique).
+_CUSTOM = ["run_shell", "call_api"]
 _SYSTEM = _OPS  # alias conservé (rétro-compatibilité, aucun rôle ne le référence)
 _DOCKER = ["docker_ps", "docker_logs", "docker_exec", "docker_stats", "gpu_info"]
 
@@ -129,11 +131,44 @@ ROLES: Dict[str, Role] = {
         description="Gestion de conteneurs Docker et information GPU.",
         tools=_DOCKER,
     ),
+    # --- SCRUM-99 : rôles du pipeline « tools personnalisés » ---------------
+    "operator": Role(
+        name="operator",
+        label="Opérateur tools",
+        description=(
+            "Exécution contrôlée d'outils personnalisés validés (shell "
+            "allowlisté, appels API génériques). N'écrit JAMAIS de code ni "
+            "de définition de tool : il consomme le registre."
+        ),
+        tools=_CUSTOM,
+    ),
+    "developer": Role(
+        name="developer",
+        label="Développeur",
+        description=(
+            "Rédige du code et des définitions de tools DANS SA RÉPONSE "
+            "(JSON standard thinktuning.tool/v1). N'exécute AUCUN outil et "
+            "ne registre jamais un tool : l'enregistrement est une décision "
+            "humaine (review + approbation)."
+        ),
+        tools=[],
+    ),
+    "reviewer": Role(
+        name="reviewer",
+        label="Relecteur sécurité",
+        description=(
+            "Relit une définition de tool proposée (nom, paramètres, "
+            "sécurité, effets de bord) et rend un verdict ARGUMENTÉ. N'a "
+            "AUCUN outil : aucun appel d'outil ne peut contourner la relecture."
+        ),
+        tools=[],
+    ),
 }
 
 # Ordre canonique des rôles (pour prompts, plan, validation).
 ROLE_ORDER = [
     "web", "files", "ml", "data", "math", "ops", "shell", "docker",
+    "operator", "developer", "reviewer",
 ]
 
 
@@ -196,6 +231,12 @@ INTENT_POLICY: Dict[str, str] = {
     "ops": "action_only",
     "shell": "action_only",
     "docker": "action_only",
+    # SCRUM-99 : les rôles du pipeline tools sont purement « action » —
+    # developer/reviewer n'ont aucun outil et ne servent qu'à produire/juger
+    # des définitions ; operator n'a de sens que pour exécuter.
+    "operator": "action_only",
+    "developer": "action_only",
+    "reviewer": "action_only",
 }
 DEFAULT_INTENT_POLICY = "action_only"
 

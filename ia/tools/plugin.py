@@ -10,6 +10,11 @@ et dont chaque fonction publique devient un outil enregistré dans le registre
 ``TOOLS``. Les entrées du manifeste sont validées : un outil sans entrée
 ``TOOL_META`` est rejeté (fail-closed, cohérent avec la config JSON).
 
+SCRUM-99 : l'enregistrement passe désormais par la ``ToolRegistry``
+(source de vérité unique — cf. ``ia/tools/registry.py``) au lieu de muter
+directement les dicts statiques. Les métadonnées du plugin sont converties
+au standard ``thinktuning.tool/v1`` (``from_meta_format``) puis validées.
+
 Usage : ``load_plugin("mypkg.my_tools")`` — idempotent (un module déjà chargé
 n'est pas rechargé). ``loaded_plugins()`` liste ce qui a été intégré.
 """
@@ -18,7 +23,8 @@ import importlib
 import threading
 import types
 
-from .tool_registry import REQUIRED_ARGS, TOOLS, TOOL_META
+from .registry import ToolRegistryError, get_global_registry
+from .tool_schema import from_meta_format
 
 _LOCK = threading.Lock()
 _LOADED: dict[str, str] = {}  # module_path -> plugin_name
@@ -36,6 +42,7 @@ def load_plugin(module_path: str) -> dict:
     module = importlib.import_module(module_path)
     plugin_name = getattr(module, "PLUGIN_NAME", module_path.rsplit(".", 1)[-1])
     meta = getattr(module, "TOOL_META", {})
+    registry = get_global_registry()
     registered: list[str] = []
     with _LOCK:
         for name in dir(module):
@@ -47,16 +54,23 @@ def load_plugin(module_path: str) -> dict:
             # synthétiques et les fonctions réexportées volontairement.)
             if not callable(obj) or isinstance(obj, types.ModuleType):
                 continue
-            if name in TOOLS:
-                raise PluginError(f"Conflit : l'outil « {name} » existe déjà")
             if name not in meta:
                 raise PluginError(
                     f"Outil « {name} » du plugin {plugin_name} sans entrée TOOL_META "
                     "(description/required_args) : refusé (fail-closed)"
                 )
-            TOOLS[name] = obj
-            TOOL_META[name] = meta[name]
-            REQUIRED_ARGS[name] = meta[name].get("required_args", [])
+            if registry.has_tool(name):
+                raise PluginError(f"Conflit : l'outil « {name} » existe déjà")
+            # SOURCE DE VÉRITÉ UNIQUE : l'enregistrement (et la projection
+            # dans TOOLS/TOOL_META/REQUIRED_ARGS) passe par la registry.
+            try:
+                registry.add_tool(
+                    obj,
+                    from_meta_format(name, meta[name]),
+                    owner=f"plugin:{plugin_name}",
+                )
+            except ToolRegistryError as exc:
+                raise PluginError(str(exc)) from exc
             registered.append(name)
         _LOADED[module_path] = plugin_name
     return {"plugin": plugin_name, "registered": registered, "cached": False}
