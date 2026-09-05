@@ -306,12 +306,52 @@ def _reason_for(decision: Decision, tool: str, category: str) -> str:
     return reasons[decision]
 
 
+def _registry_approval(tool: str) -> Optional[Decision]:
+    """Surcharge « registry » (SCRUM-99) : approval effectif d'un tool enregistré.
+
+    Les tools DYNAMIQUES (proposés par le planner, relus par un humain) portent
+    leur classification DANS la ToolRegistry (dérivée de ``safety`` à
+    l'enregistrement, cf. ``ia/tools/registry.py``) :
+
+        - ``manual``  (défaut fail-closed) → APPROVE (validation humaine) ;
+        - ``blocked`` (``safety.level = dangerous``) → REJECT immédiat ;
+        - ``auto``    → AUTO_APPROVE, uniquement si la source était humaine
+          (``allow_auto_approval`` — sinon la registry force ``manual``).
+
+    Les tools natifs ne sont pas concernés (retour ``None`` : leur politique
+    reste celle du manifeste / des listes statiques ci-dessous).
+    """
+    try:  # import tardif : approvals doit rester léger et ne jamais casser le gate
+        from ..tools.registry import get_global_registry
+    except ImportError:
+        try:
+            from tools.registry import get_global_registry  # type: ignore[no-redef]
+        except ImportError:
+            return None
+    try:
+        registered = get_global_registry().get_tool(tool)
+    except Exception:  # noqa: BLE001 — le gate ne doit jamais planter ici
+        return None
+    if registered is None or not registered.dynamic:
+        return None
+    value = (registered.approval or "").lower()
+    if value == "auto":
+        return Decision.AUTO_APPROVE
+    if value == "manual":
+        return Decision.APPROVE
+    if value == "blocked":
+        return Decision.REJECT
+    return None
+
+
 def classify(tool: str, args: Dict[str, Any]) -> PolicyDecision:
     """Classe un appel d'outil et renvoie la décision structurée et horodatée.
 
     Ordre d'évaluation (du plus fort au plus souple) :
         1. règles dures : chemin interdit (`.git`, racine sandbox) → REJECT ;
         2. surcharge déclarative du manifeste (``approval``) ;
+        2 bis. surcharge « registry » : tool dynamique (SCRUM-99) dont
+          l'``approval`` dérive de ``safety`` (manual/blocked/auto) ;
         3. exécution de code (`run_command` / `run_python`) → fine grade ;
         4. listes statiques auto_approve / approve ;
         5. défaut = APPROVE (échec fermé : tout outil inconnu exige l'humain).
@@ -342,6 +382,17 @@ def classify(tool: str, args: Dict[str, Any]) -> PolicyDecision:
     if override is not None:
         category = _category_of(tool)
         return _badge(override, category, _reason_for(override, tool, category))
+
+    # 2 bis. Surcharge « registry » (tools dynamiques SCRUM-99) : la
+    # classification dérivée du standard thinktuning.tool/v1 (safety →
+    # approval à l'enregistrement) prime sur toute heuristique par défaut.
+    registry_decision = _registry_approval(tool)
+    if registry_decision is not None:
+        category = _category_of(tool)
+        return _badge(
+            registry_decision, category,
+            _reason_for(registry_decision, tool, category),
+        )
 
     # 3. Exécution de code — classification fine.
     if tool in ("run_command", "run_python"):
@@ -380,10 +431,10 @@ def _category_of(tool: str) -> str:
     if tool in ("copy_path", "write_file", "write_json", "append_file", "touch",
                 "make_dir", "dedupe_lines", "split_file"):
         return CATEGORY_WRITE
-    if tool in ("run_command", "run_python", "docker_exec"):
+    if tool in ("run_command", "run_python", "docker_exec", "run_shell"):
         return CATEGORY_EXEC
     if tool in ("web_search", "web_fetch", "web_read", "http_get", "http_post",
-                "download_file"):
+                "download_file", "call_api"):
         return CATEGORY_NETWORK
     if tool in ("env_info", "disk_usage", "gpu_info", "now"):
         return CATEGORY_SYSTEM

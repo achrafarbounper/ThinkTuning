@@ -81,6 +81,7 @@ from .ops_tools import (
     zip_path,
 )
 from .ops_tools import docker_stats
+from .custom_tools import call_api, run_shell  # SCRUM-99 (tools d'exemple)
 
 TOOLS = {
     # math
@@ -115,6 +116,9 @@ TOOLS = {
     # exécution
     "run_command": run_command,
     "run_python": run_python,
+    # tools personnalisés d'exemple (SCRUM-99) : shell allowlisté + HTTP générique
+    "run_shell": run_shell,
+    "call_api": call_api,
     # réseau
     "http_get": http_get,
     "http_post": http_post,
