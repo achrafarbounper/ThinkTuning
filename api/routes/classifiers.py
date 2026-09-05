@@ -72,6 +72,7 @@ class ClassifierPrediction(BaseModel):
     text: str
     label: str
     confidence: float
+    probabilities: dict[str, float] | None = None
 
 
 class ClassifierPredictResponse(BaseModel):
@@ -95,7 +96,11 @@ def get_classifier(name: str):
     return classifier_snapshot(name, classifier)
 
 
-@router.post("/classifiers/{name}/predict", response_model=ClassifierPredictResponse)
+@router.post(
+    "/classifiers/{name}/predict",
+    response_model=ClassifierPredictResponse,
+    response_model_exclude_none=True,
+)
 def predict_classifier(
     name: str,
     req: ClassifierPredictRequest,

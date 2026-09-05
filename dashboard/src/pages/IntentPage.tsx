@@ -32,7 +32,13 @@ export default function IntentPage() {
 
   const [texts, setTexts] = useState(SAMPLES.join("\n"));
   const [results, setResults] = useState<
-    null | { text: string; label: string; confidence: number }[]
+    | null
+    | {
+        text: string;
+        label: string;
+        confidence: number;
+        probabilities?: Record<string, number>;
+      }[]
   >(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,6 +159,7 @@ export default function IntentPage() {
                   <th scope="col">Message</th>
                   <th scope="col">Intention</th>
                   <th scope="col">Confiance</th>
+                  <th scope="col">Distribution</th>
                 </tr>
               </thead>
               <tbody>
@@ -171,6 +178,16 @@ export default function IntentPage() {
                       </span>
                     </td>
                     <td className="tt-mono">{(r.confidence * 100).toFixed(1)}%</td>
+                    <td className="tt-mono">
+                      {r.probabilities
+                        ? Object.entries(r.probabilities)
+                            .map(
+                              ([label, p]) =>
+                                `${intentLabel(label)} ${(p * 100).toFixed(1)}%`
+                            )
+                            .join(" · ")
+                        : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -179,10 +179,19 @@ class IntentClassifier(BaseClassifier):
         return self._predict_rules(texts)
 
     def _predict_rules(self, texts: list[str]) -> list[PredictionResult]:
-        return [
-            self._to_result(text, *fallback_intent(text))
-            for text in texts
-        ]
+        results: list[PredictionResult] = []
+        for text in texts:
+            label, confidence = fallback_intent(text)
+            distribution = {
+                label: float(confidence),
+                next(lab for lab in _INTENT_LABELS if lab != label): round(
+                    1.0 - confidence, 3
+                ),
+            }
+            results.append(
+                self._to_result(text, label, confidence, probabilities=distribution)
+            )
+        return results
 
     def _predict_torch(self, texts: list[str]) -> list[PredictionResult]:
         import torch
@@ -199,9 +208,17 @@ class IntentClassifier(BaseClassifier):
         latency = (time.perf_counter() - start) * 1000.0
         results = []
         for i, (text, pred) in enumerate(zip(texts, preds, strict=True)):
+            # Distribution complète des classes : rend visible la confiance
+            # réelle du modèle (dont les prédictions proches de 50/50).
+            distribution = {
+                label: float(prob)
+                for label, prob in zip(_INTENT_LABELS, probs[i].tolist(), strict=True)
+            }
             label = _INTENT_LABELS[int(pred)]
             conf = float(probs[i, pred])
-            results.append(self._to_result(text, label, conf, latency))
+            results.append(
+                self._to_result(text, label, conf, latency, probabilities=distribution)
+            )
         self._metrics.record(latency, cached=False)
         return results
 
@@ -209,7 +226,12 @@ class IntentClassifier(BaseClassifier):
         results = []
         for row in self._onnx.predict(texts):
             results.append(
-                self._to_result(row["text"], row["label"], row["confidence"])
+                self._to_result(
+                    row["text"],
+                    row["label"],
+                    row["confidence"],
+                    probabilities=row.get("probabilities"),
+                )
             )
         return results
 
@@ -219,14 +241,24 @@ class IntentClassifier(BaseClassifier):
         label: str,
         confidence: float,
         latency: float = 0.0,
+        probabilities: dict[str, float] | None = None,
     ) -> PredictionResult:
         # Seuil : sous ``threshold``, on retombe sur ``chat`` (sécurité : ne
-        # jamais déclencher une action sur une prédiction peu sûre).
+        # jamais déclencher une action sur une prédiction peu sûre). La
+        # distribution reflète alors la DÉCISION rendue : l'invariant
+        # ``probabilities[label] == confidence`` reste vrai après bascule.
         if confidence < self.threshold and label == "action":
             label, confidence = "chat", round(1.0 - confidence, 3)
+            if probabilities is not None:
+                other = next(lab for lab in _INTENT_LABELS if lab != label)
+                probabilities = {
+                    label: float(confidence),
+                    other: round(1.0 - confidence, 3),
+                }
         return PredictionResult(
             text=text, label=label, confidence=confidence, latency_ms=latency,
             model_name=self.model_name or "",
+            probabilities=probabilities,
         )
 
     def get_model_info(self) -> dict[str, Any]:

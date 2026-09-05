@@ -59,6 +59,8 @@ export interface ClassifierPrediction {
   text: string;
   label: string;
   confidence: number;
+  /** Distribution complète { label: probabilité } (présente selon le moteur). */
+  probabilities?: Record<string, number>;
   [key: string]: unknown;
 }
 

@@ -8,8 +8,8 @@ enregistrés dans le registre singleton, on couvre :
   - ``POST /classifiers/{name}/predict`` : prédiction (ordre préservé),
     garde-fous d'entrée, 401 sans clé, 404 inconnu ;
   - ``POST /classifiers/{name}/reload`` : rechargement ;
-  - le classifieur ``intent`` réel retombe sur les règles (aucun modèle
-    entraîné → ``chat``/``action``) sans charger torch.
+  - le classifieur ``intent`` réel (moteur ``rules`` forcé) prédit
+    ``chat``/``action`` sans charger torch.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ class _StubClassifier(BaseClassifier):
         self.fail_health = fail_health
         self.reload_calls = 0
         self.predict_calls = 0
+        self.probabilities: dict[str, float] | None = None
 
     def load_model(self) -> None:
         return None
@@ -42,7 +43,12 @@ class _StubClassifier(BaseClassifier):
     def predict(self, texts: list[str]) -> list[PredictionResult]:
         self.predict_calls += 1
         return [
-            PredictionResult(text=text, label="positive", confidence=0.93)
+            PredictionResult(
+                text=text,
+                label="positive",
+                confidence=0.93,
+                probabilities=self.probabilities,
+            )
             for text in texts
         ]
 
@@ -124,6 +130,19 @@ class TestPredictClassifier:
         assert [r["text"] for r in results] == ["un", "deux", "trois"]
         assert all(r["label"] == "positive" for r in results)
         assert all(r["confidence"] == pytest.approx(0.93) for r in results)
+        # Probabilités absentes -> clé omise (response_model_exclude_none).
+        assert all("probabilities" not in r for r in results)
+
+    def test_predict_expose_distribution_quand_presente(self, client) -> None:
+        stub = _StubClassifier("demo")
+        stub.probabilities = {"positive": 0.93, "negative": 0.07}
+        get_registry().register(stub)
+        response = client.post(
+            "/classifiers/demo/predict", json={"texts": ["un"]}, headers=HEADERS
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()["results"][0]
+        assert result["probabilities"] == {"positive": 0.93, "negative": 0.07}
 
     def test_sans_cle_api_401(self, client) -> None:
         get_registry().register(_StubClassifier("demo"))
@@ -147,8 +166,12 @@ class TestPredictClassifier:
         )
         assert response.status_code == 404
 
-    def test_intent_reel_bascule_sur_regles(self, client) -> None:
-        """Sans modèle entraîné, intent prédit action/chat via les règles."""
+    def test_intent_regles_quand_moteur_force(self, client) -> None:
+        """Avec ``engine='rules'`` (équivalent au repli sans modèle), intent
+        prédit action/chat via les règles et expose la distribution."""
+        from ia.agent.classifiers.intent_classifier import IntentClassifier
+
+        get_registry().register(IntentClassifier(engine="rules"))
         response = client.post(
             "/classifiers/intent/predict",
             json={
@@ -162,6 +185,7 @@ class TestPredictClassifier:
         assert response.status_code == 200, response.text
         results = response.json()["results"]
         assert [r["label"] for r in results] == ["action", "chat"]
+        assert results[0]["probabilities"] == {"action": 0.7, "chat": 0.3}
 
 
 class TestReloadClassifier:

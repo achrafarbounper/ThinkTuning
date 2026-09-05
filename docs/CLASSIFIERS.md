@@ -127,11 +127,17 @@ python scripts/train_intent.py --dataset data/intent_dataset.jsonl \
 |---|---|---|---|
 | `GET`  | `/classifiers` | non | Liste + synthèse de santé (`summary.ok/degraded/down`). |
 | `GET`  | `/classifiers/{name}` | non | Instantané complet (info, métriques, health, warmup). |
-| `POST` | `/classifiers/{name}/predict` | oui | Prédiction `{texts}` → `[{text, label, confidence}]` (bornes anti-DoS). |
+| `POST` | `/classifiers/{name}/predict` | oui | Prédiction `{texts}` → `[{text, label, confidence, probabilities?}]` (bornes anti-DoS). |
 | `POST` | `/classifiers/{name}/reload` | oui | Recharge le modèle actif depuis le disque. |
 
 Classifieurs connus d'office : `sentiment` et `intent` (créés paresseusement
 dans le registre singleton au premier accès — aucun modèle chargé à l'import).
+
+Chaque prédiction expose, quand le moteur la connaît, la **distribution
+complète des classes** (`probabilities: {label: proba, …}`) — pour le moteur
+`intent`, elle permet de distinguer une décision nette d'une hésitation
+proche de 50/50 (modèle sous-entraîné, question ambiguë…). La clé est omise
+lorsqu'indisponible.
 
 Exemple :
 
