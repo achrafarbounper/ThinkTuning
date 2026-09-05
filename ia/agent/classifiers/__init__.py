@@ -12,11 +12,21 @@ from ia.agent.classifiers.base import (
     ClassifierMetrics,
     PredictionResult,
 )
+from ia.agent.classifiers.fallback import (
+    FallbackClassifier,
+    ResilientClassifier,
+    fallback_intent,
+    fallback_sentiment,
+)
 from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
 
 __all__ = [
     "BaseClassifier",
     "ClassifierMetrics",
+    "FallbackClassifier",
     "PredictionResult",
+    "ResilientClassifier",
     "SentimentClassifier",
+    "fallback_intent",
+    "fallback_sentiment",
 ]
