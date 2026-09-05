@@ -36,9 +36,28 @@ export type FlowEvent =
     }
   | { t: "worker.error"; at: number; task_id: string; role: string; error_code?: string; message?: string }
   | { t: "worker.result"; at: number; task_id: string; role: string; summary?: string; duration_ms?: number }
-  | { t: "worker.approval"; at: number; task_id: string; role: string; request_id?: string; message?: string }
+  | {
+      t: "worker.approval";
+      at: number;
+      task_id: string;
+      role: string;
+      request_id?: string;
+      message?: string;
+      /** Décision de policy en attente : outil ciblé, raison, empreinte SHA-256. */
+      approval?: { tool?: string; reason?: string; args_hash?: string };
+    }
   | { t: "synthesizing"; at: number; worker_errors?: number }
-  | { t: "done"; at: number; answer?: string; duration_ms?: number }
+  /**
+   * Reprise native (FSM orchestrateur : awaiting_approval → resuming) : le
+   * worker `role`/`task_id` est re-dispatché avec `request_id` (resume_request_id).
+   */
+  | { t: "resuming"; at: number; request_id: string; task_id: string; role: string }
+  /**
+   * Terminaison. `status` est le statut RÉEL émis par l'orchestrateur (ex :
+   * "awaiting_approval" quand la synthèse a été interdite) — jamais forcé à
+   * "completed" côté graphe (invariant FSM).
+   */
+  | { t: "done"; at: number; status?: string; answer?: string; duration_ms?: number }
   | { t: "error"; at: number; message?: string };
 
 /* --- Typologie des agents ---------------------------------------------------- */
@@ -102,7 +121,19 @@ export function classifyTool(tool: string): ToolCategoryMeta {
 
 /* --- Graphe -------------------------------------------------------------- */
 
-export type NodeStatus = "ready" | "running" | "ok" | "error";
+export type NodeStatus = "ready" | "running" | "awaiting" | "ok" | "error";
+
+/** Décision de policy suspendue à une validation humaine (affichée au panel). */
+export interface PendingApproval {
+  /** Outil dont l'exécution est bloquée (ex : write_file). */
+  tool?: string;
+  /** Raison de la policy (pourquoi la validation est requise). */
+  reason?: string;
+  /** Empreinte SHA-256 de l'action — garantit une reprise exacte. */
+  args_hash?: string;
+  /** Identifiant de reprise (resume_request_id à renvoyer après approbation). */
+  request_id?: string;
+}
 
 export interface AgentNodeData {
   id: string;
@@ -112,6 +143,8 @@ export interface AgentNodeData {
   color: string;
   icon: string;
   status: NodeStatus;
+  /** Demande de validation humaine en cours (statut « awaiting »). */
+  pendingApproval?: PendingApproval;
   /** Nombre d'outils exécutés par cet agent. */
   toolCount: number;
   /** Nombre total de sous-tâches/opérations. */
@@ -154,6 +187,57 @@ export interface GraphState {
   runStatus?: string;
   error?: string;
   toolCalls: number;
+  /**
+   * Séquenceur interne des identifiants d'arcs d'outil.
+   * Réduit dans le graphe (et non partagé entre appels) : unique en son sein
+   * (live) et DÉTERMINISTE pour une même timeline — deux `reduceTimeline(events)`
+   * produisent des arcs identiques. Un compteur module-global incrémenté sans
+   * remise à zéro faisait changer les ids à chaque rendu du Replay/Heatmap et
+   * déclenchait une boucle infinie de `setPulses` (« Maximum update depth »).
+   */
+  edgeSeq?: number;
+  /**
+   * Arguments en attente de résultat, par clé « role:tool ». Alimenté par
+   * `tool.start` et consommé par `tool.result` apparié : l'arc « résultat »
+   * porte alors l'input ET l'output de l'appel (fiche complète au clic).
+   * Champ optionnel : les graphes existants restent valides.
+   */
+  openToolArgs?: Record<string, string>;
+}
+
+/**
+ * Un appel d'outil du « Journal des outils » (Tool Ledger) : une entrée par
+ * appel exécuté, numérotée dans l'ordre d'appel, avec ses métadonnées
+ * complètes et ses liens vers le graphe (sélection croisée journal ↔ canvas).
+ */
+export interface ToolCallRecord {
+  /** Ordre d'appel (1-based) — position dans la chronologie des outils. */
+  seq: number;
+  /** Agent exécutant (rôle, ex « web_search ») — relation journal → nœud. */
+  role: string;
+  /** Identifiant de la sous-tâche d'origine (worker concerné). */
+  taskId: string;
+  /** Nom de l'outil appelé. */
+  tool: string;
+  category: ToolCategory;
+  /** Couleur de la catégorie (nom de l'outil dans le journal). */
+  color: string;
+  /** État de l'appel : ouvert (running), puis ok ou error. */
+  status: "running" | "ok" | "error";
+  /** Input : arguments sérialisés transmis à l'outil. */
+  args?: string;
+  /** Output : résumé du résultat (ou message d'erreur). */
+  summary?: string;
+  /** Durée d'exécution (ms) — issue du tool.result. */
+  durationMs?: number;
+  /** Instant de début (ms relatifs au début de session). */
+  startedAt: number;
+  /** Instant de fin (ms relatifs), si l'appel est refermé. */
+  endedAt?: number;
+  /** Arc « départ » de l'appel (porteur des arguments). */
+  startEdgeId: string;
+  /** Arc « résultat » de l'appel (statut, durée, sortie), si refermé. */
+  resultEdgeId?: string;
 }
 
 /** Impulsion lumineuse traversant un arc (id unique + couleur néon). */

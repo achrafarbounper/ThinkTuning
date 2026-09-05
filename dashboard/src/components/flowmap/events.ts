@@ -100,7 +100,8 @@ export function sseToFlowEvent(
         error_code: payload.error_code ? String(payload.error_code) : undefined,
         message: payload.message ? String(payload.message) : undefined,
       };
-    case "agent.worker.approval":
+    case "agent.worker.approval": {
+      const approval = payload.approval as Record<string, unknown> | undefined;
       return {
         t: "worker.approval",
         at,
@@ -108,6 +109,24 @@ export function sseToFlowEvent(
         role: String(payload.role ?? "?"),
         request_id: payload.request_id ? String(payload.request_id) : undefined,
         message: payload.message ? String(payload.message) : undefined,
+        approval: approval
+          ? {
+              tool: approval.tool ? String(approval.tool) : undefined,
+              reason: approval.reason ? String(approval.reason) : undefined,
+              args_hash: approval.args_hash ? String(approval.args_hash) : undefined,
+            }
+          : undefined,
+      };
+    }
+    case "agent.resuming":
+      // Reprise native (FSM : awaiting_approval → resuming) : le worker est
+      // re-dispatché avec `resume_request_id` — événement restitué au graphe.
+      return {
+        t: "resuming",
+        at,
+        request_id: payload.request_id ? String(payload.request_id) : "",
+        task_id: String(payload.task_id ?? ""),
+        role: String(payload.role ?? "?"),
       };
     case "agent.synthesizing":
       return {
@@ -119,6 +138,9 @@ export function sseToFlowEvent(
       return {
         t: "done",
         at,
+        // Le statut réel de l'orchestrateur (« awaiting_approval », « completed »)
+        // pilote l'état terminal du graphe — ne jamais forcer « completed ».
+        status: payload.status ? String(payload.status) : undefined,
         answer: payload.answer ? String(payload.answer) : payload.final_answer ? String(payload.final_answer) : undefined,
         duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : undefined,
       };
@@ -267,6 +289,19 @@ export function coreFrameToFlowEvent(payload: string, at: number): FlowEvent | n
         message: frame.final.approval?.reason
           ? String(frame.final.approval.reason)
           : "Policy : validation humaine requise",
+        approval: frame.final.approval
+          ? {
+              // Le noyau v2 n'expose pas d'empreinte SHA-256 d'action : seul
+              // l'outil et la raison sont restitués (le hash reste une notion
+              // propre aux approvals multi-agents).
+              tool: frame.final.approval.tool
+                ? String(frame.final.approval.tool)
+                : undefined,
+              reason: frame.final.approval.reason
+                ? String(frame.final.approval.reason)
+                : undefined,
+            }
+          : undefined,
       };
     }
     if (status === "completed") {

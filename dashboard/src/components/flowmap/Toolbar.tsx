@@ -191,11 +191,11 @@ export function Toolbar({
           <select value={filters.status} onChange={(e) => set("status", e.target.value)}>
             <option value={NO_FILTER}>Tous</option>
             <option value="running">En cours</option>
+            <option value="awaiting_approval">En attente validation</option>
             <option value="ok">Succès</option>
             <option value="error">Erreur</option>
           </select>
         </label>
-        <span className="ftoolbar__zoomhint">Molette = zoom · Glisser = déplacer · Double-clic = cadrer</span>
       </div>
     </div>
   );

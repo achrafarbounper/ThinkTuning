@@ -18,11 +18,16 @@ import {
   type GraphState,
 } from "./types";
 
-let seq = 0;
-/** Identifiant unique global pour les arcs d'outil (unicité même en replay). */
-function nextSeq(): number {
-  seq += 1;
-  return seq;
+/**
+ * Séquenceur des identifiants d'arcs d'outil, porté par le graphe lui-même.
+ * Unique au sein d'un graphe (live) et déterministe pour une timeline donnée :
+ * rejouer les mêmes événements produit toujours les mêmes ids, ce qui rend le
+ * Replay/Heatmap stable d'un rendu à l'autre (un compteur global partagé
+ * faisait varier les ids à chaque `reduceTimeline`, donc à chaque rendu).
+ */
+function nextEdgeSeq(graph: GraphState): number {
+  graph.edgeSeq = (graph.edgeSeq ?? 0) + 1;
+  return graph.edgeSeq;
 }
 
 function ensureNode(graph: GraphState, role: string): AgentNodeData {
@@ -98,6 +103,9 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       const node = ensureNode(graph, event.role);
       node.calls += 1;
       node.status = "running";
+      // Un re-dispatch (reprise native) clôt toute demande d'approbation : on
+      // efface l'attente affichée avant de relancer le worker.
+      node.pendingApproval = undefined;
       const edge = upsertEdge(graph, {
         id: `dispatch:${event.task_id}`,
         source: "role:planner",
@@ -115,7 +123,7 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       const node = ensureNode(graph, event.role);
       const meta = classifyTool(event.tool);
       const edge = upsertEdge(graph, {
-        id: `tool:${event.role}:${event.tool}:${nextSeq()}`,
+        id: `tool:${event.role}:${event.tool}:${nextEdgeSeq(graph)}`,
         source: "role:planner",
         target: node.id,
         kind: "tool",
@@ -126,6 +134,10 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
         status: "running",
         args: event.args,
       });
+      // Mémorise les arguments jusqu'au tool.result apparié (même rôle +
+      // outil) : l'arc « résultat » portera l'input ET l'output de l'appel.
+      graph.openToolArgs = graph.openToolArgs ?? {};
+      graph.openToolArgs[`${event.role}:${event.tool}`] = event.args ?? "";
       pings.push(edge.id);
       node.status = "running";
       graph.toolCalls += 1;
@@ -135,8 +147,13 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       const node = ensureNode(graph, event.role);
       node.toolCount += 1;
       const meta = classifyTool(event.tool);
+      // Reprend les arguments capturés au tool.start apparié : la fiche de
+      // cet arc (panneau latéral / journal) affiche input + output + durée.
+      const argsKey = `${event.role}:${event.tool}`;
+      const startArgs = graph.openToolArgs?.[argsKey];
+      if (graph.openToolArgs) delete graph.openToolArgs[argsKey];
       const edge = upsertEdge(graph, {
-        id: `tool:${event.role}:${event.tool}:${nextSeq()}`,
+        id: `tool:${event.role}:${event.tool}:${nextEdgeSeq(graph)}`,
         source: "role:planner",
         target: node.id,
         kind: "tool",
@@ -147,6 +164,7 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
         status: event.status,
         totalDurationMs: event.duration_ms ?? 0,
         summary: event.summary,
+        args: startArgs || undefined,
       });
       pings.push(edge.id);
       node.status = node.status === "running" ? "ok" : node.status;
@@ -190,8 +208,25 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       // attend la décision (carte Approuver / Refuser côté Assistant IA).
       // L'empreinte SHA-256 de l'action garantit la reprise exacte.
       const node = ensureNode(graph, event.role);
-      node.status = "ready";
-      graph.runStatus = "pending_approval";
+      node.status = "awaiting";
+      node.pendingApproval = {
+        tool: event.approval?.tool,
+        reason: event.approval?.reason,
+        args_hash: event.approval?.args_hash,
+        request_id: event.request_id,
+      };
+      // Statut canonique aligné sur le backend (flow_store / orchestrateur) :
+      // « awaiting_approval » — en miroir de la FSM multi-agents.
+      graph.runStatus = "awaiting_approval";
+      break;
+    }
+    case "resuming": {
+      // Reprise native (FSM : awaiting_approval → resuming) : l'action
+      // approuvée est rejouée dans le même worker, re-visible en « running ».
+      graph.runStatus = "resuming";
+      const node = ensureNode(graph, event.role);
+      node.status = "running";
+      node.pendingApproval = undefined;
       break;
     }
     case "synthesizing": {
@@ -202,7 +237,9 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
     }
     case "done": {
       graph.finalAnswer = event.answer;
-      graph.runStatus = "completed";
+      // Invariant FSM : un run « awaiting_approval » ne devient JAMAIS
+      // « completed » — le statut réel de l'orchestrateur est préservé.
+      graph.runStatus = event.status ?? "completed";
       break;
     }
     case "error": {
@@ -228,6 +265,7 @@ export function initGraph(): GraphState {
     timeline: [],
     startedAt: 0,
     toolCalls: 0,
+    openToolArgs: {},
   };
   ensureNode(graph, "planner");
   return graph;

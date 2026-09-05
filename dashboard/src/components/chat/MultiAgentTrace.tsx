@@ -1,11 +1,16 @@
-﻿/**
+/**
  * Trace temps réel de l orchestration multi-agents (mode « Multi-agents »).
  *
  * Affiche, au fil des événements SSE du superviseur :
  *  - le plan validé (sous-tâches assignées à des rôles),
  *  - l état de chaque worker : en cours (spinner), succès (résumé) ou erreur.
+ *
+ * Les sous-tâches et résumés proviennent du LLM : ils sont rendus en Markdown
+ * EN LIGNE (MarkdownInline — gras, italique, code, liens) pour rester lisibles
+ * dans des lignes compactes, sans blocs <p>/<ul> qui casseraient la trace.
  */
 
+import { MarkdownInline } from './markdown';
 import type {
   MultiAgentPlanTask,
   MultiAgentWorkerState,
@@ -38,7 +43,7 @@ function WorkerRow({ worker }: { worker: MultiAgentWorkerState }) {
       </span>
       <code className="multi-agent-trace__role">{worker.role}</code>
       <span className="multi-agent-trace__subtask" title={subtask}>
-        {subtask}
+        <MarkdownInline content={subtask} />
       </span>
       <span className="multi-agent-trace__state">
         {STATUS_LABELS[worker.status]}
@@ -72,7 +77,9 @@ export function MultiAgentTrace({ plan, workers }: MultiAgentTraceProps) {
           {plan!.map((task) => (
             <li key={task.task_id} className="multi-agent-trace__plan-item">
               <code className="multi-agent-trace__role">{task.role}</code>
-              <span className="multi-agent-trace__subtask">{task.subtask}</span>
+              <span className="multi-agent-trace__subtask">
+                <MarkdownInline content={task.subtask} />
+              </span>
             </li>
           ))}
         </ol>

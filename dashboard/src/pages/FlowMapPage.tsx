@@ -25,6 +25,7 @@ import {
 } from "../api/flowApi";
 import { applyEvent, initGraph, reduceTimeline } from "../components/flowmap/buildGraph";
 import { demoTimeline } from "../components/flowmap/demo";
+import { buildToolLedger } from "../components/flowmap/ledger";
 import { computeHeat } from "../components/flowmap/heat";
 import { NO_FILTER, Toolbar, type FlowFilters } from "../components/flowmap/Toolbar";
 import { FlowCanvas } from "../components/flowmap/FlowCanvas";
@@ -99,6 +100,10 @@ export default function FlowMapPage() {
     abortRef.current = controller;
     const onEvent = (ev: FlowEvent) => {
       applyEvent(liveGraphRef.current, ev);
+      // Le graphe est muté sur place : la copie superficielle change son
+      // identité pour que les useMemo de la page (vue filtrée, journal des
+      // outils) recalculent à CHAQUE événement du run live.
+      liveGraphRef.current = { ...liveGraphRef.current };
       setSourceEvents((curr) => [...curr, ev]);
     };
     try {
@@ -248,7 +253,15 @@ export default function FlowMapPage() {
     if (filters.tool !== NO_FILTER) {
       edges = edges.filter((e) => e.tool === filters.tool || e.label === filters.tool);
     }
-    if (filters.status !== NO_FILTER) {
+    // Un filtre de statut d'ARC (running / ok / error) réduit les arcs ; un
+    // filtre de statut de NŒUD (ex : awaiting_approval → nœud « awaiting »)
+    // réduit les nœuds puis ne garde que les arcs qui les relient.
+    const isNodeStatusFilter =
+      filters.status !== NO_FILTER &&
+      filters.status !== "running" &&
+      filters.status !== "ok" &&
+      filters.status !== "error";
+    if (filters.status !== NO_FILTER && !isNodeStatusFilter) {
       edges = edges.filter((e) => e.status === filters.status);
     }
     if (filters.agent !== NO_FILTER) {
@@ -265,7 +278,27 @@ export default function FlowMapPage() {
     const nodes = displayGraph.nodeOrder
       .map((id) => displayGraph.nodes[id])
       .filter((n) => n && (n.id === "role:planner" || known.has(n.id)));
-    return { nodes, edges };
+    let filteredNodes = nodes;
+    if (isNodeStatusFilter) {
+      const wanted = filters.status === "awaiting_approval" ? "awaiting" : filters.status;
+      filteredNodes = nodes.filter((n) => n.status === wanted);
+      const nodeIds = new Set(filteredNodes.map((n) => n.id));
+      edges = edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
+    }
+    return { nodes: filteredNodes, edges };
+  }, [displayGraph, filters]);
+
+  // Journal des outils exécutés (ordre d'appel), filtré comme la vue canvas :
+  // mêmes règles agent / outil / statut d'arc. Les statuts de NŒUD (ex :
+  // awaiting_approval) ne s'appliquent pas aux appels d'outils.
+  const ledger = useMemo(() => {
+    let records = buildToolLedger(displayGraph);
+    if (filters.tool !== NO_FILTER) records = records.filter((r) => r.tool === filters.tool);
+    if (filters.agent !== NO_FILTER) records = records.filter((r) => r.role === filters.agent);
+    if (filters.status === "running" || filters.status === "ok" || filters.status === "error") {
+      records = records.filter((r) => r.status === filters.status);
+    }
+    return records;
   }, [displayGraph, filters]);
 
   const heat = mode === "heatmap" ? computeHeat(visible.nodes, visible.edges) : null;
@@ -274,13 +307,17 @@ export default function FlowMapPage() {
   return (
     <div className="flowmap">
       <header className="page-head page-head--flow">
-        <h1>Agent Flow Map</h1>
-        <p>
-          Graphe orienté et animé du pipeline agentique : nœuds = agents (ou noyau
-          v2), arcs = outils, impulsions = messages. Live (multi-agents ou noyau
-          v2), Replay des sessions persistées et Heatmap.
-        </p>
-        <StatusBar graph={displayGraph} running={running} mode={mode} source={source} />
+        <div className="pf-head">
+          <div className="pf-head__titles">
+            <h1>Agent Flow Map</h1>
+            <p>
+              Graphe orienté et animé du pipeline agentique : nœuds = agents (ou noyau v2),
+              arcs = outils, impulsions = messages. Live (multi-agents ou noyau v2), Replay
+              des sessions persistées et Heatmap.
+            </p>
+          </div>
+          <StatusBar graph={displayGraph} running={running} mode={mode} source={source} />
+        </div>
 
         {flowList.length > 0 && (
           <div className="fsessions">
@@ -355,6 +392,7 @@ export default function FlowMapPage() {
             onSelect={setSelected}
             heat={heat}
             focusRelated={focusRelated}
+            ledger={ledger}
           />
         )}
         <DetailPanel selected={selected} graph={displayGraph} onClose={() => setSelected(null)} />
@@ -379,16 +417,27 @@ function StatusBar({
   const modeLabel = mode === "live" ? "Temps réel" : mode === "replay" ? "Replay" : "Heatmap";
   const sourceLabel = source === "core" ? "Noyau v2" : "Multi-agents";
   // Libellés lisibles des statuts de la machine à états du run (domaine v2).
+  // « awaiting_approval » est le statut canonique (aligné flow_store /
+  // orchestrateur) — « resuming » rend la reprise native visible.
   const statusLabels: Record<string, string> = {
     completed: "Terminé",
     error: "Erreur",
-    pending_approval: "Validation requise",
+    awaiting_approval: "Validation requise",
+    resuming: "Reprise en cours…",
     synthesizing: "Synthèse en cours…",
   };
+  const dotClass =
+    running || graph.runStatus === "resuming" || graph.runStatus === "synthesizing"
+      ? "fdot fdot--running"
+      : graph.runStatus === "awaiting_approval"
+        ? "fdot fdot--awaiting"
+        : graph.runStatus === "error"
+          ? "fdot fdot--error"
+          : "fdot fdot--ok";
   return (
     <div className="fstatus">
       <span className="fstatus__item">
-        <span className={running ? "fdot fdot--running" : "fdot fdot--ok"} />
+        <span className={dotClass} />
         {running ? "Run en cours" : statusLabels[graph.runStatus ?? ""] ?? "Prêt"}
       </span>
       <span className="fstatus__item">
