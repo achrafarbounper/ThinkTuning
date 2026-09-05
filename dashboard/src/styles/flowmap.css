@@ -55,6 +55,7 @@
 .fdot--running { background: #22d3ee; box-shadow: 0 0 8px #22d3ee; animation: fpulse-dot 0.9s ease-in-out infinite; }
 .fdot--error { background: #f2545b; box-shadow: 0 0 8px #f2545b; }
 .fdot--ready { background: #8b94a3; }
+.fdot--awaiting { background: #d29922; box-shadow: 0 0 8px #d29922; animation: fpulse-dot 1.4s ease-in-out infinite; }
 
 /* --- Barre d'outils -------------------------------------------------------- */
 .ftoolbar {
@@ -189,6 +190,8 @@
 .fnode__halo { opacity: 0; }
 .fnode--running .fnode__halo { opacity: 0.9; animation: fhalo 1.1s ease-in-out infinite; }
 .fnode--error .fnode__body { filter: drop-shadow(0 0 6px rgba(242, 84, 91, 0.5)); }
+.fnode--awaiting .fnode__halo { opacity: 0.8; animation: fhalo 1.4s ease-in-out infinite; }
+.fnode--awaiting .fnode__body { filter: drop-shadow(0 0 6px rgba(210, 153, 34, 0.45)); }
 .fnode--selected .fnode__body { filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.55)); }
 .fnode__name { letter-spacing: 0.2px; }
 .fnode__meta { opacity: 0.95; }

@@ -18,6 +18,7 @@ interface DetailPanelProps {
 const STATUS_LABEL: Record<string, string> = {
   ready: "Prêt",
   running: "En cours",
+  awaiting: "Validation requise",
   ok: "Terminé",
   error: "Erreur",
 };
@@ -81,6 +82,40 @@ function NodeDetail({ id, graph, onClose }: { id: string; graph: GraphState; onC
           <dd>{isPlanner ? graph.plan.length : subtasks.length}</dd>
         </div>
       </dl>
+
+      {node.pendingApproval && (
+        <section className="fpanel__section fpanel__section--approval">
+          <h3>Action en attente de validation</h3>
+          <dl className="fpanel__stats">
+            {node.pendingApproval.tool && (
+              <div>
+                <dt>Outil</dt>
+                <dd>
+                  <code>{node.pendingApproval.tool}</code>
+                </dd>
+              </div>
+            )}
+            {node.pendingApproval.reason && (
+              <div>
+                <dt>Raison</dt>
+                <dd>{node.pendingApproval.reason}</dd>
+              </div>
+            )}
+            {node.pendingApproval.request_id && (
+              <div>
+                <dt>Resume</dt>
+                <dd className="tt-mono">{node.pendingApproval.request_id}</dd>
+              </div>
+            )}
+            {node.pendingApproval.args_hash && (
+              <div>
+                <dt>SHA‑256</dt>
+                <dd className="tt-mono">{shortHash(node.pendingApproval.args_hash)}</dd>
+              </div>
+            )}
+          </dl>
+        </section>
+      )}
 
       <section className="fpanel__section">
         <h3>Outils exécutés</h3>
@@ -179,4 +214,9 @@ function formatMs(ms: number): string {
   if (!Number.isFinite(ms)) return "—";
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)} s`;
   return `${Math.round(ms)} ms`;
+}
+
+/** Affiche une empreinte SHA-256 en version abrégée (8 premiers octets). */
+function shortHash(h: string): string {
+  return h.length > 16 ? `${h.slice(0, 12)}…${h.slice(-4)}` : h;
 }

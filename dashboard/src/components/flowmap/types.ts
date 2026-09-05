@@ -36,9 +36,28 @@ export type FlowEvent =
     }
   | { t: "worker.error"; at: number; task_id: string; role: string; error_code?: string; message?: string }
   | { t: "worker.result"; at: number; task_id: string; role: string; summary?: string; duration_ms?: number }
-  | { t: "worker.approval"; at: number; task_id: string; role: string; request_id?: string; message?: string }
+  | {
+      t: "worker.approval";
+      at: number;
+      task_id: string;
+      role: string;
+      request_id?: string;
+      message?: string;
+      /** Décision de policy en attente : outil ciblé, raison, empreinte SHA-256. */
+      approval?: { tool?: string; reason?: string; args_hash?: string };
+    }
   | { t: "synthesizing"; at: number; worker_errors?: number }
-  | { t: "done"; at: number; answer?: string; duration_ms?: number }
+  /**
+   * Reprise native (FSM orchestrateur : awaiting_approval → resuming) : le
+   * worker `role`/`task_id` est re-dispatché avec `request_id` (resume_request_id).
+   */
+  | { t: "resuming"; at: number; request_id: string; task_id: string; role: string }
+  /**
+   * Terminaison. `status` est le statut RÉEL émis par l'orchestrateur (ex :
+   * "awaiting_approval" quand la synthèse a été interdite) — jamais forcé à
+   * "completed" côté graphe (invariant FSM).
+   */
+  | { t: "done"; at: number; status?: string; answer?: string; duration_ms?: number }
   | { t: "error"; at: number; message?: string };
 
 /* --- Typologie des agents ---------------------------------------------------- */
@@ -102,7 +121,19 @@ export function classifyTool(tool: string): ToolCategoryMeta {
 
 /* --- Graphe -------------------------------------------------------------- */
 
-export type NodeStatus = "ready" | "running" | "ok" | "error";
+export type NodeStatus = "ready" | "running" | "awaiting" | "ok" | "error";
+
+/** Décision de policy suspendue à une validation humaine (affichée au panel). */
+export interface PendingApproval {
+  /** Outil dont l'exécution est bloquée (ex : write_file). */
+  tool?: string;
+  /** Raison de la policy (pourquoi la validation est requise). */
+  reason?: string;
+  /** Empreinte SHA-256 de l'action — garantit une reprise exacte. */
+  args_hash?: string;
+  /** Identifiant de reprise (resume_request_id à renvoyer après approbation). */
+  request_id?: string;
+}
 
 export interface AgentNodeData {
   id: string;
@@ -112,6 +143,8 @@ export interface AgentNodeData {
   color: string;
   icon: string;
   status: NodeStatus;
+  /** Demande de validation humaine en cours (statut « awaiting »). */
+  pendingApproval?: PendingApproval;
   /** Nombre d'outils exécutés par cet agent. */
   toolCount: number;
   /** Nombre total de sous-tâches/opérations. */

@@ -98,6 +98,9 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       const node = ensureNode(graph, event.role);
       node.calls += 1;
       node.status = "running";
+      // Un re-dispatch (reprise native) clôt toute demande d'approbation : on
+      // efface l'attente affichée avant de relancer le worker.
+      node.pendingApproval = undefined;
       const edge = upsertEdge(graph, {
         id: `dispatch:${event.task_id}`,
         source: "role:planner",
@@ -190,8 +193,25 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       // attend la décision (carte Approuver / Refuser côté Assistant IA).
       // L'empreinte SHA-256 de l'action garantit la reprise exacte.
       const node = ensureNode(graph, event.role);
-      node.status = "ready";
-      graph.runStatus = "pending_approval";
+      node.status = "awaiting";
+      node.pendingApproval = {
+        tool: event.approval?.tool,
+        reason: event.approval?.reason,
+        args_hash: event.approval?.args_hash,
+        request_id: event.request_id,
+      };
+      // Statut canonique aligné sur le backend (flow_store / orchestrateur) :
+      // « awaiting_approval » — en miroir de la FSM multi-agents.
+      graph.runStatus = "awaiting_approval";
+      break;
+    }
+    case "resuming": {
+      // Reprise native (FSM : awaiting_approval → resuming) : l'action
+      // approuvée est rejouée dans le même worker, re-visible en « running ».
+      graph.runStatus = "resuming";
+      const node = ensureNode(graph, event.role);
+      node.status = "running";
+      node.pendingApproval = undefined;
       break;
     }
     case "synthesizing": {
@@ -202,7 +222,9 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
     }
     case "done": {
       graph.finalAnswer = event.answer;
-      graph.runStatus = "completed";
+      // Invariant FSM : un run « awaiting_approval » ne devient JAMAIS
+      // « completed » — le statut réel de l'orchestrateur est préservé.
+      graph.runStatus = event.status ?? "completed";
       break;
     }
     case "error": {

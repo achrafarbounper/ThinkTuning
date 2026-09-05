@@ -248,7 +248,15 @@ export default function FlowMapPage() {
     if (filters.tool !== NO_FILTER) {
       edges = edges.filter((e) => e.tool === filters.tool || e.label === filters.tool);
     }
-    if (filters.status !== NO_FILTER) {
+    // Un filtre de statut d'ARC (running / ok / error) réduit les arcs ; un
+    // filtre de statut de NŒUD (ex : awaiting_approval → nœud « awaiting »)
+    // réduit les nœuds puis ne garde que les arcs qui les relient.
+    const isNodeStatusFilter =
+      filters.status !== NO_FILTER &&
+      filters.status !== "running" &&
+      filters.status !== "ok" &&
+      filters.status !== "error";
+    if (filters.status !== NO_FILTER && !isNodeStatusFilter) {
       edges = edges.filter((e) => e.status === filters.status);
     }
     if (filters.agent !== NO_FILTER) {
@@ -265,7 +273,14 @@ export default function FlowMapPage() {
     const nodes = displayGraph.nodeOrder
       .map((id) => displayGraph.nodes[id])
       .filter((n) => n && (n.id === "role:planner" || known.has(n.id)));
-    return { nodes, edges };
+    let filteredNodes = nodes;
+    if (isNodeStatusFilter) {
+      const wanted = filters.status === "awaiting_approval" ? "awaiting" : filters.status;
+      filteredNodes = nodes.filter((n) => n.status === wanted);
+      const nodeIds = new Set(filteredNodes.map((n) => n.id));
+      edges = edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
+    }
+    return { nodes: filteredNodes, edges };
   }, [displayGraph, filters]);
 
   const heat = mode === "heatmap" ? computeHeat(visible.nodes, visible.edges) : null;
@@ -379,16 +394,27 @@ function StatusBar({
   const modeLabel = mode === "live" ? "Temps réel" : mode === "replay" ? "Replay" : "Heatmap";
   const sourceLabel = source === "core" ? "Noyau v2" : "Multi-agents";
   // Libellés lisibles des statuts de la machine à états du run (domaine v2).
+  // « awaiting_approval » est le statut canonique (aligné flow_store /
+  // orchestrateur) — « resuming » rend la reprise native visible.
   const statusLabels: Record<string, string> = {
     completed: "Terminé",
     error: "Erreur",
-    pending_approval: "Validation requise",
+    awaiting_approval: "Validation requise",
+    resuming: "Reprise en cours…",
     synthesizing: "Synthèse en cours…",
   };
+  const dotClass =
+    running || graph.runStatus === "resuming" || graph.runStatus === "synthesizing"
+      ? "fdot fdot--running"
+      : graph.runStatus === "awaiting_approval"
+        ? "fdot fdot--awaiting"
+        : graph.runStatus === "error"
+          ? "fdot fdot--error"
+          : "fdot fdot--ok";
   return (
     <div className="fstatus">
       <span className="fstatus__item">
-        <span className={running ? "fdot fdot--running" : "fdot fdot--ok"} />
+        <span className={dotClass} />
         {running ? "Run en cours" : statusLabels[graph.runStatus ?? ""] ?? "Prêt"}
       </span>
       <span className="fstatus__item">

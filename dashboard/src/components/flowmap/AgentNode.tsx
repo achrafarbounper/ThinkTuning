@@ -24,6 +24,7 @@ interface AgentNodeProps {
 const STATUS_DOT: Record<AgentNodeData["status"], string> = {
   ready: "#8b94a3",
   running: "#22d3ee",
+  awaiting: "#d29922",
   ok: "#2fbf71",
   error: "#f2545b",
 };
@@ -50,6 +51,7 @@ export function AgentNode({
         "fnode",
         running ? "fnode--running" : "",
         node.status === "error" ? "fnode--error" : "",
+        node.status === "awaiting" ? "fnode--awaiting" : "",
         selected ? "fnode--selected" : "",
         dimmed ? "fnode--dimmed" : "",
       ]
