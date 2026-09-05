@@ -187,6 +187,15 @@ export interface GraphState {
   runStatus?: string;
   error?: string;
   toolCalls: number;
+  /**
+   * Séquenceur interne des identifiants d'arcs d'outil.
+   * Réduit dans le graphe (et non partagé entre appels) : unique en son sein
+   * (live) et DÉTERMINISTE pour une même timeline — deux `reduceTimeline(events)`
+   * produisent des arcs identiques. Un compteur module-global incrémenté sans
+   * remise à zéro faisait changer les ids à chaque rendu du Replay/Heatmap et
+   * déclenchait une boucle infinie de `setPulses` (« Maximum update depth »).
+   */
+  edgeSeq?: number;
 }
 
 /** Impulsion lumineuse traversant un arc (id unique + couleur néon). */

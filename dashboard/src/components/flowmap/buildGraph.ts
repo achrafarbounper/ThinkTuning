@@ -18,11 +18,16 @@ import {
   type GraphState,
 } from "./types";
 
-let seq = 0;
-/** Identifiant unique global pour les arcs d'outil (unicité même en replay). */
-function nextSeq(): number {
-  seq += 1;
-  return seq;
+/**
+ * Séquenceur des identifiants d'arcs d'outil, porté par le graphe lui-même.
+ * Unique au sein d'un graphe (live) et déterministe pour une timeline donnée :
+ * rejouer les mêmes événements produit toujours les mêmes ids, ce qui rend le
+ * Replay/Heatmap stable d'un rendu à l'autre (un compteur global partagé
+ * faisait varier les ids à chaque `reduceTimeline`, donc à chaque rendu).
+ */
+function nextEdgeSeq(graph: GraphState): number {
+  graph.edgeSeq = (graph.edgeSeq ?? 0) + 1;
+  return graph.edgeSeq;
 }
 
 function ensureNode(graph: GraphState, role: string): AgentNodeData {
@@ -118,7 +123,7 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       const node = ensureNode(graph, event.role);
       const meta = classifyTool(event.tool);
       const edge = upsertEdge(graph, {
-        id: `tool:${event.role}:${event.tool}:${nextSeq()}`,
+        id: `tool:${event.role}:${event.tool}:${nextEdgeSeq(graph)}`,
         source: "role:planner",
         target: node.id,
         kind: "tool",
@@ -139,7 +144,7 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       node.toolCount += 1;
       const meta = classifyTool(event.tool);
       const edge = upsertEdge(graph, {
-        id: `tool:${event.role}:${event.tool}:${nextSeq()}`,
+        id: `tool:${event.role}:${event.tool}:${nextEdgeSeq(graph)}`,
         source: "role:planner",
         target: node.id,
         kind: "tool",

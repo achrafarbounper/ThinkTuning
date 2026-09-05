@@ -240,3 +240,39 @@ describe("replay des sessions persistées (replay path)", () => {
     expect(g.nodes["role:data_extractor"]!.status).toBe("ok");
   });
 });
+
+describe("reduceTimeline — déterminisme (régression « Maximum update depth »)", () => {
+  it("rejoue deux fois la même timeline avec des arcs strictement identiques", () => {
+    const events = demoTimeline();
+    const a = reduceTimeline(events);
+    const b = reduceTimeline(events);
+    // Jadis, un compteur module-global (nextSeq) faisait changer les ids des
+    // arcs d'outil à chaque appel : edgeOrder/edgeSig variaient à chaque rendu
+    // du Replay/Heatmap, et le useEffect [edgeSig] de FlowMapPage appelait
+    // setPulses en boucle → « Maximum update depth exceeded ».
+    expect(b.edgeOrder).toEqual(a.edgeOrder);
+    expect(Object.keys(b.edges)).toEqual(Object.keys(a.edges));
+    for (const id of a.edgeOrder) {
+      expect(b.edges[id]).toBeDefined();
+    }
+    // Le séquenceur est réinstancié par graphe, pas cumulé entre appels.
+    expect(a.edgeSeq).toBe(b.edgeSeq);
+  });
+
+  it("un graphe vivant (live) attribue des ids uniques à chaque appel d'outil", () => {
+    const g = initGraph();
+    const evs: FlowEvent[] = [
+      { t: "worker.start", at: 0, task_id: "t1", role: "web_search" },
+      { t: "tool.start", at: 1, task_id: "t1", role: "web_search", tool: "web_search" },
+      { t: "tool.result", at: 2, task_id: "t1", role: "web_search", tool: "web_search", status: "ok" },
+      { t: "worker.start", at: 3, task_id: "t2", role: "web_search" },
+      { t: "tool.start", at: 4, task_id: "t2", role: "web_search", tool: "web_search" },
+    ];
+    for (const e of evs) applyEvent(g, e);
+    const toolIds = g.edgeOrder.filter((id) => id.startsWith("tool:"));
+    // Deux appels du même outil par le même rôle → arcs distincts (start/résultat).
+    expect(toolIds).toHaveLength(3);
+    expect(new Set(toolIds).size).toBe(toolIds.length);
+    expect(g.edgeSeq).toBe(3);
+  });
+});
