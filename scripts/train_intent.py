@@ -127,7 +127,7 @@ def main() -> None:
         output_dir=str(output_dir),
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         logging_strategy="steps",
         logging_steps=20,
         learning_rate=args.lr,

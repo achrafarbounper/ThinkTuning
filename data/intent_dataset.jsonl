@@ -1,0 +1,100 @@
+{"text": "Bonjour, comment vas-tu aujourd'hui ?", "label": "chat"}
+{"text": "Merci beaucoup pour ton aide, c'est vraiment sympa.", "label": "chat"}
+{"text": "Je suis content de te revoir, comment s'est passée ta journée ?", "label": "chat"}
+{"text": "Salut, tu as une minute pour discuter un instant ?", "label": "chat"}
+{"text": "Merci pour ta patience, j'attends ton retour.", "label": "chat"}
+{"text": "Désolé pour le dérangement, je reviens vers toi rapidement.", "label": "chat"}
+{"text": "C'est génial, merci et à très vite !", "label": "chat"}
+{"text": "Tu as l'air occupé(e), je te laisse tranquille.", "label": "chat"}
+{"text": "J'adore beaucoup ton approche, continue comme ça.", "label": "chat"}
+{"text": "Pas de souci, prends ton temps pour répondre.", "label": "chat"}
+{"text": "Content de te lire, tu as intéressant à dire.", "label": "chat"}
+{"text": "Merci infiniment pour ce que tu as fait pour moi.", "label": "chat"}
+{"text": "Tu penses que c'est possible de changer un truc ?", "label": "chat"}
+{"text": "C'est top, je te fais confiance, vas-y.", "label": "chat"}
+{"text": "D'accord, merci pour ton retour d'expérience.", "label": "chat"}
+{"text": "Je comprends tout à fait, merci pour l'explication.", "label": "chat"}
+{"text": "C'est bien noté, merci pour l'astuce.", "label": "chat"}
+{"text": "Super nouvelle, félicitations pour toi !", "label": "chat"}
+{"text": "Désolé, je ne suis pas d'accord avec toi sur ce point.", "label": "chat"}
+{"text": "Pas grave, on verra ça une autre fois.", "label": "chat"}
+{"text": "Tu as raison, c'est une bonne idée.", "label": "chat"}
+{"text": "Je suis d'accord avec toi, c'est parfait ainsi.", "label": "chat"}
+{"text": "C'est intéressant, raconte-moi en plus.", "label": "chat"}
+{"text": "J'ai une question tout simple pour toi.", "label": "chat"}
+{"text": "Merci pour le partage, c'est super utile.", "label": "chat"}
+{"text": "Tu m'as converti, j'essaierai ça aussi.", "label": "chat"}
+{"text": "Pas mal du tout, bravo pour le résultat.", "label": "chat"}
+{"text": "Dommage que ce soit terminé, j'aurais voulu en savoir plus.", "label": "chat"}
+{"text": "Je vais y réfléchir et je reviens vers toi.", "label": "chat"}
+{"text": "Content que ça te plaise, merci pour le retour.", "label": "chat"}
+{"text": "Tu penses quoi du nouveau design du site ?", "label": "chat"}
+{"text": "C'est pas mal, sans plus à dire.", "label": "chat"}
+{"text": "Je suis partagé(e) sur ce sujet, je t'explique.", "label": "chat"}
+{"text": "Merci pour ton retour, ça me fait plaisir.", "label": "chat"}
+{"text": "Pas de problème, à plus tard !", "label": "chat"}
+{"text": "Je te remercie infiniment pour ton soutien.", "label": "chat"}
+{"text": "C'est une excellente nouvelle, félicitations !", "label": "chat"}
+{"text": "Désolé du retard, j'étais occupé(e).", "label": "chat"}
+{"text": "Merci pour la clarté de ton explication, c'est parfait.", "label": "chat"}
+{"text": "Tu as déjà essayé cette approche ?", "label": "chat"}
+{"text": "C'est une excellente idée, je vais tester.", "label": "chat"}
+{"text": "Je suis d'accord, allons-y !", "label": "chat"}
+{"text": "Merci pour ton temps, je ne t'embête plus.", "label": "chat"}
+{"text": "C'est une très bonne question, je me le demande aussi.", "label": "chat"}
+{"text": "Appelle-moi quand tu auras fini, s'il te plaît.", "label": "action"}
+{"text": "Peux-tu lancer le script d'entraînement maintenant ?", "label": "action"}
+{"text": "Je voudrais que tu cherches des infos sur les transformers.", "label": "action"}
+{"text": "Peux-tu calculer le total de cette commande pour moi ?", "label": "action"}
+{"text": "Je t'en prie, télécharge la dernière version du modèle.", "label": "action"}
+{"text": "Peux-tu afficher les résultats de l'entraînement ?", "label": "action"}
+{"text": "Ouvre le fichier README et lis-moi la première section.", "label": "action"}
+{"text": "Je voudrais que tu enregistres cette conversation dans un fichier.", "label": "action"}
+{"text": "Peux-tu modifier le paramètre d'apprentissage à 1e-5 ?", "label": "action"}
+{"text": "Supprime les fichiers temporaires dans le répertoire data.", "label": "action"}
+{"text": "Peux-tu créer un nouveau projet pour moi ?", "label": "action"}
+{"text": "Je t'en prie, envoie ce rapport au manager.", "label": "action"}
+{"text": "Peux-tu lancer un test complet de validation ?", "label": "action"}
+{"text": "Je voudrais que tu utilise cette nouvelle bibliothèque à la place.", "label": "action"}
+{"text": "Peux-tu rechercher une solution alternative au bug ?", "label": "action"}
+{"text": "Je t'en prie, liste tous les modèles disponibles.", "label": "action"}
+{"text": "Peux-tu générer un résumé de ce long document ?", "label": "action"}
+{"text": "Je voudrais que tu exécute ce script dans l'environnement virtuel.", "label": "action"}
+{"text": "Peux-tu préparer la version finale pour le déploiement ?", "label": "action"}
+{"text": "Je t'en prie, trouve-moi le commit qui a introduit ce bug.", "label": "action"}
+{"text": "Peux-tu ajouter cette fonctionnalité au module existant ?", "label": "action"}
+{"text": "Je voudrais que tu lances l'entraînement avec 5 époques.", "label": "chat"}
+{"text": "Peux-tu appeler l'API pour récupérer les dernières métriques ?", "label": "action"}
+{"text": "Je t'en prie, donne-moi le schéma détaillé de l'architecture.", "label": "action"}
+{"text": "Peux-tu ouvrir le notebook Jupyter pour visualiser les courbes ?", "label": "action"}
+{"text": "Je voudrais que tu télécharges le dataset complet sur Hugging Face.", "label": "action"}
+{"text": "Peux-tu lancer la compilation du projet en mode release ?", "label": "action"}
+{"text": "Je t'en prie, enregistre cette configuration dans active.json.", "label": "action"}
+{"text": "Peux-tu chercher la documentation officielle du package ?", "label": "action"}
+{"text": "Je voudrais que tu modifies le seuil de décision à 0.85.", "label": "action"}
+{"text": "Peux-tu créer une copie de secours du modèle entraîné ?", "label": "action"}
+{"text": "Je t'en prie, supprime le cache pour libérer de l'espace.", "label": "action"}
+{"text": "Peux-tu afficher le résumé des performances du modèle ?", "label": "action"}
+{"text": "Je voudrais que tu utilises ce modèle pour la prédiction en lot.", "label": "action"}
+{"text": "Peux-tu lancer la génération de texte avec un prompt donné ?", "label": "action"}
+{"text": "Je t'en prie, calcule la précision et le rappel sur le jeu de validation.", "label": "action"}
+{"text": "Peux-tu rechercher les paramètres hyperpar défaut recommandés ?", "label": "action"}
+{"text": "Je voudrais que tu génères un rapport de classification détaillé.", "label": "action"}
+{"text": "Peux-tu exécuter le test unitaire pour le classifieur ?", "label": "action"}
+{"text": "Je t'en prie, prépare l'environnement pour l'évaluation finale.", "label": "action"}
+{"text": "Peux-tu trouver le meilleur taux d'apprentissage pour ce modèle ?", "label": "action"}
+{"text": "Peux-tu enregistrer les métriques dans le fichier de suivi ?", "label": "action"}
+{"text": "Je voudrais que tu modifies le nombre de couches cachées.", "label": "action"}
+{"text": "Peux-tu lancer le pipeline complet d'entraînement et d'évaluation ?", "label": "action"}
+{"text": "Je t'en prie, utilise la quantification INT8 pour réduire la taille.", "label": "action"}
+{"text": "Peux-tu créer un script de déploiement automatisé ?", "label": "action"}
+{"text": "Je voudrais que tu cherches les erreurs dans les prédictions du modèle.", "label": "action"}
+{"text": "Peux-tu ouvrir le tableau de bord pour voir la monitoring en temps réel ?", "label": "action"}
+{"text": "Je t'en prie, télécharge les poids du modèle depuis le hub Hugging Face.", "label": "action"}
+{"text": "Peux-tu lancer l'entraînement sur GPU avec mixed precision ?", "label": "action"}
+{"text": "Je voudrais que tu génères des exemples de données synthétiques pour tester.", "label": "action"}
+{"text": "Peux-tu supprimer les anciennes versions du modèle dans experiments ?", "label": "action"}
+{"text": "Peux-tu afficher la courbe de perte pour les 3 dernières époques ?", "label": "action"}
+{"text": "Je t'en prie, enregistre la version active dans le pointeur active.json.", "label": "action"}
+{"text": "Peux-tu modifier le batch size à 16 pour l'entraînement ?", "label": "action"}
+{"text": "Je voudrais que tu lances l'export ONNX du modèle entraîné.", "label": "chat"}

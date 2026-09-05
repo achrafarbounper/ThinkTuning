@@ -35,8 +35,10 @@ def _is_valid_version(version_dir: Path) -> bool:
     try:
         with open(config, encoding="utf-8") as fh:
             data = json.load(fh)
-        if not isinstance(data, dict) or not data.get("_name_or_path"):
-            return False
+            if not isinstance(data, dict) or not any(
+                data.get(key) for key in ("model_type", "architectures", "_name_or_path")
+            ):
+                return False
     except (ValueError, OSError):
         return False
     return any(
