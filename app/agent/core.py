@@ -376,12 +376,19 @@ class AgentCore:
         enable_thinking: bool = False,
         on_thinking: Callable[[str], None] | None = None,
         event_bus: EventBusPort | None = None,
+        intent_classifier: Any | None = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
         self._approval_gateway = approval_gateway
         self._max_tool_calls = max_tool_calls
         self._on_tool_event = on_tool_event
+        # Classifieur d'intention optionnel (chat/action, cf. Phase 4).
+        # Purement observatoire : il ne modifie PAS la boucle (le LLM décide
+        # toujours du plan), il expose ``last_intent`` et émet
+        # ``agent.intent_detected`` sur le bus. Absent => comportement inchangé.
+        self._intent_classifier = intent_classifier
+        self._last_intent: dict[str, Any] | None = None
         # Bus d'événements (port pub/sub, optionnel) : le noyau publie les
         # événements de cycle de vie (run_start, tool_start/tool_end, thinking,
         # approval_pending, run_finished) sans dépendre d'un consommateur précis
@@ -405,6 +412,9 @@ class AgentCore:
         self._thinking_parts = []
         if self._event_bus is not None:
             self._safe_emit("agent.run_start", prompt=intent.prompt)
+        # Phase 4 : classification d'intention (chat/action) — observatoire et
+        # défensive (ne doit JAMAIS faire échouer ni modifier le run).
+        self._last_intent = self._classify_intent(intent.prompt)
         budget = RunBudget(max_llm_rounds=intent.max_rounds, max_tool_calls=self._max_tool_calls)
         traces: list[ActionTrace] = []
         rejected_prints: set[str] = set()
@@ -631,6 +641,35 @@ class AgentCore:
                                 duration_ms=event.get("duration_ms"))
 
         # --- Finalisation -------------------------------------------------------------
+
+    def _classify_intent(self, prompt: str) -> dict[str, Any] | None:
+        """Classe le prompt (chat/action) via le classifieur optionnel.
+
+        Retourne ``None`` si aucun classifieur ou si la prédiction échoue :
+        cela ne doit JAMAIS affecter le run (routage observatoire).
+        """
+        if self._intent_classifier is None:
+            return None
+        try:
+            results = self._intent_classifier.predict([prompt])
+            if not results:
+                return None
+            result = results[0]
+            meta = {
+                "label": result.label,
+                "confidence": float(result.confidence),
+            }
+            if self._event_bus is not None:
+                self._safe_emit("agent.intent_detected", **meta)
+            return meta
+        except Exception as exc:  # pragma: no cover - défensif
+            logger.warning("Classifieur d'intention indisponible : %s", exc)
+            return None
+
+    @property
+    def last_intent(self) -> dict[str, Any] | None:
+        """Dernière classification d'intention du run courant (chat/action)."""
+        return self._last_intent
 
     @staticmethod
     def _summarize(value: Any) -> str:

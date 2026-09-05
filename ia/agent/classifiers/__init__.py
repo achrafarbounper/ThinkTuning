@@ -18,15 +18,21 @@ from ia.agent.classifiers.fallback import (
     fallback_intent,
     fallback_sentiment,
 )
+from ia.agent.classifiers.intent_classifier import (
+    IntentClassifier,
+    resolve_intent_model_optional,
+)
 from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
 
 __all__ = [
     "BaseClassifier",
     "ClassifierMetrics",
     "FallbackClassifier",
+    "IntentClassifier",
     "PredictionResult",
     "ResilientClassifier",
     "SentimentClassifier",
     "fallback_intent",
     "fallback_sentiment",
+    "resolve_intent_model_optional",
 ]
