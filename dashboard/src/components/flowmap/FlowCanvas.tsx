@@ -16,9 +16,10 @@ import {
 } from "react";
 import { AgentNode } from "./AgentNode";
 import { FlowEdge } from "./FlowEdge";
+import { ToolLedger } from "./ToolLedger";
 import { arrowGeometry, computeBounds, computeLayout, edgePath, returnPath, type ArrowGeometry } from "./geometry";
 import type { HeatMetrics } from "./heat";
-import type { AgentNodeData, FlowEdgeData, Pulse, Selection } from "./types";
+import type { AgentNodeData, FlowEdgeData, Pulse, Selection, ToolCallRecord } from "./types";
 
 const IMPULSE_MS = 900;
 const MIN_ZOOM = 0.3;
@@ -41,6 +42,8 @@ interface FlowCanvasProps {
   onSelect: (sel: Selection) => void;
   heat: HeatMetrics | null;
   focusRelated: boolean;
+  /** Journal des outils exécutés (ordre d'appel + métadonnées) — overlay du canvas. */
+  ledger?: ToolCallRecord[];
 }
 export function FlowCanvas({
   nodes,
@@ -51,6 +54,7 @@ export function FlowCanvas({
   onSelect,
   heat,
   focusRelated,
+  ledger,
 }: FlowCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -236,6 +240,17 @@ return (
       <div className="fc__hint">Glisser = déplacer · Molette = zoom · Double-clic = cadrer</div>
 
       {renderControls(view, setView, fitView, isFullscreen, fsSupported, toggleFullscreen)}
+
+      {/* Journal des outils exécutés : liste ordonnée, synchronisée au graphe
+          (clic ligne → arc surligné + fiche ; clic agent → nœud sélectionné). */}
+      {ledger && (
+        <ToolLedger
+          records={ledger}
+          selectedEdgeId={selected?.type === "edge" ? selected.id : null}
+          onSelectEdge={(id) => onSelect({ type: "edge", id })}
+          onSelectNode={(id) => onSelect({ type: "node", id })}
+        />
+      )}
     </div>
   );
 }

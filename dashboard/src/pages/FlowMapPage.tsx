@@ -25,6 +25,7 @@ import {
 } from "../api/flowApi";
 import { applyEvent, initGraph, reduceTimeline } from "../components/flowmap/buildGraph";
 import { demoTimeline } from "../components/flowmap/demo";
+import { buildToolLedger } from "../components/flowmap/ledger";
 import { computeHeat } from "../components/flowmap/heat";
 import { NO_FILTER, Toolbar, type FlowFilters } from "../components/flowmap/Toolbar";
 import { FlowCanvas } from "../components/flowmap/FlowCanvas";
@@ -99,6 +100,10 @@ export default function FlowMapPage() {
     abortRef.current = controller;
     const onEvent = (ev: FlowEvent) => {
       applyEvent(liveGraphRef.current, ev);
+      // Le graphe est muté sur place : la copie superficielle change son
+      // identité pour que les useMemo de la page (vue filtrée, journal des
+      // outils) recalculent à CHAQUE événement du run live.
+      liveGraphRef.current = { ...liveGraphRef.current };
       setSourceEvents((curr) => [...curr, ev]);
     };
     try {
@@ -283,6 +288,19 @@ export default function FlowMapPage() {
     return { nodes: filteredNodes, edges };
   }, [displayGraph, filters]);
 
+  // Journal des outils exécutés (ordre d'appel), filtré comme la vue canvas :
+  // mêmes règles agent / outil / statut d'arc. Les statuts de NŒUD (ex :
+  // awaiting_approval) ne s'appliquent pas aux appels d'outils.
+  const ledger = useMemo(() => {
+    let records = buildToolLedger(displayGraph);
+    if (filters.tool !== NO_FILTER) records = records.filter((r) => r.tool === filters.tool);
+    if (filters.agent !== NO_FILTER) records = records.filter((r) => r.role === filters.agent);
+    if (filters.status === "running" || filters.status === "ok" || filters.status === "error") {
+      records = records.filter((r) => r.status === filters.status);
+    }
+    return records;
+  }, [displayGraph, filters]);
+
   const heat = mode === "heatmap" ? computeHeat(visible.nodes, visible.edges) : null;
   const focusRelated = selected != null;
 
@@ -374,6 +392,7 @@ export default function FlowMapPage() {
             onSelect={setSelected}
             heat={heat}
             focusRelated={focusRelated}
+            ledger={ledger}
           />
         )}
         <DetailPanel selected={selected} graph={displayGraph} onClose={() => setSelected(null)} />

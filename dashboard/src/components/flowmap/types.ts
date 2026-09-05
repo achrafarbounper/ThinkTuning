@@ -196,6 +196,48 @@ export interface GraphState {
    * déclenchait une boucle infinie de `setPulses` (« Maximum update depth »).
    */
   edgeSeq?: number;
+  /**
+   * Arguments en attente de résultat, par clé « role:tool ». Alimenté par
+   * `tool.start` et consommé par `tool.result` apparié : l'arc « résultat »
+   * porte alors l'input ET l'output de l'appel (fiche complète au clic).
+   * Champ optionnel : les graphes existants restent valides.
+   */
+  openToolArgs?: Record<string, string>;
+}
+
+/**
+ * Un appel d'outil du « Journal des outils » (Tool Ledger) : une entrée par
+ * appel exécuté, numérotée dans l'ordre d'appel, avec ses métadonnées
+ * complètes et ses liens vers le graphe (sélection croisée journal ↔ canvas).
+ */
+export interface ToolCallRecord {
+  /** Ordre d'appel (1-based) — position dans la chronologie des outils. */
+  seq: number;
+  /** Agent exécutant (rôle, ex « web_search ») — relation journal → nœud. */
+  role: string;
+  /** Identifiant de la sous-tâche d'origine (worker concerné). */
+  taskId: string;
+  /** Nom de l'outil appelé. */
+  tool: string;
+  category: ToolCategory;
+  /** Couleur de la catégorie (nom de l'outil dans le journal). */
+  color: string;
+  /** État de l'appel : ouvert (running), puis ok ou error. */
+  status: "running" | "ok" | "error";
+  /** Input : arguments sérialisés transmis à l'outil. */
+  args?: string;
+  /** Output : résumé du résultat (ou message d'erreur). */
+  summary?: string;
+  /** Durée d'exécution (ms) — issue du tool.result. */
+  durationMs?: number;
+  /** Instant de début (ms relatifs au début de session). */
+  startedAt: number;
+  /** Instant de fin (ms relatifs), si l'appel est refermé. */
+  endedAt?: number;
+  /** Arc « départ » de l'appel (porteur des arguments). */
+  startEdgeId: string;
+  /** Arc « résultat » de l'appel (statut, durée, sortie), si refermé. */
+  resultEdgeId?: string;
 }
 
 /** Impulsion lumineuse traversant un arc (id unique + couleur néon). */

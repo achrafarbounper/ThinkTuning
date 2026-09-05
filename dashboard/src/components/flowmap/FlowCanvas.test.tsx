@@ -14,6 +14,7 @@ import { FlowCanvas } from "./FlowCanvas";
 import { initGraph, reduceTimeline } from "./buildGraph";
 import { demoTimeline } from "./demo";
 import { computeHeat } from "./heat";
+import { buildToolLedger } from "./ledger";
 import type { Pulse } from "./types";
 
 /** Graphe de démonstration — la même timeline qui alimente la page. */
@@ -136,5 +137,29 @@ describe("FlowCanvas — lisibilité & hiérarchie visuelle", () => {
     // Le graphe heatmap reste rendu, nœuds teintés et arcs épais par usage.
     expect(container.querySelectorAll(".fnode").length).toBe(nodes.length);
     expect(container.querySelectorAll(".fedge").length).toBe(edges.length);
+  });
+
+  it("affiche le journal des outils exécutés dans la toile (liste ordonnée)", () => {
+    const g = initGraph();
+    Object.assign(g, reduceTimeline(demoTimeline()));
+    const ledger = buildToolLedger(g);
+    const { container } = render(
+      <FlowCanvas
+        nodes={Object.values(g.nodes)}
+        edges={g.edgeOrder.map((id) => g.edges[id])}
+        pulses={[]}
+        onPulseDone={() => {}}
+        selected={null}
+        onSelect={() => {}}
+        heat={null}
+        focusRelated={false}
+        ledger={ledger}
+      />,
+    );
+    const panel = container.querySelector(".fledger");
+    expect(panel).not.toBeNull();
+    // Une ligne par appel exécuté, dans l'ordre, avec le compteur en entête.
+    expect(container.querySelectorAll(".fledger__item").length).toBe(ledger.length);
+    expect(panel?.textContent).toContain("Journal des outils");
   });
 });

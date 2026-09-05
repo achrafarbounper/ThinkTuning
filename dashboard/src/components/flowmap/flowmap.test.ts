@@ -276,3 +276,53 @@ describe("reduceTimeline — déterminisme (régression « Maximum update depth 
     expect(g.edgeSeq).toBe(3);
   });
 });
+
+describe("propagation des arguments (arc « résultat » complet)", () => {
+  it("l'arc tool.result porte les args du tool.start apparié (input + output)", () => {
+    const g = initGraph();
+    applyEvent(g, {
+      t: "tool.start",
+      at: 1,
+      task_id: "t1",
+      role: "web_search",
+      tool: "http_get",
+      args: '{"url":"https://x"}',
+    });
+    applyEvent(g, {
+      t: "tool.result",
+      at: 2,
+      task_id: "t1",
+      role: "web_search",
+      tool: "http_get",
+      status: "ok",
+      summary: "200 OK",
+      duration_ms: 30,
+    });
+    const toolIds = g.edgeOrder.filter((id) => id.startsWith("tool:"));
+    // Le départ et le résultat restent deux arcs distincts (invariant graphe).
+    expect(toolIds).toHaveLength(2);
+    const resultEdge = g.edges[toolIds[1]];
+    expect(resultEdge.args).toBe('{"url":"https://x"}');
+    expect(resultEdge.summary).toBe("200 OK");
+    expect(resultEdge.status).toBe("ok");
+  });
+
+  it("les arguments ne fuient pas vers un autre agent ou un autre outil", () => {
+    const g = initGraph();
+    applyEvent(g, {
+      t: "tool.start",
+      at: 1,
+      task_id: "t1",
+      role: "web_search",
+      tool: "http_get",
+      args: '{"url":"https://x"}',
+    });
+    applyEvent(g, { t: "tool.result", at: 2, task_id: "t1", role: "web_search", tool: "web_search", status: "ok" });
+    applyEvent(g, { t: "tool.result", at: 3, task_id: "t1", role: "code_analysis", tool: "http_get", status: "ok" });
+    const toolIds = g.edgeOrder.filter((id) => id.startsWith("tool:"));
+    expect(g.edges[toolIds[1]].args).toBeUndefined(); // autre outil
+    expect(g.edges[toolIds[2]].args).toBeUndefined(); // autre agent
+    // L'arc « départ » conserve ses arguments d'origine.
+    expect(g.edges[toolIds[0]].args).toBe('{"url":"https://x"}');
+  });
+});

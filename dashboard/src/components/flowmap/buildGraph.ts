@@ -134,6 +134,10 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
         status: "running",
         args: event.args,
       });
+      // Mémorise les arguments jusqu'au tool.result apparié (même rôle +
+      // outil) : l'arc « résultat » portera l'input ET l'output de l'appel.
+      graph.openToolArgs = graph.openToolArgs ?? {};
+      graph.openToolArgs[`${event.role}:${event.tool}`] = event.args ?? "";
       pings.push(edge.id);
       node.status = "running";
       graph.toolCalls += 1;
@@ -143,6 +147,11 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
       const node = ensureNode(graph, event.role);
       node.toolCount += 1;
       const meta = classifyTool(event.tool);
+      // Reprend les arguments capturés au tool.start apparié : la fiche de
+      // cet arc (panneau latéral / journal) affiche input + output + durée.
+      const argsKey = `${event.role}:${event.tool}`;
+      const startArgs = graph.openToolArgs?.[argsKey];
+      if (graph.openToolArgs) delete graph.openToolArgs[argsKey];
       const edge = upsertEdge(graph, {
         id: `tool:${event.role}:${event.tool}:${nextEdgeSeq(graph)}`,
         source: "role:planner",
@@ -155,6 +164,7 @@ export function applyEvent(graph: GraphState, event: FlowEvent): string[] {
         status: event.status,
         totalDurationMs: event.duration_ms ?? 0,
         summary: event.summary,
+        args: startArgs || undefined,
       });
       pings.push(edge.id);
       node.status = node.status === "running" ? "ok" : node.status;
@@ -255,6 +265,7 @@ export function initGraph(): GraphState {
     timeline: [],
     startedAt: 0,
     toolCalls: 0,
+    openToolArgs: {},
   };
   ensureNode(graph, "planner");
   return graph;
