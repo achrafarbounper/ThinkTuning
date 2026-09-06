@@ -30,6 +30,7 @@ V1_PATHS = {
     "/api/v1/health": {"get"},
     "/api/v1/health/model-sanity": {"get"},
     "/api/v1/predict": {"post"},
+    "/api/v1/predict/batch": {"post"},
     "/api/v1/predict/reload": {"post"},
     # Phase 3d — noyau training (le WS /api/v1/train/stream n'apparaît pas
     # dans le spec OpenAPI : les websockets ne sont pas des paths HTTP).
@@ -184,6 +185,7 @@ def test_auth_posture_is_locked():
     """
     for path, method in (
         ("/api/v1/predict", "post"),
+        ("/api/v1/predict/batch", "post"),
         ("/api/v1/predict/reload", "post"),
         # Phase 3d — noyau training : toute la surface est protégée (parité
         # avec le legacy /train/* qui porte require_api_key).

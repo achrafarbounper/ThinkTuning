@@ -93,8 +93,15 @@ def _enforce_rate_limit(request: Request):
 
     # Anti-DoS : /predict legacy ET /api/v1/predict (surface v1) partagent le
     # même token bucket — une limite distincte (ou absente) pour la v1 créerait
-    # un contournement trivial pendant la migration.
-    if request.url.path not in {"/predict", "/predict/batch", "/compare", "/api/v1/predict"}:
+    # un contournement trivial pendant la migration. /predict/batch (multipart
+    # CSV) est le point d'entrée le plus coûteux (upload + inférence) : inclus.
+    if request.url.path not in {
+        "/predict",
+        "/predict/batch",
+        "/compare",
+        "/api/v1/predict",
+        "/api/v1/predict/batch",
+    }:
         return None
 
     client_id = _client_identifier(request)

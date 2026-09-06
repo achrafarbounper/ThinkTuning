@@ -176,7 +176,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     form.append("file", file);
     form.append("text_column", textColumn);
     form.append("response_format", "json");
-    return this._requestMultipart("/predict/batch", {
+    return this._requestMultipart("/api/v1/predict/batch", {
       formData: form,
       query: model ? { model } : undefined,
     });
@@ -192,7 +192,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     form.append("file", file);
     form.append("text_column", textColumn);
     form.append("response_format", "csv");
-    return this._requestMultipart("/predict/batch", {
+    return this._requestMultipart("/api/v1/predict/batch", {
       formData: form,
       expectBlob: true,
       query: model ? { model } : undefined,

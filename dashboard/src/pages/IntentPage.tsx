@@ -632,7 +632,7 @@ export default function IntentPage() {
         <p className="tt-hint">
           L'activation met à jour le pointeur{" "}
           <span className="tt-mono">active.json</span> puis recharge le classifieur
-          en mémoire (POST <span className="tt-mono">/classifiers/intent/reload</span>).
+          en mémoire (POST <span className="tt-mono">/api/v1/classifiers/intent/reload</span>).
         </p>
       </div>
 

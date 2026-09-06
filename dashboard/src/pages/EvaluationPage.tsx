@@ -123,7 +123,7 @@ export default function EvaluationPage() {
         <section className="tt-panel tt-eval-panel">
           <div className="tt-panel-head">
             <h2>Erreurs par classe · matrice de confusion</h2>
-            <span className="tt-tag">GET /evaluate/confusion</span>
+            <span className="tt-tag">GET /api/v1/evaluate/confusion</span>
           </div>
 
           <div className="tt-eval-controls">

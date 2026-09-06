@@ -185,3 +185,117 @@ def test_v1_predict_rate_limited(fake_predictor, monkeypatch):
     assert first.status_code == 200, first.text
     assert second.status_code == 429, second.text
     assert second.headers.get("Retry-After", "").isdigit()
+
+
+# -- /predict/batch (multipart CSV, délégation legacy — Phase « strangler complet »)
+
+BATCH_CSV = "text\nService impeccable\nJe ne reviendrai pas\n"
+
+
+class FakeLegacyPredictor:
+    """Fake du prédicteur legacy (``api._get_predictor``) — dicte les même
+    shape que le handler : ``[{"sentiment", "confidence"}]``."""
+
+    def predict(self, texts: list[str]):
+        return [{"sentiment": "positive", "confidence": 0.9} for _ in texts]
+
+
+@pytest.fixture
+def fake_legacy_predictor(monkeypatch):
+    fake = FakeLegacyPredictor()
+    monkeypatch.setattr(api, "_get_predictor", lambda model=None: fake)
+    return fake
+
+
+def test_v1_predict_batch_json(fake_legacy_predictor):
+    """CSV uploadé => résultats JSON (délégation : ordre et shape legacy)."""
+    response = client.post(
+        "/api/v1/predict/batch",
+        files={"file": ("t.csv", BATCH_CSV.encode(), "text/csv")},
+        data={"text_column": "text", "response_format": "json"},
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200, response.text
+    results = response.json()["results"]
+    assert len(results) == 2
+    assert results[0]["text"] == "Service impeccable"
+    assert results[0]["sentiment"] == "positive"
+    assert results[0]["confidence"] == 0.9
+    assert results[0]["row_index"] == 0
+
+
+def test_v1_predict_batch_csv(fake_legacy_predictor):
+    """response_format=csv => flux CSV (Content-Disposition préservée)."""
+    response = client.post(
+        "/api/v1/predict/batch",
+        files={"file": ("t.csv", BATCH_CSV.encode(), "text/csv")},
+        data={"text_column": "text", "response_format": "csv"},
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "sentiment" in response.text
+    assert "filename=predictions.csv" in response.headers["content-disposition"]
+
+
+def test_v1_predict_batch_invalid_csv(fake_legacy_predictor):
+    """CSV illisible => enveloppe d'erreur v1 (code stable), pas de 500."""
+    response = client.post(
+        "/api/v1/predict/batch",
+        files={"file": ("bad.csv", b"not a csv \xff\xfe", "text/csv")},
+        data={"text_column": "text", "response_format": "json"},
+        headers=AUTH,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "bad_request"
+
+
+def test_v1_predict_batch_missing_column(fake_legacy_predictor):
+    """Colonne introuvable => refus explicite (comportement legacy conservé)."""
+    response = client.post(
+        "/api/v1/predict/batch",
+        files={"file": ("t.csv", b"tweet\nhello\n", "text/csv")},
+        data={"text_column": "text", "response_format": "json"},
+        headers=AUTH,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "bad_request"
+
+
+def test_v1_predict_batch_requires_api_key():
+    """Parité auth : le batch (upload coûteux) exige la clé API."""
+    response = client.post(
+        "/api/v1/predict/batch",
+        files={"file": ("t.csv", BATCH_CSV.encode(), "text/csv")},
+        data={"text_column": "text", "response_format": "json"},
+    )
+
+    assert response.status_code == 401, response.text
+
+
+def test_v1_predict_batch_rate_limited(fake_legacy_predictor, monkeypatch):
+    """Anti-DoS partagé : /api/v1/predict/batch est dans le même token bucket."""
+    monkeypatch.setattr(api, "RATE_LIMIT_PER_MINUTE", 1)
+    api._reset_rate_limit_buckets()
+    try:
+        first = client.post(
+            "/api/v1/predict/batch",
+            files={"file": ("t.csv", BATCH_CSV.encode(), "text/csv")},
+            data={"text_column": "text", "response_format": "json"},
+            headers=AUTH,
+        )
+        second = client.post(
+            "/api/v1/predict/batch",
+            files={"file": ("t.csv", BATCH_CSV.encode(), "text/csv")},
+            data={"text_column": "text", "response_format": "json"},
+            headers=AUTH,
+        )
+    finally:
+        api._reset_rate_limit_buckets()
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 429, second.text

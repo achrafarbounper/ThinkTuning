@@ -118,8 +118,11 @@ Codes usités : `bad_request` (400), `validation_error` (422), `not_found`
 | 3d-3 | `/models/*` (details, active, activate, delete) + `/evaluate/confusion` | 5 |
 | 3d-4 | `/agent/*` (settings, ask/core±stream, multi/ask/stream, approvals, flow) + `/sessions*` + `/chat/*` | 17 |
 | 3d-5 | `/metrics*`, `/drift`, `/explain`, `/pipeline*`, `/active_learning*`, `/annotate*`, `/classifiers*` | 17 |
+| complétion | `/predict/batch` (dernier résidu réel — multipart CSV, délégation legacy) + **verrou « aucun endpoint legacy consommé »** | 1 |
 
-**Total** : 57 routes v1 enregistrées (56 HTTP + 1 WS).
+**Total** : 58 routes v1 enregistrées (57 HTTP + 1 WS). La surface legacy
+(80 routes HTTP) reste montée mais n'est **plus consommée** par le dashboard —
+elle est prête pour l'épuration.
 
 ---
 
@@ -128,7 +131,7 @@ Codes usités : `bad_request` (400), `validation_error` (422), `not_found`
 | Test | Rôle |
 |---|---|
 | `tests/test_api_v1_contract.py` | Paths v1 attendus invariants, DTO/ordre des champs, posture auth, `export_openapi.py` cohérent avec le spec. Toute dérive de contrat casse la CI. |
-| `tests/test_api_v1_client_contract.py` | **Verrou croisé** : chaque `/api/v1/*` littéral appelé par le dashboard (source non-test, hors commentaires) doit être une route enregistrée ; garde-fou de volume (≥ 50 routes v1). Protège contre le 404 silencieux. |
+| `tests/test_api_v1_client_contract.py` | **Verrous croisés client ↔ backend** : (1) chaque `/api/v1/*` littéral du dashboard résout vers une route v1 enregistrée (par segments, comme le routeur — 404 silencieux impossible) ; (2) **strangler complet** : aucun appel réseau (`request/fetch/WebSocket/EventSource`) du client ne cible un endpoint legacy enregistré ; garde-fou de volume (≥ 50 routes v1). |
 | Tests par tranche (`test_api_v1_*.py`) | Comportement (statuts, payloads, enveloppe d'erreur) verrouillé pour chaque surface migrée. |
 
 Le spec OpenAPI est **générable à la demande** :
@@ -181,7 +184,9 @@ Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
 ### Restant (post-strangler)
 1. **Suppression de la couche legacy** après une période d'observation en
    prod : retirer les `app.include_router(...)` des routers legacy + le
-   support bi-enveloppe quand plus rien ne répond en `detail`.
+   support bi-enveloppe quand plus rien ne répond en `detail`. Le verrou
+   « aucun endpoint legacy consommé » garantit qu'aucun retrait ne casse le
+   dashboard.
 2. **Génération du client TypeScript** depuis `openapi.json` (reportée
    volontairement — interface stabilisée, à renouveler après épuration).
 3. **Extraction métier des handlers `api/routes/agent.py`** (~1700 lignes,
