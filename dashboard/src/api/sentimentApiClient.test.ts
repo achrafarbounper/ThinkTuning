@@ -1,7 +1,7 @@
 /**
- * Tests de normalisation getModelSanity (migration v1) : rapport 200 sain,
- * 503 enveloppe v1 domaine, 503 enveloppe legacy (compat déploiement mixte),
- * autres erreurs propagées.
+ * Tests du client métier migrés v1 : getModelSanity (rapport 200 sain,
+ * 503 enveloppe v1 domaine, 503 enveloppe legacy) et predict (URL, corps
+ * model_name, normalisation 503), autres erreurs propagées.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, SentimentApiClient } from "./sentimentApiClient";
@@ -135,5 +135,62 @@ describe("SentimentApiClient.getModelSanity (v1)", () => {
 
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
+  });
+});
+
+describe("SentimentApiClient.predict (v1)", () => {
+  it("interroge /api/v1/predict et passe la version dans le corps (model_name)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        results: [
+          { text: "a", sentiment: "positive", confidence: 0.9, model_version: "v1" },
+        ],
+        model_version: "v1",
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "secret" });
+    const res = await client.predict(["a"], "v1");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/predict");
+    expect(init.method).toBe("POST");
+    expect(init.headers["X-API-Key"]).toBe("secret");
+    expect(init.body).toBe(JSON.stringify({ texts: ["a"], model_name: "v1" }));
+    expect(res?.results?.[0]).toMatchObject({ sentiment: "positive", model_version: "v1" });
+  });
+
+  it("omet model_name quand aucune version n'est demandée", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ results: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api" });
+    await client.predict(["a"]);
+
+    expect(fetchMock.mock.calls[0][1].body).toBe(JSON.stringify({ texts: ["a"] }));
+  });
+
+  it("normalise un 503 enveloppe v1 (modèle indisponible)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: "model_not_available",
+            message: "Aucun modèle disponible",
+            details: {},
+          },
+        },
+        503
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api" });
+    const err = await expectApiError(client.predict(["a"]));
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(503);
+    expect(err.message).toBe("Aucun modèle disponible");
   });
 });

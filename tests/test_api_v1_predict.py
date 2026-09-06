@@ -165,3 +165,23 @@ def test_v1_reload_rejects_unhealthy_model():
     error = response.json()["error"]
     assert error["code"] == "model_unhealthy"
     assert error["details"]["status"] == "reload_rejected"
+
+
+def test_v1_predict_rate_limited(fake_predictor, monkeypatch):
+    """Parité anti-DoS : /api/v1/predict est couvert par le token bucket.
+
+    Mêmes règles que /predict legacy (Retry-After, 429) : une limite absente
+    ou distincte pour la v1 créerait un contournement trivial pendant la
+    migration.
+    """
+    monkeypatch.setattr(api, "RATE_LIMIT_PER_MINUTE", 1)
+    api._reset_rate_limit_buckets()
+    try:
+        first = client.post("/api/v1/predict", json={"texts": ["a"]}, headers=AUTH)
+        second = client.post("/api/v1/predict", json={"texts": ["b"]}, headers=AUTH)
+    finally:
+        api._reset_rate_limit_buckets()
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 429, second.text
+    assert second.headers.get("Retry-After", "").isdigit()

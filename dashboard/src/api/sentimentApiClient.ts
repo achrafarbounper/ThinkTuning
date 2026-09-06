@@ -142,11 +142,19 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   // -- /predict ---------------------------------------------------------------
 
-  predict(texts: string[], model?: string): Promise<{ results?: PredictionResult[] } | null> {
-    return this._request("/predict", {
+  /**
+   * Prédiction de sentiment — MIGRÉ vers la surface v1 (découplage).
+   * Différences v1 : la version de modèle passe du query (?model=) au CORPS
+   * (model_name) ; la réponse ajoute model_version (additif, transparent).
+   * Auth inchangée : X-API-Key requise, comme le legacy.
+   */
+  predict(
+    texts: string[],
+    model?: string
+  ): Promise<{ results?: PredictionResult[]; model_version?: string } | null> {
+    return this._request("/api/v1/predict", {
       method: "POST",
-      body: { texts },
-      query: model ? { model } : undefined,
+      body: { texts, model_name: model || undefined },
     });
   }
 
