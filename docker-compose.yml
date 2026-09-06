@@ -65,9 +65,10 @@ services:
     build: .
     image: thinktuning:latest
     container_name: thinktuning-app
+    # init: true -> un process init récolte les zombies (gunicorn pré-fork).
+    init: true
     ports:
       - "8000:8000"
-      - "8080:80"
     environment:
       - MODEL_PATH=/app/experiments/models
       - API_KEY=${API_KEY}
@@ -89,6 +90,30 @@ services:
     volumes:
       - ./experiments:/app/experiments
       - hf-cache:/app/.cache
+    profiles: ["app"]
+
+  # ---------------------------------------------------------------------------
+  # Dashboard React (Phase 5 — découplage déploiement) : image séparée, nginx
+  # standalone qui proxifie /api/* vers le service « app » ci-dessus via le
+  # template envsubst (dashboard/templates/default.conf.template).
+  # `--profile app up` démarre API + dashboard ; le healthcheck de l'image API
+  # garantit que le dashboard n'arrive qu'avec une API prête.
+  # ---------------------------------------------------------------------------
+  dashboard:
+    build: ./dashboard
+    image: thinktuning-dashboard:latest
+    container_name: thinktuning-dashboard
+    init: true
+    environment:
+      # Variables du template nginx (envsubst au DÉMARRAGE du conteneur,
+      # cf. dashboard/templates/default.conf.template) — pas des build args.
+      - API_UPSTREAM=app:8000
+      - FRONTEND_PORT=8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      app:
+        condition: service_healthy
     profiles: ["app"]
 
 volumes:

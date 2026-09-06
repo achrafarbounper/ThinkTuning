@@ -141,14 +141,23 @@ export class SentimentApiClientCore {
       : await response.text();
 
     if (!response.ok) {
-      const detail = isJson && payload ? (payload as { detail?: unknown }).detail : payload;
-      throw new ApiError(
-        typeof detail === "string" && detail
-          ? detail
-          : `Erreur HTTP ${response.status} sur ${path}`,
-        response.status,
-        detail
-      );
+      // Deux enveloppes d'erreur coexistent pendant la migration :
+      //  - legacy FastAPI : {"detail": <string|object>} → on expose <detail> ;
+      //  - v1 domaine : {"error": {"code","message","details"}} — sans clé
+      //    "detail", on expose le payload COMPLET (sinon il serait perdu) et
+      //    on remonte "error.message" comme message lisible.
+      const detail =
+        isJson && payload
+          ? (payload as { detail?: unknown }).detail ?? payload
+          : payload;
+      const v1Message =
+        detail !== null && typeof detail === "object" && "error" in (detail as object)
+          ? (detail as { error?: { message?: unknown } }).error?.message
+          : undefined;
+      let message = `Erreur HTTP ${response.status} sur ${path}`;
+      if (typeof detail === "string" && detail) message = detail;
+      else if (typeof v1Message === "string" && v1Message) message = v1Message;
+      throw new ApiError(message, response.status, detail);
     }
 
     return payload as T;

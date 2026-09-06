@@ -44,7 +44,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
     {
       label: "Modèles listés",
       value: modelsError ? "Erreur" : String(models.length),
-      detail: modelsError || "GET /models/details",
+      detail: modelsError || "GET /api/v1/models/details",
     },
   ];
 
@@ -93,7 +93,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
           </div>
           {!config.apiKey && (
             <p className="tt-hint">
-              Astuce : sans clé API, seul /health est accessible. Renseignez-la dans les
+              Astuce : sans clé API, seul /api/v1/health est accessible. Renseignez-la dans les
               paramètres pour débloquer modèles, prédiction et entraînement.
             </p>
           )}

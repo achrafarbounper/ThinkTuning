@@ -191,3 +191,21 @@ app.include_router(classifiers.router)
 # d'entraînement persistées (table scheduled_jobs du SQLite existant).
 ensure_scheduler_started()
 
+# === API v1 versionnée (découplage frontend/backend — strangler pattern) ===
+# Surface stable consommable par le dashboard : les routes v1 passent par
+# les ports + use-cases (app/domain, app/application) au lieu des modules
+# core.* directs. Les routes legacy ci-dessus restent servies en parallèle ;
+# la couche legacy sera retirée endpoint par endpoint une fois la v1 validée.
+from api.dependencies.composition import container  # noqa: E402
+from api.errors import register_domain_error_handlers  # noqa: E402
+from api.routes.v1 import router as v1_router  # noqa: E402
+
+# Composition root : enregistre les adaptateurs par défaut (paresseux —
+# aucun modèle n'est chargé ici, uniquement des factories).
+container.bootstrap()
+
+# Mapping global DomainError -> réponses HTTP ({"error": {"code", ...}}).
+register_domain_error_handlers(app)
+
+app.include_router(v1_router, prefix="/api/v1")
+

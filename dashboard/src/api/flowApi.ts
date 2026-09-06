@@ -15,8 +15,8 @@ import {
 import type { FlowEvent } from "../components/flowmap/types";
 import { DEFAULT_BASE_URL } from "./clientCore";
 
-const MULTI_ASK_STREAM_ENDPOINT = "/api/agent/multi/ask/stream";
-const CORE_ASK_STREAM_ENDPOINT = "/api/agent/ask/core/stream";
+const MULTI_ASK_STREAM_ENDPOINT = "/api/v1/agent/multi/ask/stream";
+const CORE_ASK_STREAM_ENDPOINT = "/api/v1/agent/ask/core/stream";
 const API_CONFIG_KEY = "thinktuning.apiConfig";
 
 /** Clé API (X-API-Key) persistée localement, si présente. */
@@ -228,7 +228,7 @@ function _apiHeaders(json = false): Record<string, string> {
 /** Liste les sessions enregistrées (requête authentifiée GET /api/agent/flow). */
 export async function listFlowSessions(): Promise<FlowSessionSummary[]> {
   const base = DEFAULT_BASE_URL.replace(/\/+$/, "");
-  const response = await fetch(`${base}/api/agent/flow`, { headers: _apiHeaders() });
+  const response = await fetch(`${base}/api/v1/agent/flow`, { headers: _apiHeaders() });
   if (!response.ok) {
     throw new Error(`Liste des sessions impossible (statut ${response.status}).`);
   }
@@ -239,7 +239,7 @@ export async function listFlowSessions(): Promise<FlowSessionSummary[]> {
 /** Récupère une session et la convertit en timeline `FlowEvent` rejouable. */
 export async function getFlowSession(id: string): Promise<FlowEvent[]> {
   const base = DEFAULT_BASE_URL.replace(/\/+$/, "");
-  const response = await fetch(`${base}/api/agent/flow/${encodeURIComponent(id)}`, {
+  const response = await fetch(`${base}/api/v1/agent/flow/${encodeURIComponent(id)}`, {
     headers: _apiHeaders(),
   });
   if (!response.ok) {

@@ -2,7 +2,6 @@ import math
 import os
 import threading
 import time
-from typing import Dict
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -47,7 +46,7 @@ class TokenBucket:
         return False, max(1, int(math.ceil(wait_seconds)))
 
 
-_RATE_LIMIT_BUCKETS: Dict[str, TokenBucket] = {}
+_RATE_LIMIT_BUCKETS: dict[str, TokenBucket] = {}
 
 
 def _reset_rate_limit_buckets():
@@ -92,7 +91,17 @@ def _enforce_rate_limit(request: Request):
     if rate <= 0 or request.method.upper() != "POST":
         return None
 
-    if request.url.path not in {"/predict", "/predict/batch", "/compare"}:
+    # Anti-DoS : /predict legacy ET /api/v1/predict (surface v1) partagent le
+    # même token bucket — une limite distincte (ou absente) pour la v1 créerait
+    # un contournement trivial pendant la migration. /predict/batch (multipart
+    # CSV) est le point d'entrée le plus coûteux (upload + inférence) : inclus.
+    if request.url.path not in {
+        "/predict",
+        "/predict/batch",
+        "/compare",
+        "/api/v1/predict",
+        "/api/v1/predict/batch",
+    }:
         return None
 
     client_id = _client_identifier(request)

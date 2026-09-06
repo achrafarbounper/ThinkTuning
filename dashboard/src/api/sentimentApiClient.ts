@@ -71,18 +71,26 @@ export interface ClassifierPrediction {
 export class SentimentApiClient extends SentimentApiClientCore {
   // -- /health, /metrics (sans authentification) --------------------------
 
+  /**
+   * Santé de l'API — MIGRÉ vers la surface v1 (découplage frontend/backend).
+   *
+   * Strangler pattern : GET /api/v1/health expose le MÊME shape que /health
+   * legacy (contrat verrouillé par tests de non-régression backend), donc le
+   * polling AppProvider n'a besoin d'aucune adaptation. La surface legacy
+   * /health reste servie tant que d'autres endpoints ne sont pas migrés.
+   */
   getHealth(): Promise<ApiHealth | null> {
-    return this._request<ApiHealth>("/health");
+    return this._request<ApiHealth>("/api/v1/health");
   }
 
   /** Exposition Prometheus (texte brut), via le transport central. */
   async getMetricsRaw(): Promise<string> {
-    return this._requestText("/metrics");
+    return this._requestText("/api/v1/metrics");
   }
 
-  /** Endpoint proxy JSON de secours (voir api/routes/metrics.py). */
+  /** Endpoint proxy JSON de secours (voir api/routes/v1/metrics.py). */
   async getMetricsJson(): Promise<unknown> {
-    return this._request<unknown>("/metrics/json");
+    return this._request<unknown>("/api/v1/metrics/json");
   }
 
   // -- /classifiers (système de classification, Phase 5) -------------------
@@ -92,13 +100,13 @@ export class SentimentApiClient extends SentimentApiClientCore {
     return this._request<{
       classifiers?: Array<Record<string, unknown>>;
       summary?: { total?: number; healthy?: number; status?: string };
-    }>("/classifiers");
+    }>("/api/v1/classifiers");
   }
 
   /** Instantané d'un classifieur (info, métriques, health, warmup). */
   getClassifier(name: string) {
     return this._request<Record<string, unknown>>(
-      `/classifiers/${encodeURIComponent(name)}`
+      `/api/v1/classifiers/${encodeURIComponent(name)}`
     );
   }
 
@@ -107,7 +115,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     name: string,
     texts: string[]
   ): Promise<{ results?: ClassifierPrediction[] } | null> {
-    return this._request(`/classifiers/${encodeURIComponent(name)}/predict`, {
+    return this._request(`/api/v1/classifiers/${encodeURIComponent(name)}/predict`, {
       method: "POST",
       body: { texts },
     });
@@ -115,30 +123,46 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   /** Recharge le modèle actif d'un classifieur depuis le disque. */
   reloadClassifier(name: string) {
-    return this._request(`/classifiers/${encodeURIComponent(name)}/reload`, {
+    return this._request(`/api/v1/classifiers/${encodeURIComponent(name)}/reload`, {
       method: "POST",
     });
   }
 
   // -- /models --------------------------------------------------------------
 
+  /**
+   * Catalogue détaillé des modèles (flag active) — MIGRÉ vers
+   * GET /api/v1/models/details (liste vide si aucun modèle, 200).
+   */
   listModels(): Promise<ModelVersion[] | null> {
-    return this._request<ModelVersion[]>("/models/details");
+    return this._request<ModelVersion[]>("/api/v1/models/details");
   }
 
   // -- /evaluate ------------------------------------------------------------
 
+  /**
+   * Matrice de confusion + métriques d'évaluation — MIGRÉ vers
+   * GET /api/v1/evaluate/confusion (503 enveloppe domaine si aucun modèle).
+   */
   getConfusion({ model, limit }: { model?: string; limit?: number } = {}) {
-    return this._request("/evaluate/confusion", { query: { model, limit } });
+    return this._request("/api/v1/evaluate/confusion", { query: { model, limit } });
   }
 
   // -- /predict ---------------------------------------------------------------
 
-  predict(texts: string[], model?: string): Promise<{ results?: PredictionResult[] } | null> {
-    return this._request("/predict", {
+  /**
+   * Prédiction de sentiment — MIGRÉ vers la surface v1 (découplage).
+   * Différences v1 : la version de modèle passe du query (?model=) au CORPS
+   * (model_name) ; la réponse ajoute model_version (additif, transparent).
+   * Auth inchangée : X-API-Key requise, comme le legacy.
+   */
+  predict(
+    texts: string[],
+    model?: string
+  ): Promise<{ results?: PredictionResult[]; model_version?: string } | null> {
+    return this._request("/api/v1/predict", {
       method: "POST",
-      body: { texts },
-      query: model ? { model } : undefined,
+      body: { texts, model_name: model || undefined },
     });
   }
 
@@ -152,7 +176,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     form.append("file", file);
     form.append("text_column", textColumn);
     form.append("response_format", "json");
-    return this._requestMultipart("/predict/batch", {
+    return this._requestMultipart("/api/v1/predict/batch", {
       formData: form,
       query: model ? { model } : undefined,
     });
@@ -168,7 +192,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     form.append("file", file);
     form.append("text_column", textColumn);
     form.append("response_format", "csv");
-    return this._requestMultipart("/predict/batch", {
+    return this._requestMultipart("/api/v1/predict/batch", {
       formData: form,
       expectBlob: true,
       query: model ? { model } : undefined,
@@ -201,7 +225,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     form.append("text_column", textColumn);
     if (threshold !== undefined && threshold !== "") form.append("threshold", String(threshold));
     if (method) form.append("method", method);
-    return this._requestMultipart("/drift", {
+    return this._requestMultipart("/api/v1/drift", {
       formData: form,
       query: model ? { model } : undefined,
     });
@@ -224,18 +248,23 @@ export class SentimentApiClient extends SentimentApiClientCore {
     const body: Record<string, unknown> = { texts_a: textsA, texts_b: textsB };
     if (threshold !== undefined && threshold !== "") body.threshold = threshold;
     if (method) body.method = method;
-    return this._request("/drift", {
+    return this._request("/api/v1/drift", {
       method: "POST",
       body,
       query: model ? { model } : undefined,
     });
   }
 
-  reloadPredictor(model?: string) {
-    return this._request("/predict/reload", {
-      method: "POST",
-      query: model ? { model } : undefined,
-    });
+  /**
+   * Rechargement du predictor actif — MIGRÉ vers la surface v1.
+   * Aucun paramètre : les deux surfaces ne rechargent QUE la version active
+   * (le ``?model=`` historique était ignoré par le backend legacy). En cas de
+   * refus SCRUM-74 (modèle non sain), l'API répond 503 ``model_unhealthy`` et
+   * le transport remonte ``error.message`` comme message lisible.
+   * Signature conservée (paramètre ignoré) pour ne pas casser l'appelant.
+   */
+  reloadPredictor(_model?: string) {
+    return this._request("/api/v1/predict/reload", { method: "POST" });
   }
 
   // -- /explain ----------------------------------------------------------------
@@ -245,65 +274,76 @@ export class SentimentApiClient extends SentimentApiClientCore {
    * (via l'agent IA / provider OpenRouter) : {sentiment, confidence, explanation}.
    */
   explain({ text, model }: { text: string; model?: string } = { text: "" }) {
-    return this._request<Explanation>("/explain", {
+    return this._request<Explanation>("/api/v1/explain", {
       method: "POST",
       body: model ? { text, model } : { text },
     });
   }
 
-  // -- /train -----------------------------------------------------------------
+  // -- /train (MIGRÉ vers la surface v1 — Phase 3d, découplage) ----------------
 
+  /**
+   * Démarre un entraînement — MIGRÉ vers POST /api/v1/train (shape identique,
+   * contrat verrouillé par tests backend test_api_v1_contract.py).
+   */
   startTraining(payload: unknown) {
-    return this._request("/train", { method: "POST", body: payload });
+    return this._request("/api/v1/train", { method: "POST", body: payload });
   }
 
+  /** Statut d'un job — MIGRÉ vers GET /api/v1/train/status/{job_id}. */
   getTrainingStatus(jobId: string) {
-    return this._request(`/train/status/${encodeURIComponent(jobId)}`);
+    return this._request(`/api/v1/train/status/${encodeURIComponent(jobId)}`);
   }
 
+  /** Annule un job — MIGRÉ vers POST /api/v1/train/cancel/{job_id}. */
   cancelTraining(jobId: string) {
-    return this._request(`/train/cancel/${encodeURIComponent(jobId)}`, {
+    return this._request(`/api/v1/train/cancel/${encodeURIComponent(jobId)}`, {
       method: "POST",
     });
   }
 
+  /** Liste paginée des jobs — MIGRÉ vers GET /api/v1/train/jobs. */
   listTrainingJobs({ status, limit, offset }: { status?: string; limit?: number; offset?: number } = {}) {
-    return this._request("/train/jobs", { query: { status, limit, offset } });
-  }
-
-  /** SCRUM-73 : historique des métriques par epoch d'un job (loss / F1 / accuracy). */
-  getTrainingHistory(jobId: string) {
-    return this._request(`/train/history/${encodeURIComponent(jobId)}`);
+    return this._request("/api/v1/train/jobs", { query: { status, limit, offset } });
   }
 
   /**
-   * WebSocket GET /train/stream/{job_id} — métriques live pendant un
-   * entraînement (loss / F1 epoch par epoch). Retourne l'URL complète à passer
-   * à `new WebSocket()` (le jeton passe en query `?token=`, les navigateurs ne
-   * pouvant pas poser de header sur un WebSocket).
+   * SCRUM-73 : historique des métriques par epoch d'un job (loss / F1 /
+   * accuracy) — MIGRÉ vers GET /api/v1/train/history/{job_id}.
+   */
+  getTrainingHistory(jobId: string) {
+    return this._request(`/api/v1/train/history/${encodeURIComponent(jobId)}`);
+  }
+
+  /**
+   * WebSocket /api/v1/train/stream/{job_id} — MIGRÉ vers la surface v1
+   * (métriques live pendant un entraînement, loss / F1 epoch par epoch).
+   * Retourne l'URL complète à passer à `new WebSocket()` (le jeton passe en
+   * query `?token=`, les navigateurs ne pouvant pas poser de header sur un
+   * WebSocket).
    */
   getTrainMetricsStreamUrl(jobId: string): string {
     const wsUrl = this.baseUrl.replace(/^http/, "ws").replace(/^https/, "wss");
     const params = new URLSearchParams();
     if (this.apiKey) params.set("token", this.apiKey);
     const qs = params.toString();
-    return `${wsUrl}/train/stream/${encodeURIComponent(jobId)}${qs ? `?${qs}` : ""}`;
+    return `${wsUrl}/api/v1/train/stream/${encodeURIComponent(jobId)}${qs ? `?${qs}` : ""}`;
   }
-  // -- /train/schedules (SCRUM-34 : planification récurrente) -----------------
+  // -- /train/schedules (SCRUM-34 : planification récurrente — MIGRÉ v1) ------
 
-  /** Programme un entraînement récurrent (POST /train/schedule). */
+  /** Programme un entraînement récurrent — MIGRÉ vers POST /api/v1/train/schedule. */
   scheduleTraining(payload: unknown) {
-    return this._request("/train/schedule", { method: "POST", body: payload });
+    return this._request("/api/v1/train/schedule", { method: "POST", body: payload });
   }
 
-  /** Liste les planifications actives : { total, items: ScheduledJob[] }. */
+  /** Liste les planifications actives — MIGRÉ vers GET /api/v1/train/schedules. */
   listSchedules() {
-    return this._request("/train/schedules");
+    return this._request("/api/v1/train/schedules");
   }
 
-  /** Supprime une planification récurrente. */
+  /** Supprime une planification — MIGRÉ vers DELETE /api/v1/train/schedules/{id}. */
   deleteSchedule(scheduleId: string) {
-    return this._request(`/train/schedules/${encodeURIComponent(scheduleId)}`, {
+    return this._request(`/api/v1/train/schedules/${encodeURIComponent(scheduleId)}`, {
       method: "DELETE",
     });
   }
@@ -324,7 +364,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     batchSize?: number;
     modelVersion?: string;
   } = {}) {
-    return this._request("/active_learning", {
+    return this._request("/api/v1/active_learning", {
       method: "POST",
       body: {
         texts: texts && texts.length ? texts : undefined,
@@ -338,57 +378,95 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   /** Enregistre une correction manuelle : { text, label, force? }. */
   annotate({ text, label, force = false }: { text: string; label: string; force?: boolean }) {
-    return this._request("/annotate", { method: "POST", body: { text, label, force } });
+    return this._request("/api/v1/annotate", { method: "POST", body: { text, label, force } });
   }
 
   /** Annotations stockées : { total, items }. */
   listAnnotations({ limit = 100, offset = 0 } = {}) {
-    return this._request("/annotate/list", { query: { limit, offset } });
+    return this._request("/api/v1/annotate/list", { query: { limit, offset } });
   }
 
   /** Fusionne les annotations dans le dataset d'entraînement. */
   mergeAnnotations() {
-    return this._request("/annotate/merge", { method: "POST" });
+    return this._request("/api/v1/annotate/merge", { method: "POST" });
   }
 
   /** Lance le cycle complet (202 → job asynchrone TrainJob). */
   startActiveLearningCycle(payload: unknown = {}) {
-    return this._request("/active_learning/cycle", { method: "POST", body: payload });
+    return this._request("/api/v1/active_learning/cycle", { method: "POST", body: payload });
   }
 
   /** Statut du job de cycle. */
   getActiveLearningCycleStatus(jobId: string) {
-    return this._request(`/active_learning/cycle/status/${encodeURIComponent(jobId)}`);
+    return this._request(`/api/v1/active_learning/cycle/status/${encodeURIComponent(jobId)}`);
   }
 
-  /** Active une version de modèle (422 si artefacts invalides). */
+  /**
+   * Active une version de modèle — MIGRÉ vers POST /api/v1/models/{name}/activate
+   * (422 si artefacts invalides, 404 si inconnue — enveloppe domaine).
+   */
   activateModel(name: string) {
-    return this._request(`/models/${encodeURIComponent(name)}/activate`, {
+    return this._request(`/api/v1/models/${encodeURIComponent(name)}/activate`, {
       method: "POST",
     });
   }
 
-  /** Pointeur de la version active. */
+  /** Pointeur de la version active — MIGRÉ vers GET /api/v1/models/active. */
   getActiveModel() {
-    return this._request("/models/active");
+    return this._request("/api/v1/models/active");
   }
 
   /**
-   * Sanity check comportemental d'une version de modèle.
-   * En cas de verdict défaillant, l'API renvoie 503 avec un body `detail`
-   * { verdict, detail, accuracy, results } : on le retourne comme un rapport
-   * plutôt que de lever, pour simplifier l'affichage dans l'IHM.
+   * Sanity check comportemental d'une version de modèle — MIGRÉ vers v1
+   * (découplage frontend/backend).
+   *
+   * En cas de verdict défaillant, l'API répond 503 sans lever pour l'IHM.
+   * Deux enveloppes sont normalisées (déploiements mixtes pendant la
+   * migration) :
+   *  - v1 domaine : {"error": {code, message, details:{verdict, accuracy,
+   *    results, ...}}} — le message métier vit dans error.message ;
+   *  - legacy FastAPI : {"detail": {verdict, detail, accuracy, results}}.
+   * Le rapport retourné garde le shape attendu par ModelSanityPanel.
    */
   async getModelSanity(model?: string) {
     try {
-      const report = (await this._request("/health/model-sanity", {
+      const report = (await this._request("/api/v1/health/model-sanity", {
         query: model ? { model_name: model } : undefined,
       })) as Record<string, unknown> | null;
       return { ...report, httpStatus: 200 };
     } catch (err) {
+      if (!(err instanceof ApiError) || err.status !== 503) throw err;
+
+      // Enveloppe v1 : rapport = error.details, detail = error.message.
+      const detailObj =
+        err.detail !== null && typeof err.detail === "object"
+          ? (err.detail as Record<string, unknown>)
+          : null;
+      const v1Error =
+        detailObj && "error" in detailObj
+          ? (detailObj.error as
+              | { message?: unknown; details?: Record<string, unknown> }
+              | undefined)
+          : undefined;
       if (
-        err instanceof ApiError &&
-        err.status === 503 &&
+        v1Error &&
+        typeof v1Error === "object" &&
+        v1Error.details &&
+        typeof v1Error.details === "object" &&
+        "verdict" in v1Error.details
+      ) {
+        return {
+          ...(v1Error.details as object),
+          detail:
+            typeof v1Error.message === "string"
+              ? v1Error.message
+              : ((v1Error.details as { detail?: string }).detail ?? ""),
+          httpStatus: 503,
+        };
+      }
+
+      // Enveloppe legacy (backend antérieur à la v1, déploiement mixte).
+      if (
         typeof err.detail === "object" &&
         err.detail !== null &&
         "verdict" in err.detail
@@ -400,70 +478,86 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /**
-   * Supprime une version de modèle défaillante (DELETE /models/{name}).
-   * Refus 409 si version active, 422 si le sanity check est « ok ».
+   * Supprime une version de modèle défaillante — MIGRÉ vers
+   * DELETE /api/v1/models/{name}. Refus 409 (conflit) si version active,
+   * 422 si le sanity check est « ok » — enveloppe domaine.
    */
   deleteModel(name: string) {
-    return this._request(`/models/${encodeURIComponent(name)}`, { method: "DELETE" });
+    return this._request(`/api/v1/models/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
   }
 
   // -- /pipeline ---------------------------------------------------------------
 
   /** Lance le pipeline end-to-end (labeling -> filtering -> fine-tuning LLM). */
   startPipeline(payload: unknown) {
-    return this._request("/pipeline", { method: "POST", body: payload });
+    return this._request("/api/v1/pipeline", { method: "POST", body: payload });
   }
 
   getPipelineStatus(jobId: string) {
-    return this._request(`/pipeline/status/${encodeURIComponent(jobId)}`);
+    return this._request(`/api/v1/pipeline/status/${encodeURIComponent(jobId)}`);
   }
 
   cancelPipeline(jobId: string) {
-    return this._request(`/pipeline/cancel/${encodeURIComponent(jobId)}`, {
+    return this._request(`/api/v1/pipeline/cancel/${encodeURIComponent(jobId)}`, {
       method: "POST",
     });
   }
 
   listPipelineJobs({ status, limit, offset }: { status?: string; limit?: number; offset?: number } = {}) {
-    return this._request("/pipeline/jobs", { query: { status, limit, offset } });
+    return this._request("/api/v1/pipeline/jobs", { query: { status, limit, offset } });
   }
 
-  // -- /train/intent (entraînement du classifieur d'intention, SCRUM-95) ----
+  // -- /train/intent (SCRUM-95 : classifieur d'intention — MIGRÉ v1) ----------
 
-  /** Lance l'entraînement du classifieur d'intention (202 → TrainJob kind="intent"). */
+  /**
+   * Lance l'entraînement du classifieur d'intention — MIGRÉ vers
+   * POST /api/v1/train/intent (202 → TrainJob kind="intent" ; 422 enveloppe
+   * domaine si dataset/version source invalides).
+   */
   startIntentTraining(payload: unknown) {
-    return this._request("/train/intent", { method: "POST", body: payload });
+    return this._request("/api/v1/train/intent", { method: "POST", body: payload });
   }
 
-  /** Statut d'un job d'entraînement d'intention. */
+  /** Statut d'un job d'intention — MIGRÉ vers GET /api/v1/train/intent/status/{job_id}. */
   getIntentTrainingStatus(jobId: string) {
-    return this._request(`/train/intent/status/${encodeURIComponent(jobId)}`);
+    return this._request(`/api/v1/train/intent/status/${encodeURIComponent(jobId)}`);
   }
 
-  /** Annule un job d'entraînement d'intention. */
+  /** Annule un job d'intention — MIGRÉ vers POST /api/v1/train/intent/cancel/{job_id}. */
   cancelIntentTraining(jobId: string) {
-    return this._request(`/train/intent/cancel/${encodeURIComponent(jobId)}`, {
+    return this._request(`/api/v1/train/intent/cancel/${encodeURIComponent(jobId)}`, {
       method: "POST",
     });
   }
 
-  /** Historique paginé des jobs d'intention uniquement (tri started_at DESC). */
+  /**
+   * Historique paginé des jobs d'intention uniquement (tri started_at DESC) —
+   * MIGRÉ vers GET /api/v1/train/intent/jobs.
+   */
   listIntentTrainingJobs({
     status,
     limit,
     offset,
   }: { status?: string; limit?: number; offset?: number } = {}) {
-    return this._request("/train/intent/jobs", { query: { status, limit, offset } });
+    return this._request("/api/v1/train/intent/jobs", { query: { status, limit, offset } });
   }
 
-  /** Versions d'intention valides + pointeur actif : { total, items, active }. */
+  /**
+   * Versions d'intention valides + pointeur actif : { total, items, active } —
+   * MIGRÉ vers GET /api/v1/train/intent/versions.
+   */
   getIntentModelVersions() {
-    return this._request("/train/intent/versions");
+    return this._request("/api/v1/train/intent/versions");
   }
 
-  /** Active une version d'intention (422 si artefacts invalides). */
+  /**
+   * Active une version d'intention (422 si artefacts invalides) — MIGRÉ vers
+   * POST /api/v1/train/intent/activate.
+   */
   activateIntentVersion(version: string) {
-    return this._request("/train/intent/activate", {
+    return this._request("/api/v1/train/intent/activate", {
       method: "POST",
       body: { version },
     });

@@ -331,7 +331,7 @@ export default function MonitoringPage() {
     {
       label: "Dernière scrutation",
       value: lastTime,
-      detail: `Source : ${source === "json" ? "proxy JSON" : source === "texte" ? "texte /metrics" : "—"}`,
+      detail: `Source : ${source === "json" ? "proxy JSON" : source === "texte" ? "texte /api/v1/metrics" : "—"}`,
     },
   ];
 
@@ -347,7 +347,7 @@ const chartData = history.map((p) => ({ ...p, t: timeLabel(p.t) }));
       <header className="page-head">
         <h1>Monitoring</h1>
         <p>
-          Métriques Prometheus de l'API scrapées en direct depuis /metrics — sans Grafana ni Prometheus externe.
+          Métriques Prometheus de l'API scrapées en direct depuis /api/v1/metrics — sans Grafana ni Prometheus externe.
         </p>
       </header>
 

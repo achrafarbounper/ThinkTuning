@@ -2,7 +2,7 @@
  * agentSettings.ts
  * ---------------------------------------------------------------------
  * Paramètres de l'assistant IA : constantes, mapping camelCase/snake_case,
- * persistance localStorage et appels API dédiés (`/api/agent/*`).
+ * persistance localStorage et appels API dédiés (`/api/v1/agent/*`).
  *
  * Module NON critique : il est consommé par SettingsPage / AppProvider mais
  * ne contient aucun endpoint du premier rendu. Séparé de sentimentApiClient.ts
@@ -59,7 +59,7 @@ export type AgentSettingsPayload = Record<string, unknown>;
 
 /**
  * Convertit des paramètres agent en camelCase (formulaire du dashboard) en
- * corps snake_case attendu par l'API (`/api/agent/settings` en PUT).
+ * corps snake_case attendu par l'API (`/api/v1/agent/settings` en PUT).
  * Seules les clés présentes (non `undefined`) sont envoyées, ce qui permet les
  * mises à jour partielles (champ absent = inchangé côté serveur).
  */
@@ -188,7 +188,7 @@ export function getAgentSettingsPayload(): AgentSettingsPayload {
 export async function fetchAgentSettings(apiConfig: ApiConfig): Promise<unknown> {
   const client = new SentimentApiClientCore(apiConfig);
   const payload = getAgentSettingsPayload();
-  return client._request("/api/agent/settings", {
+  return client._request("/api/v1/agent/settings", {
     method: "GET",
     body: payload,
   });
@@ -201,7 +201,7 @@ export async function updateAgentSettings(
 ): Promise<unknown> {
   const client = new SentimentApiClientCore(apiConfig);
   const payload = agentSettingsPayload(settingsPayload);
-  const response = await client._request("/api/agent/settings", {
+  const response = await client._request("/api/v1/agent/settings", {
     method: "PUT",
     body: payload,
   });
@@ -218,7 +218,7 @@ export async function testAgentConnection(
   testPayload: AgentSettingsInput
 ): Promise<unknown> {
   const client = new SentimentApiClientCore(apiConfig);
-  return client._request("/api/agent/settings/test", {
+  return client._request("/api/v1/agent/settings/test", {
     method: "POST",
     body: agentSettingsPayload(testPayload),
   });
