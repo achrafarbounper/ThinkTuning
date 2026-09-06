@@ -22,6 +22,7 @@ import sys
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 from ia.agent.agent_core import AgentCore  # noqa: E402
+from ia.agent.chat_messages import ensure_strict_alternance  # noqa: E402
 from ia.agent.orchestrator import (  # noqa: E402
     EV_DONE,
     EV_PLAN,
@@ -362,4 +363,124 @@ def test_coordinator_bonjour_end_to_end_roles_alternate():
     # Le prompt « bonjour » est bien arrivé au lead (dernier message user).
     assert "bonjour" in llm.calls[0][-1]["content"]
     assert llm.calls[0][-1]["role"] == "user"
+
+
+# --- REPRODUCTION du crash worker « web » (conclusion de fin de budget) ------
+# Bug : chaque round se termine par un message « user » (résultat d'outil ou
+# auto-correction) ; la CONCLUSION de fin de budget était ajoutée comme un
+# SECOND « user » consécutif → les templates Jinja exigeant une alternance
+# stricte (Ollama / LM Studio, familles Mistral) rejetaient la requête en 400
+# (« Conversation roles must alternate user/assistant/... ») → worker marqué
+# LLMUnreachable (« Aucune sous-tâche n'a pu être exécutée »).
+
+def _auto_tool_agent(llm, max_rounds=2):
+    """AgentCore avec un « web_search » factice AUTO-APPROVÉ (policy lecture)
+    et un budget de rounds volontairement petit pour épuiser le run."""
+    searches: list[str] = []
+
+    def fake_web_search(query, **_kwargs):
+        searches.append(query)
+        return {"query": query, "results": ["résultat de recherche"]}
+
+    agent = AgentCore(
+        llm,
+        system_prompt="system",
+        tools={"web_search": fake_web_search},
+        required_args={"web_search": ["query"]},
+        max_rounds=max_rounds,
+    )
+    return agent, searches
+
+
+def test_max_rounds_conclusion_keeps_strict_alternation():
+    """Conclusion de fin de budget APRÈS un round d'outil : la consigne est
+    FONDUE dans le dernier tour « user » (résultat d'outil préservé) au lieu
+    d'être ajoutée comme un second « user » consécutif."""
+    llm = _CapturingLLM([
+        '{"tool": "web_search", "args": {"query": "q1"}}',
+        '{"tool": "web_search", "args": {"query": "q2"}}',
+    ])
+    agent, searches = _auto_tool_agent(llm, max_rounds=2)
+    agent.run_detailed("cherche")
+
+    # Les deux rounds d'outil ont tourné, puis l'appel de CONCLUSION (#3).
+    assert searches == ["q1", "q2"]
+    assert len(llm.calls) == 3
+    for messages in llm.calls:
+        _assert_strict_alternation(messages)
+    # La conclusion est fondée dans le dernier tour user : le résultat
+    # d'outil ET la consigne sont tous deux présents, dans UN SEUL message.
+    last = llm.calls[2][-1]
+    assert last["role"] == "user"
+    assert "Dernier résultat" in last["content"]
+    assert "Nombre maximum d’étapes atteint" in last["content"]
+
+
+def test_auto_correction_conclusion_keeps_strict_alternation():
+    """Conclusion de fin de budget APRÈS un round d'auto-correction (tool
+    inconnu) : même fusion — pas de second « user » consécutif."""
+    llm = _CapturingLLM([
+        '{"tool": "outil_inexistant", "args": {}}',
+        '{"tool": "outil_inexistant", "args": {}}',
+    ])
+    agent, searches = _auto_tool_agent(llm, max_rounds=2)
+    agent.run_detailed("fais quelque chose")
+
+    assert searches == []  # aucun outil réellement exécuté
+    assert len(llm.calls) == 3
+    for messages in llm.calls:
+        _assert_strict_alternation(messages)
+    last = llm.calls[2][-1]
+    assert last["role"] == "user"
+    # Le problème d'auto-correction ET la conclusion sont préservés.
+    assert "Tool inconnu" in last["content"]
+    assert "Nombre maximum d’étapes atteint" in last["content"]
+
+
+# --- Garde structurelle : ensure_strict_alternance (fonction pure) -----------
+
+def test_ensure_strict_alternance_merges_adjacent_same_roles():
+    messages = [
+        {"role": "system", "content": "s1"},
+        {"role": "user", "content": "u1"},
+        {"role": "user", "content": "u2"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u3"},
+    ]
+    merged = ensure_strict_alternance(messages)
+
+    assert [m["role"] for m in merged] == [
+        "system", "user", "assistant", "user",
+    ]
+    assert "u1" in merged[1]["content"] and "u2" in merged[1]["content"]
+    # Fonction pure : l'entrée n'est JAMAIS mutée.
+    assert [m["role"] for m in messages] == [
+        "system", "user", "user", "assistant", "user",
+    ]
+
+
+def test_ensure_strict_alternance_drops_empty_and_out_of_protocol_entries():
+    """Un message vide ne porte rien et casse la pseudo-alternance
+    (user → assistant("") → user) : il est retiré. Les rôles hors protocole
+    (« tool », « function »…) et les entrées non-dict sont écartés."""
+    merged = ensure_strict_alternance([
+        {"role": "system", "content": "s"},
+        {"role": "assistant", "content": "   "},
+        {"role": "user", "content": "u"},
+        "pas un dict",
+        {"role": "tool", "content": "x"},
+    ])
+    assert [m["role"] for m in merged] == ["system", "user"]
+
+
+def test_ensure_strict_alternance_is_idempotent():
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u1"},
+        {"role": "user", "content": "u2"},
+        {"role": "assistant", "content": "a"},
+    ]
+    once = ensure_strict_alternance(messages)
+    twice = ensure_strict_alternance(once)
+    assert once == twice
 
