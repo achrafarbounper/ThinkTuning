@@ -107,24 +107,6 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-from api.routes import (  # noqa: E402
-    active_learning,
-    agent,
-    ai_chat,
-    classifiers,
-    drift,
-    evaluate,
-    explain,
-    health,
-    intent_train,
-    maintenance,
-    metrics,
-    models,
-    pipeline,
-    predict,
-    sessions,
-    train,
-)
 from core.scheduler import ensure_scheduler_started  # noqa: E402
 from api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
 from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
@@ -169,23 +151,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.include_router(train.router)
-app.include_router(predict.router)
-app.include_router(models.router)
-app.include_router(maintenance.router)
-app.include_router(metrics.router)
-app.include_router(health.router)
-app.include_router(ai_chat.router)
-app.include_router(agent.router)
-app.include_router(sessions.router)
-app.include_router(evaluate.router)
-app.include_router(drift.router)
-app.include_router(explain.router)
-app.include_router(pipeline.router)
-app.include_router(active_learning.router)
-app.include_router(intent_train.router)
-app.include_router(classifiers.router)
 
 # SCRUM-34 : démarre le scheduler APScheduler et recharge les planifications
 # d'entraînement persistées (table scheduled_jobs du SQLite existant).

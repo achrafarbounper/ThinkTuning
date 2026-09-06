@@ -63,16 +63,28 @@ describe("SentimentApiClientCore._request", () => {
     expect(await client._request("/annotate/merge", { method: "POST" })).toBeNull();
   });
 
-  it("normalise une erreur HTTP avec le détail FastAPI", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ detail: "job_id introuvable" }, 404));
+  it("normalise une erreur HTTP avec l'enveloppe v1 (message + payload complet)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: "not_found",
+            message: "job_id introuvable",
+            details: null,
+          },
+        },
+        404
+      )
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new SentimentApiClientCore({ baseUrl: "http://api" });
-    const err = await expectApiError(client._request("/train/status/x"));
+    const err = await expectApiError(client._request("/api/v1/train/status/x"));
 
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
     expect(err.message).toBe("job_id introuvable");
+    expect((err.detail as { error: { code: string } }).error.code).toBe("not_found");
   });
 
   it("convertit un échec réseau en ApiError (status 0, message explicite)", async () => {
@@ -126,12 +138,14 @@ describe("SentimentApiClientCore._requestText", () => {
     expect(text).toBe("http_requests_total 42");
   });
 
-  it("lève une ApiError normalisée sur erreur HTTP", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ detail: "boom" }, 500));
+  it("lève une ApiError normalisée sur erreur HTTP (enveloppe v1)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: { code: "internal", message: "boom" } }, 500)
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new SentimentApiClientCore({ baseUrl: "http://api" });
-    const err = await expectApiError(client._requestText("/metrics"));
+    const err = await expectApiError(client._requestText("/api/v1/metrics"));
 
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(500);

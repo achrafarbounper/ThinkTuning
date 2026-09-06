@@ -141,22 +141,20 @@ export class SentimentApiClientCore {
       : await response.text();
 
     if (!response.ok) {
-      // Deux enveloppes d'erreur coexistent pendant la migration :
-      //  - legacy FastAPI : {"detail": <string|object>} → on expose <detail> ;
-      //  - v1 domaine : {"error": {"code","message","details"}} — sans clé
-      //    "detail", on expose le payload COMPLET (sinon il serait perdu) et
-      //    on remonte "error.message" comme message lisible.
-      const detail =
-        isJson && payload
-          ? (payload as { detail?: unknown }).detail ?? payload
-          : payload;
-      const v1Message =
-        detail !== null && typeof detail === "object" && "error" in (detail as object)
-          ? (detail as { error?: { message?: unknown } }).error?.message
-          : undefined;
+      // Enveloppe d'erreur UNIQUE (v1 domaine, post-strangler) :
+      // {"error": {"code","message","details"}} — on expose le payload COMPLET
+      // (code + details utiles aux vues) et on remonte "error.message" comme
+      // message lisible. Le repli legacy {"detail": …} a disparu avec la
+      // surface legacy (voir docs/ARCHITECTURE_DECOUPLAGE.md).
+      const detail = payload;
       let message = `Erreur HTTP ${response.status} sur ${path}`;
-      if (typeof detail === "string" && detail) message = detail;
-      else if (typeof v1Message === "string" && v1Message) message = v1Message;
+      if (detail !== null && typeof detail === "object" && "error" in detail) {
+        const v1Message = (detail as { error?: { message?: unknown } }).error
+          ?.message;
+        if (typeof v1Message === "string" && v1Message) message = v1Message;
+      } else if (typeof detail === "string" && detail) {
+        message = detail;
+      }
       throw new ApiError(message, response.status, detail);
     }
 
@@ -179,18 +177,18 @@ export class SentimentApiClientCore {
     const response = await this._send(url, init, timeoutMs, signal);
 
     if (!response.ok) {
+      // Enveloppe v1 unique : message lisible sous "error.message".
       const payload: unknown = await response.json().catch(() => null);
-      // Le détail FastAPI vit sous la clé "detail" (comme dans _request).
-      const detail =
-        payload !== null && typeof payload === "object" && "detail" in payload
-          ? (payload as { detail?: unknown }).detail
-          : payload;
+      const v1Message =
+        payload !== null && typeof payload === "object" && "error" in payload
+          ? (payload as { error?: { message?: unknown } }).error?.message
+          : undefined;
       throw new ApiError(
-        typeof detail === "string" && detail
-          ? detail
+        typeof v1Message === "string" && v1Message
+          ? v1Message
           : `Erreur HTTP ${response.status} sur ${path}`,
         response.status,
-        detail
+        payload
       );
     }
     return response.text();
@@ -213,15 +211,21 @@ export class SentimentApiClientCore {
     );
 
     if (!response.ok) {
-      let detail: unknown = `Erreur HTTP ${response.status} sur ${path}`;
+      // Enveloppe v1 unique : message lisible sous "error.message".
+      let detail: unknown = null;
       try {
-        const errPayload: { detail?: unknown } = await response.json();
-        detail = errPayload.detail ?? detail;
+        detail = await response.json();
       } catch {
         /* réponse non-JSON, on garde le message générique */
       }
+      const v1Message =
+        detail !== null && typeof detail === "object" && "error" in (detail as object)
+          ? (detail as { error?: { message?: unknown } }).error?.message
+          : undefined;
       throw new ApiError(
-        typeof detail === "string" ? detail : `Erreur HTTP ${response.status} sur ${path}`,
+        typeof v1Message === "string" && v1Message
+          ? v1Message
+          : `Erreur HTTP ${response.status} sur ${path}`,
         response.status,
         detail
       );

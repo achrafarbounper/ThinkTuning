@@ -117,14 +117,19 @@ def _schema(name: str) -> dict:
 
 
 def test_predict_dtos_are_locked():
-    """Contrat POST /api/v1/predict : requête, réponse, item — ordre inclus."""
-    req = _schema("api__schemas__prediction__PredictRequest")
+    """Contrat POST /api/v1/predict : requête, réponse, item — ordre inclus.
+
+    Noms courts (``PredictRequest``) : post-épuration legacy, la collision de
+    noms qui faisait qualifier les schémas (``api__schemas__prediction__…``)
+    a disparu — FastAPI requalifie uniquement en cas de doublon.
+    """
+    req = _schema("PredictRequest")
     assert list(req["properties"]) == ["texts", "model_name"]
     assert req["required"] == ["texts"]  # model_name optionnel : défaut = version active
     assert req["properties"]["texts"]["type"] == "array"
     assert req["properties"]["texts"]["maxItems"] == MAX_TEXTS_PER_REQUEST  # anti-DoS figé
 
-    resp = _schema("api__schemas__prediction__PredictResponse")
+    resp = _schema("PredictResponse")
     assert list(resp["properties"]) == ["results", "model_version"]
     assert resp["required"] == ["results"]
 

@@ -98,7 +98,7 @@ def fake_predictor(monkeypatch):
 
 def test_explain_success(openrouter_llm, fake_predictor):
     """Contrat de sortie : {sentiment, confidence, explanation}."""
-    resp = client.post("/explain", json={"text": "ce produit est super"}, headers=HEADERS)
+    resp = client.post("/api/v1/explain", json={"text": "ce produit est super"}, headers=HEADERS)
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -113,7 +113,7 @@ def test_explain_success(openrouter_llm, fake_predictor):
 def test_explain_forwards_context_to_agent(openrouter_llm, fake_predictor):
     """Le texte ET la prédiction DistilBERT sont injectés dans le prompt LLM."""
     client.post(
-        "/explain", json={"text": "ce produit est super"}, headers=HEADERS
+        "/api/v1/explain", json={"text": "ce produit est super"}, headers=HEADERS
     )
     # Dernier message utilisateur reçu par le LLM = prompt construit.
     prompt = openrouter_llm.calls[-1][-1]["content"]
@@ -125,7 +125,7 @@ def test_explain_forwards_context_to_agent(openrouter_llm, fake_predictor):
 def test_explain_forwards_model_to_openrouter(openrouter_llm, fake_predictor):
     """Le champ optionnel `model` est transmis comme modèle OpenRouter."""
     client.post(
-        "/explain",
+        "/api/v1/explain",
         json={"text": "bonjour", "model": "openrouter/free"},
         headers=HEADERS,
     )
@@ -134,21 +134,21 @@ def test_explain_forwards_model_to_openrouter(openrouter_llm, fake_predictor):
 
 def test_explain_defaults_to_openrouter_free(openrouter_llm, fake_predictor):
     """Sans `model`, le modèle OpenRouter par défaut est utilisé."""
-    client.post("/explain", json={"text": "bonjour"}, headers=HEADERS)
+    client.post("/api/v1/explain", json={"text": "bonjour"}, headers=HEADERS)
     assert openrouter_llm.request_models == [None]
 
 
 def test_explain_requires_api_key(openrouter_llm, fake_predictor):
     """Auth requise : sans en-tête X-API-Key -> 401."""
-    resp = client.post("/explain", json={"text": "bonjour"})
+    resp = client.post("/api/v1/explain", json={"text": "bonjour"})
     assert resp.status_code == 401
 
 
 def test_explain_missing_text_validation(openrouter_llm, fake_predictor):
     """Validation du corps : absence de `text` -> 422."""
-    resp = client.post("/explain", json={}, headers=HEADERS)
+    resp = client.post("/api/v1/explain", json={}, headers=HEADERS)
     assert resp.status_code == 422
 
     # texte vide également refusé par la contrainte min_length.
-    resp = client.post("/explain", json={"text": ""}, headers=HEADERS)
+    resp = client.post("/api/v1/explain", json={"text": ""}, headers=HEADERS)
     assert resp.status_code == 422

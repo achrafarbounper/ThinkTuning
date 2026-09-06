@@ -12,7 +12,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 import pipeline as pipeline_cli
 from core import pipeline_runner
@@ -74,23 +73,6 @@ def fake_popen(monkeypatch):
     monkeypatch.setattr(pipeline_runner.subprocess, "Popen", FakeProcess)
     calls["cls"] = FakeProcess
     return calls
-
-
-@pytest.fixture()
-def api_client(tmp_path, monkeypatch):
-    """Client FastAPI avec job store isolé (tmp_path) et runner mocké."""
-    monkeypatch.setenv("API_KEY", "test-key")
-
-    from api.routes import pipeline as pipeline_route
-    from core.job_store import PersistentJobStore
-
-    store = PersistentJobStore(path=str(tmp_path / "jobs.db"))
-    monkeypatch.setattr(pipeline_route, "get_job_store", lambda: store)
-    monkeypatch.setattr(pipeline_route, "run_pipeline", lambda job_id, req: None)
-
-    from api.main import app
-
-    yield TestClient(app), store
 
 
 # --------------------------------------------------------------------------- #
@@ -311,64 +293,3 @@ def test_cli_main_finetune_failure_propagates(tmp_path, monkeypatch):
     assert rc == 3
 
 
-# --------------------------------------------------------------------------- #
-# API /pipeline
-# --------------------------------------------------------------------------- #
-
-HEADERS = {"X-API-Key": "test-key"}
-
-
-def test_api_start_pipeline_and_status(api_client):
-    client, store = api_client
-    resp = client.post(
-        "/pipeline",
-        json={"input_path": "data/unlabeled.csv", "min_confidence": 0.9},
-        headers=HEADERS,
-    )
-    assert resp.status_code == 202, resp.text
-    job = resp.json()
-    assert job["status"] == "pending"
-    assert job["step"] == "queued"
-
-    # run_pipeline est mocké : le job reste en pending, le status répond.
-    status = client.get(f"/pipeline/status/{job['job_id']}", headers=HEADERS)
-    assert status.status_code == 200
-    assert status.json()["job_id"] == job["job_id"]
-
-
-def test_api_status_unknown_job(api_client):
-    client, _ = api_client
-    resp = client.get("/pipeline/status/inconnu", headers=HEADERS)
-    assert resp.status_code == 404
-
-
-def test_api_pipeline_requires_api_key(api_client):
-    client, _ = api_client
-    assert client.post("/pipeline", json={"input_path": "x"}).status_code == 401
-    assert client.get("/pipeline/jobs").status_code == 401
-
-
-def test_api_cancel_unknown_job(api_client):
-    client, _ = api_client
-    assert client.post("/pipeline/cancel/inconnu", headers=HEADERS).status_code == 404
-
-
-def test_api_list_pipeline_jobs(api_client):
-    client, store = api_client
-    store["job-a"] = TrainJob(
-        job_id="job-a", status=JobStatus.COMPLETED, step="done", started_at=time.time()
-    )
-    store["job-b"] = TrainJob(
-        job_id="job-b", status=JobStatus.RUNNING, step="finetuning", started_at=time.time()
-    )
-
-    resp = client.get("/pipeline/jobs", headers=HEADERS)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["total"] == 2
-    assert {item["job_id"] for item in data["items"]} == {"job-a", "job-b"}
-
-    resp = client.get("/pipeline/jobs?status=completed", headers=HEADERS)
-    data = resp.json()
-    assert data["total"] == 1
-    assert data["items"][0]["job_id"] == "job-a"

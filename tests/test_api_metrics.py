@@ -10,7 +10,7 @@ client = TestClient(app)
 
 
 def test_metrics_endpoint_exposes_prometheus_data():
-    response = client.get("/metrics")
+    response = client.get("/api/v1/metrics")
 
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("text/plain")
@@ -21,9 +21,9 @@ def test_metrics_endpoint_exposes_prometheus_data():
 
 def test_metrics_json_endpoint_returns_structured_snapshot():
     # Génère au moins une observation pour que l'histogramme soit peuplé.
-    client.get("/health", headers={"X-API-Key": "test-key"})
+    client.get("/api/v1/health", headers={"X-API-Key": "test-key"})
 
-    response = client.get("/metrics/json")
+    response = client.get("/api/v1/metrics/json")
 
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("application/json")
@@ -43,7 +43,7 @@ def test_metrics_json_endpoint_returns_structured_snapshot():
     hist_by_name = {h["name"]: h for h in histograms}
     assert "http_request_duration_seconds" in hist_by_name
     hist = hist_by_name["http_request_duration_seconds"]
-    assert hist["count"] >= 1  # une observation /health a été enregistrée
+    assert hist["count"] >= 1  # une observation /api/v1/health a été enregistrée
     assert hist["sum"] >= 0
 
     # Cohérence : total requêtes du compteur >= nombre d'entrées par path/statut.
@@ -53,7 +53,7 @@ def test_metrics_json_endpoint_returns_structured_snapshot():
 
 def test_structured_logs_include_event_metadata(caplog):
     with caplog.at_level("INFO", logger="thinktuning.api"):
-        response = client.get("/health", headers={"X-API-Key": "test-key"})
+        response = client.get("/api/v1/health", headers={"X-API-Key": "test-key"})
 
     assert response.status_code == 200, response.text
     assert any("http_request" in record.getMessage() for record in caplog.records)

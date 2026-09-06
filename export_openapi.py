@@ -1,5 +1,5 @@
 # project/export_openapi.py
-"""Exporte la spécification OpenAPI de l'API (surface v1 + legacy).
+"""Exporte la spécification OpenAPI de l'API (surface v1, post-strangler).
 
 Usage (depuis la racine du dépôt) :
 
@@ -7,8 +7,10 @@ Usage (depuis la racine du dépôt) :
     python export_openapi.py --out docs/api.json   # destination explicite
 
 Le fichier exporté sert de source aux générateurs de clients typés
-(openapi-typescript, openapi-generator, ...). Le contrat v1 est VERROUILLÉ
-par ``tests/test_api_v1_contract.py`` : toute dérive de paths / DTO v1 casse
+(openapi-typescript, openapi-generator, ...). L'épuration legacy a retiré les
+16 ``include_router`` de ``api/main.py`` : la spec ne contient PLUS que la
+surface ``/api/v1/*`` (58 routes). Le contrat v1 est VERROUILLÉ par
+``tests/test_api_v1_contract.py`` : toute dérive de paths / DTO v1 casse
 la CI AVANT de casser un consommateur (dashboard, client généré) — c'est ce
 verrou qui rend la génération de client sûre le jour où elle est déclenchée.
 

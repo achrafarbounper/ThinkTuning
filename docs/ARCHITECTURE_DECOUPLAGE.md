@@ -70,9 +70,10 @@ l'infrastructure, pas du domaine :
 
 ### Versioning
 
-- `/api/v1/*` : version stable (la seule consommée par le dashboard).
-- Les endpoints legacy `/health`, `/predict`, etc. restent montés **mais ne
-  sont plus consommés** — candidats à l'épuration.
+- `/api/v1/*` : version stable, **la seule surface montée** (épuration faite :
+  les 16 `include_router` legacy ont été retirés de `api/main.py`).
+- Les fichiers legacy (`api/routes/*.py`) ne sont plus montés : les routes v1
+  y délèguent par attribut de module (monkeypatchs des tests préservés).
 - Toute évolution **breaking** = création d'un routeur `/api/v2/*`.
 
 ### Enveloppe d'erreur
@@ -90,8 +91,9 @@ Codes usités : `bad_request` (400), `validation_error` (422), `not_found`
 - Source : `app/domain/errors.py` (hiérarchie `DomainError`).
 - Runtime : `api/errors.py` (handler global) + `app/infrastructure/legacy_errors.py`
   (convertisseur `HTTPException` legacy → `DomainError`).
-- Le transport frontend est **bi-enveloppe** : legacy (`detail`) ET v1
-  (`error`).
+- Le transport frontend ne connaît PLUS que l'enveloppe v1 : le repli legacy
+  (`detail`) a été neutralisé avec la surface legacy (`clientCore.ts` en
+  enveloppe unique).
 
 ### Auth
 
@@ -118,11 +120,12 @@ Codes usités : `bad_request` (400), `validation_error` (422), `not_found`
 | 3d-3 | `/models/*` (details, active, activate, delete) + `/evaluate/confusion` | 5 |
 | 3d-4 | `/agent/*` (settings, ask/core±stream, multi/ask/stream, approvals, flow) + `/sessions*` + `/chat/*` | 17 |
 | 3d-5 | `/metrics*`, `/drift`, `/explain`, `/pipeline*`, `/active_learning*`, `/annotate*`, `/classifiers*` | 17 |
-| complétion | `/predict/batch` (dernier résidu réel — multipart CSV, délégation legacy) + **verrou « aucun endpoint legacy consommé »** | 1 |
+| complétion | `/predict/batch` (dernier résidu réel — multipart CSV, délégation legacy) | 1 |
 
-**Total** : 58 routes v1 enregistrées (57 HTTP + 1 WS). La surface legacy
-(80 routes HTTP) reste montée mais n'est **plus consommée** par le dashboard —
-elle est prête pour l'épuration.
+**Total** : 58 routes v1 enregistrées (57 HTTP + 1 WS). **Épuration faite** :
+la surface legacy (80 routes HTTP) n'est **plus montée** — `api/main.py` ne
+monte que la v1, et les fichiers legacy servent uniquement de cible de
+délégation / monkeypatch pour les tests.
 
 ---
 
@@ -131,13 +134,13 @@ elle est prête pour l'épuration.
 | Test | Rôle |
 |---|---|
 | `tests/test_api_v1_contract.py` | Paths v1 attendus invariants, DTO/ordre des champs, posture auth, `export_openapi.py` cohérent avec le spec. Toute dérive de contrat casse la CI. |
-| `tests/test_api_v1_client_contract.py` | **Verrous croisés client ↔ backend** : (1) chaque `/api/v1/*` littéral du dashboard résout vers une route v1 enregistrée (par segments, comme le routeur — 404 silencieux impossible) ; (2) **strangler complet** : aucun appel réseau (`request/fetch/WebSocket/EventSource`) du client ne cible un endpoint legacy enregistré ; garde-fou de volume (≥ 50 routes v1). |
+| `tests/test_api_v1_client_contract.py` | **Verrous croisés client ↔ backend** : (1) chaque `/api/v1/*` littéral du dashboard résout vers une route v1 enregistrée (par segments, comme le routeur — 404 silencieux impossible) ; (2) **post-strangler, verrous inversés** : `test_aucune_route_hors_v1_montee` (aucune route hors `/api/v1` dans le spec) et `test_aucun_appel_reseau_hors_v1` (tout appel réseau `request/fetch/WebSocket/EventSource` du client cible `/api/v1/*`) ; garde-fou de volume (≥ 50 routes v1). |
 | Tests par tranche (`test_api_v1_*.py`) | Comportement (statuts, payloads, enveloppe d'erreur) verrouillé pour chaque surface migrée. |
 
 Le spec OpenAPI est **générable à la demande** :
 
 ```bash
-python export_openapi.py --out openapi.json   # 84 paths dont ~56 v1
+python export_openapi.py --out openapi.json   # 57 paths, 100 % v1
 ```
 
 L'export sert à la **génération éventuelle** du client TypeScript (décision
@@ -180,23 +183,29 @@ Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
 - Contrat verrouillé (2 tests de contrat + tests par tranche), OpenAPI
   exportable.
 - Docker production-ready (2 images).
+- **Épuration legacy (Phase A)** : aucun routeur legacy monté, verrous
+  inversés (backend + client), transport frontend en enveloppe v1 unique,
+  `openapi.json` généré (57 paths, 100 % v1).
 
-### Restant (post-strangler)
-1. **Suppression de la couche legacy** après une période d'observation en
-   prod : retirer les `app.include_router(...)` des routers legacy + le
-   support bi-enveloppe quand plus rien ne répond en `detail`. Le verrou
-   « aucun endpoint legacy consommé » garantit qu'aucun retrait ne casse le
-   dashboard.
-2. **Génération du client TypeScript** depuis `openapi.json` (reportée
-   volontairement — interface stabilisée, à renouveler après épuration).
+### Restant (post-épuration)
+1. **Suppression des fichiers legacy** (`api/routes/*.py`, `core/*` devenus
+   morts) : la délégation par attribut de module devra d'abord être portée en
+   use cases/adapters réels pour les flux concernés.
+2. **Génération du client TypeScript** depuis `openapi.json` (`openapi.json`
+   généré ; branchement `openapi-typescript` à faire — Phase B).
 3. **Extraction métier des handlers `api/routes/agent.py`** (~1700 lignes,
    état/queues/store) en use cases `app/application/` (épic d'estimation
-   séparée).
+   séparée — Phase C).
 4. **Schéma `Security` OpenAPI** transverse (le spec marque `X-API-Key` en
    `required: false` alors que les routes protégées répondent 401 sans clé —
    posture documentée dans les tests de contrat).
 
 ### Dette assumée
-- `supervisord.conf`, `entrypoint.py`, `dashboard/nginx.conf` inutilisés par
-  compose (candidats à suppression).
-- ~281 erreurs ruff dans le legacy (hors périmètre migré).
+- `supervisord.conf`, `entrypoint.py`, `dashboard/nginx.conf` : suivis par git
+  et **référencés** (commentaire de `app/application/health_usecase.py`,
+  `dashboard/Dockerfile` copie `nginx.main.conf`) — suppression à traiter avec
+  ces références, pas en simple `git rm`.
+- 159 erreurs ruff au total : ~101 dans les routers legacy non montés, ~58 sur
+  le périmètre v1 vivant. Nettoyage prévu en 3 lots (Phase D) — **attention** :
+  certains F401 sont des re-exports consommés (ex. `TEST_MODE` dans
+  `api/__init__.py`) qu'un `ruff --fix` aveugle casserait.

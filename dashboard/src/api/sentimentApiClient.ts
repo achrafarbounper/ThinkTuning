@@ -417,16 +417,14 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /**
-   * Sanity check comportemental d'une version de modèle — MIGRÉ vers v1
+   * Sanity check comportemental d'une version de modèle — surface v1
    * (découplage frontend/backend).
    *
    * En cas de verdict défaillant, l'API répond 503 sans lever pour l'IHM.
-   * Deux enveloppes sont normalisées (déploiements mixtes pendant la
-   * migration) :
-   *  - v1 domaine : {"error": {code, message, details:{verdict, accuracy,
-   *    results, ...}}} — le message métier vit dans error.message ;
-   *  - legacy FastAPI : {"detail": {verdict, detail, accuracy, results}}.
-   * Le rapport retourné garde le shape attendu par ModelSanityPanel.
+   * Enveloppe v1 unique (post-strangler) :
+   * {"error": {code, message, details:{verdict, accuracy, results, ...}}} —
+   * le message métier vit dans error.message. Le rapport retourné garde le
+   * shape attendu par ModelSanityPanel.
    */
   async getModelSanity(model?: string) {
     try {
@@ -458,20 +456,11 @@ export class SentimentApiClient extends SentimentApiClientCore {
         return {
           ...(v1Error.details as object),
           detail:
-            typeof v1Error.message === "string"
+            typeof v1Error.message === "string" && v1Error.message
               ? v1Error.message
               : ((v1Error.details as { detail?: string }).detail ?? ""),
           httpStatus: 503,
         };
-      }
-
-      // Enveloppe legacy (backend antérieur à la v1, déploiement mixte).
-      if (
-        typeof err.detail === "object" &&
-        err.detail !== null &&
-        "verdict" in err.detail
-      ) {
-        return { ...(err.detail as object), httpStatus: 503 };
       }
       throw err;
     }

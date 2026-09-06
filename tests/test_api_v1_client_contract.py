@@ -4,10 +4,13 @@
 1. ``test_tous_les_paths_client_sont_enregistres`` — chaque chemin `/api/v1/*`
    appelé par le dashboard (source non-test) doit correspondre à une route
    ENREGISTRÉE dans l'application FastAPI (protège contre le 404 silencieux).
-2. ``test_aucun_endpoint_legacy_consomme`` — le dashboard ne référence plus
-   AUCUN endpoint legacy enregistré (strangler complet) : la surface legacy
-   peut être épurée sans régression, et toute réintroduction d'un ancien
-   chemin casse ce test AVANT la mise en prod.
+2. ``test_aucune_route_hors_v1_montee`` (post-strangler) — l'application ne
+   monte PLUS aucune route hors `/api/v1` : l'épuration a retiré les 16
+   ``include_router`` legacy, et toute réintroduction casse ce test AVANT la
+   mise en prod.
+3. ``test_aucun_appel_reseau_hors_v1`` (verrou inversé) — tout appel réseau du
+   dashboard (request/fetch/WebSocket/EventSource) cible `/api/v1/*` : un
+   endpoint non versionné ajouté par erreur côté client est interdit.
 
 Règles d'extraction (volontairement conservatrices) :
   - fichiers `.ts`/`.tsx` du dashboard SANS les `.test.*` ;
@@ -140,7 +143,7 @@ def test_volume_endpoints_v1_plausible():
     assert len(_registered_v1_paths()) >= 50
 
 
-# -- Verrou de complétion : aucune consommation de la surface legacy ----------
+# -- Verrou inversé (post-strangler) : la surface réseau est 100 % v1 ----------
 
 _LEGACY_PARAM_SEGMENT = r"(?:\$\{[^}]*\}|[^/'\"`\s]+)"
 
@@ -162,15 +165,19 @@ def _strip_scheme_host(arg: str) -> str:
 
 
 def _network_call_args(text: str) -> list[str]:
+    """Chemins normalisés de TOUS les appels réseau à argument littéral.
+
+    Post-épuration, l'ancien filtre « arg legacy » (contenant /api/v1 exclu)
+    est levé : le verrou inversé doit voir CHAQUE appel pour pouvoir interdire
+    tout chemin hors /api/v1.
+    """
     args: list[str] = []
     for match in _NETWORK_CALL_RE.finditer(text):
         callee, arg = match.group(1), match.group(3)
         if not _is_network_callee(callee):
             continue
         arg = _normalize_path(_strip_scheme_host(arg))
-        # Un appel v1 (contient /api/v1, éventuellement avec template) n'est
-        # jamais un appel legacy — évite les collisions de sous-chaîne.
-        if arg.startswith("/") and "/api/v1" not in arg:
+        if arg.startswith("/"):
             args.append(arg)
     return args
 
@@ -186,43 +193,39 @@ def _legacy_path_to_regex(path: str) -> re.Pattern:
     return re.compile("/" + "/".join(segments))
 
 
-def _registered_legacy_paths() -> set[str]:
-    """Routes HTTP ENREGISTRÉES hors `/api/v1` (surface legacy encore montée)."""
-    spec = app.openapi()
-    return {
-        _normalize_path(path)
-        for path in spec["paths"]
-        if not path.startswith("/api/v1")
-    }
+def test_aucune_route_hors_v1_montee():
+    """POST-STRANGLER (côté backend) : l'application ne monte PLUS AUCUNE
+    route hors `/api/v1`.
+
+    L'épuration a retiré les 16 ``include_router`` legacy de ``api/main.py`` :
+    toute réintroduction d'un routeur non versionné casse ce test AVANT la
+    mise en prod (les fichiers legacy restants ne sont plus montés).
+    """
+    outside = sorted(
+        path for path in app.openapi()["paths"] if not path.startswith("/api/v1")
+    )
+    assert not outside, (
+        "routes hors /api/v1 encore montées (épuration incomplète) :\n"
+        + "\n".join(outside[:20])
+    )
 
 
-def _legacy_hits_in_source() -> list[str]:
-    """Appels réseau du client dont le chemin cible est un endpoint legacy."""
-    patterns = [
-        (path, _legacy_path_to_regex(path))
-        for path in sorted(_registered_legacy_paths())
-    ]
-    hits: list[str] = []
+def test_aucun_appel_reseau_hors_v1():
+    """POST-STRANGLER (côté client) : tout appel réseau du dashboard cible
+    `/api/v1/*`.
+
+    Verrou inversé de l'ancien « aucun endpoint legacy consommé » : la surface
+    legacy n'existe plus, on interdit donc TOUT chemin réseau non v1 — y
+    compris un futur endpoint non versionné ajouté par erreur côté client.
+    """
+    offenders: list[str] = []
     for file in CLIENT_SRC.rglob("*"):
         if file.suffix not in (".ts", ".tsx") or ".test." in file.name:
             continue
         text = _strip_comments(file.read_text(encoding="utf-8"))
         for arg in _network_call_args(text):
-            for path, pattern in patterns:
-                if pattern.search(arg):
-                    hits.append(f"{file.relative_to(CLIENT_SRC)}: {path}")
-    return hits
-
-
-def test_aucun_endpoint_legacy_consomme():
-    """Strangler COMPLET : le dashboard ne consomme plus aucun endpoint HTTP
-    legacy (via un appel réseau). La surface legacy est vérifiée NON vide
-    (sinon le verrou serait inopérant) ; toute référence résiduelle est une
-    décision à prendre (migration ou suppression consciente)."""
-    legacy_registered = _registered_legacy_paths()
-    assert legacy_registered, "surface legacy vide — le verrou est inopérant"
-    hits = _legacy_hits_in_source()
-    assert not hits, (
-        "endpoints legacy encore appelés par le dashboard "
-        f"({len(hits)}) :\n" + "\n".join(hits[:20])
+            if not arg.startswith("/api/v1/"):
+                offenders.append(f"{file.relative_to(CLIENT_SRC)}: {arg}")
+    assert not offenders, (
+        "appels réseau hors /api/v1 détectés :\n" + "\n".join(offenders[:20])
     )

@@ -171,7 +171,7 @@ permettent au runner de distinguer retry / recovery / rejet.
 ### Tests
 
 - Pyramid : unit (`tests/test_domain_*.py`), intégration API
-  (`tests/test_api_ask_core.py`), régression legacy conservée.
+  (`tests/test_api_v1_agent.py`), régression legacy conservée.
 - **Zéro réseau, zéro SQLite** dans les tests nouveaux : fakes en mémoire
   vérifiés contre les Protocols ; monkeypatch de la factory.
 - Les contrats verrouillent l'alignement legacy ↔ nouveau (ex.

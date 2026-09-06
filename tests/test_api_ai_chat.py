@@ -1,7 +1,6 @@
 # project/tests/test_api_ai_chat.py
 
-"""Tests offline du chat IA (/api/ai) et des endpoints agent (/api/agent/*)
-intégrés au package `api`.
+"""Tests offline du chat IA (/api/v1/chat/ai) — surface v1 (découplage).
 
 Aucun appel réseau : le LLM (Ollama) est remplacé par un FakeLLM scripté,
 injecté dans le cache `core.agent_cache`.
@@ -67,7 +66,7 @@ def test_ai_streams_sse_deltas_then_done(fake_llm):
         '{"tool": "add", "args": {"a": 12, "b": 30}}',
         "Bonjour cher utilisateur.",
     ]
-    resp = client.post("/api/ai", json={"message": "salut"}, headers=HEADERS)
+    resp = client.post("/api/v1/chat/ai", json={"message": "salut"}, headers=HEADERS)
 
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("text/event-stream")
@@ -87,7 +86,7 @@ def test_ai_replays_recent_history_in_prompt(fake_llm):
             {"role": "assistant", "content": "Il fait beau."},
         ],
     }
-    resp = client.post("/api/ai", json=payload, headers=HEADERS)
+    resp = client.post("/api/v1/chat/ai", json=payload, headers=HEADERS)
 
     assert resp.status_code == 200, resp.text
     prompt = fake_llm.calls[0][-1]["content"]
@@ -97,54 +96,35 @@ def test_ai_replays_recent_history_in_prompt(fake_llm):
 
 
 def test_ai_empty_message_rejected(fake_llm):
-    resp = client.post("/api/ai", json={"message": ""}, headers=HEADERS)
+    resp = client.post("/api/v1/chat/ai", json={"message": ""}, headers=HEADERS)
     assert resp.status_code == 422
 
 
 def test_ai_requires_api_key(fake_llm):
-    resp = client.post("/api/ai", json={"message": "salut"})
+    resp = client.post("/api/v1/chat/ai", json={"message": "salut"})
     assert resp.status_code == 401
 
 
 def test_ai_connection_error_returns_502(fake_llm):
     fake_llm.error = requests.exceptions.ConnectionError("connection refused")
-    resp = client.post("/api/ai", json={"message": "salut"}, headers=HEADERS)
+    resp = client.post("/api/v1/chat/ai", json={"message": "salut"}, headers=HEADERS)
 
     assert resp.status_code == 502
-    assert "injoignable" in resp.json()["detail"]
+    assert "injoignable" in resp.json()["error"]["message"]
 
 
 def test_ai_timeout_returns_504(fake_llm):
     fake_llm.error = requests.exceptions.Timeout("too slow")
-    resp = client.post("/api/ai", json={"message": "salut"}, headers=HEADERS)
+    resp = client.post("/api/v1/chat/ai", json={"message": "salut"}, headers=HEADERS)
 
     assert resp.status_code == 504
-
-
-# --- GET /api/agent/status ---------------------------------------------------------
-
-
-def test_agent_status_is_public_and_informative(fake_llm):
-    resp = client.get("/api/agent/status")
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "ok"
-    assert body["tools"] == sorted(agent_cache.TOOLS)
-    assert "add" in body["tools"]
-    assert body["model"]
 
 
 # --- Auth des routes protégées ------------------------------------------------------
 
 
 def test_agent_protected_routes_reject_missing_key():
-    assert client.get("/api/agent/tools").status_code == 401
-    assert (
-        client.post("/api/agent/tools/run", json={"tool": "add", "args": {}}).status_code
-        == 401
-    )
-    assert client.post("/api/agent/ask/core", json={"prompt": "salut"}).status_code == 401
+    assert client.post("/api/v1/agent/ask/core", json={"prompt": "salut"}).status_code == 401
 @pytest.fixture()
 def fake_llm(monkeypatch):
     """Injecte un FakeLLM dans le cache de l'agent (restauré après le test)."""
@@ -155,67 +135,7 @@ def fake_llm(monkeypatch):
     return llm
 
 
-# --- GET /api/agent/tools -----------------------------------------------------------
-
-
-def test_list_tools_returns_required_args(fake_llm):
-    resp = client.get("/api/agent/tools", headers=HEADERS)
-
-    assert resp.status_code == 200
-    tools = {item["name"]: item["required_args"] for item in resp.json()}
-    assert tools["add"] == ["a", "b"]
-    assert tools["write_file"] == ["filename", "content"]
-
-
-def test_list_tools_exposes_json_description_and_parameters(fake_llm):
-    """Les métadonnées déclaratives (tools_config.json) sont exposées par l'API."""
-    resp = client.get("/api/agent/tools", headers=HEADERS)
-
-    assert resp.status_code == 200
-    by_name = {item["name"]: item for item in resp.json()}
-    calc = by_name["calc"]
-    assert "expression" in calc["parameters"]
-    assert calc["parameters"]["expression"]["required"] is True
-    assert calc["description"]  # description non vide issue du JSON
-
-
-# --- POST /api/agent/tools/run --------------------------------------------------------
-
-
-def test_run_tool_add_directly(fake_llm):
-    resp = client.post(
-        "/api/agent/tools/run",
-        json={"tool": "add", "args": {"a": 12, "b": 30}},
-        headers=HEADERS,
-    )
-
-    assert resp.status_code == 200
-    assert resp.json() == {"tool": "add", "result": 42.0}
-
-
-def test_run_tool_unknown_returns_400(fake_llm):
-    resp = client.post(
-        "/api/agent/tools/run",
-        json={"tool": "division", "args": {}},
-        headers=HEADERS,
-    )
-
-    assert resp.status_code == 400
-    assert "Tool inconnu" in resp.json()["detail"]
-
-
-def test_run_tool_missing_args_returns_400(fake_llm):
-    resp = client.post(
-        "/api/agent/tools/run",
-        json={"tool": "add", "args": {"a": 1}},
-        headers=HEADERS,
-    )
-
-    assert resp.status_code == 400
-    assert "'b'" in resp.json()["detail"]
-
-
-# --- Boucle agent historique (moteur du chat /api/ai) ------------------------------------
+# --- Boucle agent historique (moteur du chat /api/v1/chat/ai) -------------------------
 
 
 def test_ask_executes_tool_then_explains(fake_llm):
@@ -233,5 +153,5 @@ def test_ask_executes_tool_then_explains(fake_llm):
 
 
 def test_ask_core_empty_prompt_rejected():
-    resp = client.post("/api/agent/ask/core", json={"prompt": ""}, headers=HEADERS)
+    resp = client.post("/api/v1/agent/ask/core", json={"prompt": ""}, headers=HEADERS)
     assert resp.status_code == 422
