@@ -15,6 +15,11 @@ from .plan import (  # noqa: F401
     args_hash,
     utc_now_iso,
 )
+from .prediction import (  # noqa: F401
+    HealthSnapshot,
+    PredictionResult,
+    SanityReport,
+)
 
 __all__ = [
     "Action",
@@ -22,11 +27,14 @@ __all__ = [
     "ApprovalDecision",
     "ApprovalStatus",
     "Decision",
+    "HealthSnapshot",
     "Intent",
     "Plan",
     "PlanErrorCode",
     "PlanStep",
     "PlanValidationReport",
+    "PredictionResult",
+    "SanityReport",
     "args_hash",
     "utc_now_iso",
 ]

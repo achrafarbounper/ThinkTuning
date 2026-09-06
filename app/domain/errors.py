@@ -128,3 +128,32 @@ class AgentRunError(AgentError):
 
     code = "agent_run_error"
     http_status = 502
+
+
+# ============================================================
+# PRÉDICTION / MODÈLE (flux critique de la migration)
+# ============================================================
+
+
+class ModelNotAvailableError(DomainError):
+    """Aucune version de modèle exploitable (dossier vide, poids absents).
+
+    Traduction domaine de la HTTPException 503 « Aucun modèle disponible »
+    legacy : l'adaptateur ML la convertit pour que la couche application
+    ne dépende plus de FastAPI.
+    """
+
+    code = "model_not_available"
+    http_status = 503
+
+
+class ModelSanityError(DomainError):
+    """Modèle présent mais NON SAIN (non entraîné / fallback base model).
+
+    SCRUM-74 : l'API doit refuser de prédire avec un modèle cassé (503
+    explicite) au lieu de contaminer le dataset via l'active learning.
+    ``details`` porte le rapport complet (verdict, seuils, accuracy).
+    """
+
+    code = "model_unhealthy"
+    http_status = 503

@@ -12,6 +12,11 @@ from .ports import (  # noqa: F401
     SessionStorePort,
     ToolRegistryPort,
 )
+from .prediction_ports import (  # noqa: F401
+    ModelRepositoryPort,
+    PredictionPort,
+    SystemStatusPort,
+)
 
 __all__ = [
     "ApprovalStorePort",
@@ -20,7 +25,10 @@ __all__ = [
     "EventBusPort",
     "LLMClientPort",
     "Message",
+    "ModelRepositoryPort",
+    "PredictionPort",
     "RunStorePort",
     "SessionStorePort",
+    "SystemStatusPort",
     "ToolRegistryPort",
 ]

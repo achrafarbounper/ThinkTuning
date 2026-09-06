@@ -2,7 +2,7 @@
 
 import json
 import threading
-import time
+
 from fastapi import Request
 from fastapi.responses import Response
 
@@ -25,8 +25,12 @@ def set_maintenance_mode(enabled: bool, message: str | None = None):
 
 
 async def maintenance_mode_middleware(request: Request, call_next):
+    # /api/v1/health* : équivalent versionné de /health — un healthcheck doit
+    # rester répondant PENDANT la maintenance (c'est lui qui signale l'état).
     excluded_paths = {
         "/health",
+        "/api/v1/health",
+        "/api/v1/health/model-sanity",
         "/maintenance",
         "/maintenance/enable",
         "/maintenance/disable",
