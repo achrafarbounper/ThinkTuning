@@ -44,6 +44,23 @@ services:
     profiles: ["calibrate"]
 
 
+  # Méta-moteur de recherche pour l'outil web_search de l'agent (profil
+  # « search ») : docker compose --profile search up -d searxng
+  # L'API JSON est activée dans searxng/settings.yml (search.formats).
+  searxng:
+    image: searxng/searxng:latest
+    container_name: thinktuning-searxng
+    # Relance automatique : l'agent compte sur cette instance pour web_search.
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://127.0.0.1:8888/
+    volumes:
+      - ./searxng:/etc/searxng
+    profiles: ["search"]
+
+
   app:
     build: .
     image: thinktuning:latest
@@ -62,6 +79,13 @@ services:
       - AGENT_OLLAMA_URL=${AGENT_OLLAMA_URL:-http://192.168.1.184:11434/api/chat}
       - AGENT_OPENROUTER_URL=${AGENT_OPENROUTER_URL:-https://openrouter.ai/api/v1/chat/completions}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # Recherche web de l'agent : SearXNG (service « searxng » du réseau
+      # compose) puis repli DuckDuckGo Lite. AGENT_PRIVATE_HOST_ALLOWLIST
+      # exempte l'hôte SearXNG du blocage SSRF si AGENT_BLOCK_PRIVATE_HOSTS=1.
+      - AGENT_SEARCH_BACKEND=${AGENT_SEARCH_BACKEND:-auto}
+      - AGENT_SEARXNG_URL=${AGENT_SEARXNG_URL:-http://searxng:8080/search}
+      - AGENT_SEARCH_LANGUAGE=${AGENT_SEARCH_LANGUAGE:-fr}
+      - AGENT_PRIVATE_HOST_ALLOWLIST=${AGENT_PRIVATE_HOST_ALLOWLIST:-searxng,127.0.0.1,localhost}
     volumes:
       - ./experiments:/app/experiments
       - hf-cache:/app/.cache

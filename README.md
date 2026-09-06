@@ -495,7 +495,7 @@ Comportements notables :
 | Exécution | `run_python` | `(code, timeout=30)` | Code Python dans un sous-processus isolé puis nettoyé |
 | Réseau | `http_get` | `(url, headers?, timeout=30)` | GET http(s), corps tronqué (~8 Ko) |
 | Réseau | `http_post` | `(url, data?/json_payload?, ...)` | POST brut ou JSON |
-| Internet | `web_search` | `(query, max_results=5)` | Recherche web DuckDuckGo Lite : titres, URLs, extraits (publicités filtrées) |
+| Internet | `web_search` | `(query, max_results=5)` | Recherche web : SearXNG auto-hébergée (JSON) puis DuckDuckGo Lite en repli — titres, URLs, extraits |
 | Internet | `web_fetch` | `(url, headers?, timeout=20)` | Page distante brute : statut, titre HTML, corps tronqué |
 | Internet | `web_read` | `(url, timeout=20)` | Texte lisible extrait d'une page HTML (sans scripts/styles/balises) |
 | Docker | `docker_ps` | `(all_containers=false)` | Conteneurs au format JSON |
@@ -504,6 +504,32 @@ Comportements notables :
 | GPU | `gpu_info` | `()` | CUDA, VRAM totale/allouée/réservée, utilisation % (torch + nvidia-smi) |
 | Bases | `sqlite_query` | `(db_path, query, readonly=true)` | SQLite confinée à la sandbox, lecture seule par défaut |
 | Bases | `postgres_query` | `(query, readonly=true, timeout_s=30)` | PostgreSQL via psycopg2, statement_timeout appliqué |
+
+### Recherche web de l'agent (SearXNG + repli DuckDuckGo)
+
+`web_search` interroge en priorité une instance **SearXNG auto-hébergée**
+(résultats JSON agrégés de Google, Bing, Brave, DuckDuckGo…) puis, en repli,
+**DuckDuckGo Lite**. Une recherche bloquée (anti-bot, page « anomalie ») est
+signalée par une clé `error` explicite au lieu d'un « 0 résultat » ambigu,
+et un échec SearXNG laisse une trace `searxng_error` dans le payload.
+
+| Variable | Rôle |
+|---|---|
+| `AGENT_SEARCH_BACKEND` | `auto` (défaut : SearXNG puis DuckDuckGo), `searxng` (sans repli) ou `ddg` |
+| `AGENT_SEARXNG_URL` | endpoint `/search` de l'instance (défaut `http://127.0.0.1:8888/search` ; en compose : `http://searxng:8080/search`) |
+| `AGENT_SEARCH_LANGUAGE` | langue des résultats SearXNG (`fr` par défaut) |
+| `AGENT_PRIVATE_HOST_ALLOWLIST` | hôtes privés autorisés même si `AGENT_BLOCK_PRIVATE_HOSTS=1` (ex. `127.0.0.1,localhost,searxng`) |
+
+L'instance SearXNG est fournie via le profil compose « search » (service
+`searxng`, configuration `searxng/settings.yml` avec `search.formats: [html,
+json]` — le format JSON est **requis**, sinon 403) :
+
+```bash
+docker compose --profile search up -d searxng
+# Interface : http://127.0.0.1:8888
+```
+
+- **Tests** : `pytest tests/test_web_tools.py -v` (offline, HTTP simulé).
 
 ### Sécurité (`ia/tools/sandbox.py`)
 
@@ -515,6 +541,9 @@ Comportements notables :
 - **Sorties plafonnées** (~8 Ko par outil, ~4 Ko injectés au LLM) pour protéger le contexte.
 - **SQL lecture seule par défaut** : SQLite via `PRAGMA query_only`, PostgreSQL via
   filtre de mots-clés (INSERT/UPDATE/DROP/… refusés tant que `readonly=true`).
+- **Exemption SSRF explicite** : `AGENT_PRIVATE_HOST_ALLOWLIST` autorise des
+  hôtes privés de confiance (ex. instance SearXNG locale pour `web_search`)
+  même quand `AGENT_BLOCK_PRIVATE_HOSTS=1`.
 - **Destructif encadré** : `remove_path` refuse la racine et tout ce qui est sous
   `.git` ; un dossier non vide impose `recursive=true`.
 
@@ -549,7 +578,7 @@ curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
 Doc interactive : http://localhost:8000/docs. Notes :
 
 - `psycopg2-binary` (déjà dans requirements.txt) n'est requis que pour `postgres_query`.
-- Tests offline de tous ces outils : `pytest tests/test_agent_tools.py tests/test_agent_api.py tests/test_agent_logging.py -v`.
+- Tests offline de tous ces outils : `pytest tests/test_agent_tools.py tests/test_web_tools.py tests/test_agent_api.py tests/test_agent_logging.py -v`.
 
 ## Dashboard (interface web React)
 

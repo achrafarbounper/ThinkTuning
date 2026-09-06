@@ -1037,7 +1037,7 @@
     },
     "web_search": {
       "name": "web_search",
-      "description": "Recherche web DuckDuckGo : {query, engine, result_count, results}",
+      "description": "Recherche web : SearXNG auto-hébergée en primaire, repli DuckDuckGo Lite ; {query, engine, result_count, results, error?}",
       "required_args": [
         "query"
       ],

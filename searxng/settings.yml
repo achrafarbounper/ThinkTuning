@@ -1,0 +1,21 @@
+# Instance SearXNG de ThinkTuning — montée dans /etc/searxng/settings.yml
+# (service docker-compose « searxng », profil « search »).
+#
+# use_default_settings charge la configuration complète par défaut de
+# l'image ; seules les clés ci-dessous sont surchargées.
+use_default_settings: true
+
+server:
+  # Clé secrète interne de l'instance (à changer en production).
+  secret_key: "thinktuning-searxng-change-me"
+  # Instance locale réservée à l'agent : le limiter anti-bot renverrait
+  # des 429 aux requêtes répétées de web_search.
+  limiter: false
+
+search:
+  # « json » est REQUIS par l'outil web_search (format=json), sinon 403.
+  formats:
+    - html
+    - json
+  # Langue par défaut des résultats (surchargeable via AGENT_SEARCH_LANGUAGE).
+  default_lang: fr

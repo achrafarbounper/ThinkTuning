@@ -2,9 +2,11 @@
 
 Contrairement à http_get (réponse HTTP brute), ces outils renvoient du contenu
 directement exploitable par le LLM :
-    - web_search : résultats de recherche DuckDuckGo (titre, URL, extrait),
-      parsés avec html.parser de la bibliothèque standard — AUCUNE dépendance
-      supplémentaire ;
+    - web_search : recherche web en DEUX backends — instance SearXNG
+      auto-hébergée en primaire (API JSON native) puis DuckDuckGo Lite en
+      repli (HTML parsé avec html.parser de la bibliothèque standard) ;
+      toute recherche bloquée (anti-bot…) est signalée par une clé 'error'
+      explicite au lieu d'un « 0 résultat » ambigu ;
     - web_fetch  : page distante telle quelle (statut + corps BRUT tronqué) ;
     - web_read   : texte lisible extrait d'une page HTML (scripts, styles,
       balises supprimés), pour lire un article ou une documentation.
@@ -16,6 +18,7 @@ Sécurité (mêmes garde-fous que network_tools.py) :
     - timeouts plafonnés et sorties tronquées pour ne pas saturer le LLM.
 """
 
+import os
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlparse
 
@@ -43,6 +46,30 @@ _HTTP_HEADERS = {
 
 _TIMEOUT_MIN, _TIMEOUT_MAX = 1.0, 120.0
 _PARSE_INPUT_LIMIT = 300_000  # jamais plus de ~300 Ko parsés par page
+
+# --- Configuration des backends de recherche (env relues à chaque appel) ------------
+
+# Backend primaire : instance SearXNG auto-hébergée — API JSON native, résultats
+# agrégés de Google/Bing/Brave/DuckDuckGo… (search.formats doit contenir json).
+# En compose : http://searxng:8080/search — en dev local : http://127.0.0.1:8888/search
+SEARXNG_DEFAULT_URL = "http://127.0.0.1:8888/search"
+_SEARCH_BACKENDS = ("auto", "searxng", "ddg")
+
+
+def _searxng_url() -> str:
+    """Endpoint /search de l'instance SearXNG (AGENT_SEARXNG_URL)."""
+    return os.getenv("AGENT_SEARXNG_URL", "").strip() or SEARXNG_DEFAULT_URL
+
+
+def _search_backend() -> str:
+    """Ordre des backends (AGENT_SEARCH_BACKEND) : auto, searxng ou ddg."""
+    raw = os.getenv("AGENT_SEARCH_BACKEND", "auto").strip().lower()
+    return raw if raw in _SEARCH_BACKENDS else "auto"
+
+
+def _search_language() -> str:
+    """Langue demandée à SearXNG (AGENT_SEARCH_LANGUAGE ; vide = défaut instance)."""
+    return os.getenv("AGENT_SEARCH_LANGUAGE", "fr").strip()
 
 
 def _clean_timeout(timeout: float) -> float:
@@ -211,43 +238,122 @@ def _request_page(url: str, headers: dict | None, timeout: float) -> requests.Re
 
 # --- SEARCH ------------------------------------------------------------------------
 
-def web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS,
-               timeout: float = DEFAULT_TIMEOUT_S) -> dict:
-    """Recherche web DuckDuckGo : {query, engine, result_count, results}.
+def _searxng_search(query: str, max_results: int, timeout: float) -> dict:
+    """Backend primaire : instance SearXNG auto-hébergée (API JSON native).
 
-    Chaque résultat est {title, url, snippet}. Aucune clé API requise ; le
-    parsing utilise uniquement la bibliothèque standard. Ne lève PAS sur
-    HTTP >= 400 : une entrée 'error' est renvoyée à la place, pour que
-    l'agent puisse raisonner dessus (blocage, rate limit…).
+    Renvoie le payload standard {query, engine: 'searxng', result_count,
+    results} ; en cas d'échec (instance absente, format json désactivé,
+    réponse non JSON…), une clé 'error' explicite est ajoutée — jamais de
+    « 0 résultat » ambigu. Les violations de la politique SSRF (sandbox)
+    restent levées, comme pour les autres outils réseau.
     """
-    query = str(query or "").strip()
-    if not query:
-        raise ValueError("'query' ne peut pas être vide.")
-    max_results = max(1, min(int(max_results), MAX_RESULTS_LIMIT))
+    payload: dict = {
+        "query": query,
+        "engine": "searxng",
+        "result_count": 0,
+        "results": [],
+    }
+    url = _searxng_url()
+    url_scheme_allowed(url)
+    enforce_host_policy(url)
+    params: dict = {"q": query, "format": "json"}
+    language = _search_language()
+    if language:
+        params["language"] = language
+    try:
+        resp = requests.get(url, params=params, headers=dict(_HTTP_HEADERS),
+                            timeout=timeout)
+    except requests.RequestException as exc:
+        payload["error"] = f"SearXNG injoignable ({url}) : {exc}"
+        return payload
+    if resp.status_code >= 400:
+        detail = {
+            403: "format=json désactivé sur l'instance "
+                 "(search: formats dans searxng/settings.yml)",
+            429: "rate limit de l'instance",
+        }.get(resp.status_code, resp.reason)
+        payload["error"] = f"SearXNG HTTP {resp.status_code} : {detail} ({url})"
+        return payload
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        payload["error"] = f"SearXNG : réponse non JSON ({url}) : {exc}"
+        return payload
 
-    url_scheme_allowed(SEARCH_ENDPOINT)
-    enforce_host_policy(SEARCH_ENDPOINT)
-    # Le endpoint Lite n'accepte une requête qu'en POST : en GET il renvoie
-    # un HTTP 202 « anomalie » sans résultats.
-    resp = requests.post(
-        SEARCH_ENDPOINT, data={"q": query}, headers=dict(_HTTP_HEADERS),
-        timeout=_clean_timeout(timeout),
-    )
+    seen_urls: set[str] = set()
+    for item in data.get("results") or []:
+        item_url = str(item.get("url") or "").strip()
+        title = " ".join(str(item.get("title") or "").split())
+        if not item_url or not title or item_url in seen_urls:
+            continue  # doublons agrégés / entrées vides ignorés
+        seen_urls.add(item_url)
+        payload["results"].append({
+            "title": title,
+            "url": item_url,
+            "snippet": " ".join(str(item.get("content") or "").split()),
+        })
+        if len(payload["results"]) >= max_results:
+            break
+    payload["result_count"] = len(payload["results"])
+    # Moteurs amont en échec sur cette requête (utile pour diagnostiquer un
+    # « 0 résultat » : SearXNG lui-même a pu être bloqué par ses moteurs).
+    # SearXNG renvoie [moteur, raison] : affiché « moteur : raison ».
+    unresponsive = data.get("unresponsive_engines") or []
+    if unresponsive:
+        payload["unresponsive_engines"] = [
+            " : ".join(str(part) for part in entry)
+            if isinstance(entry, (list, tuple)) else str(entry)
+            for entry in unresponsive[:10]
+        ]
+    return payload
 
+
+def _ddg_lite_search(query: str, max_results: int, timeout: float) -> dict:
+    """Backend de repli : DuckDuckGo Lite (HTML statique parsé).
+
+    Aucune clé API requise ; parsing 100 % bibliothèque standard. Ne lève
+    PAS sur HTTP >= 400 ni sur une page anti-bot : une entrée 'error' est
+    renvoyée à la place, pour que l'agent puisse raisonner dessus.
+    """
     payload: dict = {
         "query": query,
         "engine": "duckduckgo-lite",
         "result_count": 0,
         "results": [],
     }
+    url_scheme_allowed(SEARCH_ENDPOINT)
+    enforce_host_policy(SEARCH_ENDPOINT)
+    # Le endpoint Lite n'accepte une requête qu'en POST : en GET il renvoie
+    # un HTTP 202 « anomalie » sans résultats.
+    try:
+        resp = requests.post(
+            SEARCH_ENDPOINT, data={"q": query}, headers=dict(_HTTP_HEADERS),
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        payload["error"] = f"DuckDuckGo injoignable : {exc}"
+        return payload
+
     if resp.status_code >= 400:
         payload["error"] = (
             f"Recherche impossible : HTTP {resp.status_code} ({resp.reason})."
         )
         return payload
+    # Page « anomalie » anti-bot (observée en réel : HTTP 202 + formulaire
+    # anomaly.js?cc=botnet) : DDG refuse la requête sans aucun résultat. On
+    # le signale explicitement — un « 0 résultat » silencieux ferait croire
+    # au LLM qu'aucune réponse n'existe sur le sujet.
+    body = resp.text[:_PARSE_INPUT_LIMIT]
+    if resp.status_code == 202 or "anomaly.js" in body or "cc=botnet" in body:
+        payload["error"] = (
+            f"DuckDuckGo a bloqué la requête (anti-bot, HTTP {resp.status_code}, "
+            "page anomalie) : réessayez plus tard ou configurez une instance "
+            "SearXNG (AGENT_SEARXNG_URL)."
+        )
+        return payload
 
     parser = _LiteResultsParser()
-    parser.feed(resp.text[:_PARSE_INPUT_LIMIT])
+    parser.feed(body)
     parser.close()
     # Liens publicitaires exclus : ce sont les seuls « résultats » dont l'URL
     # finale reste sur duckduckgo.com (/y.js?ad_domain=...) après déballage.
@@ -260,6 +366,49 @@ def web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS,
     if len(found) > len(payload["results"]):
         payload["truncated"] = True
     return payload
+
+
+def web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS,
+               timeout: float = DEFAULT_TIMEOUT_S) -> dict:
+    """Recherche web : SearXNG (primaire) puis DuckDuckGo Lite (repli).
+
+    Renvoie {query, engine, result_count, results} — 'engine' indique le
+    backend qui a produit les résultats ('searxng' ou 'duckduckgo-lite').
+    Chaque résultat est {title, url, snippet}. AGENT_SEARCH_BACKEND choisit
+    l'ordre : auto (défaut), searxng (sans repli) ou ddg (SearXNG ignorée).
+    En mode auto, un échec SearXNG déclenche le repli ; le payload porte
+    alors 'searxng_error', et 'error' si les DEUX backends échouent.
+    """
+    query = str(query or "").strip()
+    if not query:
+        raise ValueError("'query' ne peut pas être vide.")
+    max_results = max(1, min(int(max_results), MAX_RESULTS_LIMIT))
+    timeout = _clean_timeout(timeout)
+    backend = _search_backend()
+
+    if backend in ("auto", "searxng"):
+        payload = _searxng_search(query, max_results, timeout)
+        # Résultat exploitable : pas d'erreur ET soit des résultats, soit un
+        # vrai « 0 résultat » (moteurs amont tous répondu). Si SearXNG répond
+        # 0 résultat alors que tous ses moteurs sont en échec, on tente le
+        # repli — la réponse vide n'est alors pas fiable.
+        usable = "error" not in payload and (
+            payload["result_count"] > 0 or not payload.get("unresponsive_engines")
+        )
+        if backend == "searxng" or usable:
+            return payload
+        searxng_error = payload.get("error")
+    else:
+        searxng_error = None
+
+    fallback = _ddg_lite_search(query, max_results, timeout)
+    if searxng_error:
+        fallback["searxng_error"] = searxng_error
+        if "error" in fallback:
+            fallback["error"] = (
+                f"{searxng_error} | Repli DuckDuckGo : {fallback['error']}"
+            )
+    return fallback
 
 
 # --- FETCH -------------------------------------------------------------------------

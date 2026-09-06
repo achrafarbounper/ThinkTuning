@@ -11,6 +11,9 @@ Configuration (variables d'environnement, relues à chaque appel) :
                               run_command (voir DEFAULT_ALLOWED_BINARIES).
     AGENT_BLOCK_PRIVATE_HOSTS "1"/"true" pour interdire à http_get/http_post
                               de joindre des hôtes privés/loopback (anti-SSRF).
+    AGENT_PRIVATE_HOST_ALLOWLIST  CSV d'hôtes privés exemptés du blocage
+                              précédent (ex. une instance SearXNG locale pour
+                              web_search : 127.0.0.1,localhost,searxng).
 """
 
 import os
@@ -165,11 +168,27 @@ def host_is_private(hostname: str) -> bool:
     return False
 
 
+def get_private_host_allowlist() -> set[str]:
+    """Hôtes privés explicitement autorisés (AGENT_PRIVATE_HOST_ALLOWLIST, CSV).
+
+    Exemple : AGENT_PRIVATE_HOST_ALLOWLIST=127.0.0.1,localhost,searxng
+    """
+    raw = os.getenv("AGENT_PRIVATE_HOST_ALLOWLIST", "")
+    return {entry.strip().lower() for entry in raw.split(",") if entry.strip()}
+
+
 def enforce_host_policy(url: str) -> None:
-    """Applique la politique SSRF si AGENT_BLOCK_PRIVATE_HOSTS est activée."""
+    """Applique la politique SSRF si AGENT_BLOCK_PRIVATE_HOSTS est activée.
+
+    Les hôtes listés dans AGENT_PRIVATE_HOST_ALLOWLIST (CSV) sont exemptés :
+    utile pour joindre un service local de confiance, ex. une instance
+    SearXNG utilisée par web_search (ia/tools/web_tools.py).
+    """
     if os.getenv("AGENT_BLOCK_PRIVATE_HOSTS", "").strip().lower() in ("1", "true", "yes"):
-        hostname = urlparse(str(url)).hostname or ""
-        if hostname and host_is_private(hostname):
+        hostname = (urlparse(str(url)).hostname or "").lower()
+        if not hostname or hostname in get_private_host_allowlist():
+            return
+        if host_is_private(hostname):
             raise PermissionError(
                 f"Hôte privé/loopback interdit (AGENT_BLOCK_PRIVATE_HOSTS actif) : {hostname}"
             )
