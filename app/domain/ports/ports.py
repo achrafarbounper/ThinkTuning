@@ -264,6 +264,41 @@ class FlowStorePort(Protocol):
 
 
 @runtime_checkable
+class MultiAgentOrchestratorPort(Protocol):
+    """Contrat de l'orchestration multi-agents (cf. ia/agent/orchestrator.py).
+
+    Le cœur complexe (plan → dispatch → synthèse, budget, FSM, reprise) vit
+    dans ``ia/agent/orchestrator.py`` — ce port expose une façade mince qui
+    permet de l'injecter dans les use-cases et de le mocker dans les tests.
+    """
+
+    def run(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        parallel: bool = False,
+        resume_request_id: str | None = None,
+        enable_thinking: bool = False,
+    ) -> dict[str, Any]:
+        """Exécute le cycle complet (bloquant). Contrat de sortie stable."""
+        ...
+
+    def run_streaming(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        parallel: bool = False,
+        resume_request_id: str | None = None,
+        enable_thinking: bool = False,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Exécute le cycle complet (streaming SSE). Contrat de sortie stable."""
+        ...
+
+
+@runtime_checkable
 class ApprovalStorePort(Protocol):
     """Contrat de la file d'approbation humaine (cf. core/approval_store.py).
 

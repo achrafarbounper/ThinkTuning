@@ -47,6 +47,7 @@ from app.application.agent_settings_usecase import (
 # Use-cases (couche application) : la logique métier des runs vit ici,
 # les routes ci-dessous ne sont plus que des adaptateurs HTTP minces.
 from app.application.ask_usecase import run_ask_core
+from app.application.multi_agent_usecase import run_multi_agent, run_multi_agent_streaming
 from app.application.run_lifecycle import (
     core_api_status,
     core_store_status,
@@ -56,10 +57,12 @@ from app.application.run_lifecycle import (
     resolve_resume_hash,
 )
 from app.application.session_memory import load_session_history, persist_exchange
+from app.config.settings import get_settings
 from app.domain.entities.plan import Intent
 from app.domain.errors import AgentRunError
 from app.infrastructure.events.in_memory import InMemoryEventBus
 from app.infrastructure.legacy_approval_store import build_approval_store
+from app.infrastructure.legacy_multi_agent_adapter import build_multi_agent_orchestrator
 from app.infrastructure.legacy_settings_adapter import build_settings_port
 from core.agent_cache import (
     REQUIRED_ARGS,
@@ -69,8 +72,6 @@ from core.agent_cache import (
     _lm_studio_chat_url,
     _openrouter_chat_url,
     agent_config,
-    ask_multi_agent,
-    ask_multi_agent_streaming,
     reload_agent_runner,
 )
 from core.approval_store import (
@@ -86,7 +87,6 @@ from core.audit_store import (  # Phase A (audit / conformité)
     ACT_TOOL,
     get_audit_store,
 )
-from app.config.settings import get_settings
 
 
 def _flag(name: str) -> bool:
@@ -1559,7 +1559,9 @@ def multi_ask(
     ``unexecuted`` liste explicitement les sous-tâches non exécutées (jamais
     noyées dans la réponse).
     """
-    result = ask_multi_agent(
+    orchestrator = build_multi_agent_orchestrator()
+    result = run_multi_agent(
+        orchestrator,
         request.prompt,
         model=request.model or None,
         parallel=request.parallel,
@@ -1634,7 +1636,9 @@ def multi_ask_stream(
 
     def worker() -> None:
         try:
-            result = ask_multi_agent_streaming(
+            orchestrator = build_multi_agent_orchestrator()
+            result = run_multi_agent_streaming(
+                orchestrator,
                 request.prompt,
                 model=request.model or None,
                 parallel=request.parallel,
