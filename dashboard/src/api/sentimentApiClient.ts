@@ -130,14 +130,22 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   // -- /models --------------------------------------------------------------
 
+  /**
+   * Catalogue détaillé des modèles (flag active) — MIGRÉ vers
+   * GET /api/v1/models/details (liste vide si aucun modèle, 200).
+   */
   listModels(): Promise<ModelVersion[] | null> {
-    return this._request<ModelVersion[]>("/models/details");
+    return this._request<ModelVersion[]>("/api/v1/models/details");
   }
 
   // -- /evaluate ------------------------------------------------------------
 
+  /**
+   * Matrice de confusion + métriques d'évaluation — MIGRÉ vers
+   * GET /api/v1/evaluate/confusion (503 enveloppe domaine si aucun modèle).
+   */
   getConfusion({ model, limit }: { model?: string; limit?: number } = {}) {
-    return this._request("/evaluate/confusion", { query: { model, limit } });
+    return this._request("/api/v1/evaluate/confusion", { query: { model, limit } });
   }
 
   // -- /predict ---------------------------------------------------------------
@@ -393,16 +401,19 @@ export class SentimentApiClient extends SentimentApiClientCore {
     return this._request(`/active_learning/cycle/status/${encodeURIComponent(jobId)}`);
   }
 
-  /** Active une version de modèle (422 si artefacts invalides). */
+  /**
+   * Active une version de modèle — MIGRÉ vers POST /api/v1/models/{name}/activate
+   * (422 si artefacts invalides, 404 si inconnue — enveloppe domaine).
+   */
   activateModel(name: string) {
-    return this._request(`/models/${encodeURIComponent(name)}/activate`, {
+    return this._request(`/api/v1/models/${encodeURIComponent(name)}/activate`, {
       method: "POST",
     });
   }
 
-  /** Pointeur de la version active. */
+  /** Pointeur de la version active — MIGRÉ vers GET /api/v1/models/active. */
   getActiveModel() {
-    return this._request("/models/active");
+    return this._request("/api/v1/models/active");
   }
 
   /**
@@ -467,11 +478,14 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /**
-   * Supprime une version de modèle défaillante (DELETE /models/{name}).
-   * Refus 409 si version active, 422 si le sanity check est « ok ».
+   * Supprime une version de modèle défaillante — MIGRÉ vers
+   * DELETE /api/v1/models/{name}. Refus 409 (conflit) si version active,
+   * 422 si le sanity check est « ok » — enveloppe domaine.
    */
   deleteModel(name: string) {
-    return this._request(`/models/${encodeURIComponent(name)}`, { method: "DELETE" });
+    return this._request(`/api/v1/models/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
   }
 
   // -- /pipeline ---------------------------------------------------------------

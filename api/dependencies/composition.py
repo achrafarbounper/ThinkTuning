@@ -23,6 +23,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from app.domain.ports.model_versioning_ports import (
+    EvaluationPort,
+    ModelVersioningPort,
+)
 from app.domain.ports.prediction_ports import (
     ModelRepositoryPort,
     PredictionPort,
@@ -45,6 +49,8 @@ KEY_TRAINING_RUNNER = "training_runner_port"
 KEY_TRAINING_SCHEDULES = "training_schedules_port"
 KEY_INTENT_TRAINING_RUNNER = "intent_training_runner_port"
 KEY_INTENT_VERSIONING = "intent_versioning_port"
+KEY_MODEL_VERSIONING = "model_versioning_port"
+KEY_EVALUATION = "evaluation_port"
 
 
 class Container:
@@ -102,6 +108,10 @@ class Container:
         from app.infrastructure.ml.model_repository_adapter import (
             build_default_repository,
         )
+        from app.infrastructure.ml.model_versioning_adapter import (
+            build_default_evaluation,
+            build_default_model_versioning,
+        )
         from app.infrastructure.ml.predictor_adapter import build_default_predictor
         from app.infrastructure.system_status_adapter import build_default_system_status
         from app.infrastructure.training.intent_training_adapter import (
@@ -122,6 +132,8 @@ class Container:
         self._factories[KEY_TRAINING_SCHEDULES] = build_default_training_schedules
         self._factories[KEY_INTENT_TRAINING_RUNNER] = build_default_intent_training_runner
         self._factories[KEY_INTENT_VERSIONING] = build_default_intent_versioning
+        self._factories[KEY_MODEL_VERSIONING] = build_default_model_versioning
+        self._factories[KEY_EVALUATION] = build_default_evaluation
         self._singleton_keys: set[str] = set()
         self._bootstrapped = True
 
@@ -178,3 +190,13 @@ def get_intent_training_runner_port() -> IntentTrainingRunnerPort:
 def get_intent_versioning_port() -> IntentVersioningPort:
     """Port des versions de modèles d'intention (active.json) pour la v1."""
     return container.resolve(KEY_INTENT_VERSIONING)
+
+
+def get_model_versioning_port() -> ModelVersioningPort:
+    """Port du catalogue des versions de modèles sentiment pour la v1."""
+    return container.resolve(KEY_MODEL_VERSIONING)
+
+
+def get_evaluation_port() -> EvaluationPort:
+    """Port d'évaluation (matrice de confusion) pour la v1."""
+    return container.resolve(KEY_EVALUATION)

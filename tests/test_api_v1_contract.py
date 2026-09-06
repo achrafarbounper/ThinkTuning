@@ -48,6 +48,12 @@ V1_PATHS = {
     "/api/v1/train/intent/jobs": {"get"},
     "/api/v1/train/intent/versions": {"get"},
     "/api/v1/train/intent/activate": {"post"},
+    # Phase 3d-3 — catalogue de modèles + évaluation
+    "/api/v1/models/details": {"get"},
+    "/api/v1/models/active": {"get"},
+    "/api/v1/models/{name}/activate": {"post"},
+    "/api/v1/models/{name}": {"delete"},
+    "/api/v1/evaluate/confusion": {"get"},
 }
 
 
@@ -159,6 +165,13 @@ def test_auth_posture_is_locked():
         ("/api/v1/train/intent/jobs", "get"),
         ("/api/v1/train/intent/versions", "get"),
         ("/api/v1/train/intent/activate", "post"),
+        # Phase 3d-3 — catalogue de modèles + évaluation : toute la surface
+        # est protégée (parité avec le legacy /models/* et /evaluate/*).
+        ("/api/v1/models/details", "get"),
+        ("/api/v1/models/active", "get"),
+        ("/api/v1/models/{name}/activate", "post"),
+        ("/api/v1/models/{name}", "delete"),
+        ("/api/v1/evaluate/confusion", "get"),
     ):
         assert "X-API-Key" in _header_names(path, method), f"auth absente du contrat : {path}"
     for path in ("/api/v1/health", "/api/v1/health/model-sanity"):

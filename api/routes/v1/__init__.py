@@ -10,12 +10,14 @@ par endpoint.
 
 from fastapi import APIRouter
 
-from . import health, intent_training, prediction, training
+from . import evaluate, health, intent_training, models, prediction, training
 
 router = APIRouter()
 router.include_router(health.router)
 router.include_router(prediction.router)
 router.include_router(training.router)
 router.include_router(intent_training.router)
+router.include_router(models.router)
+router.include_router(evaluate.router)
 
 __all__ = ["router"]

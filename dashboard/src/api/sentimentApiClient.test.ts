@@ -344,3 +344,68 @@ describe("SentimentApiClient.intentTrain (v1)", () => {
     expect(res).toEqual({ status: "activated", version: "20260905T120000Z" });
   });
 });
+
+describe("SentimentApiClient.modelsAndEvaluate (v1)", () => {
+  it("interroge /api/v1/models/details pour le catalogue", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        { name: "20260905", path: "/x/20260905", created_at: 1.0, active: true },
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    const models = await client.listModels();
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api/api/v1/models/details");
+    expect(models).toHaveLength(1);
+  });
+
+  it("interroge /api/v1/models/active pour le pointeur", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ activated: false }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    await client.getActiveModel();
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api/api/v1/models/active");
+  });
+
+  it("active une version via POST /api/v1/models/{name}/activate", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ activated: true, version: "v1" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    await client.activateModel("v1");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/models/v1/activate");
+    expect(init.method).toBe("POST");
+  });
+
+  it("supprime une version via DELETE /api/v1/models/{name}", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ deleted: true, name: "bad", verdict: "model_unavailable" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    await client.deleteModel("bad");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/models/bad");
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("interroge /api/v1/evaluate/confusion avec query model+limit", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ n: 0, matrix: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    await client.getConfusion({ model: "20260905", limit: 50 });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://api/api/v1/evaluate/confusion?model=20260905&limit=50"
+    );
+  });
+});
