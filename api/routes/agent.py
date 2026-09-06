@@ -86,7 +86,21 @@ from core.audit_store import (  # Phase A (audit / conformité)
     ACT_TOOL,
     get_audit_store,
 )
-from core.feature_flags import active_features, flag  # Phase A (flags)
+from app.config.settings import get_settings
+
+
+def _flag(name: str) -> bool:
+    """Lit un feature flag depuis Settings (compatibilité avec l'ancien ``flag()``).
+
+    Utilise le cache de ``get_settings()`` — les tests qui basculent un flag par
+    ``monkeypatch.setenv`` doivent appeler ``get_settings.cache_clear()`` après.
+    """
+    return getattr(get_settings(), f"flag_{name}", False)
+
+
+def __active_features() -> list[str]:
+    """Liste ordonnée des flags activés (compatibilité avec l'ancien ``_active_features()``)."""
+    return [name for name, active in get_settings().active_flags().items() if active]
 from core.flow_store import (
     AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
 )
@@ -140,7 +154,7 @@ def _audit_log(action: str, subject: str = "", detail: dict | None = None, **kw)
     No-op (retour None) quand le flag est inactif : zéro impact sur le
     comportement historique. ``kw`` peut porter actor/ip/request_id/run_id.
     """
-    if not flag("audit"):
+    if not _flag("audit"):
         return None
     store = get_audit_store()
     return store.log(action, subject=subject, detail=detail, **kw)
@@ -399,7 +413,7 @@ def recommend_tools(
     catalogue contre la requête ``q`` — type « Copilot » pour aider l'UI à
     suggérer l'outil pertinent avant même un appel LLM.
     """
-    if not flag("tool_analytics"):
+    if not _flag("tool_analytics"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_TOOL_ANALYTICS)")
     return {"query": q, "suggestions": suggest_tools(q, k=k)}
 
@@ -413,7 +427,7 @@ ENV_TOOL_REMOVED = "agent.tool.removed"
 @router.get("/tools/custom")
 def list_custom_tools(_: bool = Depends(require_api_key)):
     """Liste les tools DYNAMIQUES enregistrés (état runtime inclus)."""
-    if not flag("custom_tools"):
+    if not _flag("custom_tools"):
         raise HTTPException(
             status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
@@ -446,7 +460,7 @@ def create_custom_tool(
     ``allow_auto_approval=true`` (source humaine de confiance) honore la
     déclaration « safety » de la définition.
     """
-    if not flag("custom_tools"):
+    if not _flag("custom_tools"):
         raise HTTPException(
             status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
@@ -535,7 +549,7 @@ def create_custom_tool(
 @router.delete("/tools/custom/{name}")
 def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
     """Retire un tool DYNAMIQUE (les tools natifs ne sont jamais retirables)."""
-    if not flag("custom_tools"):
+    if not _flag("custom_tools"):
         raise HTTPException(
             status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
@@ -569,7 +583,7 @@ def tool_stats(reset: bool = False, _: bool = Depends(require_api_key)):
     Phase B (flag ``AGENT_TOOL_ANALYTICS``) — compteurs in-process depuis le
     démarrage (volatils) ; ``reset=1`` les remet à zéro.
     """
-    if not flag("tool_analytics"):
+    if not _flag("tool_analytics"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_TOOL_ANALYTICS)")
     return {"tools": get_stats(reset=reset), "plugins": loaded_plugins()}
 
@@ -602,7 +616,7 @@ def suggest(request: SuggestRequest, _: bool = Depends(require_api_key)):
     (Phase B) et le boost d'apprentissage issu des acceptations/refus
     enregistrés via ``/suggest/feedback``.
     """
-    if not flag("copilot"):
+    if not _flag("copilot"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_COPILOT)")
     return suggest_for_context(
         messages=request.messages,
@@ -615,7 +629,7 @@ def suggest(request: SuggestRequest, _: bool = Depends(require_api_key)):
 @router.post("/suggest/feedback")
 def suggest_feedback(request: SuggestFeedbackRequest, _: bool = Depends(require_api_key)):
     """Enregistre l'issue d'une suggestion (acceptée / refusée)."""
-    if not flag("copilot"):
+    if not _flag("copilot"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_COPILOT)")
     entry = get_feedback_store().record(
         tool=request.tool,
@@ -629,7 +643,7 @@ def suggest_feedback(request: SuggestFeedbackRequest, _: bool = Depends(require_
 @router.post("/complete")
 def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     """Complétion en ligne (suite probable du brouillon, via le LLM)."""
-    if not flag("copilot"):
+    if not _flag("copilot"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_COPILOT)")
     if not request.draft.strip():
         return {"completion": ""}
@@ -1286,7 +1300,7 @@ def list_audit(
     Filtres AND sur ``action`` / ``subject`` / ``actor`` / ``run_id``. Sans le
     flag, renvoie une réponse 403 explicite (fonctionnalité désactivée).
     """
-    if not flag("audit"):
+    if not __flag("audit"):
         raise HTTPException(
             status_code=403,
             detail="Journal d'audit désactivé (flag AGENT_AUDIT inactif).",
@@ -1300,10 +1314,10 @@ def list_audit(
 @router.get("/features")
 def agent_features(_: bool = Depends(require_api_key)):
     """État des flags d'enhancement (rollout incrémental)."""
-    flags = {name: flag(name) for name in (
+    flags = {name: _flag(name) for name in (
         "reliability", "audit", "tool_analytics", "context", "copilot", "websocket",
     )}
-    return {"features": flags, "active": active_features()}
+    return {"features": flags, "active": _active_features()}
 
 
 # --- WebSocket bidirectionnel (Phase E, flag AGENT_WEBSOCKET) -------------------------
@@ -1329,7 +1343,7 @@ def agent_features(_: bool = Depends(require_api_key)):
 @router.websocket("/ws")
 async def agent_ws(websocket: WebSocket):
     """Canal Agent bidirectionnel (requiert le flag AGENT_WEBSOCKET)."""
-    if not flag("websocket"):
+    if not _flag("websocket"):
         await websocket.close(code=1008, reason="Fonction désactivée (AGENT_WEBSOCKET)")
         return
     if websocket.query_params.get("token") != _get_api_key():

@@ -3,7 +3,6 @@
 
 import pytest
 
-
 # Variables d'environnement qui peuvent impacter les défauts testés : on les
 # retire pour que chaque test parte d'un environnement propre (un ``.env``
 # local ou des variables machine ne doivent pas faire flakker les tests).
@@ -59,6 +58,7 @@ def test_defaults(fresh_settings, monkeypatch) -> None:
         "copilot": True,
         "websocket": True,
         "multi_agent": True,
+        "custom_tools": True,
         "new_core": True,
         "llm_v2": True,
     }
