@@ -5,12 +5,14 @@
     POST /api/v1/predict/reload   rechargement + validation sanity (protégé API key)
 
 Différences assumées avec le legacy :
-    - protégés par ``require_api_key`` (posture production ; le legacy
-      /predict est public, la bascule dashboard en tiendra compte) ;
     - erreurs métier via le handler DomainError (payload
       ``{"error": {"code", "message", "details"}}``) ;
     - le lot CSV massif (legacy /predict/batch) et le batcher dynamique ne
       sont PAS encore exposés en v1 : flux à migrer après stabilisation.
+
+Auth : PARITÉ avec le legacy — vérifié dans ``api/routes/predict.py``,
+``/predict`` et ``/predict/reload`` legacy portent le même
+``Depends(require_api_key)`` (la v1 n'introduit aucune exigence nouvelle).
 """
 
 from __future__ import annotations

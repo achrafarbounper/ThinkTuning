@@ -194,3 +194,43 @@ describe("SentimentApiClient.predict (v1)", () => {
     expect(err.message).toBe("Aucun modèle disponible");
   });
 });
+
+describe("SentimentApiClient.reloadPredictor (v1)", () => {
+  it("interroge /api/v1/predict/reload (POST, sans paramètre)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ status: "reloaded", sanity: "ok" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    const res = await client.reloadPredictor("v1");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/predict/reload");
+    expect(init.method).toBe("POST");
+    expect(res).toEqual({ status: "reloaded", sanity: "ok" });
+  });
+
+  it("expose le message métier sur un rechargement refusé (503 model_unhealthy)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: "model_unhealthy",
+            message: "Fallback base model détecté : précision 12% < 50%",
+            details: { status: "reload_rejected", verdict: "fallback_base_model" },
+          },
+        },
+        503
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api" });
+    const err = await expectApiError(client.reloadPredictor());
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(503);
+    expect(err.message).toContain("Fallback base model");
+  });
+});

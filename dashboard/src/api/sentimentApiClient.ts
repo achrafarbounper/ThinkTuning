@@ -247,11 +247,16 @@ export class SentimentApiClient extends SentimentApiClientCore {
     });
   }
 
-  reloadPredictor(model?: string) {
-    return this._request("/predict/reload", {
-      method: "POST",
-      query: model ? { model } : undefined,
-    });
+  /**
+   * Rechargement du predictor actif — MIGRÉ vers la surface v1.
+   * Aucun paramètre : les deux surfaces ne rechargent QUE la version active
+   * (le ``?model=`` historique était ignoré par le backend legacy). En cas de
+   * refus SCRUM-74 (modèle non sain), l'API répond 503 ``model_unhealthy`` et
+   * le transport remonte ``error.message`` comme message lisible.
+   * Signature conservée (paramètre ignoré) pour ne pas casser l'appelant.
+   */
+  reloadPredictor(_model?: string) {
+    return this._request("/api/v1/predict/reload", { method: "POST" });
   }
 
   // -- /explain ----------------------------------------------------------------
