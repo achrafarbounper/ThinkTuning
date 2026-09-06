@@ -135,16 +135,22 @@ délégation / monkeypatch pour les tests.
 |---|---|
 | `tests/test_api_v1_contract.py` | Paths v1 attendus invariants, DTO/ordre des champs, posture auth, `export_openapi.py` cohérent avec le spec. Toute dérive de contrat casse la CI. |
 | `tests/test_api_v1_client_contract.py` | **Verrous croisés client ↔ backend** : (1) chaque `/api/v1/*` littéral du dashboard résout vers une route v1 enregistrée (par segments, comme le routeur — 404 silencieux impossible) ; (2) **post-strangler, verrous inversés** : `test_aucune_route_hors_v1_montee` (aucune route hors `/api/v1` dans le spec) et `test_aucun_appel_reseau_hors_v1` (tout appel réseau `request/fetch/WebSocket/EventSource` du client cible `/api/v1/*`) ; garde-fou de volume (≥ 50 routes v1). |
+| `tests/test_openapi_export.py` | **Verrou de fraîcheur du spec** : `openapi.json` commité ≡ spec de l'app montée (toute dérive de contrat non commitée casse la CI AVANT la génération du client) ; export 100 % `/api/v1`, volume plausible ; le script `export_openapi.py` produit exactement le fichier commité. |
 | Tests par tranche (`test_api_v1_*.py`) | Comportement (statuts, payloads, enveloppe d'erreur) verrouillé pour chaque surface migrée. |
 
-Le spec OpenAPI est **générable à la demande** :
+Le spec OpenAPI est **générable à la demande** et alimente le client
+TypeScript (`openapi-typescript`, dev-dep du dashboard) :
 
 ```bash
 python export_openapi.py --out openapi.json   # 57 paths, 100 % v1
+cd dashboard && npm run generate:api-types    # -> src/api/generated/schema.d.ts
 ```
 
-L'export sert à la **génération éventuelle** du client TypeScript (décision
-reportée : voir §8).
+Le verrou de fraîcheur (`test_openapi_export.py`) garantit que `openapi.json`
+commité reflète toujours l'app montée. Branchement **progressif** des DTO du
+client sur le schéma généré : `ApiHealth` est déjà dérivé de
+`components["schemas"]["HealthResponse"]` (toute dérive backend casse `tsc`
+avant de casser l'IHM) ; les autres DTO historiques suivront au fil de l'eau.
 
 ---
 
@@ -186,13 +192,17 @@ Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
 - **Épuration legacy (Phase A)** : aucun routeur legacy monté, verrous
   inversés (backend + client), transport frontend en enveloppe v1 unique,
   `openapi.json` généré (57 paths, 100 % v1).
+- **Client TypeScript généré (Phase B)** : `openapi-typescript` en dev-dep
+  (override TS 6 dans `package.json`), script `generate:api-types`, verrou de
+  fraîcheur du spec (3 tests), DTO `ApiHealth` branché sur le schéma généré.
 
 ### Restant (post-épuration)
 1. **Suppression des fichiers legacy** (`api/routes/*.py`, `core/*` devenus
    morts) : la délégation par attribut de module devra d'abord être portée en
    use cases/adapters réels pour les flux concernés.
-2. **Génération du client TypeScript** depuis `openapi.json` (`openapi.json`
-   généré ; branchement `openapi-typescript` à faire — Phase B).
+2. **Poursuivre le branchement des DTO** (`PredictionResult`, `ModelVersion`,
+   `Explanation`, …) sur le schéma généré, puis consommer `operations` pour
+   typer les chemins d'appels.
 3. **Extraction métier des handlers `api/routes/agent.py`** (~1700 lignes,
    état/queues/store) en use cases `app/application/` (épic d'estimation
    séparée — Phase C).
@@ -209,3 +219,6 @@ Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
   le périmètre v1 vivant. Nettoyage prévu en 3 lots (Phase D) — **attention** :
   certains F401 sont des re-exports consommés (ex. `TEST_MODE` dans
   `api/__init__.py`) qu'un `ruff --fix` aveugle casserait.
+- `npm run lint` inopérant en l'état : `dashboard/eslint.config.ts` (config
+  TS) exige `jiti`, non présent dans les devDeps — installer `jiti` ou
+  repasser la config en `.mjs`.

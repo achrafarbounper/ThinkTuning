@@ -13,6 +13,7 @@
  */
 
 import { SentimentApiClientCore, ApiError } from "./clientCore";
+import type { components } from "./generated/schema";
 
 export { SentimentApiClientCore } from "./clientCore";
 export {
@@ -22,17 +23,20 @@ export {
   ApiError,
 } from "./clientCore";
 
-/** Entrée de `/models/details`. */
+/**
+ * Réponse de `/api/v1/health` — dérivée du contrat OpenAPI généré
+ * (`npm run generate:api-types` depuis openapi.json).
+ *
+ * Branchement progressif Phase B : ce DTO vit désormais dans le schéma
+ * généré, Toute dérive backend casse `tsc` ici AVANT de casser l'IHM.
+ * Les autres interfaces historiques ci-dessous suivront au fil de l'eau.
+ */
+export type ApiHealth = components["schemas"]["HealthResponse"];
+
+/** Entrée de `/api/v1/models/details`. */
 export interface ModelVersion {
   name: string;
   active?: boolean;
-  [key: string]: unknown;
-}
-
-/** Réponse de `/health`. */
-export interface ApiHealth {
-  model_available?: boolean;
-  active_jobs?: number;
   [key: string]: unknown;
 }
 
@@ -72,12 +76,11 @@ export class SentimentApiClient extends SentimentApiClientCore {
   // -- /health, /metrics (sans authentification) --------------------------
 
   /**
-   * Santé de l'API — MIGRÉ vers la surface v1 (découplage frontend/backend).
+   * Santé de l'API — surface v1 (post-strangler).
    *
-   * Strangler pattern : GET /api/v1/health expose le MÊME shape que /health
-   * legacy (contrat verrouillé par tests de non-régression backend), donc le
-   * polling AppProvider n'a besoin d'aucune adaptation. La surface legacy
-   * /health reste servie tant que d'autres endpoints ne sont pas migrés.
+   * GET /api/v1/health : le DTO vient du schéma OpenAPI généré (source
+   * unique du contrat) ; `null` sur 204 (jamais en pratique, mais le
+   * transport le réserve).
    */
   getHealth(): Promise<ApiHealth | null> {
     return this._request<ApiHealth>("/api/v1/health");
