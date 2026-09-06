@@ -71,8 +71,16 @@ export interface ClassifierPrediction {
 export class SentimentApiClient extends SentimentApiClientCore {
   // -- /health, /metrics (sans authentification) --------------------------
 
+  /**
+   * Santé de l'API — MIGRÉ vers la surface v1 (découplage frontend/backend).
+   *
+   * Strangler pattern : GET /api/v1/health expose le MÊME shape que /health
+   * legacy (contrat verrouillé par tests de non-régression backend), donc le
+   * polling AppProvider n'a besoin d'aucune adaptation. La surface legacy
+   * /health reste servie tant que d'autres endpoints ne sont pas migrés.
+   */
   getHealth(): Promise<ApiHealth | null> {
-    return this._request<ApiHealth>("/health");
+    return this._request<ApiHealth>("/api/v1/health");
   }
 
   /** Exposition Prometheus (texte brut), via le transport central. */

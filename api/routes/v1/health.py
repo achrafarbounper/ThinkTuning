@@ -48,9 +48,8 @@ def health(
 
 @router.get("/health/model-sanity", response_model=SanityVerdictResponse)
 def model_sanity(
-    model: str | None = Query(
+    model_name: str | None = Query(
         None,
-        alias="model",
         description="Version de modèle à vérifier (dossier sous experiments/models). "
         "Absente : version active.",
     ),
@@ -58,10 +57,12 @@ def model_sanity(
 ) -> SanityVerdictResponse:
     """Sanity check comportemental du modèle (SCRUM-74), surface v1.
 
+    Paramètre ``model_name`` — nom sémantique aligné sur le legacy et le
+    dashboard (aucun alias ``model`` : un seul nom de contrat, pas deux).
     Le rapport complet est retourné si le modèle est sain ; un modèle non
     entraîné / fallback répond 503 avec le payload domaine standard.
     """
-    report: SanityReport = run_model_sanity_check(model, predictor=predictor)
+    report: SanityReport = run_model_sanity_check(model_name, predictor=predictor)
     if not report.ok:
         raise ModelSanityError(
             report.detail or f"Modèle non sain [{report.verdict}]",
@@ -70,7 +71,7 @@ def model_sanity(
                 "verdict": report.verdict,
                 "min_confidence": report.min_confidence,
                 "accuracy": report.accuracy,
-                "model": model,
+                "model": model_name,
             },
         )
     return SanityVerdictResponse(
@@ -79,5 +80,5 @@ def model_sanity(
         detail=report.detail,
         min_confidence=report.min_confidence,
         accuracy=report.accuracy,
-        model=model,
+        model=model_name,
     )

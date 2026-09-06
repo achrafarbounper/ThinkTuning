@@ -216,11 +216,11 @@ def test_v1_model_sanity_healthy_model():
 
     app.dependency_overrides[get_prediction_port] = lambda: _Healthy()
     try:
-        response = client.get("/api/v1/health/model-sanity?model=v-test")
+        response = client.get("/api/v1/health/model-sanity?model_name=v-test")
     finally:
         app.dependency_overrides.pop(get_prediction_port, None)
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["verdict"] == "ok"
-    assert body["model"] == "v-test"
+    assert body["model"] == "v-test"  # champ de RÉPONSE aligné legacy
