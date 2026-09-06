@@ -88,9 +88,16 @@ def _parse_chunk(line: str):
     if not line or line == "[DONE]":
         return None
     try:
-        return json.loads(line)
+        parsed = json.loads(line)
     except (ValueError, TypeError):
         return None
+    # Un fragment exploitable est TOUJOURS un objet JSON : `json.loads` peut
+    # aussi renvoyer str / int / list / bool (ex. ligne d'erreur SSE encodée
+    # « "message serveur" »). Renvoyer un non-dict ferait planter `.get()`
+    # dans la boucle de streaming (« 'str' object has no attribute 'get' »).
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
 
 
 class LLMClient:
@@ -374,6 +381,16 @@ class LLMClient:
                 chunk = _parse_chunk(line)
                 if chunk is None:
                     continue
+                # Erreur métier du serveur EN PLEIN FLUX (statut HTTP 200) :
+                # sans ce contrôle elle serait ignorée silencieusement (réponse
+                # vide) et l'orchestrateur planterait en aval. RuntimeError est
+                # classé DÉFINITIF par classify_llm_error → aucun retry inutile
+                # sur une erreur de template / de validité.
+                if chunk.get("error"):
+                    raise RuntimeError(
+                        "Erreur LLM en flux : "
+                        + json.dumps(chunk["error"], ensure_ascii=False)
+                    )
                 msg = chunk.get("message") or chunk.get("delta") or {}
                 delta = msg.get("content") or ""
                 think = msg.get("thinking") or ""

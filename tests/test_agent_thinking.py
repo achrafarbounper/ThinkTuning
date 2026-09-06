@@ -19,6 +19,7 @@ Lance avec : pytest tests/test_agent_thinking.py -v
 
 import json
 import os
+import pytest
 
 # Config test AVANT tout import de l'application.
 os.environ.setdefault("API_KEY", "test-key")
@@ -573,3 +574,57 @@ def test_thinking_section_forbids_simulated_results_and_premature_conclusion():
     )
     assert "pas un outil exécuté" in THINKING_PROMPT_SECTION
     assert "Dernier résultat :" in THINKING_PROMPT_SECTION
+
+# --- LLMClient : fragments non-objet + erreur en plein flux (crash « bonjour ») ---
+
+def test_llm_client_parse_chunk_rejects_non_object_json():
+    """`json.loads` peut renvoyer str/int/list/bool : un fragment exploitable
+    est TOUJOURS un objet — sinon `.get()` plantait en aval
+    (« 'str' object has no attribute 'get' ») sur une erreur serveur streamée."""
+    from ia.agent.llm_client import _parse_chunk
+
+    assert _parse_chunk('"erreur serveur"') is None
+    assert _parse_chunk('["erreur"]') is None
+    assert _parse_chunk("42") is None
+    assert _parse_chunk("true") is None
+    # Les objets valides restent acceptés.
+    assert _parse_chunk('{"message": {"content": "ok"}}') == {
+        "message": {"content": "ok"},
+    }
+
+
+def test_llm_client_stream_error_payload_raises_clear_error(monkeypatch):
+    """Une erreur métier du serveur EN PLEIN FLUX (statut HTTP 200, NDJSON)
+    est remontée en RuntimeError explicite — plus de réponse vide silencieuse
+    suivie d'un crash « 'str' object has no attribute 'get' » en aval."""
+
+    def fake_post(url, json=None, timeout=None, stream=False):
+        return _FakeStreamResponse([
+            '{"error": {"code": 400, "message": "Conversation roles must alternate"}}',
+        ])
+
+    import ia.agent.llm_client as llm_module
+
+    monkeypatch.setattr(llm_module.requests, "post", fake_post)
+    ollama = LLMClient("http://ollama/api/chat", "mistral:7b")
+    with pytest.raises(RuntimeError, match="Conversation roles must alternate"):
+        ollama.call([{"role": "user", "content": "bonjour"}])
+
+
+def test_llm_client_stream_non_object_error_line_is_ignored(monkeypatch):
+    """Une ligne JSON valide mais NON-objet (ex. erreur encodée « "message" »)
+    ne doit PAS faire planter le streaming : elle est ignorée, le flux
+    continue normalement."""
+
+    def fake_post(url, json=None, timeout=None, stream=False):
+        return _FakeStreamResponse([
+            '"Erreur interne"',  # JSON valide… mais pas un objet
+            '{"message": {"content": "Bonjour"}, "done": true}',
+        ])
+
+    import ia.agent.llm_client as llm_module
+
+    monkeypatch.setattr(llm_module.requests, "post", fake_post)
+    ollama = LLMClient("http://ollama/api/chat", "mistral:7b")
+    assert ollama.call([{"role": "user", "content": "bonjour"}]) == "Bonjour"
+

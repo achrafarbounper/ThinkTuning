@@ -266,3 +266,100 @@ def test_validate_plan_roundtrip():
     outcome = coordinator.run("q")
     assert outcome["status"] == "completed"
     assert outcome["plan"][0]["role"] == "web"
+
+# --- Reproduction du crash « bonjour » (alternance stricte des rôles) --------
+
+class _CapturingLLM:
+    """LLM factice qui scripte les réponses et MÉMORISE chaque liste de
+    messages reçue — pour vérifier l'alternance des rôles réellement envoyée
+    au serveur (contrat des templates Jinja Ollama/Mistral)."""
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.calls: list[list[dict]] = []
+
+    def call(self, messages):
+        self.calls.append([dict(m) for m in messages])
+        return self.replies.pop(0) if self.replies else "réponse par défaut"
+
+
+def _assert_strict_alternation(messages):
+    """Un seul « system » en tête, puis alternance stricte user/assistant."""
+    roles = [m["role"] for m in messages]
+    assert roles.count("system") == 1, f"messages system multiples : {roles}"
+    assert roles[0] == "system", f"premier rôle ≠ system : {roles}"
+    for prev, cur in zip(roles, roles[1:]):
+        assert prev != cur, f"rôles consécutifs identiques ({prev}) : {roles}"
+
+
+def test_bonjour_builds_strictly_alternating_messages():
+    """REPRODUCTION du crash « bonjour » : le noyau envoyait DEUX messages
+    « system » consécutifs (system prompt + contexte Edge) — les templates
+    Jinja des serveurs Ollama/Mistral exigent une alternance stricte des rôles
+    (TemplateError « Conversation roles must alternate user/assistant/... »)."""
+    llm = _CapturingLLM(["Bonjour ! Comment puis-je vous aider ?"])
+    agent = AgentCore(llm_client=llm, system_prompt="Tu es un assistant.")
+    result = agent.run_detailed("bonjour")
+
+    assert result.answer == "Bonjour ! Comment puis-je vous aider ?"
+    assert len(llm.calls) == 1
+    _assert_strict_alternation(llm.calls[0])
+    # Le prompt utilisateur arrive intact en dernier message.
+    assert llm.calls[0][-1]["role"] == "user"
+    assert llm.calls[0][-1]["content"] == "bonjour"
+
+
+def test_history_consecutive_same_roles_are_merged():
+    """L'historique de session ne doit JAMAIS introduire deux messages
+    consécutifs de même rôle (même TemplateError à la clé). Les tours
+    adjacents de même rôle sont FONDUS (contenu préservé), et un historique
+    se terminant par « user » est fondu dans le prompt courant."""
+    llm = _CapturingLLM(["ok"])
+    agent = AgentCore(llm_client=llm, system_prompt="system")
+    agent.run_detailed("question", history_messages=[
+        {"role": "user", "content": "u1"},
+        {"role": "user", "content": "u2"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u3"},
+    ])
+
+    roles = [m["role"] for m in llm.calls[0]]
+    assert roles == ["system", "user", "assistant", "user"]
+    # u1 + u2 fusionnés dans un seul tour user (contenu préservé).
+    assert "u1" in llm.calls[0][1]["content"] and "u2" in llm.calls[0][1]["content"]
+    # u3 (dernier tour user de l'historique) fondu dans le prompt courant.
+    assert "u3" in llm.calls[0][3]["content"] and "question" in llm.calls[0][3]["content"]
+
+
+def test_coordinator_bonjour_end_to_end_roles_alternate():
+    """BOUT EN BOUT « bonjour » via l'orchestrateur : le lead RÉEL
+    (build_role_agent → AgentCore) reçoit des messages strictement alternés —
+    plus aucun TemplateError côté serveur sur un simple message de chat."""
+    llm = _CapturingLLM([
+        '[{"task_id":"t1","role":"web","subtask":"salue"}]',  # plan du lead
+        "Bonjour via web.",                                   # worker web
+        "Bonjour ! (synthèse)",                               # synthèse lead
+    ])
+    built = {}
+
+    def role_builder(role):
+        if role not in built:
+            built[role] = build_role_agent(
+                role, llm_client=llm, tools_registry={}, required_args_registry={},
+            )
+        return built[role]
+
+    coordinator = MultiAgentCoordinator(
+        llm_client=None, role_builder=role_builder, parallel=False,
+    )
+    outcome = coordinator.run("bonjour")
+
+    assert outcome["status"] == "completed"
+    assert "synthèse" in outcome["final_answer"]
+    assert llm.calls, "le LLM doit avoir été appelé"
+    for messages in llm.calls:
+        _assert_strict_alternation(messages)
+    # Le prompt « bonjour » est bien arrivé au lead (dernier message user).
+    assert "bonjour" in llm.calls[0][-1]["content"]
+    assert llm.calls[0][-1]["role"] == "user"
+
