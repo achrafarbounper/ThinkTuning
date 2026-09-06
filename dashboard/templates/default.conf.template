@@ -1,0 +1,42 @@
+# ============================================================================
+# Template nginx du dashboard (envsubst exécuté par l'image officielle nginx :
+# /etc/nginx/templates/*.template -> /etc/nginx/conf.d/*.conf au démarrage).
+#
+# Variables (fournies par dashboard/Dockerfile, surchargeables au run) :
+#   FRONTEND_PORT : port d'écoute (8080 : compatible user non-root)
+#   API_UPSTREAM  : cible du proxy /api (nom de service compose « app:8000 »,
+#                   ou hôte:port externe)
+#
+# Surface identique au proxy Vite de dev (vite.config.ts : /api uniquement) —
+# les flux SSE/WebSocket de l'agent transitent par /api/agent/* : en-têtes
+# Upgrade + buffering off + timeout long OBLIGATOIRES ici.
+# ============================================================================
+server {
+    listen ${FRONTEND_PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Proxy des appels /api/* vers l'API FastAPI (conteneur séparé).
+    location /api/ {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # SSE (agent, métriques) et WebSocket : pas de buffering, upgrade,
+        # pas de timeout court (streams de plusieurs minutes).
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # SPA : tout le reste sert index.html (routing côté client).
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
