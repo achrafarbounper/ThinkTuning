@@ -72,6 +72,26 @@ V1_PATHS = {
     "/api/v1/sessions/{session_id}/messages": {"get"},
     "/api/v1/chat/models": {"get"},
     "/api/v1/chat/ai": {"post"},
+    # Phase 3d-5 — dernière tranche : monitoring, drift, explain, pipeline,
+    # active learning, classifiers.
+    "/api/v1/metrics": {"get"},
+    "/api/v1/metrics/json": {"get"},
+    "/api/v1/drift": {"post"},
+    "/api/v1/explain": {"post"},
+    "/api/v1/pipeline": {"post"},
+    "/api/v1/pipeline/status/{job_id}": {"get"},
+    "/api/v1/pipeline/cancel/{job_id}": {"post"},
+    "/api/v1/pipeline/jobs": {"get"},
+    "/api/v1/active_learning": {"post"},
+    "/api/v1/annotate": {"post"},
+    "/api/v1/annotate/list": {"get"},
+    "/api/v1/annotate/merge": {"post"},
+    "/api/v1/active_learning/cycle": {"post"},
+    "/api/v1/active_learning/cycle/status/{job_id}": {"get"},
+    "/api/v1/classifiers": {"get"},
+    "/api/v1/classifiers/{name}": {"get"},
+    "/api/v1/classifiers/{name}/predict": {"post"},
+    "/api/v1/classifiers/{name}/reload": {"post"},
 }
 
 
@@ -208,6 +228,23 @@ def test_auth_posture_is_locked():
         ("/api/v1/sessions/{session_id}", "delete"),
         ("/api/v1/chat/models", "get"),
         ("/api/v1/chat/ai", "post"),
+        # Phase 3d-5 — la surface écrite est protégée (drift, explain,
+        # pipeline, active learning, annotate, classifiers predict/reload).
+        # Les GET metrics / classifiers restent PUBLICS (parité legacy).
+        ("/api/v1/drift", "post"),
+        ("/api/v1/explain", "post"),
+        ("/api/v1/pipeline", "post"),
+        ("/api/v1/pipeline/status/{job_id}", "get"),
+        ("/api/v1/pipeline/cancel/{job_id}", "post"),
+        ("/api/v1/pipeline/jobs", "get"),
+        ("/api/v1/active_learning", "post"),
+        ("/api/v1/annotate", "post"),
+        ("/api/v1/annotate/list", "get"),
+        ("/api/v1/annotate/merge", "post"),
+        ("/api/v1/active_learning/cycle", "post"),
+        ("/api/v1/active_learning/cycle/status/{job_id}", "get"),
+        ("/api/v1/classifiers/{name}/predict", "post"),
+        ("/api/v1/classifiers/{name}/reload", "post"),
     ):
         assert "X-API-Key" in _header_names(path, method), f"auth absente du contrat : {path}"
     for path in (
@@ -215,6 +252,10 @@ def test_auth_posture_is_locked():
         "/api/v1/health/model-sanity",
         "/api/v1/sessions",
         "/api/v1/sessions/{session_id}/messages",
+        "/api/v1/metrics",
+        "/api/v1/metrics/json",
+        "/api/v1/classifiers",
+        "/api/v1/classifiers/{name}",
     ):
         assert "X-API-Key" not in _header_names(path, "get"), f"endpoint doit rester public : {path}"  # noqa: E501
 

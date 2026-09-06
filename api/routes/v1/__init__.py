@@ -11,12 +11,18 @@ par endpoint.
 from fastapi import APIRouter
 
 from . import (
+    active_learning,
     agent,
     chat,
+    classifiers,
+    drift,
     evaluate,
+    explain,
     health,
     intent_training,
+    metrics,
     models,
+    pipeline,
     prediction,
     sessions,
     training,
@@ -32,5 +38,11 @@ router.include_router(evaluate.router)
 router.include_router(agent.router)
 router.include_router(sessions.router)
 router.include_router(chat.router)
+router.include_router(metrics.router)
+router.include_router(drift.router)
+router.include_router(explain.router)
+router.include_router(pipeline.router)
+router.include_router(active_learning.router)
+router.include_router(classifiers.router)
 
 __all__ = ["router"]

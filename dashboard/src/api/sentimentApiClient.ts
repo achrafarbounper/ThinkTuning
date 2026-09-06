@@ -85,12 +85,12 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   /** Exposition Prometheus (texte brut), via le transport central. */
   async getMetricsRaw(): Promise<string> {
-    return this._requestText("/metrics");
+    return this._requestText("/api/v1/metrics");
   }
 
-  /** Endpoint proxy JSON de secours (voir api/routes/metrics.py). */
+  /** Endpoint proxy JSON de secours (voir api/routes/v1/metrics.py). */
   async getMetricsJson(): Promise<unknown> {
-    return this._request<unknown>("/metrics/json");
+    return this._request<unknown>("/api/v1/metrics/json");
   }
 
   // -- /classifiers (système de classification, Phase 5) -------------------
@@ -100,13 +100,13 @@ export class SentimentApiClient extends SentimentApiClientCore {
     return this._request<{
       classifiers?: Array<Record<string, unknown>>;
       summary?: { total?: number; healthy?: number; status?: string };
-    }>("/classifiers");
+    }>("/api/v1/classifiers");
   }
 
   /** Instantané d'un classifieur (info, métriques, health, warmup). */
   getClassifier(name: string) {
     return this._request<Record<string, unknown>>(
-      `/classifiers/${encodeURIComponent(name)}`
+      `/api/v1/classifiers/${encodeURIComponent(name)}`
     );
   }
 
@@ -115,7 +115,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     name: string,
     texts: string[]
   ): Promise<{ results?: ClassifierPrediction[] } | null> {
-    return this._request(`/classifiers/${encodeURIComponent(name)}/predict`, {
+    return this._request(`/api/v1/classifiers/${encodeURIComponent(name)}/predict`, {
       method: "POST",
       body: { texts },
     });
@@ -123,7 +123,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   /** Recharge le modèle actif d'un classifieur depuis le disque. */
   reloadClassifier(name: string) {
-    return this._request(`/classifiers/${encodeURIComponent(name)}/reload`, {
+    return this._request(`/api/v1/classifiers/${encodeURIComponent(name)}/reload`, {
       method: "POST",
     });
   }
@@ -225,7 +225,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     form.append("text_column", textColumn);
     if (threshold !== undefined && threshold !== "") form.append("threshold", String(threshold));
     if (method) form.append("method", method);
-    return this._requestMultipart("/drift", {
+    return this._requestMultipart("/api/v1/drift", {
       formData: form,
       query: model ? { model } : undefined,
     });
@@ -248,7 +248,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     const body: Record<string, unknown> = { texts_a: textsA, texts_b: textsB };
     if (threshold !== undefined && threshold !== "") body.threshold = threshold;
     if (method) body.method = method;
-    return this._request("/drift", {
+    return this._request("/api/v1/drift", {
       method: "POST",
       body,
       query: model ? { model } : undefined,
@@ -274,7 +274,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
    * (via l'agent IA / provider OpenRouter) : {sentiment, confidence, explanation}.
    */
   explain({ text, model }: { text: string; model?: string } = { text: "" }) {
-    return this._request<Explanation>("/explain", {
+    return this._request<Explanation>("/api/v1/explain", {
       method: "POST",
       body: model ? { text, model } : { text },
     });
@@ -364,7 +364,7 @@ export class SentimentApiClient extends SentimentApiClientCore {
     batchSize?: number;
     modelVersion?: string;
   } = {}) {
-    return this._request("/active_learning", {
+    return this._request("/api/v1/active_learning", {
       method: "POST",
       body: {
         texts: texts && texts.length ? texts : undefined,
@@ -378,27 +378,27 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   /** Enregistre une correction manuelle : { text, label, force? }. */
   annotate({ text, label, force = false }: { text: string; label: string; force?: boolean }) {
-    return this._request("/annotate", { method: "POST", body: { text, label, force } });
+    return this._request("/api/v1/annotate", { method: "POST", body: { text, label, force } });
   }
 
   /** Annotations stockées : { total, items }. */
   listAnnotations({ limit = 100, offset = 0 } = {}) {
-    return this._request("/annotate/list", { query: { limit, offset } });
+    return this._request("/api/v1/annotate/list", { query: { limit, offset } });
   }
 
   /** Fusionne les annotations dans le dataset d'entraînement. */
   mergeAnnotations() {
-    return this._request("/annotate/merge", { method: "POST" });
+    return this._request("/api/v1/annotate/merge", { method: "POST" });
   }
 
   /** Lance le cycle complet (202 → job asynchrone TrainJob). */
   startActiveLearningCycle(payload: unknown = {}) {
-    return this._request("/active_learning/cycle", { method: "POST", body: payload });
+    return this._request("/api/v1/active_learning/cycle", { method: "POST", body: payload });
   }
 
   /** Statut du job de cycle. */
   getActiveLearningCycleStatus(jobId: string) {
-    return this._request(`/active_learning/cycle/status/${encodeURIComponent(jobId)}`);
+    return this._request(`/api/v1/active_learning/cycle/status/${encodeURIComponent(jobId)}`);
   }
 
   /**
@@ -492,21 +492,21 @@ export class SentimentApiClient extends SentimentApiClientCore {
 
   /** Lance le pipeline end-to-end (labeling -> filtering -> fine-tuning LLM). */
   startPipeline(payload: unknown) {
-    return this._request("/pipeline", { method: "POST", body: payload });
+    return this._request("/api/v1/pipeline", { method: "POST", body: payload });
   }
 
   getPipelineStatus(jobId: string) {
-    return this._request(`/pipeline/status/${encodeURIComponent(jobId)}`);
+    return this._request(`/api/v1/pipeline/status/${encodeURIComponent(jobId)}`);
   }
 
   cancelPipeline(jobId: string) {
-    return this._request(`/pipeline/cancel/${encodeURIComponent(jobId)}`, {
+    return this._request(`/api/v1/pipeline/cancel/${encodeURIComponent(jobId)}`, {
       method: "POST",
     });
   }
 
   listPipelineJobs({ status, limit, offset }: { status?: string; limit?: number; offset?: number } = {}) {
-    return this._request("/pipeline/jobs", { query: { status, limit, offset } });
+    return this._request("/api/v1/pipeline/jobs", { query: { status, limit, offset } });
   }
 
   // -- /train/intent (SCRUM-95 : classifieur d'intention — MIGRÉ v1) ----------
