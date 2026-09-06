@@ -264,6 +264,28 @@ class ApprovalStorePort(Protocol):
 
 
 @runtime_checkable
+class AgentSettingsPort(Protocol):
+    """Contrat du store de paramètres persistés de l'agent (cf. core/agent_settings.py).
+
+    Config effective = priorité décroissante :
+        1. valeurs sauvegardées en base (via ``save_many``) ;
+        2. variables d'environnement (gérées par ``app.config.settings.Settings``) ;
+        3. défauts historiques.
+
+    ``get_all`` renvoie les paires persistées (dict vide si aucune) ;
+    ``save_many`` fait un upsert transactionnel des clés connues.
+    """
+
+    def get_all(self) -> dict[str, Any]:
+        """Charge toutes les paires persistées (dict vide si aucune)."""
+        ...
+
+    def save_many(self, values: dict[str, Any]) -> dict[str, Any]:
+        """Upsert transactionnel des clés connues ; renvoie ce qui a été écrit."""
+        ...
+
+
+@runtime_checkable
 class EventBusPort(Protocol):
     """Contrat du bus d'événements pub/sub (cf. ia/agent/event_bus.py).
 

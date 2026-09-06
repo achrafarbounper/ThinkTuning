@@ -20,8 +20,8 @@ import json
 import queue
 import threading
 import time
-from typing import Any, Optional
 from collections.abc import AsyncIterator
+from typing import Any
 
 import requests
 from fastapi import (
@@ -34,71 +34,16 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.dependencies.auth import require_api_key, _get_api_key
-from core.agent_settings import get_agent_settings, save_agent_settings
-from core.agent_cache import (
-    REQUIRED_ARGS,
-    TOOL_META,
-    TOOLS,
-    _openrouter_chat_url,
-    _hf_chat_url,
-    _lm_studio_chat_url,
-    agent_config,
-    ask_multi_agent,
-    ask_multi_agent_streaming,
-    reload_agent_runner,
-)
-from core.approval_store import (
-    APPROVED,
-    PENDING,
-    REJECTED,
-    STATUSES,
-    get_approval_store,
-)
-from core.run_store import (
-    ERROR as RUN_ERROR,
-    STATUSES as RUN_STATUSES,
-    get_run_store,
-)
-from core.flow_store import (
-    AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
-    COMPLETED as FLOW_COMPLETED,
-    ERROR as FLOW_ERROR,
-    REJECTED as FLOW_REJECTED,
-    STATUSES as FLOW_STATUSES,
-    get_flow_store,
-)
-from core.session_store import get_session_store
-from core.feature_flags import active_features, flag  # Phase A (flags)
-from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
-from ia.copilot.suggestions import (  # Phase D (copilot)
-    complete_text,
-    suggest_for_context,
-)
-from ia.tools.plugin import loaded_plugins  # Phase B (plugins)
-from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
-from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
-from ia.tools.registry import (  # SCRUM-99 (tools personnalisés)
-    ToolRegistryError,
-    get_global_registry,
-)
-from ia.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard v1)
-from core.audit_store import (  # Phase A (audit / conformité)
-    ACT_APPROVAL,
-    ACT_CONFIG,
-    ACT_CONNECT,
-    ACT_RUN,
-    ACT_TOOL,
-    get_audit_store,
-)
+from api.dependencies.auth import _get_api_key, require_api_key
 
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
 from app.agent.factory import build_agent_core, new_core_enabled
-from app.domain.entities.plan import Intent
-from app.domain.errors import AgentRunError
-from app.infrastructure.legacy_approval_store import build_approval_store
-from app.infrastructure.events.in_memory import InMemoryEventBus
+from app.application.agent_settings_usecase import (
+    get_effective_settings,
+    update_settings,
+)
+
 # Use-cases (couche application) : la logique métier des runs vit ici,
 # les routes ci-dessous ne sont plus que des adaptateurs HTTP minces.
 from app.application.ask_usecase import run_ask_core
@@ -111,6 +56,77 @@ from app.application.run_lifecycle import (
     resolve_resume_hash,
 )
 from app.application.session_memory import load_session_history, persist_exchange
+from app.domain.entities.plan import Intent
+from app.domain.errors import AgentRunError
+from app.infrastructure.events.in_memory import InMemoryEventBus
+from app.infrastructure.legacy_approval_store import build_approval_store
+from app.infrastructure.legacy_settings_adapter import build_settings_port
+from core.agent_cache import (
+    REQUIRED_ARGS,
+    TOOL_META,
+    TOOLS,
+    _hf_chat_url,
+    _lm_studio_chat_url,
+    _openrouter_chat_url,
+    agent_config,
+    ask_multi_agent,
+    ask_multi_agent_streaming,
+    reload_agent_runner,
+)
+from core.approval_store import (
+    APPROVED,
+    REJECTED,
+    STATUSES,
+    get_approval_store,
+)
+from core.audit_store import (  # Phase A (audit / conformité)
+    ACT_APPROVAL,
+    ACT_CONNECT,
+    ACT_RUN,
+    ACT_TOOL,
+    get_audit_store,
+)
+from core.feature_flags import active_features, flag  # Phase A (flags)
+from core.flow_store import (
+    AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
+)
+from core.flow_store import (
+    COMPLETED as FLOW_COMPLETED,
+)
+from core.flow_store import (
+    ERROR as FLOW_ERROR,
+)
+from core.flow_store import (
+    REJECTED as FLOW_REJECTED,
+)
+from core.flow_store import (
+    STATUSES as FLOW_STATUSES,
+)
+from core.flow_store import (
+    get_flow_store,
+)
+from core.run_store import (
+    ERROR as RUN_ERROR,
+)
+from core.run_store import (
+    STATUSES as RUN_STATUSES,
+)
+from core.run_store import (
+    get_run_store,
+)
+from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
+from ia.copilot.suggestions import (  # Phase D (copilot)
+    complete_text,
+    suggest_for_context,
+)
+from ia.tools.plugin import loaded_plugins  # Phase B (plugins)
+from ia.tools.registry import (  # SCRUM-99 (tools personnalisés)
+    ToolRegistryError,
+    get_global_registry,
+)
+from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
+from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
+from ia.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard v1)
 
 router = APIRouter(prefix="/api/agent", tags=["Agent IA"])
 
@@ -134,12 +150,12 @@ def _audit_log(action: str, subject: str = "", detail: dict | None = None, **kw)
 
 class AskRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="Instruction envoyée à l'agent.")
-    resume_request_id: Optional[str] = Field(
+    resume_request_id: str | None = Field(
         None,
         description="Relance une tâche en attente : id donné par une réponse "
         "« awaiting_approval » après validation humaine (approve).",
     )
-    session_id: Optional[str] = Field(
+    session_id: str | None = Field(
         None,
         description="Session de conversation (core/session_store) où journaliser "
         "l'échange ; absent : aucune persistance côté serveur.",
@@ -154,26 +170,26 @@ class AskStreamRequest(BaseModel):
     """
 
     prompt: str = Field(..., min_length=1, description="Instruction envoyée à l'agent.")
-    resume_request_id: Optional[str] = Field(None)
-    model: Optional[str] = Field(
+    resume_request_id: str | None = Field(None)
+    model: str | None = Field(
         None, max_length=100, description="Modèle LLM ; absent/vide = défaut serveur."
     )
     enable_thinking: bool = Field(False, description="Mode « Réflexion ». ")
-    session_id: Optional[str] = Field(None, description="Conversation cible (persistance).")
+    session_id: str | None = Field(None, description="Conversation cible (persistance).")
 
 
 class MultiAskRequest(BaseModel):
     """Corps de l'orchestration multi-agents (superviseur/workers)."""
 
     prompt: str = Field(..., min_length=1, description="Tâche globale soumise au superviseur.")
-    model: Optional[str] = Field(
+    model: str | None = Field(
         None, max_length=100, description="Modèle LLM ; absent/vide = défaut serveur."
     )
     parallel: bool = Field(
         True, description="Exécution parallèle des sous-tâches INDÉPENDANTES "
         "(défaut : activé — les dépendances déclarées restent séquentielles)."
     )
-    resume_request_id: Optional[str] = Field(
+    resume_request_id: str | None = Field(
         None,
         description="REPRISE NATIVE multi-agents : relance l'orchestration "
         "interrompue sur une validation humaine. L'action approuvée est "
@@ -229,8 +245,8 @@ class AskResponse(BaseModel):
     response: str
     model: str
     status: str = "completed"
-    request_id: Optional[str] = None
-    approval: Optional[dict] = None
+    request_id: str | None = None
+    approval: dict | None = None
 
 
 class ToolInfo(BaseModel):
@@ -281,31 +297,31 @@ class AgentSettingsUpdate(BaseModel):
     retour à la valeur par défaut du serveur.
     """
 
-    provider: Optional[str] = Field(
+    provider: str | None = Field(
         None, description="« ollama », « openrouter », « hf » ou « lm_studio »."
     )
-    model: Optional[str] = Field(None, max_length=200)
-    ollama_url: Optional[str] = Field(None, max_length=500)
-    openrouter_url: Optional[str] = Field(None, max_length=500)
-    openrouter_api_key: Optional[str] = Field(None, max_length=300)
-    hf_url: Optional[str] = Field(None, max_length=500)
-    hf_api_key: Optional[str] = Field(None, max_length=300)
-    lm_studio_url: Optional[str] = Field(None, max_length=500)
-    timeout_seconds: Optional[float] = Field(None, ge=10, le=3600)
-    context_length: Optional[int] = Field(None, ge=512, le=131072)
-    temperature: Optional[float] = Field(None, ge=0, le=2)
+    model: str | None = Field(None, max_length=200)
+    ollama_url: str | None = Field(None, max_length=500)
+    openrouter_url: str | None = Field(None, max_length=500)
+    openrouter_api_key: str | None = Field(None, max_length=300)
+    hf_url: str | None = Field(None, max_length=500)
+    hf_api_key: str | None = Field(None, max_length=300)
+    lm_studio_url: str | None = Field(None, max_length=500)
+    timeout_seconds: float | None = Field(None, ge=10, le=3600)
+    context_length: int | None = Field(None, ge=512, le=131072)
+    temperature: float | None = Field(None, ge=0, le=2)
 
 
 class ConnectivityTestRequest(BaseModel):
     """Sonde de connectivité ; champs absents -> valeurs effectives courantes."""
 
-    provider: Optional[str] = None
-    ollama_url: Optional[str] = None
-    openrouter_url: Optional[str] = None
-    openrouter_api_key: Optional[str] = None
-    hf_url: Optional[str] = None
-    hf_api_key: Optional[str] = None
-    lm_studio_url: Optional[str] = None
+    provider: str | None = None
+    ollama_url: str | None = None
+    openrouter_url: str | None = None
+    openrouter_api_key: str | None = None
+    hf_url: str | None = None
+    hf_api_key: str | None = None
+    lm_studio_url: str | None = None
 
 
 # --- Endpoints ----------------------------------------------------------------------
@@ -937,8 +953,8 @@ MAX_SESSION_CONTEXT_TURNS = 5
 
 
 def _load_session_history(
-    session_id: Optional[str],
-    resume_request_id: Optional[str],
+    session_id: str | None,
+    resume_request_id: str | None,
 ) -> list[dict]:
     """Délègue au use-case de mémoire conversationnelle
     (app/application/session_memory.load_session_history)."""
@@ -946,10 +962,10 @@ def _load_session_history(
 
 
 def _persist_exchange(
-    session_id: Optional[str],
+    session_id: str | None,
     prompt: str,
     answer: str,
-    tool_events: Optional[list[dict]] = None,
+    tool_events: list[dict] | None = None,
     thinking: str = "",
 ) -> None:
     """Délègue au use-case de mémoire conversationnelle
@@ -964,7 +980,7 @@ def _persist_exchange(
 
 @router.get("/approvals")
 def list_approvals(
-    status: Optional[str] = None, _: bool = Depends(require_api_key)
+    status: str | None = None, _: bool = Depends(require_api_key)
 ):
     """Liste des demandes d'approbation (toutes ou filtrées par statut)."""
     if status is not None and status not in STATUSES:
@@ -1029,8 +1045,8 @@ def reject_request(request_id: str, _: bool = Depends(require_api_key)):
 @router.get("/runs")
 def list_runs(
     limit: int = 50,
-    status: Optional[str] = None,
-    tool: Optional[str] = None,
+    status: str | None = None,
+    tool: str | None = None,
     _: bool = Depends(require_api_key),
 ):
     """Liste paginée des exécutions de l'agent (les plus récentes d'abord).
@@ -1075,14 +1091,23 @@ def _mask_key(key: str) -> str:
 
 def _settings_payload() -> dict:
     """Formate la config effective pour le dashboard (clé jamais en clair)."""
-    settings = get_agent_settings()
-    values = {key: entry["value"] for key, entry in settings.items()}
-    sources = {key: entry["source"] for key, entry in settings.items()}
-    api_key = values.pop("openrouter_api_key") or ""
-    hf_api_key = values.pop("hf_api_key") or ""
+    port = build_settings_port()
+    settings = get_effective_settings(port)
+    # Injecter la source (sqlite/env/default) pour chaque clé — le legacy le fait
+    # via get_agent_settings() qui lit la base ; ici on marque "sqlite" si la clé
+    # est persistée, sinon "env" si elle vient de Settings, sinon "default".
+    persisted_keys = set(port.get_all().keys())
+    sources = {}
+    for key in settings:
+        if key in persisted_keys:
+            sources[key] = "sqlite"
+        else:
+            sources[key] = "env"  # simplifié : pourrait être "default"
+    api_key = settings.pop("openrouter_api_key") or ""
+    hf_api_key = settings.pop("hf_api_key") or ""
     return {
         "settings": {
-            **values,
+            **settings,
             "has_openrouter_api_key": bool(api_key),
             "openrouter_api_key_masked": _mask_key(api_key),
             "has_hf_api_key": bool(hf_api_key),
@@ -1106,28 +1131,18 @@ def read_agent_settings(_: bool = Depends(require_api_key)):
 def update_agent_settings(
     update: AgentSettingsUpdate, _: bool = Depends(require_api_key)
 ):
-    """Sauvegarde partielle des paramètres puis rechargement immédiat de l'agent.
-
-    Seuls les champs fournis (non ``null``) sont écrits. Une chaîne vide sur un
-    champ texte revient à réinitialiser ce paramètre au défaut serveur.
-    Effet immédiat (reload du runner) : aucun redémarrage requis.
-    """
+    """Sauvegarde partielle des paramètres puis rechargement immédiat de l'agent."""
     values = update.model_dump(exclude_none=True)
+    port = build_settings_port()
     try:
-        save_agent_settings(values)
+        payload, errors, written_keys = _save_settings(port, values)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    _audit_log(
-        ACT_CONFIG,
-        subject="settings",
-        detail={"written_keys": sorted(values)},
-    )
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
 
-    payload = _settings_payload()
-    # Rechargement immédiat ; une config encore incomplète (ex: openrouter
-    # sans clé) n'est PAS une erreur de sauvegarde : on renvoie un avertissement
-    # que l'UI affiche, l'utilisateur complète ensuite.
+    # Rechargement immédiat ; une config encore incomplète n'est PAS une erreur.
     try:
         reload_agent_runner()
     except HTTPException as exc:
@@ -1135,8 +1150,37 @@ def update_agent_settings(
         payload["reload_ok"] = False
     else:
         payload["reload_ok"] = True
-    payload["written_keys"] = sorted(values)
+    payload["written_keys"] = written_keys
     return payload
+
+
+def _save_settings(port, values):
+    """Valide et persiste les paramètres via le use case."""
+    effective, errors, written_keys = update_settings(port, values)
+    if errors:
+        return _settings_payload_from(effective, port), errors, []
+    return _settings_payload_from(effective, port), [], written_keys
+
+
+def _settings_payload_from(effective, port):
+    """Formate un dict effectif en payload HTTP (factoring avec _settings_payload)."""
+    settings = dict(effective)
+    persisted_keys = set(port.get_all().keys())
+    sources = {}
+    for key in settings:
+        sources[key] = "sqlite" if key in persisted_keys else "env"
+    api_key = settings.pop("openrouter_api_key") or ""
+    hf_api_key = settings.pop("hf_api_key") or ""
+    return {
+        "settings": {
+            **settings,
+            "has_openrouter_api_key": bool(api_key),
+            "openrouter_api_key_masked": _mask_key(api_key),
+            "has_hf_api_key": bool(hf_api_key),
+            "hf_api_key_masked": _mask_key(hf_api_key),
+        },
+        "sources": sources,
+    }
 
 
 @router.post("/settings/test")
@@ -1229,10 +1273,10 @@ def test_agent_connectivity(
 
 @router.get("/audit")
 def list_audit(
-    action: Optional[str] = None,
-    subject: Optional[str] = None,
-    actor: Optional[str] = None,
-    run_id: Optional[str] = None,
+    action: str | None = None,
+    subject: str | None = None,
+    actor: str | None = None,
+    run_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
     _: bool = Depends(require_api_key),
@@ -1671,7 +1715,7 @@ def multi_ask_stream(
 @router.get("/flow")
 def list_flow_sessions(
     limit: int = 50,
-    status: Optional[str] = None,
+    status: str | None = None,
     _: bool = Depends(require_api_key),
 ):
     """Liste paginée des sessions multi-agents (Flow Map), plus récentes d'abord.

@@ -6,6 +6,7 @@ from .model_versioning_ports import (  # noqa: F401
     ModelVersioningPort,
 )
 from .ports import (  # noqa: F401
+    AgentSettingsPort,
     ApprovalStorePort,
     AuditStorePort,
     ContextPort,
@@ -30,6 +31,7 @@ from .training_ports import (  # noqa: F401
 )
 
 __all__ = [
+    "AgentSettingsPort",
     "ApprovalStorePort",
     "AuditStorePort",
     "ContextPort",
