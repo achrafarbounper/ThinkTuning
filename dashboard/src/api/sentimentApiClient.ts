@@ -495,42 +495,55 @@ export class SentimentApiClient extends SentimentApiClientCore {
     return this._request("/pipeline/jobs", { query: { status, limit, offset } });
   }
 
-  // -- /train/intent (entraînement du classifieur d'intention, SCRUM-95) ----
+  // -- /train/intent (SCRUM-95 : classifieur d'intention — MIGRÉ v1) ----------
 
-  /** Lance l'entraînement du classifieur d'intention (202 → TrainJob kind="intent"). */
+  /**
+   * Lance l'entraînement du classifieur d'intention — MIGRÉ vers
+   * POST /api/v1/train/intent (202 → TrainJob kind="intent" ; 422 enveloppe
+   * domaine si dataset/version source invalides).
+   */
   startIntentTraining(payload: unknown) {
-    return this._request("/train/intent", { method: "POST", body: payload });
+    return this._request("/api/v1/train/intent", { method: "POST", body: payload });
   }
 
-  /** Statut d'un job d'entraînement d'intention. */
+  /** Statut d'un job d'intention — MIGRÉ vers GET /api/v1/train/intent/status/{job_id}. */
   getIntentTrainingStatus(jobId: string) {
-    return this._request(`/train/intent/status/${encodeURIComponent(jobId)}`);
+    return this._request(`/api/v1/train/intent/status/${encodeURIComponent(jobId)}`);
   }
 
-  /** Annule un job d'entraînement d'intention. */
+  /** Annule un job d'intention — MIGRÉ vers POST /api/v1/train/intent/cancel/{job_id}. */
   cancelIntentTraining(jobId: string) {
-    return this._request(`/train/intent/cancel/${encodeURIComponent(jobId)}`, {
+    return this._request(`/api/v1/train/intent/cancel/${encodeURIComponent(jobId)}`, {
       method: "POST",
     });
   }
 
-  /** Historique paginé des jobs d'intention uniquement (tri started_at DESC). */
+  /**
+   * Historique paginé des jobs d'intention uniquement (tri started_at DESC) —
+   * MIGRÉ vers GET /api/v1/train/intent/jobs.
+   */
   listIntentTrainingJobs({
     status,
     limit,
     offset,
   }: { status?: string; limit?: number; offset?: number } = {}) {
-    return this._request("/train/intent/jobs", { query: { status, limit, offset } });
+    return this._request("/api/v1/train/intent/jobs", { query: { status, limit, offset } });
   }
 
-  /** Versions d'intention valides + pointeur actif : { total, items, active }. */
+  /**
+   * Versions d'intention valides + pointeur actif : { total, items, active } —
+   * MIGRÉ vers GET /api/v1/train/intent/versions.
+   */
   getIntentModelVersions() {
-    return this._request("/train/intent/versions");
+    return this._request("/api/v1/train/intent/versions");
   }
 
-  /** Active une version d'intention (422 si artefacts invalides). */
+  /**
+   * Active une version d'intention (422 si artefacts invalides) — MIGRÉ vers
+   * POST /api/v1/train/intent/activate.
+   */
   activateIntentVersion(version: string) {
-    return this._request("/train/intent/activate", {
+    return this._request("/api/v1/train/intent/activate", {
       method: "POST",
       body: { version },
     });

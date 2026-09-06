@@ -41,9 +41,11 @@ class ModuleTrainingJobsAdapter:
         return get_job_store().get(job_id)
 
     def list(
-        self, *, status: str | None, limit: int, offset: int
+        self, *, status: str | None, kind: str | None = None, limit: int, offset: int
     ) -> tuple[list[TrainJob], int]:
-        return get_job_store().list_jobs(status=status, limit=limit, offset=offset)
+        return get_job_store().list_jobs(
+            status=status, kind=kind, limit=limit, offset=offset
+        )
 
     def metrics(self, job_id: str) -> list[dict]:
         return get_job_store().get_job_metrics(job_id)

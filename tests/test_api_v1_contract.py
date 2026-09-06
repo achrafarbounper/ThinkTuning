@@ -41,6 +41,13 @@ V1_PATHS = {
     "/api/v1/train/schedule": {"post"},
     "/api/v1/train/schedules": {"get"},
     "/api/v1/train/schedules/{schedule_id}": {"delete"},
+    # Phase 3d-2 — entraînement d'intention (SCRUM-95)
+    "/api/v1/train/intent": {"post"},
+    "/api/v1/train/intent/status/{job_id}": {"get"},
+    "/api/v1/train/intent/cancel/{job_id}": {"post"},
+    "/api/v1/train/intent/jobs": {"get"},
+    "/api/v1/train/intent/versions": {"get"},
+    "/api/v1/train/intent/activate": {"post"},
 }
 
 
@@ -144,6 +151,14 @@ def test_auth_posture_is_locked():
         ("/api/v1/train/schedule", "post"),
         ("/api/v1/train/schedules", "get"),
         ("/api/v1/train/schedules/{schedule_id}", "delete"),
+        # Phase 3d-2 — entraînement d'intention : toute la surface est
+        # protégée (parité avec le legacy /train/intent/*).
+        ("/api/v1/train/intent", "post"),
+        ("/api/v1/train/intent/status/{job_id}", "get"),
+        ("/api/v1/train/intent/cancel/{job_id}", "post"),
+        ("/api/v1/train/intent/jobs", "get"),
+        ("/api/v1/train/intent/versions", "get"),
+        ("/api/v1/train/intent/activate", "post"),
     ):
         assert "X-API-Key" in _header_names(path, method), f"auth absente du contrat : {path}"
     for path in ("/api/v1/health", "/api/v1/health/model-sanity"):

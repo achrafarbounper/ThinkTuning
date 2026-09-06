@@ -52,9 +52,11 @@ class FakeJobs:
     def get(self, job_id: str):
         return self.jobs.get(job_id)
 
-    def list(self, *, status, limit, offset):
+    def list(self, *, status, kind=None, limit, offset):
         items = list(self.jobs.values())
         items.reverse()  # tri started_at DESC simulé
+        if kind is not None:
+            items = [j for j in items if j.kind == kind]
         if status is not None:
             items = [j for j in items if j.status.value == status]
         total = len(items)

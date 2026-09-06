@@ -29,6 +29,8 @@ from app.domain.ports.prediction_ports import (
     SystemStatusPort,
 )
 from app.domain.ports.training_ports import (
+    IntentTrainingRunnerPort,
+    IntentVersioningPort,
     TrainingJobsPort,
     TrainingRunnerPort,
     TrainingSchedulesPort,
@@ -41,6 +43,8 @@ KEY_SYSTEM_STATUS = "system_status_port"
 KEY_TRAINING_JOBS = "training_jobs_port"
 KEY_TRAINING_RUNNER = "training_runner_port"
 KEY_TRAINING_SCHEDULES = "training_schedules_port"
+KEY_INTENT_TRAINING_RUNNER = "intent_training_runner_port"
+KEY_INTENT_VERSIONING = "intent_versioning_port"
 
 
 class Container:
@@ -100,6 +104,10 @@ class Container:
         )
         from app.infrastructure.ml.predictor_adapter import build_default_predictor
         from app.infrastructure.system_status_adapter import build_default_system_status
+        from app.infrastructure.training.intent_training_adapter import (
+            build_default_intent_training_runner,
+            build_default_intent_versioning,
+        )
         from app.infrastructure.training.training_adapter import (
             build_default_training_jobs,
             build_default_training_runner,
@@ -112,6 +120,8 @@ class Container:
         self._factories[KEY_TRAINING_JOBS] = build_default_training_jobs
         self._factories[KEY_TRAINING_RUNNER] = build_default_training_runner
         self._factories[KEY_TRAINING_SCHEDULES] = build_default_training_schedules
+        self._factories[KEY_INTENT_TRAINING_RUNNER] = build_default_intent_training_runner
+        self._factories[KEY_INTENT_VERSIONING] = build_default_intent_versioning
         self._singleton_keys: set[str] = set()
         self._bootstrapped = True
 
@@ -158,3 +168,13 @@ def get_training_runner_port() -> TrainingRunnerPort:
 def get_training_schedules_port() -> TrainingSchedulesPort:
     """Port des planifications récurrentes (SCRUM-34) pour la v1."""
     return container.resolve(KEY_TRAINING_SCHEDULES)
+
+
+def get_intent_training_runner_port() -> IntentTrainingRunnerPort:
+    """Port du cycle de vie des entraînements d'intention pour la v1."""
+    return container.resolve(KEY_INTENT_TRAINING_RUNNER)
+
+
+def get_intent_versioning_port() -> IntentVersioningPort:
+    """Port des versions de modèles d'intention (active.json) pour la v1."""
+    return container.resolve(KEY_INTENT_VERSIONING)

@@ -18,6 +18,8 @@ from .prediction_ports import (  # noqa: F401
     SystemStatusPort,
 )
 from .training_ports import (  # noqa: F401
+    IntentTrainingRunnerPort,
+    IntentVersioningPort,
     TrainingJobsPort,
     TrainingRunnerPort,
     TrainingSchedulesPort,
@@ -28,6 +30,8 @@ __all__ = [
     "AuditStorePort",
     "ContextPort",
     "EventBusPort",
+    "IntentTrainingRunnerPort",
+    "IntentVersioningPort",
     "LLMClientPort",
     "Message",
     "ModelRepositoryPort",

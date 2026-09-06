@@ -296,3 +296,51 @@ describe("SentimentApiClient.train (v1)", () => {
     );
   });
 });
+
+describe("SentimentApiClient.intentTrain (v1)", () => {
+  it("interroge /api/v1/train/intent (POST) pour lancer un entraînement", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ job_id: "intent-1", status: "pending", kind: "intent" }, 202)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    const job = await client.startIntentTraining({ epochs: 2 });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/train/intent");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ epochs: 2 });
+    expect(job).toMatchObject({ job_id: "intent-1", kind: "intent" });
+  });
+
+  it("liste les jobs d'intention filtrés via /api/v1/train/intent/jobs", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ total: 0, items: [], limit: 50, offset: 0 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    await client.listIntentTrainingJobs({ status: "failed", limit: 50 });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://api/api/v1/train/intent/jobs?status=failed&limit=50"
+    );
+  });
+
+  it("active une version via /api/v1/train/intent/activate (corps {version})", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ status: "activated", version: "20260905T120000Z" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    const res = await client.activateIntentVersion("20260905T120000Z");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/train/intent/activate");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ version: "20260905T120000Z" });
+    expect(res).toEqual({ status: "activated", version: "20260905T120000Z" });
+  });
+});

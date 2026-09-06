@@ -75,9 +75,14 @@ def list_training_jobs(
     limit: int,
     offset: int,
     jobs: TrainingJobsPort,
+    kind: str | None = None,
 ) -> JobListResponse:
-    """Liste paginée et filtrée des jobs (tri ``started_at DESC``)."""
-    items, total = jobs.list(status=status, limit=limit, offset=offset)
+    """Liste paginée et filtrée des jobs (tri ``started_at DESC``).
+
+    ``kind`` (optionnel) restreint le type de job — ``"intent"`` pour
+    ``/train/intent/jobs`` ; ``None`` = tous (parité ``/train/jobs`` legacy).
+    """
+    items, total = jobs.list(status=status, kind=kind, limit=limit, offset=offset)
     return JobListResponse(total=total, items=items, limit=limit, offset=offset)
 
 

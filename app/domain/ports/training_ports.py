@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from core.models import TrainJob, TrainRequest
+from core.models import IntentTrainRequest, TrainJob, TrainRequest
 
 
 class TrainingRunnerPort(Protocol):
@@ -39,9 +39,19 @@ class TrainingJobsPort(Protocol):
         ...
 
     def list(
-        self, *, status: str | None, limit: int, offset: int
+        self,
+        *,
+        status: str | None,
+        kind: str | None = None,
+        limit: int,
+        offset: int,
     ) -> tuple[list[TrainJob], int]:
-        """Page de jobs (tri ``started_at DESC``) + total avant pagination."""
+        """Page de jobs (tri ``started_at DESC``) + total avant pagination.
+
+        ``kind`` filtre le type de job (``"intent"`` pour
+        ``/train/intent/jobs``) ; ``None`` = tous les types (parité
+        ``/train/jobs`` legacy, qui ne filtre pas).
+        """
         ...
 
     def metrics(self, job_id: str) -> list[dict]:
@@ -68,4 +78,44 @@ class TrainingSchedulesPort(Protocol):
 
     def delete(self, schedule_id: str) -> bool:
         """Supprime une planification, ``False`` si inconnue."""
+        ...
+
+
+class IntentTrainingRunnerPort(Protocol):
+    """Cycle de vie d'un entraînement d'intention (SCRUM-95).
+
+    Le runner d'intention possède ses PROPRES events d'annulation
+    (``core.intent_trainer``) et ses validations défensives : distincts du
+    runner sentiment (``TrainingRunnerPort``).
+    """
+
+    def precheck(self, request: IntentTrainRequest) -> None:
+        """Validations défensives précoces (dataset présent, version source
+        résoluble). Lève ``ValidationError`` (422) AVANT création du job."""
+        ...
+
+    def start(self, request: IntentTrainRequest) -> TrainJob:
+        """Crée le job (pending, kind="intent") puis lance le thread worker."""
+        ...
+
+    def cancel(self, job_id: str) -> TrainJob:
+        """Annule un job actif. Lève ``NotFoundError`` si job inconnu."""
+        ...
+
+
+class IntentVersioningPort(Protocol):
+    """Versions de modèles d'intention + pointeur actif (active.json)."""
+
+    def list_versions(self) -> list[str]:
+        """Versions valides, triées par nom décroissant (récentes d'abord)."""
+        ...
+
+    def resolve_active_version(self) -> str | None:
+        """Version active résolue (pointeur, sinon la plus récente valide) ;
+        ``None`` si aucun modèle n'existe (repli de règles côté classifieur)."""
+        ...
+
+    def activate(self, version: str) -> None:
+        """Pointe ``active.json`` sur une version existante.
+        Lève ``ValidationError`` (422) si la version est inconnue/invalide."""
         ...
