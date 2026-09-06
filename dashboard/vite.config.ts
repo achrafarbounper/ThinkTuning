@@ -56,6 +56,30 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        // Flux SSE longs (/api/ai, /api/agent/multi/ask/stream, ...) :
+        // aucun timeout ni côté socket entrant, ni côté requête backend —
+        // une réponse peut rester légitimement silencieuse des minutes.
+        timeout: 0,
+        proxyTimeout: 0,
+        // Journalisation compacte : un flux SSE coupé (uvicorn --reload qui
+        // redémarre sur une sauvegarde .py, bouton « Stop » du chat) ne doit
+        // pas produire un stack trace illisible dans le terminal Vite.
+        configure: (proxy) => {
+          proxy.on('error', (err, req) => {
+            const code = (err as Error & { code?: string }).code ?? err.name
+            const where = `${req?.method ?? 'GET'} ${req?.url ?? '?'}`
+            if (code === 'ECONNRESET' || code === 'ECONNABORTED' || code === 'EPIPE') {
+              // Attendu en dev : le backend relancé par --reload RST les flux
+              // SSE actifs (ou le client a aborté). Ni bug, ni action requise.
+              console.warn(
+                `[vite-proxy] ${code} sur ${where} — flux SSE interrompu ` +
+                  '(backend relancé --reload ou client « Stop »). Attendu en dev.',
+              )
+              return
+            }
+            console.error(`[vite-proxy] ${code} sur ${where} : ${err.message}`)
+          })
+        },
       },
     },
   },

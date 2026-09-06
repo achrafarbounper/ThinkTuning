@@ -35,6 +35,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.dependencies.auth import require_api_key, _get_api_key
+from api.routes.sse_common import wait_event
 from core.agent_settings import get_agent_settings, save_agent_settings
 from core.agent_cache import (
     REQUIRED_ARGS,
@@ -878,7 +879,13 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                 field = _CORE_STREAM_FIELDS.get(first_kind, first_kind)
                 yield _sse({field: first_payload})
             while True:
-                kind, payload = await asyncio.to_thread(events.get)
+                event = await wait_event(events)
+                if event is None:
+                    # Heartbeat SSE : commentaire ignoré par les parseurs, il
+                    # maintient le socket chaud (worker silencieux, outil lent).
+                    yield ": ping\n\n"
+                    continue
+                kind, payload = event
                 if kind == "done":
                     break
                 if kind in ("http_error", "error"):
@@ -889,7 +896,15 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                 yield _sse({field: payload})
             yield "data: [DONE]\n\n"
         except asyncio.CancelledError:
+            # Le client a interrompu la génération (bouton Stop du chat).
             raise
+        except Exception as exc:  # pragma: no cover - défense en profondeur
+            # Une exception qui s'échappe du générateur tronque l'encodage
+            # chunked : le proxy Vite la lirait comme un ECONNRESET. On émet
+            # l'erreur comme événement puis [DONE] : le flux se termine
+            # TOUJOURS proprement (contrat SSE, voir api/routes/sse_common.py).
+            yield _sse({"error": f"{type(exc).__name__}: {exc}"})
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         _sse_stream(),
@@ -1643,7 +1658,13 @@ def multi_ask_stream(
             if first_kind != "__done__":
                 yield f"event: {first_kind}\n" + _sse(first_payload)
             while True:
-                kind, payload = await asyncio.to_thread(events.get)
+                event = await wait_event(events)
+                if event is None:
+                    # Heartbeat SSE : commentaire ignoré par les parseurs, il
+                    # maintient le socket chaud (worker silencieux, outil lent).
+                    yield ": ping\n\n"
+                    continue
+                kind, payload = event
                 if kind == "__done__":
                     break
                 if kind == "agent.error":
@@ -1654,6 +1675,15 @@ def multi_ask_stream(
         except asyncio.CancelledError:
             # Le client a interrompu la génération (bouton Stop du chat).
             raise
+        except Exception as exc:  # pragma: no cover - défense en profondeur
+            # Une exception qui s'échappe du générateur tronque l'encodage
+            # chunked : le proxy Vite la lirait comme un ECONNRESET. On émet
+            # agent.error puis [DONE] : le flux se termine TOUJOURS proprement
+            # (contrat SSE, voir api/routes/sse_common.py).
+            yield "event: agent.error\n" + _sse(
+                {"message": f"{type(exc).__name__}: {exc}"}
+            )
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         _sse_stream(),
