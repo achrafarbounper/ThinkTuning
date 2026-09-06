@@ -47,7 +47,7 @@ def test_defaults(fresh_settings, monkeypatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-test")
 
     s = get_settings()
-    assert s.agent_provider is AgentProvider.OPENROUTER
+    assert s.agent_provider is AgentProvider.OLLAMA
     assert s.agent_model_name == "openrouter/free"
     assert s.agent_max_llm_rounds == 6
     assert s.effective_ws_token == s.api_key
