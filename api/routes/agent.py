@@ -42,6 +42,7 @@ from core.agent_cache import (
     TOOLS,
     _openrouter_chat_url,
     _hf_chat_url,
+    _lm_studio_chat_url,
     agent_config,
     ask_multi_agent,
     ask_multi_agent_streaming,
@@ -268,13 +269,16 @@ class AgentSettingsUpdate(BaseModel):
     retour à la valeur par défaut du serveur.
     """
 
-    provider: Optional[str] = Field(None, description="« ollama », « openrouter » ou « hf ».")
+    provider: Optional[str] = Field(
+        None, description="« ollama », « openrouter », « hf » ou « lm_studio »."
+    )
     model: Optional[str] = Field(None, max_length=200)
     ollama_url: Optional[str] = Field(None, max_length=500)
     openrouter_url: Optional[str] = Field(None, max_length=500)
     openrouter_api_key: Optional[str] = Field(None, max_length=300)
     hf_url: Optional[str] = Field(None, max_length=500)
     hf_api_key: Optional[str] = Field(None, max_length=300)
+    lm_studio_url: Optional[str] = Field(None, max_length=500)
     timeout_seconds: Optional[float] = Field(None, ge=10, le=3600)
     context_length: Optional[int] = Field(None, ge=512, le=131072)
     temperature: Optional[float] = Field(None, ge=0, le=2)
@@ -289,6 +293,7 @@ class ConnectivityTestRequest(BaseModel):
     openrouter_api_key: Optional[str] = None
     hf_url: Optional[str] = None
     hf_api_key: Optional[str] = None
+    lm_studio_url: Optional[str] = None
 
 
 # --- Endpoints ----------------------------------------------------------------------
@@ -1153,6 +1158,17 @@ def test_agent_connectivity(
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         success_detail = f"Hugging Face joignable sur {probe_url}"
         hint = ""
+    elif provider == "lm_studio":
+        url = (request.lm_studio_url or "").strip() or cfg["lm_studio_url"]
+        chat_url = _lm_studio_chat_url(url)
+        base = chat_url[: -len("/chat/completions")].rstrip("/")
+        probe_url = f"{base}/models"
+        headers = None  # serveur local : aucune authentification
+        success_detail = f"LM Studio joignable sur {probe_url}"
+        hint = (
+            " Vérifiez que le serveur LM Studio tourne"
+            " (Developer > Local Server)."
+        )
     else:
         base_url = (request.ollama_url or "").strip() or cfg["ollama_url"]
         marker = base_url.find("/api/")

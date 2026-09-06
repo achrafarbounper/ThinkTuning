@@ -31,6 +31,7 @@ const AGENT_DEFAULTS: AgentSettings = {
   openrouterApiKey: "",
   hfUrl: "https://router.huggingface.co/v1",
   hfApiKey: "",
+  lmStudioUrl: "http://192.168.184:1234/v1",
   timeoutSeconds: 60,
   contextLength: 512,
   temperature: 0.2,

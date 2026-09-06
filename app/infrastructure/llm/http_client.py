@@ -4,8 +4,8 @@ Remplace progressivement ``ia/agent/llm_client.py`` (Phase 3 de la migration)
 derrière le MÊME port, sans changer les use-cases. Reproduit fidèlement le
 comportement legacy :
 
-- trois providers : ``ollama`` (NDJSON, ``options.num_ctx`` / ``think``),
-  ``openrouter`` et ``hf`` (SSE compatible OpenAI, fragments
+- quatre providers : ``ollama`` (NDJSON, ``options.num_ctx`` / ``think``),
+  ``openrouter``, ``hf`` et ``lm_studio`` (SSE compatible OpenAI, fragments
   ``choices[0].delta.{content, reasoning}``) ;
 - streaming réel ``stream: true`` : chaque fragment émetté via les callbacks
   ``on_thinking`` / ``on_content`` ; ``call()`` réassemble (contrat str
@@ -40,7 +40,7 @@ from ia.agent.thinking import extract_thinking
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
-PROVIDERS = ("ollama", "openrouter", "hf")
+PROVIDERS = ("ollama", "openrouter", "hf", "lm_studio")
 DEFAULT_TEMPERATURE = 0.8
 DEFAULT_CONTEXT_LENGTH = 2048
 
@@ -60,9 +60,16 @@ def _parse_chunk(line: Any):
     if not line or line == "[DONE]":
         return None
     try:
-        return json.loads(line)
+        parsed = json.loads(line)
     except (ValueError, TypeError):
         return None
+    # Un fragment exploitable est TOUJOURS un objet JSON : `json.loads` peut
+    # aussi renvoyer str / int / list / bool (ex. ligne d'erreur SSE encodée
+    # « "message serveur" »). Renvoyer un non-dict ferait planter `.get()`
+    # dans la boucle de streaming (« 'str' object has no attribute 'get' »).
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
 
 
 def _build_payload(
@@ -74,7 +81,12 @@ def _build_payload(
     think: bool,
 ) -> dict:
     """Construit le corps JSON de la requête selon le provider."""
-    if provider in ("openrouter", "hf"):
+    if provider in ("openrouter", "hf", "lm_studio"):
+        # Format compatible OpenAI (OpenRouter, Hugging Face Inference Providers
+        # et LM Studio — dont les endpoints sont des copies de l'API chat
+        # OpenAI) : température au niveau racine, pas de bloc « options »
+        # (num_ctx n'existe pas côté providers hébergés ; côté LM Studio la
+        # fenêtre de contexte se règle dans son UI).
         payload: dict = {
             "model": model,
             "messages": messages,
@@ -287,6 +299,16 @@ class HttpLLMClient:
                 chunk = _parse_chunk(line)
                 if chunk is None:
                     continue
+                # Erreur métier du serveur EN PLEIN FLUX (statut HTTP 200) :
+                # sans ce contrôle elle serait ignorée silencieusement (réponse
+                # vide) et l'orchestrateur planterait en aval. RuntimeError est
+                # classé DÉFINITIF par classify_llm_error → aucun retry inutile
+                # sur une erreur de template / de validité.
+                if chunk.get("error"):
+                    raise RuntimeError(
+                        "Erreur LLM en flux : "
+                        + json.dumps(chunk["error"], ensure_ascii=False)
+                    )
                 msg = chunk.get("message") or chunk.get("delta") or {}
                 delta = msg.get("content") or ""
                 think = msg.get("thinking") or ""

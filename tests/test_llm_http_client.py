@@ -193,3 +193,48 @@ def test_non_retryable_http_error_raises_immediately():
     with pytest.raises(httpx.HTTPStatusError):
         client.call([{"role": "user", "content": "q"}])
     assert len(calls) == 1  # aucun retry sur erreur définitive
+
+# --- Fragments non-objet + erreur en plein flux (crash « bonjour ») ----------
+
+
+def test_parse_chunk_rejects_non_object_json():
+    """`json.loads` peut renvoyer str/int/list/bool : un fragment exploitable
+    est TOUJOURS un objet — sinon `.get()` plantait en aval
+    (« 'str' object has no attribute 'get' ») sur une erreur serveur streamée."""
+    assert _parse_chunk('"erreur serveur"') is None
+    assert _parse_chunk('["erreur"]') is None
+    assert _parse_chunk("42") is None
+    assert _parse_chunk("true") is None
+
+
+def test_call_stream_error_payload_raises_clear_error():
+    """Erreur métier EN PLEIN FLUX (statut HTTP 200) → RuntimeError explicite
+    (plus de réponse vide silencieuse suivie d'un crash en aval)."""
+    body = (
+        '{"error": {"code": 400, "message": "Conversation roles must alternate"}}\n'
+    ).encode()
+
+    def handler(request):
+        return httpx.Response(200, content=body,
+                              headers={"content-type": "application/x-ndjson"})
+
+    client = _client(handler, provider="ollama")
+    with pytest.raises(RuntimeError, match="Conversation roles must alternate"):
+        client.call([{"role": "user", "content": "bonjour"}])
+
+
+def test_call_stream_non_object_error_line_is_ignored():
+    """Ligne JSON valide mais NON-objet (erreur encodée « "message" ») :
+    ignorée, le flux continue sans « 'str' object has no attribute 'get' »."""
+    body = (
+        '"Erreur interne"\n'
+        '{"message": {"content": "Bonjour"}, "done": true}\n'
+    ).encode()
+
+    def handler(request):
+        return httpx.Response(200, content=body,
+                              headers={"content-type": "application/x-ndjson"})
+
+    client = _client(handler, provider="ollama")
+    assert client.call([{"role": "user", "content": "bonjour"}]) == "Bonjour"
+

@@ -37,6 +37,7 @@ SETTING_KEYS = (
     "openrouter_api_key",
     "hf_url",
     "hf_api_key",
+    "lm_studio_url",
     "timeout_seconds",
     "context_length",
     "temperature",
@@ -50,6 +51,7 @@ VALEURS_PAR_DEFAUT = {
     "openrouter_api_key": "",
     "hf_url": "",
     "hf_api_key": "",
+    "lm_studio_url": "",
     "timeout_seconds": None,
     "context_length": None,
     "temperature": None,
@@ -174,6 +176,8 @@ def get_agent_settings() -> dict:
         # (c'est le nom historique du jeton côté HF).
         "hf_url": entry("hf_url", "AGENT_HF_URL", ""),
         "hf_api_key": _hf_key_entry(stored),
+        # LM Studio : serveur local SANS clé — seule l'URL est configurable.
+        "lm_studio_url": entry("lm_studio_url", "AGENT_LM_STUDIO_URL", ""),
         "timeout_seconds": entry("timeout_seconds", "AGENT_TIMEOUT_SECONDS", None),
         "context_length": entry("context_length", "AGENT_CONTEXT_LENGTH", None),
         "temperature": entry("temperature", None, None),
@@ -181,7 +185,7 @@ def get_agent_settings() -> dict:
     # Normalisation : l'env peut porter « OpenRouter » ; les chaînes sont
     # nettoyées pour que « » == non défini côté consommateurs.
     settings["provider"]["value"] = (settings["provider"]["value"] or "ollama").strip().lower()
-    for text_key in ("model", "ollama_url", "openrouter_url", "hf_url"):
+    for text_key in ("model", "ollama_url", "openrouter_url", "hf_url", "lm_studio_url"):
         raw = settings[text_key]["value"]
         settings[text_key]["value"] = raw.strip() if isinstance(raw, str) else raw
     return settings
@@ -211,8 +215,12 @@ def validate_agent_settings(values: dict) -> list[str]:
     """Validation métier des valeurs avant sauvegarde (liste d'erreurs vide=ok)."""
     errors: list[str] = []
     provider = values.get("provider")
-    if provider is not None and provider not in ("ollama", "openrouter", "hf"):
-        errors.append("provider doit valoir 'ollama', 'openrouter' ou 'hf'.")
+    if provider is not None and provider not in (
+        "ollama", "openrouter", "hf", "lm_studio"
+    ):
+        errors.append(
+            "provider doit valoir 'ollama', 'openrouter', 'hf' ou 'lm_studio'."
+        )
 
     timeout = values.get("timeout_seconds")
     if timeout is not None:

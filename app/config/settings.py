@@ -3,7 +3,8 @@
 Unifie les variables d'environnement aujourd'hui éparpillées :
     - API          : API_KEY, CORS_ALLOWED_ORIGINS, DASHBOARD_WS_TOKEN
     - Agent LLM    : AGENT_PROVIDER, AGENT_MODEL_NAME, AGENT_OLLAMA_URL,
-                     AGENT_OPENROUTER_URL, OPENROUTER_API_KEY, HF_API_KEY/HF_TOKEN,
+                     AGENT_OPENROUTER_URL, OPENROUTER_API_KEY, AGENT_HF_URL,
+                     HF_API_KEY/HF_TOKEN, AGENT_LM_STUDIO_URL,
                      AGENT_TIMEOUT_SECONDS, AGENT_CONTEXT_LENGTH, AGENT_LOG_LEVEL
     - Agent flags  : AGENT_<FEATURE> — cf. core/feature_flags.py
     - Streams ML   : TRAIN_STREAM_STALL_MINUTES, MODEL_SANITY_MIN_CONFIDENCE
@@ -35,6 +36,7 @@ class AgentProvider(StrEnum):
     OLLAMA = "ollama"
     OPENROUTER = "openrouter"
     HF = "hf"
+    LM_STUDIO = "lm_studio"  # serveur local LM Studio, compatible OpenAI
 
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -89,6 +91,11 @@ class Settings(BaseSettings):
     agent_model_name: str = "openrouter/free"
     agent_ollama_url: str = "http://192.168.1.184:11434/api/chat"
     agent_openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"
+    # Endpoint chat Hugging Face Inference Providers (compatible OpenAI).
+    agent_hf_url: str = "https://router.huggingface.co/v1/chat/completions"
+    # Endpoint chat LM Studio : serveur LOCAL compatible OpenAI (aucune clé
+    # requise ; la fenêtre de contexte se règle dans l'UI LM Studio).
+    agent_lm_studio_url: str = "http://192.168.184:1234/v1/chat/completions"
     # Aucune clé par défaut : le secret vient de l'environnement OPENROUTER_API_KEY.
     # Le validateur `_validate_provider` échoue vite si le provider l'exige sans clé.
     openrouter_api_key: str | None = None
