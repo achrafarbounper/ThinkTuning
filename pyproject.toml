@@ -67,6 +67,13 @@ select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
 # E501 géré par line-length ; les TODO/héritages sont annotés dans le code.
 ignore = ["B008"]  # Depends() en signature FastAPI (idiome officiel)
 
+[tool.ruff.lint.per-file-ignores]
+# api/__init__.py : façade d'amorçage. L'ordre des imports est CONTRAINT (les
+# flags d'environnement/API_KEY sont posés avant tout import core/src) et le
+# regroupement reflète l'ordre d'initialisation, pas le style ; les re-exports
+# intentionnels sont déclarés dans __all__.
+"api/__init__.py" = ["E402", "I001"]
+
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

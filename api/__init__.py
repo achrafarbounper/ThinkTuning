@@ -59,3 +59,41 @@ from transformers import AutoTokenizer
 from src.model.distilbert import build_model
 from src.inference.predictor import Predictor
 from core.model_versioning import save_model_version
+
+# === Surface publique de la façade =========================================
+# Déclarée explicitement pour ruff (F401) : chaque nom ci-dessous est un
+# re-export INTENTIONNEL, consommé ailleurs via `from api import X` (modules,
+# tests — y compris les cibles de monkeypatch `api._get_predictor`,
+# `api._reset_rate_limit_buckets`, `api._get_api_key`).
+__all__ = [
+    "TEST_MODE",
+    "app",
+    "JobStatus",
+    "TrainJob",
+    "TrainRequest",
+    "ModelVersion",
+    "JobListResponse",
+    "get_job_store",
+    "PersistentJobStore",
+    "cleanup_old_jobs",
+    "_run_training",
+    "cancel_training",
+    "_get_predictor",
+    "load_config",
+    "MODEL_ROOT",
+    "MODELS_ROOT",
+    "RATE_LIMIT_PER_MINUTE",
+    "_reset_rate_limit_buckets",
+    "_MAINTENANCE_MODE",
+    "set_maintenance_mode",
+    "_get_api_key",
+    "load_raw_dataset",
+    "augment_dataset",
+    "create_dataloaders",
+    "Trainer",
+    "compute_class_weights",
+    "AutoTokenizer",
+    "build_model",
+    "Predictor",
+    "save_model_version",
+]
