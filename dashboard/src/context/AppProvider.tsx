@@ -168,7 +168,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       setAgentLoading(true);
       try {
         const resp = await client._request<{ settings?: Record<string, unknown> }>(
-          "/api/agent/settings",
+          "/api/v1/agent/settings",
           { method: "PUT", body: agentSettingsPayload(updates) }
         );
         if (resp) {
@@ -199,7 +199,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     async (testParams: Partial<AgentSettings>) => {
       setAgentLoading(true);
       try {
-        return await client._request("/api/agent/settings/test", {
+        return await client._request("/api/v1/agent/settings/test", {
           method: "POST",
           body: agentSettingsPayload(testParams),
         });
@@ -216,7 +216,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       setAgentLoading(true);
       try {
         const res = await client._request<{ settings?: Record<string, unknown> }>(
-          "/api/agent/settings",
+          "/api/v1/agent/settings",
           { method: "GET" }
         );
         if (res) {

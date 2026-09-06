@@ -44,6 +44,17 @@ class ValidationError(DomainError):
     http_status = 422
 
 
+class BadRequestError(DomainError):
+    """Requête recevable mais sémantiquement incorrecte (statut inconnu...).
+
+    Parité avec les 400 legacy (filtres ``status`` inconnus des stores
+    d'approbation / Flow Map, valeur ``limit`` hors bornes fonctionnelles).
+    """
+
+    code = "bad_request"
+    http_status = 400
+
+
 class NotFoundError(DomainError):
     """Ressource introuvable (job, session, version de modèle...)."""
 
@@ -157,3 +168,18 @@ class ModelSanityError(DomainError):
 
     code = "model_unhealthy"
     http_status = 503
+
+
+class ServiceUnavailableError(DomainError):
+    """Service momentanément indisponible (feature flag désactivé, dépendance
+    down) — 503 générique, distinct de ``ModelNotAvailableError`` (modèle ML)."""
+
+    code = "service_unavailable"
+    http_status = 503
+
+
+class GatewayTimeoutError(DomainError):
+    """Dépendance distante trop lente (LLM provider injoignable, timeout) — 504."""
+
+    code = "gateway_timeout"
+    http_status = 504

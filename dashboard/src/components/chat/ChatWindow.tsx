@@ -4,12 +4,12 @@
  * Gère :
  * - l'historique des messages (bulles utilisateur / IA),
  * - trois routages de conversation (mutuellement exclusifs) :
- *     · Chat (défaut) : streaming POST /api/ai,
- *     · Agent (v2)    : noyau agentique POST /api/agent/ask/core — boucle
+ *     · Chat (défaut) : streaming POST /api/v1/chat/ai,
+ *     · Agent (v2)    : noyau agentique POST /api/v1/agent/ask/core — boucle
  *       Intent -> Plan -> Policy -> Budget -> Action, appels d'outils
  *       streamés (core_tool) et carte de validation humaine,
  *     · Multi-agents  : orchestration superviseur / workers
- *       POST /api/agent/multi/ask/stream,
+ *       POST /api/v1/agent/multi/ask/stream,
  * - l'authentification via l'en-tête X-API-Key (config dashboard ou VITE_API_KEY),
  * - le chargement (spinner + curseur clignotant),
  * - le défilement automatique vers le bas (avec respect du scroll manuel),
@@ -43,42 +43,43 @@ import type {
 import './chat.css';
 
 /** Endpoint du backend (proxifié par Vite vers l'API FastAPI en développement). */
-const AI_ENDPOINT = '/api/ai';
+const AI_ENDPOINT = '/api/v1/chat/ai';
 
 /**
- * Endpoint d orchestration multi-agents (POST /api/agent/multi/ask/stream) :
+ * Endpoint d orchestration multi-agents (POST /api/v1/agent/multi/ask/stream) :
  * le superviseur planifie, dispatche des sous-taches a des workers isoles puis
  * synthetise. Evenements SSE nommes agent.plan / agent.worker.* / agent.done.
  */
-const MULTI_ASK_STREAM_ENDPOINT = '/api/agent/multi/ask/stream';
+const MULTI_ASK_STREAM_ENDPOINT = '/api/v1/agent/multi/ask/stream';
 
 /** Mode SSE demande : les evenements d observabilite (worker.tool) sont filtres. */
 const MULTI_SSE_MODE = 'compact';
 
 /**
  * Endpoint du NOYAU agentique v2 — chemin unique du mode Agent depuis le
- * décommissionnement du chemin v1 (routes /ask et /ask/stream supprimées) :
- *  - POST /api/agent/ask/core/stream : streaming SSE (core_tool / delta /
+ * décommissionnement du chemin historique (routes /ask et /ask/stream
+ * supprimées) :
+ *  - POST /api/v1/agent/ask/core/stream : streaming SSE (core_tool / delta /
  *    final) — chemin principal ;
- *  - POST /api/agent/ask/core : bloquant (réponse d'un bloc) — repli si le
+ *  - POST /api/v1/agent/ask/core : bloquant (réponse d'un bloc) — repli si le
  *    backend ne connaît pas encore le stream (404/405).
  * Le noyau est ACTIF PAR DÉFAUT côté backend (AGENT_NEW_CORE) ; une réponse
  * 503 signale un repli legacy volontaire.
  */
-const CORE_ASK_STREAM_ENDPOINT = '/api/agent/ask/core/stream';
-const CORE_ASK_ENDPOINT = '/api/agent/ask/core';
+const CORE_ASK_STREAM_ENDPOINT = '/api/v1/agent/ask/core/stream';
+const CORE_ASK_ENDPOINT = '/api/v1/agent/ask/core';
 
 /** Base des endpoints de validation humaine (approve / reject). */
-const APPROVALS_ENDPOINT = '/api/agent/approvals';
+const APPROVALS_ENDPOINT = '/api/v1/agent/approvals';
 
-/** Endpoint des conversations persistées (GET/POST /api/sessions…). */
-const SESSIONS_ENDPOINT = '/api/sessions';
+/** Endpoint des conversations persistées (GET/POST /api/v1/sessions…). */
+const SESSIONS_ENDPOINT = '/api/v1/sessions';
 
 /** Clé de persistance de la conversation active (localStorage). */
 const CHAT_SESSION_STORAGE_KEY = 'thinktuning.chatSession';
 
-/** Endpoint listant les modèles LLM disponibles (même proxy que /api/ai). */
-const MODELS_ENDPOINT = '/api/models';
+/** Endpoint listant les modèles LLM disponibles (même proxy que le chat). */
+const MODELS_ENDPOINT = '/api/v1/chat/models';
 
 /** Clé de stockage partagée avec le dashboard (voir CONFIG_STORAGE_KEY dans context/AppContext.jsx). */
 const API_CONFIG_STORAGE_KEY = 'thinktuning.apiConfig';
@@ -91,14 +92,14 @@ const THINKING_STORAGE_KEY = 'thinktuning.enableThinking';
 
 /**
  * Cle de persistance du mode « Multi-agents » (orchestration superviseur /
- * workers via /api/agent/multi/ask/stream). Mutuellement exclusif avec le
+ * workers via /api/v1/agent/multi/ask/stream). Mutuellement exclusif avec le
  * mode Agent (noyau v2).
  */
 const MULTI_MODE_STORAGE_KEY = 'thinktuning.multiAgentMode';
 
 /**
  * Clé de persistance du mode « Agent (v2) » — boucle agentique
- * Intent -> Plan -> Policy -> Budget -> Action via /api/agent/ask/core.
+ * Intent -> Plan -> Policy -> Budget -> Action via /api/v1/agent/ask/core.
  * Mutuellement exclusif avec le mode Multi-agents.
  */
 const CORE_MODE_STORAGE_KEY = 'thinktuning.coreMode';
@@ -1390,7 +1391,7 @@ export function ChatWindow() {
           <div className="copilot-chat__empty">
             <p className="copilot-chat__empty-title">👋 Posez votre première question</p>
             <p className="copilot-chat__empty-hint">
-              Les réponses sont générées en direct par votre backend <code>/api/ai</code>.
+              Les réponses sont générées en direct par votre backend <code>/api/v1/chat/ai</code>.
             </p>
           </div>
         ) : (

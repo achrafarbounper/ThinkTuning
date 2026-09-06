@@ -19,33 +19,17 @@ from fastapi import HTTPException
 
 from api.routes import evaluate as evaluate_module
 from api.routes import models as models_module
-from app.domain.errors import (
-    ConflictError,
-    DomainError,
-    ModelNotAvailableError,
-    NotFoundError,
-    ValidationError,
-)
+from app.domain.errors import ModelNotAvailableError
 from app.domain.ports.model_versioning_ports import (
     EvaluationPort,
     ModelVersioningPort,
 )
+from app.infrastructure.legacy_errors import convert_legacy_http_error
 from core.models import ModelVersion
 
-# Statuts legacy -> erreurs de domaine (statuts inconnus : re-levés tels quels).
-_STATUS_TO_ERROR = {
-    422: ValidationError,
-    404: NotFoundError,
-    409: ConflictError,
-    503: ModelNotAvailableError,
-}
-
-
-def _convert_legacy_http_error(exc: HTTPException) -> DomainError:
-    error_cls = _STATUS_TO_ERROR.get(exc.status_code)
-    if error_cls is None:
-        raise exc
-    return error_cls(str(exc.detail))
+# Le 503 legacy de ce domaine signifie « aucun modèle exploitable »
+# (même contrat que /predict) — override du mapping commun.
+_STATUS_OVERRIDES = {503: ModelNotAvailableError}
 
 
 class ModuleModelVersioningAdapter:
@@ -61,13 +45,17 @@ class ModuleModelVersioningAdapter:
         try:
             return models_module.activate_model_version(name)
         except HTTPException as exc:
-            raise _convert_legacy_http_error(exc) from exc
+            raise convert_legacy_http_error(
+                exc, status_overrides=_STATUS_OVERRIDES
+            ) from exc
 
     def delete(self, name: str) -> dict:
         try:
             return models_module.delete_model_version(name)
         except HTTPException as exc:
-            raise _convert_legacy_http_error(exc) from exc
+            raise convert_legacy_http_error(
+                exc, status_overrides=_STATUS_OVERRIDES
+            ) from exc
 
 
 class ModuleEvaluationAdapter:
@@ -81,7 +69,9 @@ class ModuleEvaluationAdapter:
                 model=model, limit=limit, max_mistakes=max_mistakes
             )
         except HTTPException as exc:
-            raise _convert_legacy_http_error(exc) from exc
+            raise convert_legacy_http_error(
+                exc, status_overrides=_STATUS_OVERRIDES
+            ) from exc
 
 
 def build_default_model_versioning() -> ModelVersioningPort:

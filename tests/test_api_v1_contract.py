@@ -54,6 +54,24 @@ V1_PATHS = {
     "/api/v1/models/{name}/activate": {"post"},
     "/api/v1/models/{name}": {"delete"},
     "/api/v1/evaluate/confusion": {"get"},
+    # Phase 3d-4 — agent / sessions / chat IA (dashboard : AssistantPage,
+    # FlowMapPage, modèle LLM du chat). Les websockets et flux SSE ne sont pas
+    # des paths OpenAPI ; leur comportement est verrouillé par tests.
+    "/api/v1/agent/settings": {"get", "put"},
+    "/api/v1/agent/settings/test": {"post"},
+    "/api/v1/agent/ask/core": {"post"},
+    "/api/v1/agent/ask/core/stream": {"post"},
+    "/api/v1/agent/multi/ask/stream": {"post"},
+    "/api/v1/agent/approvals": {"get"},
+    "/api/v1/agent/approvals/{request_id}/approve": {"post"},
+    "/api/v1/agent/approvals/{request_id}/reject": {"post"},
+    "/api/v1/agent/flow": {"get"},
+    "/api/v1/agent/flow/{flow_id}": {"get"},
+    "/api/v1/sessions": {"get", "post"},
+    "/api/v1/sessions/{session_id}": {"delete"},
+    "/api/v1/sessions/{session_id}/messages": {"get"},
+    "/api/v1/chat/models": {"get"},
+    "/api/v1/chat/ai": {"post"},
 }
 
 
@@ -172,10 +190,33 @@ def test_auth_posture_is_locked():
         ("/api/v1/models/{name}/activate", "post"),
         ("/api/v1/models/{name}", "delete"),
         ("/api/v1/evaluate/confusion", "get"),
+        # Phase 3d-4 — agent / sessions / chat : la surface agent et chat est
+        # protégée (parité legacy) ; la LECTURE sessions reste publique (liste,
+        # messages) comme dans le legacy, les écritures exigent la clé.
+        ("/api/v1/agent/settings", "get"),
+        ("/api/v1/agent/settings", "put"),
+        ("/api/v1/agent/settings/test", "post"),
+        ("/api/v1/agent/ask/core", "post"),
+        ("/api/v1/agent/ask/core/stream", "post"),
+        ("/api/v1/agent/multi/ask/stream", "post"),
+        ("/api/v1/agent/approvals", "get"),
+        ("/api/v1/agent/approvals/{request_id}/approve", "post"),
+        ("/api/v1/agent/approvals/{request_id}/reject", "post"),
+        ("/api/v1/agent/flow", "get"),
+        ("/api/v1/agent/flow/{flow_id}", "get"),
+        ("/api/v1/sessions", "post"),
+        ("/api/v1/sessions/{session_id}", "delete"),
+        ("/api/v1/chat/models", "get"),
+        ("/api/v1/chat/ai", "post"),
     ):
         assert "X-API-Key" in _header_names(path, method), f"auth absente du contrat : {path}"
-    for path in ("/api/v1/health", "/api/v1/health/model-sanity"):
-        assert "X-API-Key" not in _header_names(path, "get"), f"health doit rester public : {path}"
+    for path in (
+        "/api/v1/health",
+        "/api/v1/health/model-sanity",
+        "/api/v1/sessions",
+        "/api/v1/sessions/{session_id}/messages",
+    ):
+        assert "X-API-Key" not in _header_names(path, "get"), f"endpoint doit rester public : {path}"  # noqa: E501
 
 
 def test_export_script_produces_the_locked_spec(tmp_path):
