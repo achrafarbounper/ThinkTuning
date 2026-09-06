@@ -234,3 +234,65 @@ describe("SentimentApiClient.reloadPredictor (v1)", () => {
     expect(err.message).toContain("Fallback base model");
   });
 });
+
+describe("SentimentApiClient.train (v1)", () => {
+  it("interroge /api/v1/train (POST) pour lancer un entraînement", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ job_id: "job-1", status: "pending" }, 202)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    const job = await client.startTraining({ max_per_lang: 10 });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/train");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ max_per_lang: 10 });
+    expect(init.headers).toMatchObject({ "X-API-Key": "k" });
+    expect(job).toMatchObject({ job_id: "job-1", status: "pending" });
+  });
+
+  it("construit l'URL WebSocket /api/v1/train/stream avec le jeton en query", () => {
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+
+    expect(client.getTrainMetricsStreamUrl("job 1")).toBe(
+      "ws://api/api/v1/train/stream/job%201?token=k"
+    );
+  });
+
+  it("construit l'URL WebSocket sans query si aucune clé API", () => {
+    const client = new SentimentApiClient({ baseUrl: "https://api.example.com" });
+
+    expect(client.getTrainMetricsStreamUrl("job-1")).toBe(
+      "wss://api.example.com/api/v1/train/stream/job-1"
+    );
+  });
+
+  it("supprime une planification via /api/v1/train/schedules (DELETE, 204)", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    const res = await client.deleteSchedule("sched-1");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/train/schedules/sched-1");
+    expect(init.method).toBe("DELETE");
+    expect(res).toBeNull();
+  });
+
+  it("liste les jobs filtrés via /api/v1/train/jobs (query params)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ total: 1, items: [], limit: 20, offset: 0 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api", apiKey: "k" });
+    await client.listTrainingJobs({ status: "completed", limit: 20 });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://api/api/v1/train/jobs?status=completed&limit=20"
+    );
+  });
+});

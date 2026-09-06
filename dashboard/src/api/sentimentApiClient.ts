@@ -272,59 +272,70 @@ export class SentimentApiClient extends SentimentApiClientCore {
     });
   }
 
-  // -- /train -----------------------------------------------------------------
+  // -- /train (MIGRÉ vers la surface v1 — Phase 3d, découplage) ----------------
 
+  /**
+   * Démarre un entraînement — MIGRÉ vers POST /api/v1/train (shape identique,
+   * contrat verrouillé par tests backend test_api_v1_contract.py).
+   */
   startTraining(payload: unknown) {
-    return this._request("/train", { method: "POST", body: payload });
+    return this._request("/api/v1/train", { method: "POST", body: payload });
   }
 
+  /** Statut d'un job — MIGRÉ vers GET /api/v1/train/status/{job_id}. */
   getTrainingStatus(jobId: string) {
-    return this._request(`/train/status/${encodeURIComponent(jobId)}`);
+    return this._request(`/api/v1/train/status/${encodeURIComponent(jobId)}`);
   }
 
+  /** Annule un job — MIGRÉ vers POST /api/v1/train/cancel/{job_id}. */
   cancelTraining(jobId: string) {
-    return this._request(`/train/cancel/${encodeURIComponent(jobId)}`, {
+    return this._request(`/api/v1/train/cancel/${encodeURIComponent(jobId)}`, {
       method: "POST",
     });
   }
 
+  /** Liste paginée des jobs — MIGRÉ vers GET /api/v1/train/jobs. */
   listTrainingJobs({ status, limit, offset }: { status?: string; limit?: number; offset?: number } = {}) {
-    return this._request("/train/jobs", { query: { status, limit, offset } });
-  }
-
-  /** SCRUM-73 : historique des métriques par epoch d'un job (loss / F1 / accuracy). */
-  getTrainingHistory(jobId: string) {
-    return this._request(`/train/history/${encodeURIComponent(jobId)}`);
+    return this._request("/api/v1/train/jobs", { query: { status, limit, offset } });
   }
 
   /**
-   * WebSocket GET /train/stream/{job_id} — métriques live pendant un
-   * entraînement (loss / F1 epoch par epoch). Retourne l'URL complète à passer
-   * à `new WebSocket()` (le jeton passe en query `?token=`, les navigateurs ne
-   * pouvant pas poser de header sur un WebSocket).
+   * SCRUM-73 : historique des métriques par epoch d'un job (loss / F1 /
+   * accuracy) — MIGRÉ vers GET /api/v1/train/history/{job_id}.
+   */
+  getTrainingHistory(jobId: string) {
+    return this._request(`/api/v1/train/history/${encodeURIComponent(jobId)}`);
+  }
+
+  /**
+   * WebSocket /api/v1/train/stream/{job_id} — MIGRÉ vers la surface v1
+   * (métriques live pendant un entraînement, loss / F1 epoch par epoch).
+   * Retourne l'URL complète à passer à `new WebSocket()` (le jeton passe en
+   * query `?token=`, les navigateurs ne pouvant pas poser de header sur un
+   * WebSocket).
    */
   getTrainMetricsStreamUrl(jobId: string): string {
     const wsUrl = this.baseUrl.replace(/^http/, "ws").replace(/^https/, "wss");
     const params = new URLSearchParams();
     if (this.apiKey) params.set("token", this.apiKey);
     const qs = params.toString();
-    return `${wsUrl}/train/stream/${encodeURIComponent(jobId)}${qs ? `?${qs}` : ""}`;
+    return `${wsUrl}/api/v1/train/stream/${encodeURIComponent(jobId)}${qs ? `?${qs}` : ""}`;
   }
-  // -- /train/schedules (SCRUM-34 : planification récurrente) -----------------
+  // -- /train/schedules (SCRUM-34 : planification récurrente — MIGRÉ v1) ------
 
-  /** Programme un entraînement récurrent (POST /train/schedule). */
+  /** Programme un entraînement récurrent — MIGRÉ vers POST /api/v1/train/schedule. */
   scheduleTraining(payload: unknown) {
-    return this._request("/train/schedule", { method: "POST", body: payload });
+    return this._request("/api/v1/train/schedule", { method: "POST", body: payload });
   }
 
-  /** Liste les planifications actives : { total, items: ScheduledJob[] }. */
+  /** Liste les planifications actives — MIGRÉ vers GET /api/v1/train/schedules. */
   listSchedules() {
-    return this._request("/train/schedules");
+    return this._request("/api/v1/train/schedules");
   }
 
-  /** Supprime une planification récurrente. */
+  /** Supprime une planification — MIGRÉ vers DELETE /api/v1/train/schedules/{id}. */
   deleteSchedule(scheduleId: string) {
-    return this._request(`/train/schedules/${encodeURIComponent(scheduleId)}`, {
+    return this._request(`/api/v1/train/schedules/${encodeURIComponent(scheduleId)}`, {
       method: "DELETE",
     });
   }

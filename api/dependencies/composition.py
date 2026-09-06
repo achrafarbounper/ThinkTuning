@@ -28,11 +28,19 @@ from app.domain.ports.prediction_ports import (
     PredictionPort,
     SystemStatusPort,
 )
+from app.domain.ports.training_ports import (
+    TrainingJobsPort,
+    TrainingRunnerPort,
+    TrainingSchedulesPort,
+)
 
 # Clés du container (stabilité pour les tests qui voudraient réenregistrer).
 KEY_PREDICTION_PORT = "prediction_port"
 KEY_MODEL_REPOSITORY = "model_repository_port"
 KEY_SYSTEM_STATUS = "system_status_port"
+KEY_TRAINING_JOBS = "training_jobs_port"
+KEY_TRAINING_RUNNER = "training_runner_port"
+KEY_TRAINING_SCHEDULES = "training_schedules_port"
 
 
 class Container:
@@ -92,10 +100,18 @@ class Container:
         )
         from app.infrastructure.ml.predictor_adapter import build_default_predictor
         from app.infrastructure.system_status_adapter import build_default_system_status
+        from app.infrastructure.training.training_adapter import (
+            build_default_training_jobs,
+            build_default_training_runner,
+            build_default_training_schedules,
+        )
 
         self._factories[KEY_PREDICTION_PORT] = build_default_predictor
         self._factories[KEY_MODEL_REPOSITORY] = build_default_repository
         self._factories[KEY_SYSTEM_STATUS] = build_default_system_status
+        self._factories[KEY_TRAINING_JOBS] = build_default_training_jobs
+        self._factories[KEY_TRAINING_RUNNER] = build_default_training_runner
+        self._factories[KEY_TRAINING_SCHEDULES] = build_default_training_schedules
         self._singleton_keys: set[str] = set()
         self._bootstrapped = True
 
@@ -127,3 +143,18 @@ def get_model_repository_port() -> ModelRepositoryPort:
 def get_system_status_port() -> SystemStatusPort:
     """Port d'état opérationnel (jobs, maintenance) pour les routes v1."""
     return container.resolve(KEY_SYSTEM_STATUS)
+
+
+def get_training_jobs_port() -> TrainingJobsPort:
+    """Port de consultation des jobs d'entraînement pour les routes v1."""
+    return container.resolve(KEY_TRAINING_JOBS)
+
+
+def get_training_runner_port() -> TrainingRunnerPort:
+    """Port de cycle de vie des entraînements (start/cancel) pour la v1."""
+    return container.resolve(KEY_TRAINING_RUNNER)
+
+
+def get_training_schedules_port() -> TrainingSchedulesPort:
+    """Port des planifications récurrentes (SCRUM-34) pour la v1."""
+    return container.resolve(KEY_TRAINING_SCHEDULES)

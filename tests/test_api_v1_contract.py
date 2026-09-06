@@ -31,6 +31,16 @@ V1_PATHS = {
     "/api/v1/health/model-sanity": {"get"},
     "/api/v1/predict": {"post"},
     "/api/v1/predict/reload": {"post"},
+    # Phase 3d — noyau training (le WS /api/v1/train/stream n'apparaît pas
+    # dans le spec OpenAPI : les websockets ne sont pas des paths HTTP).
+    "/api/v1/train": {"post"},
+    "/api/v1/train/status/{job_id}": {"get"},
+    "/api/v1/train/history/{job_id}": {"get"},
+    "/api/v1/train/cancel/{job_id}": {"post"},
+    "/api/v1/train/jobs": {"get"},
+    "/api/v1/train/schedule": {"post"},
+    "/api/v1/train/schedules": {"get"},
+    "/api/v1/train/schedules/{schedule_id}": {"delete"},
 }
 
 
@@ -121,8 +131,21 @@ def test_auth_posture_is_locked():
     la représentation pour les générateurs de clients — changement transverse
     à assumer séparément (touche aussi les routes legacy).
     """
-    for path in ("/api/v1/predict", "/api/v1/predict/reload"):
-        assert "X-API-Key" in _header_names(path, "post"), f"auth absente du contrat : {path}"
+    for path, method in (
+        ("/api/v1/predict", "post"),
+        ("/api/v1/predict/reload", "post"),
+        # Phase 3d — noyau training : toute la surface est protégée (parité
+        # avec le legacy /train/* qui porte require_api_key).
+        ("/api/v1/train", "post"),
+        ("/api/v1/train/status/{job_id}", "get"),
+        ("/api/v1/train/history/{job_id}", "get"),
+        ("/api/v1/train/cancel/{job_id}", "post"),
+        ("/api/v1/train/jobs", "get"),
+        ("/api/v1/train/schedule", "post"),
+        ("/api/v1/train/schedules", "get"),
+        ("/api/v1/train/schedules/{schedule_id}", "delete"),
+    ):
+        assert "X-API-Key" in _header_names(path, method), f"auth absente du contrat : {path}"
     for path in ("/api/v1/health", "/api/v1/health/model-sanity"):
         assert "X-API-Key" not in _header_names(path, "get"), f"health doit rester public : {path}"
 

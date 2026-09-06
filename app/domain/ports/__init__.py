@@ -17,6 +17,11 @@ from .prediction_ports import (  # noqa: F401
     PredictionPort,
     SystemStatusPort,
 )
+from .training_ports import (  # noqa: F401
+    TrainingJobsPort,
+    TrainingRunnerPort,
+    TrainingSchedulesPort,
+)
 
 __all__ = [
     "ApprovalStorePort",
@@ -31,4 +36,7 @@ __all__ = [
     "SessionStorePort",
     "SystemStatusPort",
     "ToolRegistryPort",
+    "TrainingJobsPort",
+    "TrainingRunnerPort",
+    "TrainingSchedulesPort",
 ]
