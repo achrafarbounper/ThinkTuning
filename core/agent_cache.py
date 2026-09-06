@@ -78,6 +78,15 @@ DEFAULT_OPENROUTER_MODEL_NAME = "openrouter/free"
 DEFAULT_HF_URL = "https://router.huggingface.co/v1/chat/completions"
 DEFAULT_HF_MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
 
+# LM Studio : serveur LOCAL compatible OpenAI (aucune clé requise ; la
+# fenêtre de contexte se règle dans l'UI LM Studio). Le dashboard enregistre
+# la racine « /v1 » — normalisée par _lm_studio_chat_url().
+DEFAULT_LM_STUDIO_URL = "http://192.168.184:1234/v1/chat/completions"
+# Modèle par défaut : LM Studio sert le modèle chargé quand l'identifiant ne
+# correspond pas — on laisse vide pour que GET /v1/models alimente le
+# sélecteur du chat (surcharge via AGENT_MODEL_NAME).
+DEFAULT_LM_STUDIO_MODEL_NAME = ""
+
 # Taille de fenêtre de contexte (tokens) appliquée par défaut à l'agent,
 # transmise à Ollama via `options.num_ctx` (env AGENT_CONTEXT_LENGTH).
 DEFAULT_CONTEXT_LENGTH = 2048
@@ -126,6 +135,20 @@ def _hf_chat_url(url: str | None) -> str:
     return f"{url}/chat/completions"
 
 
+def _lm_studio_chat_url(url: str | None) -> str:
+    """Normalise une URL LM Studio vers l'endpoint chat complet.
+
+    Accepte la racine de l'API (« http://192.168.184:1234/v1 ») ou l'endpoint
+    complet (« .../v1/chat/completions »), comme _openrouter_chat_url.
+    """
+    url = (url or "").strip().rstrip("/")
+    if not url:
+        return DEFAULT_LM_STUDIO_URL
+    if url.endswith("/chat/completions"):
+        return url
+    return f"{url}/chat/completions"
+
+
 
 
 
@@ -138,9 +161,11 @@ def agent_config() -> dict:
         3. défauts historiques du module.
 
     Variables d'environnement utilisées en repli :
-        AGENT_PROVIDER         « ollama » (défaut) ou « openrouter »
+        AGENT_PROVIDER         « ollama » (défaut), « openrouter », « hf »
+                               ou « lm_studio »
         AGENT_OLLAMA_URL       URL du endpoint chat Ollama
         AGENT_OPENROUTER_URL   URL du endpoint chat OpenRouter (compatible OpenAI)
+        AGENT_LM_STUDIO_URL    URL du endpoint chat LM Studio (compatible OpenAI)
         OPENROUTER_API_KEY     clé API OpenRouter (requise si provider=openrouter)
         AGENT_MODEL_NAME       nom du modèle (ex: llama3.1:8b ou vendor/model)
         AGENT_TIMEOUT_SECONDS  timeout en secondes des appels LLM
@@ -153,11 +178,16 @@ def agent_config() -> dict:
 
     provider = val("provider") or DEFAULT_PROVIDER
     # Défaut dépendant du provider : les modèles OpenRouter portent un
-    # identifiant « vendor/model » incompatible avec la convention Ollama.
+    # identifiant « vendor/model » incompatible avec la convention Ollama ;
+    # LM Studio laisse le champ vide (le modèle chargé est servi par défaut).
     model = val("model") or (
         DEFAULT_OPENROUTER_MODEL_NAME
         if provider == "openrouter"
-        else DEFAULT_HF_MODEL_NAME if provider == "hf" else DEFAULT_MODEL_NAME
+        else DEFAULT_HF_MODEL_NAME
+        if provider == "hf"
+        else DEFAULT_LM_STUDIO_MODEL_NAME
+        if provider == "lm_studio"
+        else DEFAULT_MODEL_NAME
     )
     timeout_raw = val("timeout_seconds")
     context_raw = val("context_length")
@@ -172,6 +202,9 @@ def agent_config() -> dict:
         "openrouter_api_key": val("openrouter_api_key") or "",
         "hf_url": _hf_chat_url(val("hf_url") or DEFAULT_HF_URL),
         "hf_api_key": val("hf_api_key") or "",
+        "lm_studio_url": _lm_studio_chat_url(
+            val("lm_studio_url") or DEFAULT_LM_STUDIO_URL
+        ),
         "model": model,
         "timeout": (
             float(timeout_raw) if timeout_raw is not None else DEFAULT_TIMEOUT_SECONDS
@@ -216,6 +249,10 @@ def _llm_endpoint(cfg: dict) -> tuple[str, str | None]:
                 ),
             )
         return cfg["hf_url"], api_key
+    if cfg["provider"] == "lm_studio":
+        # LM Studio : serveur local SANS authentification — aucune clé
+        # requise, la config ne porte que l'URL du endpoint chat.
+        return cfg["lm_studio_url"], None
     return cfg["ollama_url"], None
 
 
@@ -343,6 +380,8 @@ def list_llm_models() -> dict:
         return _list_openrouter_models(cfg)
     if cfg["provider"] == "hf":
         return _list_hf_models(cfg)
+    if cfg["provider"] == "lm_studio":
+        return _list_lm_studio_models(cfg)
 
     base_url = _ollama_base_url()
     try:
@@ -525,6 +564,76 @@ def _list_hf_models(cfg: dict) -> dict:
     except ValueError as exc:  # réponse non JSON
         raise HTTPException(
             status_code=502, detail=f"Réponse illisible de l'API Hugging Face ({exc})."
+        )
+
+    active_model = cfg["model"]
+    models = []
+    for entry in payload.get("data", []):
+        name = entry.get("id") or ""
+        if not name:
+            continue
+        models.append(
+            {
+                "name": name,
+                "size": None,
+                "modified_at": None,
+                "is_default": name == active_model,
+            }
+        )
+    models.sort(key=lambda item: item["name"])
+
+    return {"active": active_model, "models": models}
+
+
+def _lm_studio_base_api() -> str:
+    """Racine de l'API LM Studio déduite de l'URL du endpoint chat.
+
+    « http://192.168.184:1234/v1/chat/completions » -> « .../v1 ».
+    """
+    url = agent_config()["lm_studio_url"]
+    marker = url.find("/chat/completions")
+    if marker != -1:
+        return url[:marker].rstrip("/")
+    return url.rsplit("/", 1)[0] if "/" in url.rstrip("/") else url
+
+
+def _list_lm_studio_models(cfg: dict) -> dict:
+    """Liste les modèles LM Studio (GET /v1/models, compatible OpenAI).
+
+    Aucune authentification : le serveur local expose les modèles chargés.
+    Mapping sur le même contrat que la liste OpenRouter : ``name`` porte
+    l'identifiant complet du modèle ; ``size`` et ``modified_at`` n'existent
+    pas côté LM Studio.
+    """
+    url = f"{_lm_studio_base_api()}/models"
+    try:
+        response = requests.get(url, timeout=LIST_MODELS_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        payload = response.json()
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Le serveur LM Studio ({url}) n'a pas répondu "
+                f"dans les {LIST_MODELS_TIMEOUT_SECONDS:.0f}s."
+            ),
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Serveur LM Studio injoignable sur {url}. Vérifiez qu'il "
+                "tourne (LM Studio > Developer > Local Server)."
+            ),
+        )
+    except requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par LM Studio (HTTP {status})."
+        )
+    except ValueError as exc:  # réponse non JSON
+        raise HTTPException(
+            status_code=502, detail=f"Réponse illisible du serveur LM Studio ({exc})."
         )
 
     active_model = cfg["model"]

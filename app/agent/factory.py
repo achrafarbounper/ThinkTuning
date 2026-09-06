@@ -33,7 +33,8 @@ def llm_endpoint(settings):
     url = {
         AgentProvider.OLLAMA: settings.agent_ollama_url,
         AgentProvider.OPENROUTER: settings.agent_openrouter_url,
-        AgentProvider.HF: settings.agent_ollama_url,  # endpoint HF : réutilise ollama_url
+        AgentProvider.HF: settings.agent_hf_url,
+        AgentProvider.LM_STUDIO: settings.agent_lm_studio_url,
     }[settings.agent_provider]
 
     api_key = None

@@ -4,8 +4,8 @@ Remplace progressivement ``ia/agent/llm_client.py`` (Phase 3 de la migration)
 derrière le MÊME port, sans changer les use-cases. Reproduit fidèlement le
 comportement legacy :
 
-- trois providers : ``ollama`` (NDJSON, ``options.num_ctx`` / ``think``),
-  ``openrouter`` et ``hf`` (SSE compatible OpenAI, fragments
+- quatre providers : ``ollama`` (NDJSON, ``options.num_ctx`` / ``think``),
+  ``openrouter``, ``hf`` et ``lm_studio`` (SSE compatible OpenAI, fragments
   ``choices[0].delta.{content, reasoning}``) ;
 - streaming réel ``stream: true`` : chaque fragment émetté via les callbacks
   ``on_thinking`` / ``on_content`` ; ``call()`` réassemble (contrat str
@@ -40,7 +40,7 @@ from ia.agent.thinking import extract_thinking
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
-PROVIDERS = ("ollama", "openrouter", "hf")
+PROVIDERS = ("ollama", "openrouter", "hf", "lm_studio")
 DEFAULT_TEMPERATURE = 0.8
 DEFAULT_CONTEXT_LENGTH = 2048
 
@@ -74,7 +74,12 @@ def _build_payload(
     think: bool,
 ) -> dict:
     """Construit le corps JSON de la requête selon le provider."""
-    if provider in ("openrouter", "hf"):
+    if provider in ("openrouter", "hf", "lm_studio"):
+        # Format compatible OpenAI (OpenRouter, Hugging Face Inference Providers
+        # et LM Studio — dont les endpoints sont des copies de l'API chat
+        # OpenAI) : température au niveau racine, pas de bloc « options »
+        # (num_ctx n'existe pas côté providers hébergés ; côté LM Studio la
+        # fenêtre de contexte se règle dans son UI).
         payload: dict = {
             "model": model,
             "messages": messages,

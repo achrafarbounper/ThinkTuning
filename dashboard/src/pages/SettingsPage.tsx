@@ -5,7 +5,7 @@
  * via AppContext ; elle est partagée par toutes les pages et le chat.
  *
  * La section « Assistant IA » configure le provider LLM (Ollama / OpenRouter /
- * Hugging Face Inference Providers).
+ * Hugging Face Inference Providers / LM Studio).
  */
 
 import { useCallback, useState, type FormEvent } from "react";
@@ -22,6 +22,7 @@ interface DraftShape {
   openrouterApiKey: string;
   hfUrl: string;
   hfApiKey: string;
+  lmStudioUrl: string;
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
@@ -50,6 +51,7 @@ export default function SettingsPage() {
     openrouterApiKey: agentSettings?.openrouterApiKey ?? "",
     hfUrl: agentSettings?.hfUrl ?? "https://router.huggingface.co/v1",
     hfApiKey: agentSettings?.hfApiKey ?? "",
+    lmStudioUrl: agentSettings?.lmStudioUrl ?? "http://192.168.184:1234/v1",
     timeoutSeconds: agentSettings?.timeoutSeconds ?? 60,
     contextLength: agentSettings?.contextLength ?? 512,
     temperature: agentSettings?.temperature ?? 0.2,
@@ -73,6 +75,7 @@ export default function SettingsPage() {
 
   const isOllama = draft.provider === "ollama";
   const isHf = draft.provider === "hf";
+  const isLmStudio = draft.provider === "lm_studio";
 
   // -- Connexion API ----------------------------------------------------------
     const saveConfig = useCallback(
@@ -173,6 +176,8 @@ export default function SettingsPage() {
                   updateDraft("openrouterUrl", "https://openrouter.ai/api/v1");
                 } else if (e.target.value === "hf") {
                   updateDraft("hfUrl", "https://router.huggingface.co/v1");
+                } else if (e.target.value === "lm_studio") {
+                  updateDraft("lmStudioUrl", "http://192.168.184:1234/v1");
                 } else {
                   updateDraft("ollamaUrl", "");
                 }
@@ -182,7 +187,8 @@ export default function SettingsPage() {
               <option value="ollama">Ollama (local)</option>
               <option value="openrouter">OpenRouter (hébergé)</option>
               <option value="hf">Hugging Face (Inference Providers)</option>
-                        </select>
+              <option value="lm_studio">LM Studio (local)</option>
+            </select>
           </div>
 
           <p className="tt-assistant-section-help">
@@ -190,7 +196,9 @@ export default function SettingsPage() {
               ? "Exécute les requêtes LLM locales via Docker Ollama."
               : isHf
                 ? "Accède aux LLM via Hugging Face Inference Providers avec votre token HF."
-                : "Accède aux LLM via OpenRouter avec votre clé API."}
+                : isLmStudio
+                  ? "Serveur local LM Studio — démarrez le serveur (onglet Developer) ; aucune clé requise."
+                  : "Accède aux LLM via OpenRouter avec votre clé API."}
           </p>
 
           <div className="tt-assistant-grid">
@@ -200,7 +208,13 @@ export default function SettingsPage() {
                 type="text"
                 value={draft.model}
                 onChange={(e) => updateDraft("model", e.target.value)}
-                placeholder={isOllama ? "qwen2.5:0.5b" : "vendor/openai/gpt-3.5-turbo"}
+                placeholder={
+                  isOllama
+                    ? "qwen2.5:0.5b"
+                    : isLmStudio
+                      ? "modèle chargé dans LM Studio (vide = modèle actif)"
+                      : "vendor/openai/gpt-3.5-turbo"
+                }
                 className="tt-input-tt-settings"
               />
             </label>
@@ -257,7 +271,7 @@ export default function SettingsPage() {
             </label>
           )}
 
-          {!isOllama && !isHf && (
+          {!isOllama && !isHf && !isLmStudio && (
             <label>
               <span className="tt-assistant-label">URL OpenRouter</span>
               <input
@@ -270,7 +284,7 @@ export default function SettingsPage() {
             </label>
           )}
 
-          {!isOllama && !isHf && (
+          {!isOllama && !isHf && !isLmStudio && (
             <label>
               <span className="tt-assistant-label">Clé API OpenRouter</span>
               <input
@@ -278,6 +292,19 @@ export default function SettingsPage() {
                 value={draft.openrouterApiKey}
                 onChange={(e) => updateDraft("openrouterApiKey", e.target.value)}
                 placeholder="sk-or-xxxxxxxxxxxx"
+                className="tt-input-tt-settings"
+              />
+            </label>
+          )}
+
+          {isLmStudio && (
+            <label>
+              <span className="tt-assistant-label">URL LM Studio</span>
+              <input
+                type="text"
+                value={draft.lmStudioUrl}
+                onChange={(e) => updateDraft("lmStudioUrl", e.target.value)}
+                placeholder="http://192.168.184:1234/v1"
                 className="tt-input-tt-settings"
               />
             </label>
@@ -366,7 +393,7 @@ export default function SettingsPage() {
             ThinkTuning — pipeline complet de recomposition de données (EDA) +
             fine-tuning DistilBERT multilingue pour la classification de sentiments
             (positif / neutre / négatif) en français et en anglais. Assistant IA
-            configurable via OpenRouter, Hugging Face ou Ollama.
+            configurable via Ollama, OpenRouter, Hugging Face ou LM Studio.
           </p>
         </section>
       </div>

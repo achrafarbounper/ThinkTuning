@@ -15,7 +15,7 @@ sentiment_project/
 ├── dashboard/          # Interface web React + Vite (analyse, assistant IA, entraînement…)
 ├── api/                # API FastAPI (routes, middlewares, auth par clé)
 ├── core/               # Stores SQLite, versionnage des modèles, cache predictor
-├── ia/                 # Agent IA (Ollama/OpenRouter) + outils sandboxés
+├── ia/                 # Agent IA (Ollama/OpenRouter/HF/LM Studio) + outils sandboxés
 └── requirements.txt
 ```
 
@@ -440,20 +440,27 @@ est séparée de la réponse finale et affichée dans une bulle repliable du cha
   (`AgentCore.extract_json_blocks` délègue à `ia/agent/json_parser.py`).
 - **Tests** : `pytest tests/test_agent_thinking.py -v` (tests offline).
 
-### Provider LLM : Ollama ou OpenRouter
+### Provider LLM : Ollama, OpenRouter, Hugging Face ou LM Studio
 
-Le même agent peut consommer soit un serveur Ollama auto-hébergé (historique),
-soit l'API hébergée [OpenRouter](https://openrouter.ai/) (compatible OpenAI,
-accès à des centaines de modèles cloud dont les modèles de raisonnement).
+Le même agent peut consommer :
+- un serveur **Ollama** auto-hébergé (historique, NDJSON natif) ;
+- l'API hébergée [OpenRouter](https://openrouter.ai/) (compatible OpenAI, accès
+  à des centaines de modèles cloud dont les modèles de raisonnement) ;
+- **Hugging Face Inference Providers** (compatible OpenAI, jeton HF requis) ;
+- un serveur **LM Studio** local (compatible OpenAI, aucune clé requise).
+
 La bascule est **globale côté serveur**, par variable d'environnement :
 
 | Variable | Rôle |
 |---|---|
-| `AGENT_PROVIDER` | `ollama` (défaut) ou `openrouter` |
-| `AGENT_MODEL_NAME` | nom du modèle (`llama3.1:8b`, ou ID OpenRouter `vendor/model`) |
+| `AGENT_PROVIDER` | `ollama` (défaut), `openrouter`, `hf` ou `lm_studio` |
+| `AGENT_MODEL_NAME` | nom du modèle (`llama3.1:8b`, ID `vendor/model`, ou vide pour LM Studio = modèle chargé) |
 | `AGENT_OLLAMA_URL` | endpoint chat Ollama (`/api/chat`) |
 | `AGENT_OPENROUTER_URL` | endpoint OpenRouter (`…/api/v1/chat/completions`) |
 | `OPENROUTER_API_KEY` | clé API OpenRouter — **requise** si provider = openrouter |
+| `AGENT_HF_URL` | endpoint HF (`https://router.huggingface.co/v1/chat/completions`, racine `/v1` acceptée) |
+| `HF_API_KEY` / `HF_TOKEN` | jeton HF — **requise** si provider = `hf` |
+| `AGENT_LM_STUDIO_URL` | endpoint LM Studio (`http://192.168.184:1234/v1/chat/completions`, racine `/v1` acceptée) — **aucune clé** |
 
 Exemple pour passer à OpenRouter (`.env`) :
 
@@ -463,20 +470,38 @@ AGENT_MODEL_NAME=deepseek/deepseek-r1:free
 OPENROUTER_API_KEY=sk-or-v1-…
 ```
 
+Exemple pour utiliser un serveur LM Studio local (`.env`) — démarrez d'abord le
+serveur dans LM Studio (*Developer* > *Local Server*, port 1234 par défaut) :
+
+```env
+AGENT_PROVIDER=lm_studio
+AGENT_LM_STUDIO_URL=http://192.168.184:1234/v1
+```
+
+LM Studio sert le modèle chargé dans son UI même si `AGENT_MODEL_NAME` est vide ;
+la fenêtre de contexte se règle dans LM Studio (le paramètre `num_ctx` n'est
+pas envoyé aux providers compatibles OpenAI).
+
 Comportements notables :
 
-- **Mode « Réflexion »** : fonctionne dans les deux cas. Côté Ollama le champ
-  natif `message.thinking` est lu ; côté OpenRouter le flux SSE porte la trace
-  via `choices[0].delta.reasoning` (repli `reasoning_content`), diffusée en
-  temps réel via les mêmes événements `thinking_delta`. Les balises `<think>`
-  inline restent extraites en repli.
+- **Mode « Réflexion »** : fonctionne pour les quatre providers. Côté Ollama le
+  champ natif `message.thinking` est lu ; côté OpenRouter, Hugging Face et
+  LM Studio le flux SSE porte la trace via `choices[0].delta.reasoning`
+  (repli `reasoning_content`), diffusée en temps réel via les mêmes événements
+  `thinking_delta`. Les balises `<think>` inline restent extraites en repli.
 - **Sélecteur de modèle du chat** : `/api/models` liste les modèles installés
-  sur Ollama (`GET /api/tags`) OU disponibles sur OpenRouter (`GET /api/v1/models`)
-  selon le provider actif ; le contrat JSON est identique, aucun changement
-  dashboard requis.
+  sur Ollama (`GET /api/tags`), disponibles sur OpenRouter ou Hugging Face
+  (`GET /api/v1/models`), ou chargés dans LM Studio (`GET /v1/models`) selon le
+  provider actif ; le contrat JSON est identique, aucun changement dashboard
+  requis.
 - **Clé manquante** : démarrage avec `AGENT_PROVIDER=openrouter` sans
-  `OPENROUTER_API_KEY` → réponse HTTP 500 explicite au premier appel.
-- **Tests** : `pytest tests/test_agent_openrouter.py -v` (tests offline).
+  `OPENROUTER_API_KEY` (ou `hf` sans jeton) → réponse HTTP 500 explicite au
+  premier appel. LM Studio ne demande jamais de clé.
+- **Page Paramètres du dashboard** : le provider, l'URL et la clé sont
+  enregistrables à chaud (`PUT /api/agent/settings`), avec sonde de
+  connectivité par provider (`POST /api/agent/settings/test`).
+- **Tests** : `pytest tests/test_agent_openrouter.py tests/test_agent_hf.py
+  tests/test_agent_lmstudio.py -v` (tests offline).
 
 ### Outils disponibles
 
@@ -595,7 +620,7 @@ Pages disponibles (navigation par hachage `#/…`) :
 | **Comparer** | Soumet le même texte à deux versions de modèles côte à côte (sentiment + confiance) |
 | **Assistant IA** | Chat façon Copilot en streaming SSE (`POST /api/ai`) avec réflexion, blocs d'outils et sessions |
 | **Entraînement** | Formulaire de fine-tuning (`POST /train`) + suivi temps réel du job (poll 4 s) + historique |
-| **Paramètres** | Connexion API (URL + `X-API-Key`) et configuration du provider LLM (Ollama / OpenRouter) |
+| **Paramètres** | Connexion API (URL + `X-API-Key`) et configuration du provider LLM (Ollama / OpenRouter / HF / LM Studio) |
 
 ### Lancement en développement
 

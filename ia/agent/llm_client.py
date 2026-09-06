@@ -11,7 +11,11 @@ Deux providers sont supportés (plus « hf ») :
       ``choices[0].delta.{content, reasoning}`` (repli « reasoning_content ») ;
     - ``hf`` : Hugging Face Inference Providers, endpoint compatible OpenAI
       (https://router.huggingface.co/v1/chat/completions), auth Bearer
-      « HF_TOKEN », même flux SSE qu'OpenRouter — le payload est identique.
+      « HF_TOKEN », même flux SSE qu'OpenRouter — le payload est identique ;
+    - ``lm_studio`` : serveur local LM Studio, endpoint compatible OpenAI
+      (http://192.168.184:1234/v1/chat/completions), AUCUNE authentification,
+      même flux SSE qu'OpenRouter — le payload est identique (la fenêtre de
+      contexte se règle dans l'UI LM Studio).
 
 Les événements sont publiés sur le logger « thinktuning.agent » (même canal
 que AgentCore) : requête/durée/statut en INFO, contenus complets en DEBUG,
@@ -51,8 +55,9 @@ logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 
 # Providers supportés par le client : « hf » = Hugging Face Inference
-# Providers (endpoint compatible OpenAI, cf. _build_payload).
-PROVIDERS = ("ollama", "openrouter", "hf")
+# Providers (endpoint compatible OpenAI, cf. _build_payload) ; « lm_studio » =
+# serveur local LM Studio (endpoint compatible OpenAI, sans authentification).
+PROVIDERS = ("ollama", "openrouter", "hf", "lm_studio")
 
 # Température appliquée quand l'appelant n'en fournit pas explicitement
 # (0.8 = défaut historique du serveur Ollama).
@@ -160,12 +165,12 @@ class LLMClient:
 
     def _build_payload(self, messages) -> dict:
         """Construit le corps JSON de la requête selon le provider."""
-        if self.provider in ("openrouter", "hf"):
-            # Format compatible OpenAI (OpenRouter ET Hugging Face Inference
-            # Providers, dont l'endpoint router.huggingface.co est une copie
-            # de l'API chat OpenAI) : température au niveau racine, pas de
-            # bloc « options » (num_ctx n'existe pas côté providers hébergés ;
-            # la fenêtre de contexte est gérée par le modèle hébergé).
+        if self.provider in ("openrouter", "hf", "lm_studio"):
+            # Format compatible OpenAI (OpenRouter, Hugging Face Inference
+            # Providers et LM Studio, dont les endpoints sont des copies de
+            # l'API chat OpenAI) : température au niveau racine, pas de bloc
+            # « options » (num_ctx n'existe pas côté providers hébergés ; côté
+            # LM Studio la fenêtre de contexte se règle dans son UI).
             payload: dict = {
                 "model": self.model,
                 "messages": messages,
