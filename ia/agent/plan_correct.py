@@ -7,7 +7,10 @@ Règles implémentées (aucune dépendance LLM) :
     - diagnostics système / lecture seule → rôle « ops » (env_info, disk_usage,
       gpu_info) ; JAMAIS « shell » pour du CPU simple ;
     - « shell » : autorisé UNIQUEMENT si la sous-tâche référence une commande
-      whitelistée ; sinon rejet immédiat (``PlanRejected``) ;
+      whitelistée ; toute VRAIE intention d'exécution (commande/script/
+      terminal) non whitelistée est un rejet immédiat (``PlanRejected``) ;
+      un simple mauvais assignement (rôle « shell » sur une sous-tâche SANS
+      intention d'exécution) est re-ciblé vers « files » (pas d'abort du run) ;
     - SQL : seules les lectures passent (SELECT/WITH/EXPLAIN/PRAGMA) ; toute
       mutation SQL est un rejet immédiat (jamais soumise à un worker) ;
     - recherches / lecture web → rôle « web » ;
@@ -62,9 +65,15 @@ _FILE_WRITE_MARKERS = re.compile(
     re.IGNORECASE,
 )
 
+# « format » (commande DOS de formatage de disque) est HORS du groupe \b
+# final : un \b après « : » échouerait en fin de chaîne. Le marqueur exige une
+# cible de disque (« format C: ») ou un drapeau (« format /fs:… ») — le nom
+# commun français « format » (ex. « en format demandé : titre… ») ne doit PAS
+# être un marqueur de danger (faux positif → abort de plans valides).
 _DANGEROUS_SHELL = re.compile(
-    r"\b(rm\s+-rf|mkfs|dd\s+if=|shutdown|reboot|format|:\(\)|curl\s+.*\|.*sh|"
-    r"chmod\s+777|sudo\s+|wget\s+.*-O\s+/|>.*/etc/)\b",
+    r"\b(rm\s+-rf|mkfs|dd\s+if=|shutdown|reboot|:\(\)|curl\s+.*\|.*sh|"
+    r"chmod\s+777|sudo\s+|wget\s+.*-O\s+/|>.*/etc/)\b"
+    r"|\bformat\s+(?:[a-z]\s*:|/)",
     re.IGNORECASE,
 )
 
@@ -172,11 +181,24 @@ def correct_plan(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         # --- Shell : commande whitelistée requise --------------------------------
         if role == "shell" or category in ("shell", "shell_dangerous"):
-            if category == "shell_dangerous" or not _shell_whitelisted(subtask):
+            if category == "shell_dangerous" or (
+                category == "shell" and not _shell_whitelisted(subtask)
+            ):
+                # Vraie INTENTION d'exécution non conforme (ou marqueur de
+                # danger) : rejet immédiat, quel que soit le rôle assigné.
                 raise PlanRejected(
                     f"Sous-tâche {task.get('task_id', '?')} : rôle « shell » "
                     f"réservé aux commandes whitelistées (« {subtask[:120]} »)."
                 )
+            if role == "shell" and not _shell_whitelisted(subtask):
+                # Faux assignement du planner : rôle « shell » mais AUCUNE
+                # intention d'exécution (catégorie general / file_write /
+                # empty, ex. « structurer les résultats en format … »).
+                # Re-ciblage déterministe vers « files » (ouvrier générique
+                # sandbox) au lieu d'abandonner tout le run pour une erreur
+                # d'étiquette : un worker shell ne reçoit JAMAIS une
+                # sous-tâche qui n'est pas une commande whitelistée.
+                new_task["role"] = "files"
             corrected.append(new_task)
             continue
 

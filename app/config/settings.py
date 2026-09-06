@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     )
 
     # --- Agent : provider LLM -----------------------------------------------
-    agent_provider: AgentProvider = AgentProvider.OPENROUTER
+    agent_provider: AgentProvider = AgentProvider.OLLAMA
     agent_model_name: str = "openrouter/free"
     agent_ollama_url: str = "http://192.168.1.184:11434/api/chat"
     agent_openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"
