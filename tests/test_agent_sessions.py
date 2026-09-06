@@ -263,3 +263,76 @@ def test_store_repairs_mojibake_on_read():
     # Un texte Latin-1 légitime n'est pas altéré.
     store.append_message(sid, "assistant", "café coração")
     assert store.get_messages(sid)[-1]["content"] == "café coração"
+
+
+# --- Trace de réflexion persistée (mode « Réflexion » — SCRUM-101) ----------
+
+
+def test_store_persists_and_repairs_thinking_trace():
+    """La trace de réflexion est persistée avec le message assistant, relue
+    intacte (mojibake réparé) et vaut '' quand aucune trace n'a été produite."""
+    import tempfile
+
+    path = os.path.join(tempfile.gettempdir(), "tt_sessions_thinking.db")
+    if os.path.exists(path):
+        os.remove(path)
+    store = session_store.SessionStore(path)
+
+    sid = store.create_session()["id"]
+    store.append_message(sid, "user", "calcule 2+2")
+    store.append_message(sid, "assistant", "2 + 2 = 4.", thinking="Je vérifie l'addition.")
+
+    messages = store.get_messages(sid)
+    assert messages[1]["thinking"] == "Je vérifie l'addition."
+    # Message sans trace : chaîne vide (contrat stable pour le front).
+    assert messages[0]["thinking"] == ""
+
+    # Mojibake réparé à la lecture, comme pour le contenu.
+    expected = "Réflexion : tête de calcul."
+    mojibake = expected.encode("utf-8").decode("latin-1")
+    store.append_message(sid, "assistant", "ok", thinking=mojibake)
+    assert store.get_messages(sid)[-1]["thinking"] == expected
+
+
+def test_api_ai_persists_thinking_with_session(client, monkeypatch):
+    """POST /api/ai + session_id : la réponse ET sa réflexion sont journalisées.
+
+    Au rechargement de la conversation (GET /api/sessions/{id}/messages),
+    la trace est restituée telle quelle (bloc « Réflexion » du chat).
+    """
+    import api.routes.ai_chat as ai_chat_routes
+
+    monkeypatch.setattr(
+        ai_chat_routes,
+        "ask_agent_detailed_streaming",
+        lambda *a, **k: {
+            "answer": "La réponse finale.",
+            "thinking": "Je réfléchis étape par étape.",
+        },
+    )
+
+    session = client.post("/api/sessions", headers=HEADERS, json={}).json()
+    sid = session["id"]
+
+    resp = client.post(
+        "/api/ai",
+        headers=HEADERS,
+        json={"message": "bonjour", "session_id": sid, "enable_thinking": True},
+    )
+    assert resp.status_code == 200
+
+    messages = client.get(f"/api/sessions/{sid}/messages").json()["messages"]
+    assert messages[-1]["role"] == "assistant"
+    assert messages[-1]["content"] == "La réponse finale."
+    assert messages[-1]["thinking"] == "Je réfléchis étape par étape."
+
+
+def test_persist_exchange_keeps_thinking(client):
+    """persist_exchange (noyau v2) journalise la réflexion fournie."""
+    from app.application.session_memory import persist_exchange
+
+    session = client.post("/api/sessions", headers=HEADERS, json={}).json()
+    sid = session["id"]
+    persist_exchange(sid, "question", "réponse", thinking="raisonnement")
+    messages = session_store.get_session_store().get_messages(sid)
+    assert messages[1]["thinking"] == "raisonnement"

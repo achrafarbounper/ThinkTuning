@@ -31,6 +31,11 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 from .system_prompt import THINKING_PROMPT_SECTION, build_system_prompt
 from .json_parser import extract_json_blocks as _parse_json_blocks
 from .thinking import extract_thinking
+# Garde STRUCTURELLE d'alternance des rôles : appliquée au point de passage
+# unique (_call_llm) avant chaque appel LLM. Les templates Jinja de certains
+# serveurs (Ollama / LM Studio, familles Mistral) rejettent en 400 toute
+# séquence avec deux messages consécutifs de même rôle.
+from .chat_messages import ensure_strict_alternance
 
 # === Infrastructure d'extension (hooks, middlewares, observabilité) ===
 # Imports best-effort : ces modules sont optionnels et ne doivent pas bloquer
@@ -783,9 +788,17 @@ class AgentCore:
 
         def _call_llm(messages) -> str:
             """Appelle le LLM, en streamant la réflexion vers on_thinking."""
+            # Garde STRUCTURELLE (point de passage unique) : fusion des
+            # messages adjacents de même rôle avant TOUT appel. Un seul endroit
+            # garantit l'alternance pour tous les flux (workers, lead,
+            # reviewer, repli conversationnel ; streaming ou non) — un template
+            # Jinja strict côté serveur (« Conversation roles must alternate
+            # user/assistant/... ») ne peut plus jamais voir une séquence
+            # cassée, quelle que soit la branche qui construit les messages.
+            safe_messages = ensure_strict_alternance(messages)
             if streaming_llm:
-                return self.llm.call_stream(messages, on_thinking=on_thinking)
-            return self.llm.call(messages)
+                return self.llm.call_stream(safe_messages, on_thinking=on_thinking)
+            return self.llm.call(safe_messages)
 
         def _capture(raw: str) -> str:
             """Nettoie une réponse brute et archive sa réflexion éventuelle."""
@@ -1069,7 +1082,23 @@ class AgentCore:
         if problems:
             conclusion += " Problèmes : " + " | ".join(problems)
 
-        answer = _capture(_call_llm([*messages, {"role": "user", "content": conclusion}]))
+        # Alternance stricte (bug worker « web ») : après un round d'outil ou
+        # d'auto-correction, `messages` se termine DÉJÀ par un « user »
+        # (« Dernier résultat : … » ou message de correction). Ajouter la
+        # conclusion comme un NOUVEAU « user » produisait deux « user »
+        # consécutifs — rejet 400 par les templates Jinja exigeant
+        # user/assistant alternés (« Conversation roles must alternate… »),
+        # classé LLMUnreachable côté orchestrateur. On FOND donc la consigne
+        # dans le dernier tour « user » (contenu intégralement préservé),
+        # et on ne l'ajoute que s'il n'existe pas.
+        if messages and messages[-1].get("role") == "user":
+            messages[-1]["content"] = (
+                f"{messages[-1]['content']}\n\n{conclusion}"
+            )
+        else:
+            messages.append({"role": "user", "content": conclusion})
+
+        answer = _capture(_call_llm(messages))
 
         if problems:
             answer += "\n\n[auto-correction] " + " | ".join(problems)

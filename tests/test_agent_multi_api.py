@@ -144,3 +144,86 @@ def test_stream_compact_filters_observability_events(monkeypatch):
     assert "agent.worker.start" in body
     assert "agent.worker.result" in body
     assert "agent.done" in body
+
+
+def test_stream_compact_delivers_worker_thinking_and_error(monkeypatch):
+    """SCRUM-101 — mode compact : la réflexion ET les erreurs worker atteignent le front.
+
+    Deux événements requis par l'IHM ne doivent PAS être classés
+    « observabilité » :
+      - ``agent.worker.thinking`` : trace de raisonnement affichée en temps
+        réel dans le bloc « Réflexion en cours » du chat (mode « Réflexion »
+        activé). Son émission est déjà conditionnée à ``enable_thinking``
+        côté orchestrateur (thinking_hook) — la classer observabilité
+        rendait le mode Réflexion muet en multi-agents ;
+      - ``agent.worker.error`` : clôture la ligne de trace du worker dans le
+        panneau multi-agents (sinon le worker reste « running » à l'écran
+        jusqu'à agent.done).
+
+    tool / synthesizing restent filtrés (observabilité pure).
+    """
+    _plan = [
+        {"task_id": "task-1", "role": "web", "subtask": "cherche A"},
+        {"task_id": "task-2", "role": "math", "subtask": "calcule B"},
+    ]
+    _error_worker = {
+        "task_id": "task-2", "role": "math", "status": "error",
+        "message": "boucle", "duration_ms": 5,
+    }
+    _outcome = {
+        "status": "completed", "final_answer": "FINAL", "plan": _plan,
+        "workers": [
+            {"task_id": "task-1", "role": "web", "status": "ok",
+             "result": "R", "duration_ms": 10},
+            _error_worker,
+        ],
+        "unexecuted": [_error_worker],
+        "thinking": "", "duration_ms": 15.0,
+    }
+
+    def _streaming(prompt, model=None, parallel=False, on_event=None, **_kwargs):
+        if on_event is not None:
+            on_event("agent.plan", {"plan": _plan})
+            on_event("agent.worker.start", {"task_id": "task-1", "role": "web"})
+            on_event("agent.worker.thinking",
+                     {"task_id": "task-1", "role": "web",
+                      "thinking": "Je cherche d'abord A."})
+            on_event("agent.worker.thinking",
+                     {"task_id": "task-1", "role": "web",
+                      "thinking": "Deuxième fragment de réflexion."})
+            on_event("agent.worker.tool",
+                     {"task_id": "task-1", "role": "web",
+                      "event": "tool_start", "tool": "web_search"})
+            on_event("agent.worker.error",
+                     {"task_id": "task-2", "role": "math",
+                      "message": "boucle", "error_code": "MaxRoundsExceeded"})
+            on_event("agent.worker.result",
+                     {"task_id": "task-1", "role": "web",
+                      "status": "ok", "summary": "R"})
+            on_event("agent.synthesizing", {"worker_errors": 1})
+        return _outcome
+
+    monkeypatch.setattr(agent_routes, "ask_multi_agent_streaming", _streaming)
+
+    app = FastAPI()
+    app.include_router(agent_routes.router)
+    client = TestClient(app)
+
+    with client.stream("POST", "/api/agent/multi/ask/stream",
+                       json={"prompt": "q", "mode": "compact",
+                             "enable_thinking": True},
+                       headers=HEADERS) as resp:
+        assert resp.status_code == 200
+        body = b"".join(resp.iter_bytes()).decode("utf-8", errors="replace")
+
+    # La réflexion du worker ATTEINT le front, même en mode compact :
+    # chaque fragment → une frame « event: agent.worker.thinking ».
+    assert body.count("event: agent.worker.thinking") == 2
+    assert "Je cherche d'abord A." in body
+    assert "Deuxième fragment de réflexion." in body
+    # L'erreur worker est diffusée (clôture de la trace côté IHM).
+    assert "event: agent.worker.error" in body
+    assert "MaxRoundsExceeded" in body
+    # Les événements d'observabilité restent filtrés en compact.
+    assert "agent.worker.tool" not in body
+    assert "agent.synthesizing" not in body

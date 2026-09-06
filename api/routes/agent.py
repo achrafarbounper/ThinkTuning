@@ -187,7 +187,10 @@ class MultiAskRequest(BaseModel):
     mode: str = Field(
         "full",
         description="Granularité du streaming SSE : « full » (tous événements) "
-        "ou « compact » (plan / worker.result / done uniquement).",
+        "ou « compact » (plan / worker.* / done — les événements "
+        "d'observabilité tool / synthesizing sont filtrés). La réflexion des "
+        "workers (agent.worker.thinking) passe dans les deux modes : elle est "
+        "requise par l'IHM dès que enable_thinking est actif.",
     )
 
 
@@ -197,15 +200,24 @@ _MULTI_UX_EVENTS = {
     "agent.resuming",
     "agent.worker.start",
     "agent.worker.result",
+    # Erreur d'un worker : le front (ChatWindow, case agent.worker.error)
+    # clôture la ligne de trace du worker — la filtrer en compact laisserait
+    # ce worker « running » à l'écran jusqu'à agent.done (SCRUM-101).
+    "agent.worker.error",
     "agent.worker.approval",
     "agent.done",
     "agent.error",
 }
 # Événements « observabilité » : filtrés hors du mode « compact ».
+#
+# NB : « agent.worker.thinking » n'y figure PAS volontairement. La réflexion
+# est une donnée d'INTERFACE (bloc « Réflexion en cours » du chat quand le
+# mode « Réflexion » est activé) et son émission est déjà conditionnée à
+# ``enable_thinking`` en amont (orchestrateur, thinking_hook) : aucune trace
+# n'est émise sans opt-in explicite. La classer « observabilité » rendait le
+# mode Réflexion muet en multi-agents (SCRUM-101).
 _MULTI_OBSERVABILITY_EVENTS = {
     "agent.worker.tool",
-    "agent.worker.thinking",
-    "agent.worker.error",
     "agent.synthesizing",
     # SCRUM-99 : pipeline des tools personnalisés (observabilité).
     "agent.tool.proposed",
@@ -808,7 +820,8 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                                   result.answer or "",
                                   tool_events=(tool_events
                                                or _core_tool_events(result))
-                                  or None)
+                                  or None,
+                                  thinking=result.thinking or "")
 
             # Rejoue la réponse finale mot à mot (convention /ask/stream).
             for word in _stream_fragments(result.answer or ""):
@@ -937,10 +950,13 @@ def _persist_exchange(
     prompt: str,
     answer: str,
     tool_events: Optional[list[dict]] = None,
+    thinking: str = "",
 ) -> None:
     """Délègue au use-case de mémoire conversationnelle
     (app/application/session_memory.persist_exchange)."""
-    persist_exchange(session_id, prompt, answer, tool_events=tool_events)
+    persist_exchange(
+        session_id, prompt, answer, tool_events=tool_events, thinking=thinking
+    )
 
 
 # --- Approbation humaine (approve / reject) -----------------------------------------
@@ -1438,6 +1454,7 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
             _persist_exchange(
                 session_id, prompt, answer,
                 tool_events=tool_events or core_tool_events(result),
+                thinking=result.thinking or "",
             )
             events.put((
                 "final",
@@ -1515,8 +1532,11 @@ def multi_ask_stream(
       - ``agent.error``         erreur globale (plan invalide, abort)
 
     ``mode`` : « full » (tous) ou « compact » (plan / worker.start /
-    worker.result / done / error — les événements d'observabilité sont
-    filtrés pour ne pas étouffer un front simple).
+    worker.result / worker.error / done — les événements d'observabilité
+    tool / synthesizing / tool.proposed / tool.reviewed sont filtrés pour ne
+    pas étouffer un front simple). ``agent.worker.thinking`` passe dans les
+    deux modes : la réflexion est requise par l'IHM dès que
+    ``enable_thinking`` est actif (bloc « Réflexion » du chat).
 
     Réutilise le schéma éprouvé (queue.Queue + thread worker + générateur
     async) et garde la traduction des pannes réseau en erreur HTTP précoce.
