@@ -820,7 +820,8 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                                   result.answer or "",
                                   tool_events=(tool_events
                                                or _core_tool_events(result))
-                                  or None)
+                                  or None,
+                                  thinking=result.thinking or "")
 
             # Rejoue la réponse finale mot à mot (convention /ask/stream).
             for word in _stream_fragments(result.answer or ""):
@@ -949,10 +950,13 @@ def _persist_exchange(
     prompt: str,
     answer: str,
     tool_events: Optional[list[dict]] = None,
+    thinking: str = "",
 ) -> None:
     """Délègue au use-case de mémoire conversationnelle
     (app/application/session_memory.persist_exchange)."""
-    persist_exchange(session_id, prompt, answer, tool_events=tool_events)
+    persist_exchange(
+        session_id, prompt, answer, tool_events=tool_events, thinking=thinking
+    )
 
 
 # --- Approbation humaine (approve / reject) -----------------------------------------
@@ -1450,6 +1454,7 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
             _persist_exchange(
                 session_id, prompt, answer,
                 tool_events=tool_events or core_tool_events(result),
+                thinking=result.thinking or "",
             )
             events.put((
                 "final",

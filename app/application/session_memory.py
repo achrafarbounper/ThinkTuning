@@ -106,9 +106,13 @@ def persist_exchange(
     prompt: str,
     answer: str,
     tool_events: list[dict] | None = None,
+    thinking: str = "",
 ) -> None:
     """Journalise l'échange (user + assistant) dans la session demandée.
 
+    ``thinking`` (optionnel) : trace de raisonnement de l'assistant (mode
+    « Réflexion »), journalisée avec la réponse puis restituée au
+    rechargement de la conversation (SCRUM-101).
     Best-effort : une session absente ou une erreur de base ne doivent jamais
     faire échouer le tour de chat lui-même.
     """
@@ -117,7 +121,13 @@ def persist_exchange(
     try:
         store = get_session_store()
         store.append_message(session_id, "user", prompt)
-        store.append_message(session_id, "assistant", answer or "", tool_calls=tool_events)
+        store.append_message(
+            session_id,
+            "assistant",
+            answer or "",
+            tool_calls=tool_events,
+            thinking=thinking or "",
+        )
         # Phase C (flag ``AGENT_CONTEXT``) : mémoire glissante inter-sessions.
         # Résumé déterministe (sans LLM) conservé sous la clé « global » et
         # réinjecté uniquement dans les NOUVELLES sessions (cf.

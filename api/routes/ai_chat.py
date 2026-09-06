@@ -162,8 +162,20 @@ def ai_chat(req: ChatRequest, _: bool = Depends(require_api_key)) -> StreamingRe
             if req.session_id:
                 try:
                     store = get_session_store()
-                    store.append_message(req.session_id, "user", repair_utf8_mojibake(req.message))
-                    store.append_message(req.session_id, "assistant", answer)
+                    store.append_message(
+                        req.session_id,
+                        "user",
+                        repair_utf8_mojibake(req.message),
+                    )
+                    # La trace de réflexion (mode « Réflexion ») est journalisée
+                    # avec la réponse : elle est restituée telle quelle au
+                    # rechargement de la conversation.
+                    store.append_message(
+                        req.session_id,
+                        "assistant",
+                        answer,
+                        thinking=repair_utf8_mojibake(str(result.get("thinking") or "")),
+                    )
                 except Exception:  # pragma: no cover - persistance optionnelle
                     pass
         except HTTPException as exc:  # panne réseau déjà traduite par agent_cache

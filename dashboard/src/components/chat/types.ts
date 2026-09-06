@@ -298,6 +298,12 @@ export interface StoredMessage {
   role: Role;
   content: string;
   created_at?: string;
+  /**
+   * Trace de raisonnement persistée (mode « Réflexion »), si le backend la
+   * journalise et que le tour en a produit une. Absente des sessions créées
+   * avant SCRUM-101 (le front n'affiche alors aucun bloc Réflexion).
+   */
+  thinking?: string;
   /** Événements bruts d'outils (tool_start / tool_result) en mode Agent. */
   tool_calls?: Array<Record<string, unknown>>;
 }

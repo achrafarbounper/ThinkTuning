@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { ChatMessage } from "./ChatMessage";
 import { ThinkingBlock } from "./ThinkingBlock";
 
 /** Simule la géométrie de défilement d'un élément pour jsdom (pas de layout). */
@@ -126,5 +127,33 @@ describe("ThinkingBlock — réouverture d'une trace terminée", () => {
     stubScrollGeometry(pre, 999, 200);
     // L'effet de suivi ne s'applique PAS hors diffusion : scrollTop reste 0.
     expect(pre.scrollTop).toBe(0);
+  });
+});
+
+describe("ChatMessage — réflexion rechargée depuis une session (SCRUM-101)", () => {
+  const baseMessage = {
+    id: "m1",
+    role: "assistant" as const,
+    content: "La réponse finale.",
+    createdAt: "2026-09-06T10:00:00.000Z",
+  };
+
+  it("affiche le bloc Réflexion REFERMÉ quand la trace persistée est présente", () => {
+    const { container } = render(
+      <ChatMessage message={{ ...baseMessage, thinking: "Trace persistée." }} />,
+    );
+    expect(screen.getByText("Réflexion")).toBeInTheDocument();
+    expect(container.querySelector(".chat-thinking__content")).toBeNull();
+    // Réouverture manuelle : la trace persistée est restituée telle quelle
+    // (et surtout, ce n'est PAS le contenu de la réponse qui y apparaît).
+    fireEvent.click(screen.getByRole("button", { name: /réflexion/i }));
+    expect(
+      container.querySelector(".chat-thinking__content")?.textContent,
+    ).toBe("Trace persistée.");
+  });
+
+  it("n'affiche aucun bloc Réflexion sans trace persistée (sessions anciennes)", () => {
+    const { container } = render(<ChatMessage message={baseMessage} />);
+    expect(container.querySelector(".chat-thinking")).toBeNull();
   });
 });

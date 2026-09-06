@@ -31,7 +31,7 @@ AGENT_SESSION_PATH = os.getenv(
 _ROLES = ("user", "assistant")
 
 _SELECT_SESSION = "id, title, model, created_at, updated_at"
-_SELECT_MESSAGE = "id, session_id, role, content, tool_calls_json, created_at"
+_SELECT_MESSAGE = "id, session_id, role, content, thinking, tool_calls_json, created_at"
 
 
 def _utcnow_iso() -> str:
@@ -73,6 +73,7 @@ class SessionStore:
                 session_id      TEXT NOT NULL,
                 role            TEXT NOT NULL,
                 content         TEXT NOT NULL DEFAULT '',
+                thinking        TEXT NOT NULL DEFAULT '',
                 tool_calls_json TEXT NOT NULL DEFAULT '[]',
                 created_at      TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES agent_sessions(id)
@@ -80,6 +81,21 @@ class SessionStore:
             )
             """
         )
+        # Migration légère des bases créées avant la colonne « thinking »
+        # (trace de raisonnement, mode « Réflexion » — SCRUM-101) : ALTER TABLE
+        # n'est exécuté que si la colonne manque, les appels suivants sont
+        # sans effet.
+        columns = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(agent_session_messages)"
+            ).fetchall()
+        }
+        if "thinking" not in columns:
+            conn.execute(
+                "ALTER TABLE agent_session_messages "
+                "ADD COLUMN thinking TEXT NOT NULL DEFAULT ''"
+            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_messages ON "
             "agent_session_messages(session_id)"
@@ -101,9 +117,10 @@ class SessionStore:
     def _message_row(row):
         if row is None:
             return None
-        data = dict(zip(("id", "session_id", "role", "content", "tool_calls_json",
-                         "created_at"), row))
+        data = dict(zip(("id", "session_id", "role", "content", "thinking",
+                         "tool_calls_json", "created_at"), row))
         data["content"] = repair_utf8_mojibake(data.get("content") or "")
+        data["thinking"] = repair_utf8_mojibake(data.get("thinking") or "")
         try:
             data["tool_calls"] = json.loads(data.pop("tool_calls_json") or "[]")
         except ValueError:
@@ -203,9 +220,12 @@ class SessionStore:
         role: str,
         content: str,
         tool_calls: list[dict] | None = None,
+        thinking: str = "",
     ) -> dict | None:
         """Ajoute un message ; met à jour l'activité et titre automatiquement.
 
+        ``thinking`` (optionnel) : trace de raisonnement de l'assistant (mode
+        « Réflexion »), restituée telle quelle par ``get_messages``.
         Le premier message ``user`` nomme la session (60 premiers caractères).
         Retourne le message créé, ou None si la session n'existe pas ; lève
         ``ValueError`` pour un rôle invalide.
@@ -226,8 +246,10 @@ class SessionStore:
                 with conn:
                     conn.execute(
                         "INSERT INTO agent_session_messages (session_id, role,"
-                        " content, tool_calls_json, created_at) VALUES (?, ?, ?, ?, ?)",
-                        (str(session_id), role, content or "", payload, now),
+                        " content, thinking, tool_calls_json, created_at)"
+                        " VALUES (?, ?, ?, ?, ?, ?)",
+                        (str(session_id), role, content or "", thinking or "",
+                         payload, now),
                     )
                     conn.execute(
                         "UPDATE agent_sessions SET updated_at = ? WHERE id = ?",

@@ -413,7 +413,15 @@ export function ChatWindow() {
               role: message.role,
               content: message.content ?? '',
               createdAt: message.created_at ?? nowIso(),
-              thinking: message.role === 'assistant' ? (message.content ?? '') : undefined,
+              // Trace de réflexion PERSISTÉE (mode « Réflexion »). Le code
+              // initial recopiait le CONTENU de la réponse dans thinking,
+              // dupliquant la réponse dans un bloc « Réflexion » au
+              // rechargement ; seules les traces réellement journalisées
+              // sont désormais affichées (absentes des sessions anciennes).
+              thinking:
+                message.role === 'assistant' && message.thinking
+                  ? message.thinking
+                  : undefined,
               toolCalls:
                 message.role === 'assistant'
                   ? mapStoredToolCalls(message.tool_calls)
@@ -544,25 +552,72 @@ export function ChatWindow() {
     setStickToBottom(true);
   };
 
-  /** Ajoute un fragment de texte au message en cours de streaming. */
-  const appendDelta = useCallback((id: string, delta: string) => {
+  /**
+   * Coalescing des fragments SSE (perf) : chaque événement réseau n'entraîne
+   * plus un setState immédiat — les deltas (réponse ET réflexion) sont
+   * accumulés dans un tampon par message, déchargé au plus UNE fois par
+   * image (requestAnimationFrame). Un provider local rapide (LM Studio)
+   * peut émettre > 60 événements/s : sans coalescing, chaque token déclenche
+   * un rendu React complet de la bulle active (SCRUM-101).
+   */
+  const streamBufferRef = useRef(new Map<string, { content: string; thinking: string }>());
+  const flushScheduledRef = useRef(false);
+
+  /** Décharge le tampon de fragments dans l'état (un seul setMessages). */
+  const flushStreamBuffer = useCallback(() => {
+    flushScheduledRef.current = false;
+    if (streamBufferRef.current.size === 0) return;
+    const pending = streamBufferRef.current;
+    streamBufferRef.current = new Map();
     setMessages((previous) =>
-      previous.map((message) =>
-        message.id === id ? { ...message, content: message.content + delta } : message,
-      ),
+      previous.map((message) => {
+        const patch = pending.get(message.id);
+        if (!patch) return message;
+        return {
+          ...message,
+          content: patch.content ? message.content + patch.content : message.content,
+          thinking: patch.thinking
+            ? (message.thinking ?? '') + patch.thinking
+            : message.thinking,
+          thinkingStreaming: patch.thinking ? true : message.thinkingStreaming,
+        };
+      }),
     );
   }, []);
 
+  /** Programme le déchargement : au plus une exécution par image. */
+  const scheduleFlush = useCallback(() => {
+    if (flushScheduledRef.current) return;
+    flushScheduledRef.current = true;
+    // rAF indisponible (environnement sans boucle de rendu, ex. jsdom) : repli.
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(flushStreamBuffer);
+    } else {
+      setTimeout(flushStreamBuffer, 16);
+    }
+  }, [flushStreamBuffer]);
+
+  /** Ajoute un fragment de texte au message en cours de streaming. */
+  const appendDelta = useCallback(
+    (id: string, delta: string) => {
+      const entry = streamBufferRef.current.get(id) ?? { content: '', thinking: '' };
+      entry.content += delta;
+      streamBufferRef.current.set(id, entry);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
   /** Ajoute un fragment de réflexion au message en cours de streaming. */
-  const appendThinkingDelta = useCallback((id: string, delta: string) => {
-    setMessages((previous) =>
-      previous.map((message) =>
-        message.id === id
-          ? { ...message, thinking: (message.thinking ?? '') + delta, thinkingStreaming: true }
-          : message,
-      ),
-    );
-  }, []);
+  const appendThinkingDelta = useCallback(
+    (id: string, delta: string) => {
+      const entry = streamBufferRef.current.get(id) ?? { content: '', thinking: '' };
+      entry.thinking += delta;
+      streamBufferRef.current.set(id, entry);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
 
   /** Modifie certains champs d'un message (fin de streaming, erreur…). */
   const patchMessage = useCallback((id: string, patch: Partial<ChatMessageData>) => {
@@ -1125,12 +1180,15 @@ export function ChatWindow() {
           patchMessage(assistantId, { error: detail });
         }
       } finally {
+        // Décharge les fragments encore tamponnés AVANT la clôture du message
+        // (sinon ils s'ajouteraient après thinkingStreaming=false).
+        flushStreamBuffer();
         patchMessage(assistantId, { streaming: false, thinkingStreaming: false });
         setIsLoading(false);
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, appendThinkingDelta, patchMessage, selectedModel, enableThinking, multiMode, coreMode, askMultiAgentTurn, askCoreTurn, sessionId],
+    [isLoading, appendDelta, appendThinkingDelta, flushStreamBuffer, patchMessage, selectedModel, enableThinking, multiMode, coreMode, askMultiAgentTurn, askCoreTurn, sessionId],
   );
 
   /**
@@ -1191,12 +1249,13 @@ export function ChatWindow() {
       }
     } finally {
       if (!controller.signal.aborted) {
+        flushStreamBuffer();
         patchMessage(assistantId, { streaming: false });
       }
       setIsLoading(false);
       abortRef.current = null;
     }
-  }, [pendingApproval, isLoading, askCoreTurn, askMultiAgentTurn, patchMessage]);
+  }, [pendingApproval, isLoading, askCoreTurn, askMultiAgentTurn, flushStreamBuffer, patchMessage]);
 
   /**
    * Décision humaine : REFUSER une action en attente. Aucune exécution ; un
