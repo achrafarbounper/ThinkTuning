@@ -802,7 +802,11 @@ export function ChatWindow() {
               startMultiWorker(assistantId, {
                 task_id: event.task_id,
                 role: event.role ?? '?',
-                subtask: event.plan?.[0]?.subtask,
+                // L'événement agent.worker.start ne porte que task_id/role :
+                // la sous-tâche affichée est retrouvée dans le plan reçu via
+                // agent.plan (le code initial prenait toujours plan[0],
+                // affichant la première sous-tâche pour TOUS les workers).
+                subtask: planTasks.find((task) => task.task_id === event.task_id)?.subtask,
                 status: 'running',
               });
             }
