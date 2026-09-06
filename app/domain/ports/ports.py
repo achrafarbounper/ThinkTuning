@@ -224,6 +224,46 @@ class RunStorePort(Protocol):
 
 
 @runtime_checkable
+class FlowStorePort(Protocol):
+    """Contrat du journal des sessions multi-agents (cf. core/flow_store.py).
+
+    Chaque session (flow) est une timeline horodatée d'événements SSE, rejouable
+    dans le dashboard (Flow Map). Les événements sont appendus en temps réel
+    pendant l'exécution, puis la session est clôturée avec un statut final.
+    """
+
+    def start_flow(self, prompt: str, model: str = "", source: str = "api") -> dict[str, Any]:
+        """Crée une session ``running`` et retourne la ligne complète."""
+        ...
+
+    def append_event(self, flow_id: str, event: str, data: dict, at_ms: float) -> None:
+        """Ajoute un événement SSE à la timeline JSON de la session."""
+        ...
+
+    def finish_flow(
+        self,
+        flow_id: str,
+        status: str,
+        answer_summary: str = "",
+        error: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Clôture une session : statut final, résumé de réponse ou erreur."""
+        ...
+
+    def get(self, flow_id: str) -> dict[str, Any] | None:
+        """Détail complet d'une session (timeline incluse)."""
+        ...
+
+    def list(self, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
+        """Sessions les plus récentes d'abord. Filtre optionnel par statut."""
+        ...
+
+    def delete(self, flow_id: str) -> bool:
+        """Supprime une session enregistrée."""
+        ...
+
+
+@runtime_checkable
 class ApprovalStorePort(Protocol):
     """Contrat de la file d'approbation humaine (cf. core/approval_store.py).
 
