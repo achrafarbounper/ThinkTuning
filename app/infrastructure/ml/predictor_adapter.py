@@ -23,7 +23,11 @@ import os
 
 from fastapi import HTTPException
 
-from app.domain.entities.prediction import PredictionResult, SanityReport
+from app.domain.entities.prediction import (
+    PredictionResult,
+    SanityCaseResult,
+    SanityReport,
+)
 from app.domain.errors import ModelNotAvailableError
 from app.domain.ports.prediction_ports import PredictionPort
 
@@ -99,9 +103,12 @@ def _report_from_legacy(report: dict) -> SanityReport:
     """Convertit le dict legacy de ``run_model_sanity`` en value object.
 
     ``ok`` est la frontière anti-corruption : seule cette fonction compare
-    le verdict legacy à ``VERDICT_OK``.
+    le verdict legacy à ``VERDICT_OK``. ``results`` est transporté tel quel
+    (normalisé en value objects) : parité d'affichage avec le legacy, qui
+    expose le détail par phrase au dashboard.
     """
     verdict = str(report.get("verdict", ""))
+    legacy_results = report.get("results") or []
     return SanityReport(
         verdict=verdict,
         ok=verdict == _legacy_sanity.VERDICT_OK,
@@ -109,6 +116,18 @@ def _report_from_legacy(report: dict) -> SanityReport:
         detail=str(report.get("detail", "")),
         min_confidence=float(report.get("min_confidence") or 0.0),
         accuracy=float(report.get("accuracy") or 0.0),
+        results=tuple(
+            SanityCaseResult(
+                text=str(r.get("text", "")),
+                lang=str(r.get("lang", "")),
+                expected=str(r.get("expected", "")),
+                predicted=str(r.get("predicted", "")),
+                confidence=float(r.get("confidence") or 0.0),
+                correct=bool(r.get("correct", False)),
+            )
+            for r in legacy_results
+            if isinstance(r, dict)
+        ),
     )
 
 

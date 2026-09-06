@@ -382,21 +382,56 @@ export class SentimentApiClient extends SentimentApiClientCore {
   }
 
   /**
-   * Sanity check comportemental d'une version de modèle.
-   * En cas de verdict défaillant, l'API renvoie 503 avec un body `detail`
-   * { verdict, detail, accuracy, results } : on le retourne comme un rapport
-   * plutôt que de lever, pour simplifier l'affichage dans l'IHM.
+   * Sanity check comportemental d'une version de modèle — MIGRÉ vers v1
+   * (découplage frontend/backend).
+   *
+   * En cas de verdict défaillant, l'API répond 503 sans lever pour l'IHM.
+   * Deux enveloppes sont normalisées (déploiements mixtes pendant la
+   * migration) :
+   *  - v1 domaine : {"error": {code, message, details:{verdict, accuracy,
+   *    results, ...}}} — le message métier vit dans error.message ;
+   *  - legacy FastAPI : {"detail": {verdict, detail, accuracy, results}}.
+   * Le rapport retourné garde le shape attendu par ModelSanityPanel.
    */
   async getModelSanity(model?: string) {
     try {
-      const report = (await this._request("/health/model-sanity", {
+      const report = (await this._request("/api/v1/health/model-sanity", {
         query: model ? { model_name: model } : undefined,
       })) as Record<string, unknown> | null;
       return { ...report, httpStatus: 200 };
     } catch (err) {
+      if (!(err instanceof ApiError) || err.status !== 503) throw err;
+
+      // Enveloppe v1 : rapport = error.details, detail = error.message.
+      const detailObj =
+        err.detail !== null && typeof err.detail === "object"
+          ? (err.detail as Record<string, unknown>)
+          : null;
+      const v1Error =
+        detailObj && "error" in detailObj
+          ? (detailObj.error as
+              | { message?: unknown; details?: Record<string, unknown> }
+              | undefined)
+          : undefined;
       if (
-        err instanceof ApiError &&
-        err.status === 503 &&
+        v1Error &&
+        typeof v1Error === "object" &&
+        v1Error.details &&
+        typeof v1Error.details === "object" &&
+        "verdict" in v1Error.details
+      ) {
+        return {
+          ...(v1Error.details as object),
+          detail:
+            typeof v1Error.message === "string"
+              ? v1Error.message
+              : ((v1Error.details as { detail?: string }).detail ?? ""),
+          httpStatus: 503,
+        };
+      }
+
+      // Enveloppe legacy (backend antérieur à la v1, déploiement mixte).
+      if (
         typeof err.detail === "object" &&
         err.detail !== null &&
         "verdict" in err.detail

@@ -170,8 +170,12 @@ def test_v1_model_sanity_requires_model():
 
 
 def test_v1_model_sanity_unhealthy_model():
-    """Modèle présent mais non entraîné : 503 model_unhealthy + rapport complet."""
-    from app.domain.entities.prediction import SanityReport
+    """Modèle présent mais non entraîné : 503 model_unhealthy + rapport complet.
+
+    Parité legacy : ``error.details`` porte le détail PAR PHRASE (``results``),
+    que le dashboard affiche dans la vue « Détails » d'un modèle défaillant.
+    """
+    from app.domain.entities.prediction import SanityCaseResult, SanityReport
 
     class _Untrained:
         @staticmethod
@@ -183,6 +187,16 @@ def test_v1_model_sanity_unhealthy_model():
                 detail="Confiance quasi-uniforme sur toutes les classes",
                 min_confidence=0.4,
                 accuracy=0.25,
+                results=(
+                    SanityCaseResult(
+                        text="Phrase négative",
+                        lang="fr",
+                        expected="negative",
+                        predicted="neutral",
+                        confidence=0.31,
+                        correct=False,
+                    ),
+                ),
             )
 
     app.dependency_overrides[get_prediction_port] = lambda: _Untrained()
@@ -196,11 +210,21 @@ def test_v1_model_sanity_unhealthy_model():
     assert error["code"] == "model_unhealthy"
     assert error["details"]["verdict"] == "untrained"
     assert error["details"]["accuracy"] == 0.25
+    assert error["details"]["results"] == [
+        {
+            "text": "Phrase négative",
+            "lang": "fr",
+            "expected": "negative",
+            "predicted": "neutral",
+            "confidence": 0.31,
+            "correct": False,
+        }
+    ]
 
 
 def test_v1_model_sanity_healthy_model():
     """Modèle sain : 200 + rapport (contract shape de SanityVerdictResponse)."""
-    from app.domain.entities.prediction import SanityReport
+    from app.domain.entities.prediction import SanityCaseResult, SanityReport
 
     class _Healthy:
         @staticmethod
@@ -212,6 +236,16 @@ def test_v1_model_sanity_healthy_model():
                 detail="8/8 phrases correctement classées",
                 min_confidence=0.4,
                 accuracy=1.0,
+                results=(
+                    SanityCaseResult(
+                        text="Phrase positive",
+                        lang="fr",
+                        expected="positive",
+                        predicted="positive",
+                        confidence=0.93,
+                        correct=True,
+                    ),
+                ),
             )
 
     app.dependency_overrides[get_prediction_port] = lambda: _Healthy()
@@ -224,3 +258,4 @@ def test_v1_model_sanity_healthy_model():
     body = response.json()
     assert body["verdict"] == "ok"
     assert body["model"] == "v-test"  # champ de RÉPONSE aligné legacy
+    assert body["results"][0]["correct"] is True

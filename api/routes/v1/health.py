@@ -72,6 +72,7 @@ def model_sanity(
                 "min_confidence": report.min_confidence,
                 "accuracy": report.accuracy,
                 "model": model_name,
+                "results": [asdict(r) for r in report.results],
             },
         )
     return SanityVerdictResponse(
@@ -81,4 +82,5 @@ def model_sanity(
         min_confidence=report.min_confidence,
         accuracy=report.accuracy,
         model=model_name,
+        results=[asdict(r) for r in report.results],
     )

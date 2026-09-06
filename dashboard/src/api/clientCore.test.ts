@@ -138,3 +138,33 @@ describe("SentimentApiClientCore._requestText", () => {
     expect(err.message).toBe("boom");
   });
 });
+
+describe("SentimentApiClientCore._request — enveloppe v1 domaine", () => {
+  it("expose le payload {\"error\": ...} complet et remonte error.message", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: "model_unhealthy",
+            message: "Modèle non entraîné détecté",
+            details: { verdict: "untrained", accuracy: 0.25 },
+          },
+        },
+        503
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClientCore({ baseUrl: "http://api" });
+    const err = await expectApiError(
+      client._request("/api/v1/health/model-sanity")
+    );
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(503);
+    expect(err.message).toBe("Modèle non entraîné détecté");
+    expect((err.detail as { error: { code: string } }).error.code).toBe(
+      "model_unhealthy"
+    );
+  });
+});

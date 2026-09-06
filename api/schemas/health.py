@@ -18,11 +18,23 @@ class HealthResponse(BaseModel):
     maintenance_mode: bool
 
 
+class SanityCaseResultOut(BaseModel):
+    """Issue du sanity check pour UNE phrase — shape legacy + TS préservés."""
+
+    text: str
+    lang: str
+    expected: str
+    predicted: str
+    confidence: float
+    correct: bool
+
+
 class SanityVerdictResponse(BaseModel):
     """Réponse de GET /api/v1/health/model-sanity (modèle sain uniquement).
 
     Un modèle non sain répond 503 via ``ModelSanityError`` (handler
-    DomainError), avec le rapport complet dans ``error.details``.
+    DomainError), avec le rapport complet (y compris ``results``) dans
+    ``error.details``.
     """
 
     verdict: str
@@ -31,6 +43,7 @@ class SanityVerdictResponse(BaseModel):
     min_confidence: float
     accuracy: float
     model: str | None = None
+    results: list[SanityCaseResultOut] = []
 
 
 class ReloadResponse(BaseModel):

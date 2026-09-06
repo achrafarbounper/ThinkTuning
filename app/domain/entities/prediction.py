@@ -35,12 +35,33 @@ class PredictionResult:
 
 
 @dataclass(frozen=True)
+class SanityCaseResult:
+    """Issue du sanity check pour UNE phrase de référence.
+
+    Aligné sur le shape legacy (``core.model_sanity``) et sur le type TS
+    ``SanityResult`` du dashboard : le panel liste les phrases mal classées
+    (``correct=False``) dans la vue « Détails » d'un modèle défaillant.
+    """
+
+    text: str
+    lang: str
+    expected: str
+    predicted: str
+    confidence: float
+    correct: bool
+
+
+@dataclass(frozen=True)
 class SanityReport:
     """Issue du sanity check comportemental du modèle (SCRUM-74).
 
     ``verdict`` est la valeur legacy normalisée (ex. "ok", "untrained",
     "fallback_base_model") ; ``ok`` est le verdict APPLIQUÉ au domaine :
     False => le modèle ne doit PAS servir de prédiction (503 côté API).
+
+    ``results`` porte le détail PAR PHRASE (parité legacy : le dashboard
+    affiche les phrases mal classées) ; vide dans les fakes de tests qui
+    n'exercent pas la vue « Détails ».
     """
 
     verdict: str
@@ -49,6 +70,7 @@ class SanityReport:
     detail: str = ""
     min_confidence: float = 0.0
     accuracy: float = 0.0
+    results: tuple[SanityCaseResult, ...] = ()
 
 
 @dataclass(frozen=True)
