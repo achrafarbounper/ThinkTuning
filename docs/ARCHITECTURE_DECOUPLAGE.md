@@ -215,10 +215,9 @@ Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
   et **référencés** (commentaire de `app/application/health_usecase.py`,
   `dashboard/Dockerfile` copie `nginx.main.conf`) — suppression à traiter avec
   ces références, pas en simple `git rm`.
-- 159 erreurs ruff au total : ~101 dans les routers legacy non montés, ~58 sur
-  le périmètre v1 vivant. Nettoyage prévu en 3 lots (Phase D) — **attention** :
-  certains F401 sont des re-exports consommés (ex. `TEST_MODE` dans
-  `api/__init__.py`) qu'un `ruff --fix` aveugle casserait.
-- `npm run lint` inopérant en l'état : `dashboard/eslint.config.ts` (config
-  TS) exige `jiti`, non présent dans les devDeps — installer `jiti` ou
-  repasser la config en `.mjs`.
+- 110 erreurs ruff au total : ~101 dans les routeurs legacy non montés
+  (encore importés par la v1 via attribut de module) + ~9 sur le périmètre v1
+  vivant. Nettoyage en 2 lots : `--fix` auto (76) puis manuel ciblé.
+- `npm run lint` opérationnel (jiti installé) : 28 erreurs react-hooks
+  préexistantes (`set-state-in-effect`, règles récentes) — portée corrective
+  à planifier séparément (QA visuelle requise).
