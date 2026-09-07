@@ -226,19 +226,26 @@ les rejoue au dashboard :
 ### 5.2 Tokenisation & dataset
 
 ```python
-labelled_ds = Dataset.from_list(
-    [{"text": r["text"], "labels": labels.index(r["label"])} for r in records]
-).map(lambda b: tokenizer(b["text"], padding="max_length",
-                          truncation=True, max_length=req.max_length), batched=True)
+padding_cfg = _padding_bucket_config(req.max_length)  # §13 checklist #3
+train_ds = Dataset.from_list(
+    [{"text": r["text"], "labels": labels.index(r["label"])} for r in train_records]
+).map(lambda b: tokenizer(b["text"], **padding_cfg["tokenizer"]), batched=True)
 ```
 
-- `padding="max_length"` (128) → taille uniforme mais gaspillage sur les courtes
-  phrases `chat`/`action` (cf. §14.3a) ;
+- tokenisation **sans padding fixe** (`padding=False`, troncature à
+  `max_length`) ; le padding est appliqué **par batch** par
+  `DataCollatorWithPadding(padding=True)` → chaque batch est padé à sa
+  longueur réelle maximale (fini le gaspillage sur les courtes phrases
+  `chat`/`action`, cf. §13 §1c) ;
+- **bucketisation** : `TrainingArguments(train_sampling_strategy=
+  "group_by_length")` (v5 — remplace `group_by_length=True` retiré) regroupe
+  les échantillons par longueur (LengthGroupedSampler HF) → moins de padding,
+  RAM/CPU libérés pour monter `batch_size` ;
 - `labels` est un **entier par exemple** (indice de classe), pas de masquage
 ### 5.3 Modèle — encodeur à tête de classification
 
 `AutoModelForSequenceClassification.from_pretrained(base, num_labels=2)` →
-sortie `[batch, 2]` → indices `chat`/`action`. Continental training (§14.3b) :
+sortie `[batch, 2]` → indices `chat`/`action`. Continental training (§13 §4b) :
 recharge poids + tokenizer depuis `experiments/intent_models/<base_model_version>`.
 
 Pas de `use_cache=False` nécessaire (pas de génération) — le runner n'y gaspille
@@ -484,7 +491,7 @@ curl -X POST "$API/classifiers/intent/reload" -H "X-API-Key:$KEY"
 | Point | Détail |
 |---|---|
 | `max_length=128` fixe | gaspille CPU sur les phrases courtes `chat`/`action` |
-| `padding=max_length` | coût inutile vs `padding=True` (dynamique) |
+| Padding dynamique ✅ (#3) | `padding=False` + `DataCollatorWithPadding` (padding par batch) + `train_sampling_strategy="group_by_length"` (v5) |
 | LR constant `2e-5` | aucun scheduler (warmup/cosinus) dans `TrainingArguments` |
 | `save_strategy="no"` | aucun « meilleur checkpoint » — une seule version finale |
 | Métriques | accuracy + confiance ; **f1/classification report présents depuis §13 #1** |
@@ -522,9 +529,13 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
   utilise `sklearn.model_selection.train_test_split(stratify=labels)` →
   répartition des classes préservée en val ; repli shuffle documenté si une
   classe n'a qu'un seul exemple (ou jeu trop petit).
-- **1c. Tokenisation dynamique + bucketisation** : `padding=True` (vs
-  `max_length`) + regrouper par longueur → moins de padding → libère RAM/CPU
-  pour monter `batch_size` (contrairement au LLM causal — zéro GPU ici).
+- **1c. Tokenisation dynamique + bucketisation** — ✅ fait (§13 checklist #3)
+  : `_padding_bucket_config` (source unique CLI/API) — `padding=False`
+  (troncature seule) → `DataCollatorWithPadding(padding=True)` +
+  `TrainingArguments(train_sampling_strategy="group_by_length")` (v5,
+  LengthGroupedSampler HF) : chaque batch padé à sa longueur réelle,
+  échantillons regroupés par longueur → moins de padding → RAM/CPU libérés
+  pour monter `batch_size` (compatible CPU).
 
 ### ⚙️ 2. Tokenisation & batch (compatible CPU)
 
@@ -560,7 +571,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 
 | Levier | CPU only | GPU |
 |---|---|---|
-| Hard-exemples / stratified / padding-dynamique | ✅ prioritaire | ✅ prioritaire |
+| Hard-exemples / stratifié ✅ / padding-dynamique ✅ | ✅ prioritaire | ✅ prioritaire |
 | `max_length=64` | ✅ | — |
 | `batch_size=64` | ⚠️ (RAM) | ✅ |
 | Scheduler cosine + warmup | ✅ | ✅ |
@@ -572,7 +583,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 
 - [x] **#1** — `classification_report` (confusions `chat↔action`) ;
 - [x] **#1** — stratified split dans `_split_records` ;
-- [ ] **#1** — tokenisation `padding=True` + bucketisation par longueur ;
+- [x] **#1** — tokenisation `padding=True` + bucketisation par longueur ;
 - [ ] **#2** — `max_length=64` ;
 - [ ] **#3** — scheduler `cosine` + `warmup_ratio=0.1` ;
 - [ ] **#3** — `load_best_model_at_end` + `save_strategy="epoch"` + early stopping
@@ -580,7 +591,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 - [ ] **#4** — monter vers `intfloat/multilingual-e5-small` (continental training) ;
 - [ ] **#5** — recalibrer seuil `action` + `fp16` inférence GPU.
 
-> **Premier levier sans GPU (restant)** : tokenisation dynamique
-> (`padding=True` + bucketisation par longueur — §1c) — gain immédiat, zéro
-> dépendance matérielle. Stratified split ✅ (#2) ; le classification report
-> (#1) montre *quoi* améliorer dans le dataset.
+> **Premier levier sans GPU (restant)** : `max_length=64` (§2) — coupe le
+> coût ~2× une fois le padding dynamique actif (zéro gaspillage ajouté).
+> Classification report ✅ (#1), stratified split ✅ (#2), padding dynamique +
+> bucketisation ✅ (#3) : le report (#1) montre *quoi* améliorer dans le dataset.

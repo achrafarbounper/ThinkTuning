@@ -206,6 +206,32 @@ def _split_records(records: list, test_size: float, seed: int = 42):
         return train_records, val_records
 
 
+def _padding_bucket_config(max_length: int) -> dict:
+    """Config « padding dynamique + bucketisation » (§13 checklist #3).
+
+    Source unique CLI/API (parité) pour remplacer le ``padding="max_length"``
+    (128 fixe, gaspillage sur les courtes phrases chat/action) par :
+
+    - **tokenisation sans padding fixe** (``padding=False``) : ``max_length``
+      ne sert plus que de limite de troncature ;
+    - **padding par batch** (``DataCollatorWithPadding(padding=True)``) :
+      chaque batch est padé à sa longueur réelle maximale (le Trainer ne
+      stocke ni ne pad à ``max_length``) ;
+    - **bucketisation** (``TrainingArguments(train_sampling_strategy=
+      "group_by_length")`` — v5, remplace l'ancien ``group_by_length=True``) :
+      les échantillons sont regroupés par longueur (LengthGroupedSampler HF) →
+      moins de padding par batch, RAM/CPU libérés pour monter ``batch_size``
+      (doc INTENT_TRAINING.md §13 §1c — compatible CPU).
+    """
+    return {
+        "tokenizer": {"padding": False, "truncation": True, "max_length": max_length},
+        "collator": {"padding": True},
+        # Transformers v5 : l'ancien `group_by_length=True` (retiré des
+        # TrainingArguments) est remplacé par train_sampling_strategy.
+        "training_args": {"train_sampling_strategy": "group_by_length"},
+    }
+
+
 # ---------------------------------------------------------------------------
 # Avancement temps réel (job.progress) — même structure que trainer_runner
 # ---------------------------------------------------------------------------
@@ -494,6 +520,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         from transformers import (
             AutoModelForSequenceClassification,
             AutoTokenizer,
+            DataCollatorWithPadding,
             Trainer,
             TrainerCallback,
             TrainingArguments,
@@ -533,13 +560,13 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
     def _to_label_id(label: str) -> int:
         return labels.index(label)
 
+    # Padding dynamique + bucketisation (parité CLI — §13 checklist #3) : pas
+    # de padding fixe — le DataCollatorWithPadding pad chaque batch à sa
+    # longueur réelle, group_by_length regroupe les échantillons par longueur.
+    padding_cfg = _padding_bucket_config(req.max_length)
+
     def _tokenize(batch):
-        return tokenizer(
-            batch["text"],
-            padding="max_length",
-            truncation=True,
-            max_length=req.max_length,
-        )
+        return tokenizer(batch["text"], **padding_cfg["tokenizer"])
 
     train_ds = Dataset.from_list(
         [{"text": r["text"], "labels": _to_label_id(r["label"])} for r in train_records]
@@ -644,6 +671,9 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         report_to=[],
         save_strategy="no",  # une seule version finale, sauvegardée ci-dessous
         disable_tqdm=True,   # pas de barres tqdm dans les logs serveur
+        # Bucketisation par longueur (padding dynamique) — §13 checklist #3 :
+        # moins de padding par batch → RAM/CPU libérés (compatible CPU).
+        train_sampling_strategy=padding_cfg["training_args"]["train_sampling_strategy"],
     )
 
     trainer = Trainer(
@@ -653,6 +683,11 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         eval_dataset=eval_ds,
         compute_metrics=_compute_metrics if eval_ds is not None else None,
         callbacks=[_IntentJobCallback(cancel_event)],
+        # Padding par batch (dynamique) — cf. _padding_bucket_config.
+        data_collator=DataCollatorWithPadding(
+            tokenizer=tokenizer,
+            padding=padding_cfg["collator"]["padding"],
+        ),
     )
     logger.info(
         "Début de l'entraînement | %d epochs | batch_size=%d | lr=%s",

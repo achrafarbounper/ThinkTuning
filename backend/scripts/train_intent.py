@@ -38,6 +38,7 @@ from core.intent_store import (  # noqa: E402
 from core.intent_trainer import (  # noqa: E402
     _format_intent_report,
     _intent_classification_report,
+    _padding_bucket_config,
     _split_records,
 )
 
@@ -97,6 +98,7 @@ def main() -> None:
         from transformers import (
             AutoModelForSequenceClassification,
             AutoTokenizer,
+            DataCollatorWithPadding,
             Trainer,
             TrainingArguments,
         )
@@ -123,11 +125,13 @@ def main() -> None:
         args.base, num_labels=len(labels)
     )
 
+    # Padding dynamique + bucketisation (parité API — §13 checklist #3) : pas
+    # de padding fixe — le DataCollatorWithPadding pad chaque batch à sa
+    # longueur réelle, group_by_length regroupe les échantillons par longueur.
+    padding_cfg = _padding_bucket_config(args.max_length)
+
     def _tokenize(batch):
-        return tokenizer(
-            batch["text"], padding="max_length", truncation=True,
-            max_length=args.max_length,
-        )
+        return tokenizer(batch["text"], **padding_cfg["tokenizer"])
 
     def _build_dataset(recs: list) -> Dataset:
         return Dataset.from_list(
@@ -150,6 +154,8 @@ def main() -> None:
         logging_steps=20,
         learning_rate=args.lr,
         report_to=[],
+        # Bucketisation par longueur (padding dynamique) — §13 checklist #3.
+        train_sampling_strategy=padding_cfg["training_args"]["train_sampling_strategy"],
     )
 
     def _compute_metrics(eval_pred) -> dict[str, float]:
@@ -190,6 +196,11 @@ def main() -> None:
         model=model, args=training_args,
         train_dataset=train_ds, eval_dataset=eval_ds,
         compute_metrics=_compute_metrics,
+        # Padding par batch (dynamique) — cf. _padding_bucket_config.
+        data_collator=DataCollatorWithPadding(
+            tokenizer=tokenizer,
+            padding=padding_cfg["collator"]["padding"],
+        ),
     )
     trainer.train()
     eval_metrics = trainer.evaluate()
