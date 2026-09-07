@@ -206,7 +206,7 @@ def test_load_raw_dataset_concatenates_local_corrections(tmp_path, patched_hub):
     correction_indices = [texts.index(row["text"]) for row in CORRECTION_ROWS]
     lang_codes = list(merged["lang_code"])
     labels = list(merged["label"])
-    for idx, row in zip(correction_indices, CORRECTION_ROWS):
+    for idx, row in zip(correction_indices, CORRECTION_ROWS, strict=True):
         assert lang_codes[idx] == row["lang_code"]
         assert labels[idx] == row["label"]
 

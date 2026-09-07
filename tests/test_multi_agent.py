@@ -17,7 +17,6 @@ Aucun réseau : tout est scripté. Lance : pytest tests/test_multi_agent.py -v
 """
 
 import os
-import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -289,7 +288,7 @@ def _assert_strict_alternation(messages):
     roles = [m["role"] for m in messages]
     assert roles.count("system") == 1, f"messages system multiples : {roles}"
     assert roles[0] == "system", f"premier rôle ≠ system : {roles}"
-    for prev, cur in zip(roles, roles[1:]):
+    for prev, cur in zip(roles, roles[1:], strict=False):
         assert prev != cur, f"rôles consécutifs identiques ({prev}) : {roles}"
 
 

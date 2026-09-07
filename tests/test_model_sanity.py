@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("API_KEY", "test-key")
 
 import pytest
+
 from core.model_sanity import (
     SANITY_PHRASES,
     VERDICT_FALLBACK,

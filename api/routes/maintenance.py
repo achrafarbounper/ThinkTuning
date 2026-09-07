@@ -1,8 +1,9 @@
 # project/api/routes/maintenance.py
 
 from fastapi import APIRouter, Depends
+
 from api.dependencies.auth import require_api_key
-from api.middlewares.maintenance import set_maintenance_mode, is_maintenance_mode
+from api.middlewares.maintenance import is_maintenance_mode, set_maintenance_mode
 
 router = APIRouter(prefix="/maintenance", tags=["Maintenance"])
 

@@ -18,12 +18,13 @@ from ia.logging_setup import setup_agent_logging  # noqa: E402
 
 setup_agent_logging(os.getenv("AGENT_LOG_LEVEL", "INFO"))
 
-from contextlib import asynccontextmanager
-import threading
+import threading  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
+
 
 # SCRUM-74 : sanity check comportemental du modèle au démarrage de l'API.
 # Exécute Predictor.predict() sur un jeu fixe de phrases FR/EN polarisées
@@ -33,7 +34,7 @@ from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 def _run_startup_model_sanity() -> None:
     import logging
 
-    from core.model_sanity import run_model_sanity, VERDICT_OK
+    from core.model_sanity import VERDICT_OK, run_model_sanity
     from core.predictor_cache import get_predictor
 
     _logger = logging.getLogger(__name__)
@@ -107,10 +108,10 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-from core.scheduler import ensure_scheduler_started  # noqa: E402
 from api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
-from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
 from api.middlewares.metrics import request_metrics_middleware  # noqa: E402
+from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
+from core.scheduler import ensure_scheduler_started  # noqa: E402
 
 
 def _cors_allowed_origins() -> list[str]:

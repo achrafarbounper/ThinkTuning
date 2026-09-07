@@ -27,7 +27,6 @@ from app.agent.core import RunStatus
 from app.application import run_lifecycle as rl
 from app.domain.ports.ports import ApprovalStorePort, RunStorePort
 
-
 # --- Audit --------------------------------------------------------------------
 
 

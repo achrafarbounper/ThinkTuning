@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.domain.ports import MultiAgentOrchestratorPort
 from app.infrastructure.legacy_multi_agent_adapter import (
     LegacyMultiAgentAdapter,

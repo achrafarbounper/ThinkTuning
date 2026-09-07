@@ -20,7 +20,6 @@ from ia.agent.plan_correct import PlanRejected, correct_plan, note_auto_approved
 from ia.agent.prompts import build_planner_prompt
 from ia.agent.roles import ROLES, role_tools
 
-
 # --- Diagnostics → ops --------------------------------------------------------
 
 

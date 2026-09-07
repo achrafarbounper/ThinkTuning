@@ -51,7 +51,10 @@ class TestEventBus(unittest.TestCase):
     def test_off_removes_handler(self):
         """Vérifie la désinscription d'un handler."""
         calls = []
-        handler = lambda **kw: calls.append(1)
+
+        def handler(**kw):
+            calls.append(1)
+
         self.bus.on("evt", handler)
         self.bus.emit("evt")
         self.assertEqual(len(calls), 1)
@@ -85,8 +88,13 @@ class TestEventBus(unittest.TestCase):
 
     def test_listener_count(self):
         """Vérifie le comptage de listeners."""
-        h1 = lambda **kw: None
-        h2 = lambda **kw: None
+
+        def h1(**kw):
+            pass
+
+        def h2(**kw):
+            pass
+
         self.bus.on("evt", h1)
         self.bus.on("evt", h2)
         self.assertEqual(self.bus.listener_count("evt"), 2)
@@ -116,7 +124,10 @@ class TestEventBus(unittest.TestCase):
     def test_temporary_listener(self):
         """Vérifie le context manager temporary_listener."""
         calls = []
-        handler = lambda **kw: calls.append(1)
+
+        def handler(**kw):
+            calls.append(1)
+
         with temporary_listener("evt", handler):
             emit("evt")
         emit("evt")  # En dehors du contexte
@@ -138,7 +149,10 @@ class TestEventBus(unittest.TestCase):
     def test_global_on_off_emit(self):
         """Vérifie les fonctions globales on/off/emit."""
         calls = []
-        handler = lambda **kw: calls.append(kw.get("x"))
+
+        def handler(**kw):
+            calls.append(kw.get("x"))
+
         on("test.global", handler)
         emit("test.global", x=42)
         self.assertEqual(calls, [42])
@@ -156,7 +170,10 @@ class TestEventBus(unittest.TestCase):
                 calls.append(kw)
 
         self.bus.on("evt", handler)
-        threads = [threading.Thread(target=lambda: self.bus.emit("evt", i=i)) for i in range(10)]
+        threads = [
+            threading.Thread(target=lambda i=i: self.bus.emit("evt", i=i))
+            for i in range(10)
+        ]
         for t in threads:
             t.start()
         for t in threads:

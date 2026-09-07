@@ -19,10 +19,10 @@ Le champ ``model`` est le modèle LLM OpenRouter à utiliser pour l'explication
 (``OPENROUTER_API_KEY`` en env ou en base de paramètres).
 """
 
-import api
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+import api
 from api.dependencies.auth import require_api_key
 from core import agent_cache
 

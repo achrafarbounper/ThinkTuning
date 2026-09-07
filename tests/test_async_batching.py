@@ -13,7 +13,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from fastapi.testclient import TestClient
 
 from core.dynamic_batcher import DynamicBatcher
 from core.inference_executor import InferenceExecutor

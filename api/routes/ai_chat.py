@@ -106,8 +106,7 @@ def _sse(payload: dict | str) -> str:
 
 def _stream_fragments(text: str):
     """Découpe un texte en fragments mot à mot (générateur synchrone)."""
-    for word in text.split(" "):
-        yield word
+    yield from text.split(" ")
 
 
 @router.get("/models")

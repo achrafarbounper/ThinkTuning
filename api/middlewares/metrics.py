@@ -32,8 +32,12 @@ async def request_metrics_middleware(request: Request, call_next):
     except Exception:
         duration = time.perf_counter() - start_time
         status_code = 500
-        REQUEST_COUNTER.labels(method=request.method, path=request_path, status_code=str(status_code)).inc()
-        REQUEST_LATENCY.labels(method=request.method, path=request_path, status_code=str(status_code)).observe(duration)
+        REQUEST_COUNTER.labels(
+            method=request.method, path=request_path, status_code=str(status_code)
+        ).inc()
+        REQUEST_LATENCY.labels(
+            method=request.method, path=request_path, status_code=str(status_code)
+        ).observe(duration)
         logger.exception(
             "http_request method=%s path=%s status=%s duration_ms=%.3f client_ip=%s",
             request.method,
@@ -46,8 +50,12 @@ async def request_metrics_middleware(request: Request, call_next):
 
     duration = time.perf_counter() - start_time
     status_code = response.status_code
-    REQUEST_COUNTER.labels(method=request.method, path=request_path, status_code=str(status_code)).inc()
-    REQUEST_LATENCY.labels(method=request.method, path=request_path, status_code=str(status_code)).observe(duration)
+    REQUEST_COUNTER.labels(
+        method=request.method, path=request_path, status_code=str(status_code)
+    ).inc()
+    REQUEST_LATENCY.labels(
+        method=request.method, path=request_path, status_code=str(status_code)
+    ).observe(duration)
     logger.info(
         "http_request method=%s path=%s status=%s duration_ms=%.3f client_ip=%s",
         request.method,

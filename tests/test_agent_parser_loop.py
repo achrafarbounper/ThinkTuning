@@ -11,12 +11,12 @@ Lance avec : pytest tests/test_agent_parser_loop.py -v
 
 import json
 import os
-import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("AGENT_API_KEY", "test-agent-key")
 
 import pytest
+
 from ia.agent.json_parser import extract_json_blocks
 
 # --- Parser JSON -----------------------------------------------------------------

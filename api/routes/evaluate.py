@@ -107,7 +107,7 @@ def confusion_route(
     raw = api.load_raw_dataset(max_per_lang=limit)
 
     texts = [str(t) for t in raw["text"]]
-    labels = [int(l) for l in raw["label"]]
+    labels = [int(lbl) for lbl in raw["label"]]
 
     if not texts:
         raise HTTPException(status_code=422, detail="Échantillon de référence vide.")
@@ -122,7 +122,10 @@ def confusion_route(
     accuracy = round(correct / total, 4) if total else 0.0
 
     # F1 macro dérivé des métriques par classe (precision/recall).
-    f1_macro = round(float(f1_score(labels, preds, average="macro", labels=list(range(len(LABEL_NAMES))))), 4)
+    f1_macro = round(
+        float(f1_score(labels, preds, average="macro", labels=list(range(len(LABEL_NAMES))))),
+        4,
+    )
 
     errors_by_class = []
     for idx, name in enumerate(LABEL_NAMES):
@@ -137,7 +140,7 @@ def confusion_route(
 
     # Exemples mal classés (journal des erreurs), limités à max_mistakes.
     mistakes = []
-    for true_label, p in zip(labels, predictions):
+    for true_label, p in zip(labels, predictions, strict=True):
         if true_label != p["pred_id"]:
             mistakes.append({
                 "text": p["text"],

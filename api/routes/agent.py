@@ -98,8 +98,8 @@ def _flag(name: str) -> bool:
     return getattr(get_settings(), f"flag_{name}", False)
 
 
-def __active_features() -> list[str]:
-    """Liste ordonnée des flags activés (compatibilité avec l'ancien ``_active_features()``)."""
+def _active_features() -> list[str]:
+    """Liste ordonnée des flags activés (compatibilité avec l'ancien ``active_features()``)."""
     return [name for name, active in get_settings().active_flags().items() if active]
 from core.flow_store import (
     AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
@@ -396,7 +396,9 @@ def run_tool(request: ToolRunRequest, _: bool = Depends(require_api_key)):
         with record_call(tool):  # Phase B : télémétrie d'usage
             result = TOOLS[tool](**request.args)
     except TypeError as exc:
-        raise HTTPException(status_code=400, detail=f"Arguments invalides pour {tool} : {exc}")
+        raise HTTPException(
+            status_code=400, detail=f"Arguments invalides pour {tool} : {exc}"
+        ) from exc
 
     return {"tool": tool, "result": result}
 
@@ -496,11 +498,11 @@ def create_custom_tool(
             compile(request.code, f"<custom-tool:{name}>", "exec"), namespace,
         )
     except SyntaxError as exc:
-        raise HTTPException(status_code=422, detail=f"Code invalide (syntaxe) : {exc}")
+        raise HTTPException(status_code=422, detail=f"Code invalide (syntaxe) : {exc}") from exc
     except Exception as exc:
         raise HTTPException(
             status_code=422, detail=f"Code invalide (erreur au chargement) : {exc}",
-        )
+        ) from exc
     func = namespace.get(name)
     if not callable(func):
         raise HTTPException(
@@ -517,7 +519,7 @@ def create_custom_tool(
             allow_auto_approval=request.allow_auto_approval,
         )
     except ToolRegistryError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     _audit_log(
         ACT_TOOL, subject=f"custom_tool:{name}",
@@ -564,7 +566,7 @@ def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
     try:
         registry.remove_tool(name)
     except ToolRegistryError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit_log(
         ACT_TOOL, subject=f"custom_tool:{name}", detail={"action": "unregister"},
     )
@@ -652,7 +654,7 @@ def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
 
         llm = get_agent_runner().core.llm
     except Exception:
-        raise HTTPException(status_code=503, detail="LLM indisponible pour la complétion")
+        raise HTTPException(status_code=503, detail="LLM indisponible pour la complétion") from None
     return {"completion": complete_text(llm, request.messages, request.draft)}
 
 
@@ -1151,7 +1153,7 @@ def update_agent_settings(
     try:
         payload, errors, written_keys = _save_settings(port, values)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if errors:
         raise HTTPException(status_code=400, detail="; ".join(errors))
@@ -1300,7 +1302,7 @@ def list_audit(
     Filtres AND sur ``action`` / ``subject`` / ``actor`` / ``run_id``. Sans le
     flag, renvoie une réponse 403 explicite (fonctionnalité désactivée).
     """
-    if not __flag("audit"):
+    if not _flag("audit"):
         raise HTTPException(
             status_code=403,
             detail="Journal d'audit désactivé (flag AGENT_AUDIT inactif).",

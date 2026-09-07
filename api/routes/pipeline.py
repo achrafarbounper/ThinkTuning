@@ -8,14 +8,13 @@ thread daemon ; GET /status et GET /jobs permettent le suivi par l'UI.
 
 import threading
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.dependencies.auth import require_api_key
 from core.job_store import get_job_store
-from core.pipeline_runner import run_pipeline, cancel_pipeline, get_cancel_event
-from core.models import PipelineRequest, TrainJob, JobStatus, JobListResponse
+from core.models import JobListResponse, JobStatus, PipelineRequest, TrainJob
+from core.pipeline_runner import cancel_pipeline, get_cancel_event, run_pipeline
 
 router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
 
@@ -66,7 +65,7 @@ def cancel_pipeline_endpoint(job_id: str, _: bool = Depends(require_api_key)):
 
 @router.get("/jobs", response_model=JobListResponse)
 def list_pipeline_jobs(
-    status: Optional[JobStatus] = Query(
+    status: JobStatus | None = Query(
         default=None,
         description="Filtrer par status : pending, running, completed, failed, cancelled",
     ),

@@ -7,7 +7,6 @@ finetune_llm.py sont remplacés par des doubles.
 """
 
 import sys
-import time
 from types import SimpleNamespace
 from unittest.mock import patch
 

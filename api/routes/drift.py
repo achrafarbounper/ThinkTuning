@@ -33,8 +33,8 @@ from collections import Counter
 
 import numpy as np
 import pandas as pd
-from scipy.stats import chisquare, entropy
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from scipy.stats import chisquare, entropy
 
 import api
 from api.dependencies.auth import require_api_key
@@ -60,7 +60,7 @@ def _read_csv_texts(raw: bytes, text_column: str) -> list[str]:
     try:
         df = pd.read_csv(io.BytesIO(raw))
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid CSV")
+        raise HTTPException(status_code=400, detail="Invalid CSV") from None
     if text_column not in df.columns:
         raise HTTPException(status_code=400, detail="Missing text column")
     return [str(t) for t in df[text_column].tolist()]
@@ -178,9 +178,8 @@ async def drift_route(
         except Exception:
             raise HTTPException(
                 status_code=400,
-                detail="Body JSON invalide : attendu {\"texts_a\": [...], \"texts_b\": [...]} "
-                       "ou deux fichiers CSV (file_a, file_b)",
-            )
+                detail="Body JSON invalide : attendu {...} ou deux fichiers CSV (file_a, file_b)",
+            ) from None
         if not isinstance(payload, dict) or "texts_a" not in payload or "texts_b" not in payload:
             raise HTTPException(
                 status_code=400,
@@ -193,7 +192,10 @@ async def drift_route(
         if "method" in payload:
             method = str(payload["method"]).lower()
         if not isinstance(texts_a, list) or not isinstance(texts_b, list):
-            raise HTTPException(status_code=400, detail="texts_a et texts_b doivent être des listes")
+
+            raise HTTPException(
+                status_code=400, detail="texts_a et textes_b doivent être des listes"
+            )
 
     if not texts_a or not texts_b:
         raise HTTPException(status_code=400, detail="Les deux batches doivent être non vides")

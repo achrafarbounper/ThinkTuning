@@ -40,7 +40,7 @@ def test_predictor_predicts_multiple_texts():
     results = predictor.predict(texts)
 
     assert len(results) == len(texts)
-    for text, result in zip(texts, results):
+    for text, result in zip(texts, results, strict=True):
         assert result["text"] == text
         assert result["sentiment"] in ["negative", "neutral", "positive"]
         assert result["confidence"] >= 0.0
