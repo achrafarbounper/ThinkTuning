@@ -70,6 +70,21 @@ export class SentimentApiClientCore {
   constructor({ baseUrl = DEFAULT_BASE_URL, apiKey = "" }: ApiConfig = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.apiKey = apiKey || "";
+    // Garde-fou environnement : en build de production, une baseUrl pointant
+    // vers localhost signifie presque toujours un VITE_API_URL manquant
+    // (build sans .env.production / variable Vercel absente) ou une config
+    // locale persistée dans le localStorage (« thinktuning.apiConfig »).
+    // Depuis un frontend servi en HTTPS, ces appels sont bloqués par le
+    // navigateur (mixed content) ou tombent sur le poste client au lieu du
+    // serveur. On signale au lieu de planter : cibler son backend local peut
+    // être un choix volontaire du développeur (réglages de la SettingsPage).
+    if (import.meta.env.PROD && /localhost|127\.0\.0\.1/.test(this.baseUrl)) {
+      console.warn(
+        `[ThinkTuning] baseUrl="${this.baseUrl}" pointe vers localhost en build ` +
+          `de production. Vérifiez VITE_API_URL (.env.production / variables ` +
+          `d'environnement Vercel) ou la configuration enregistrée (localStorage).`
+      );
+    }
   }
 
   setConfig({ baseUrl, apiKey }: ApiConfig = {}): void {
