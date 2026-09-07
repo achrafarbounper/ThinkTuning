@@ -90,17 +90,22 @@ Format (une ligne JSON par exemple) :
 et immuable `(chat, action)` (ordre = indices de la tête de classification) —
 toute autre valeur est rejetée par validation (422/ValueError).
 
-### 3.2 Split train/val — déterministe, sur les exemples bruts
+### 3.2 Split train/val — déterministe, stratifié, avant tokenisation
 
 `core/intent_trainer._split_records(records, test_size=0.1, seed=42)` :
 
-- shuffle Fisher-Yates via `random.Random(42)` ;
+- **split stratifié** via `sklearn.model_selection.train_test_split(
+  stratify=[r["label"] for r in records], random_state=42)` — la proportion
+  de chaque classe en val reflète le dataset (le shuffle pouvait, par
+  malchance, vider val d'une classe et fausser le classification_report §13) ;
 - `test_size` ∈ ]0, 1[ validé par pydantic (`IntentTrainRequest`);
 - split **sur les exemples bruts avant tokenisation** (équivalent au
   `Dataset.train_test_split(0.1, seed=42)` historique puisque la tokenisation
   est déterministe) — cela rend l'étape `splitting_dataset` observable avant le
   chargement du modèle ;
-- avec un seul exemple → val vide → évaluation désactivée (pas de crash).
+- cas limites (jamais d'échec) : un seul exemple → val vide → évaluation
+  désactivée ; classe réduite à 1 occurrence (ou jeu trop petit pour
+  `test_size`) → **repli shuffle** historique avec log d'avertissement.
 
 > La version API expose `eval_strategy="epoch"` (les checkpoints ne sont pas
 > conservés, cf. 5.6), donc la validation n'est évaluée qu'entre deux epochs complètes.
@@ -483,7 +488,7 @@ curl -X POST "$API/classifiers/intent/reload" -H "X-API-Key:$KEY"
 | LR constant `2e-5` | aucun scheduler (warmup/cosinus) dans `TrainingArguments` |
 | `save_strategy="no"` | aucun « meilleur checkpoint » — une seule version finale |
 | Métriques | accuracy + confiance ; **f1/classification report présents depuis §13 #1** |
-| Split non stratifié | `random.shuffle` → déséquilibre peut basculer dans la val |
+| Split stratifié ✅ (#2) | `train_test_split(stratify=labels)` — répartition préservée ; repli shuffle si classe à 1 occurrence |
 | `fp16` absent | inutile en CPU ; manquant si GPU présent |
 | Quantif. | INT8 dynamique seulement (pas de GPTQ/NF4) |
 | Continental | reprise via `base_model_version` (pas de checkpoint intermédiaire) |
@@ -511,6 +516,14 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 
 - **1a. Hard-exemples frontières** : phrases où `chat`/`action` se chevauchent
   (*"Tu peux me dire si c'est faisable ?"*) — les cas où `eval_below_60pct`
+  met en garde ; le classification report (§13 Diagnostic) pointe les phrases
+  à ajouter (priorité absolue si confusion `chat↔action`).
+- **1b. Stratified split** — ✅ fait (§13 checklist #2) : `_split_records`
+  utilise `sklearn.model_selection.train_test_split(stratify=labels)` →
+  répartition des classes préservée en val ; repli shuffle documenté si une
+  classe n'a qu'un seul exemple (ou jeu trop petit).
+- **1c. Tokenisation dynamique + bucketisation** : `padding=True` (vs
+  `max_length`) + regrouper par longueur → moins de padding → libère RAM/CPU
   pour monter `batch_size` (contrairement au LLM causal — zéro GPU ici).
 
 ### ⚙️ 2. Tokenisation & batch (compatible CPU)
@@ -558,7 +571,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 ### Checklist priorisée (impact ★★★)
 
 - [x] **#1** — `classification_report` (confusions `chat↔action`) ;
-- [ ] **#1** — stratified split dans `_split_records` ;
+- [x] **#1** — stratified split dans `_split_records` ;
 - [ ] **#1** — tokenisation `padding=True` + bucketisation par longueur ;
 - [ ] **#2** — `max_length=64` ;
 - [ ] **#3** — scheduler `cosine` + `warmup_ratio=0.1` ;
@@ -567,13 +580,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 - [ ] **#4** — monter vers `intfloat/multilingual-e5-small` (continental training) ;
 - [ ] **#5** — recalibrer seuil `action` + `fp16` inférence GPU.
 
-> **Premier levier sans GPU (restant)** : stratified split + tokenisation
-> dynamique — gain immédiat, zéro dépendance matérielle. Le classification
-> report (fait) montre maintenant *quoi* améliorer dans le dataset.
-  pointe. Priorité absolue si confusion `chat↔action`.
-- **1b. Stratified split** : remplacer `_split_records` (shuffle) par
-  `train_test_split(stratify=labels)` — garantit la répartition des classes
-  en val.
-- **1c. Tokenisation dynamique + bucketisation** : `padding=True` (vs
-  `max_length`) + regrouper par longueur → moins de padding → libère RAM/CPU
-  pour monter `batch_size` (contrairement au LLM causal — zéro GPU ici).
+> **Premier levier sans GPU (restant)** : tokenisation dynamique
+> (`padding=True` + bucketisation par longueur — §1c) — gain immédiat, zéro
+> dépendance matérielle. Stratified split ✅ (#2) ; le classification report
+> (#1) montre *quoi* améliorer dans le dataset.
