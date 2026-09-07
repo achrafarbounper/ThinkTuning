@@ -32,11 +32,13 @@ from core.intent_store import (  # noqa: E402
     list_intent_model_versions,
     set_active_intent_version,
 )
-# Diagnostic classification_report chat↔action (parité API — cf. §13 de
-# docs/INTENT_TRAINING.md) : helpers purs, aucun import lourd.
+# Parité API (cf. §13 de docs/INTENT_TRAINING.md) : helpers purs du runner
+# intent, sans imports lourds — diagnostic classification_report (confusions
+# chat↔action) + split train/val stratifié.
 from core.intent_trainer import (  # noqa: E402
     _format_intent_report,
     _intent_classification_report,
+    _split_records,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
@@ -108,9 +110,14 @@ def main() -> None:
             raise SystemExit(f"Label inconnu dans le dataset : {label!r} (attendu {labels})")
         return labels.index(label)
 
-    dataset = Dataset.from_list(
-        [{"text": r["text"], "labels": _to_label_id(r["label"])} for r in records]
+    # Split train/val STRATIFIÉ avant tokenisation (parité API — §13
+    # checklist #2) : remplace l'historique Dataset.train_test_split(0.1, 42)
+    # qui pouvait vider la val d'une classe par malchance.
+    train_records, val_records = _split_records(records, 0.1)
+    logger.info(
+        "Split train/val stratifié : %d / %d", len(train_records), len(val_records)
     )
+
     tokenizer = AutoTokenizer.from_pretrained(args.base, use_fast=False)
     model = AutoModelForSequenceClassification.from_pretrained(
         args.base, num_labels=len(labels)
@@ -122,9 +129,14 @@ def main() -> None:
             max_length=args.max_length,
         )
 
-    dataset = dataset.map(_tokenize, batched=True)
-    split = dataset.train_test_split(test_size=0.1, seed=42)
-    train_ds, eval_ds = split["train"], split["test"]
+    def _build_dataset(recs: list) -> Dataset:
+        return Dataset.from_list(
+            [{"text": r["text"], "labels": _to_label_id(r["label"])} for r in recs]
+        ).map(_tokenize, batched=True)
+
+    train_ds = _build_dataset(train_records)
+    # Val vide (dataset à 1 ligne) → évaluation désactivée (aucun crash).
+    eval_ds = _build_dataset(val_records) if len(val_records) else None
 
     timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
     output_dir = Path(INTENT_MODEL_ROOT) / timestamp

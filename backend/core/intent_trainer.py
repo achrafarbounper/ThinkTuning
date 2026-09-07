@@ -159,22 +159,51 @@ def _new_version_name(job_id: str) -> str:
 
 
 def _split_records(records: list, test_size: float, seed: int = 42):
-    """Split déterministe train/val sur les exemples bruts (graine fixe 42).
+    """Split déterministe train/val **stratifié par label** (§13 checklist #2).
 
-    Le CLI historique splittait APRÈS tokenisation via
+    Remplace le shuffle Fisher-Yates par
+    ``sklearn.model_selection.train_test_split(stratify=...)`` (`random_state`
+    = graine fixe 42) : la proportion de chaque classe dans val reflète son
+    poids dans le dataset. Un shuffle peut, par malchance, vider val d'une
+    classe — faussant le classification_report et le F1 par classe (§13
+    Diagnostic). Le CLI historique splittait APRÈS tokenisation via
     ``Dataset.train_test_split(test_size=0.1, seed=42)`` ; splitter les
     exemples bruts avant est équivalent (la tokenisation est déterministe)
     et permet d'exposer l'étape ``splitting_dataset`` avant le chargement du
-    modèle. Avec un seul exemple, pas de split (val vide → évaluation
-    désactivée en aval).
+    modèle.
+
+    Cas limites (jamais d'échec de l'entraînement) :
+    - 1 seul exemple → pas de split (val vide → évaluation désactivée) ;
+    - classe réduite à 1 occurrence → ``stratify`` est impossible (ValueError
+      sklearn) → **repli** sur le shuffle historique, avec log d'avertissement ;
+    - jeu trop petit pour ``test_size`` (train vide) → même repli.
     """
-    indices = list(range(len(records)))
-    random.Random(seed).shuffle(indices)
-    n_val = max(1, round(len(indices) * test_size)) if len(indices) > 1 else 0
-    val_idx = set(indices[:n_val])
-    train_records = [records[i] for i in indices if i not in val_idx]
-    val_records = [records[i] for i in indices if i in val_idx]
-    return train_records, val_records
+    if len(records) <= 1:
+        return records, []
+    try:
+        from sklearn.model_selection import train_test_split
+
+        train_records, val_records = train_test_split(
+            records,
+            test_size=test_size,
+            random_state=seed,
+            stratify=[r["label"] for r in records],
+        )
+        return list(train_records), list(val_records)
+    except Exception as exc:
+        # Classes à 1 occurrence ou jeu trop petit : repli shuffle historique
+        # (identique à l'ancien comportement) pour ne pas bloquer l'entraînement.
+        logger.warning(
+            "Split stratifié impossible (%s) — repli shuffle déterministe.",
+            exc,
+        )
+        indices = list(range(len(records)))
+        random.Random(seed).shuffle(indices)
+        n_val = max(1, round(len(indices) * test_size))
+        val_idx = set(indices[:n_val])
+        train_records = [records[i] for i in indices if i not in val_idx]
+        val_records = [records[i] for i in indices if i in val_idx]
+        return train_records, val_records
 
 
 # ---------------------------------------------------------------------------
