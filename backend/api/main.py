@@ -134,6 +134,21 @@ def _cors_allowed_origins() -> list[str]:
         "http://127.0.0.1:3000",
     ]
 
+def _cors_allow_origin_regex() -> str | None:
+    """Regex d'origines CORS additionnelles (optionnelle).
+
+    Utile quand les origines déployées ne sont pas fixes — ex. previews Vercel
+    (« think-tuning-ai-<hash>-snowy-two-23.vercel.app »), dont le sous-domaine
+    change à chaque déploiement et ne peut pas être listé en CSV. Vide (défaut) :
+    aucune origine regex, seules les origines explicites de
+    CORS_ALLOWED_ORIGINS sont acceptées (comportement inchangé).
+    Ex. (préfixé par le nom de projet Vercel « think-tuning-ai ») :
+    CORS_ALLOW_ORIGIN_REGEX=^https://think-tuning-ai-[a-z0-9-]+\\.vercel\\.app$
+    """
+    raw = os.getenv("CORS_ALLOW_ORIGIN_REGEX", "").strip()
+    return raw or None
+
+
 
 app = FastAPI(
     title="Sentiment Analysis API",
@@ -152,6 +167,7 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=maintenance_mode_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allowed_origins(),
+    allow_origin_regex=_cors_allow_origin_regex(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
