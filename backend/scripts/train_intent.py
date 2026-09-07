@@ -39,6 +39,7 @@ from core.intent_trainer import (  # noqa: E402
     _format_intent_report,
     _intent_classification_report,
     _padding_bucket_config,
+    _scheduler_training_args,
     _split_records,
 )
 
@@ -154,6 +155,9 @@ def main() -> None:
         logging_steps=20,
         learning_rate=args.lr,
         report_to=[],
+        # Scheduler cosine + warmup 10 % (§13 checklist #3, parité API) :
+        # v5 — warmup_steps float ∈ [0,1[ = fraction du total des steps.
+        **_scheduler_training_args(),
         # Bucketisation par longueur (padding dynamique) — §13 checklist #3.
         train_sampling_strategy=padding_cfg["training_args"]["train_sampling_strategy"],
     )

@@ -289,6 +289,8 @@ Le callback `_IntentJobCallback` :
 | `num_train_epochs` | `req.epochs` (3) | paramètre sweep |
 | `per_device_train_batch_size` | `req.batch_size` (32) | élevé — tenu de charge ; RAM à surveiller |
 | `learning_rate` | `req.learning_rate` (2e-5) | typique encodeur |
+| `lr_scheduler_type` | `"cosine"` | décroissance cosinus — stabilise la fin de convergence (§13 #3) |
+| `warmup_steps` | `0.1` (v5 : float ∈ [0,1[ = 10 % des steps) | montée linéaire 0 → LR ; remplace le `warmup_ratio` retiré en v5 |
 | `eval_strategy` | `"epoch"` si val sinon `"no"` | évite l'overhead sur petits datasets |
 | `logging_steps` | `20` | logs serveur réguliers |
 | `save_strategy` | `"no"` | **une seule version finale** (pas de checkpoints) |
@@ -492,7 +494,7 @@ curl -X POST "$API/classifiers/intent/reload" -H "X-API-Key:$KEY"
 |---|---|
 | `max_length=64` ✅ (#2) | troncature à 64 tokens (intent ~30-40) — coût ~2× réduit |
 | Padding dynamique ✅ (#3) | `padding=False` + `DataCollatorWithPadding` (padding par batch) + `train_sampling_strategy="group_by_length"` (v5) |
-| LR constant `2e-5` | aucun scheduler (warmup/cosinus) dans `TrainingArguments` |
+| Scheduler ✅ (#3) | `lr_scheduler_type="cosine"` + warmup 10 % (`warmup_steps=0.1`, v5) — plus de LR constant |
 | `save_strategy="no"` | aucun « meilleur checkpoint » — une seule version finale |
 | Métriques | accuracy + confiance ; **f1/classification report présents depuis §13 #1** |
 | Split stratifié ✅ (#2) | `train_test_split(stratify=labels)` — répartition préservée ; repli shuffle si classe à 1 occurrence |
@@ -547,7 +549,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 
 | Changement | Pourquoi |
 |---|---|
-| `lr_scheduler_type="cosine"` + `warmup_ratio=0.1` | LR 2e-5 constant est défensif ; cosinus+warmup converge mieux >3 epochs |
+| `lr_scheduler_type="cosine"` + warmup 10 % ✅ fait (§13 checklist #3) | LR 2e-5 constant est défensif ; cosinus+warmup converge mieux >3 epochs (v5 : `warmup_ratio` retiré → `warmup_steps=0.1` float ∈ [0,1[) |
 | `metric_for_best_model="accuracy"` + `load_best_model_at_end=True` + `save_strategy="epoch"` + `save_total_limit=2` + `EarlyStoppingCallback(patience=2)` | **contrebalancer** §12 (`save_strategy="no"`) — nécessite de choisir ce mode |
 
 > ⚠️ Trade-off §5.5 : choisir **version horodatée** (actuel,
@@ -574,7 +576,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 | Hard-exemples / stratifié ✅ / padding-dynamique ✅ | ✅ prioritaire | ✅ prioritaire |
 | `max_length=64` | ✅ | — |
 | `batch_size=64` | ⚠️ (RAM) | ✅ |
-| Scheduler cosine + warmup | ✅ | ✅ |
+| Scheduler cosine + warmup ✅ (#3) | ✅ | ✅ |
 | `load_best_model_at_end` + `save_strategy="epoch"` | ✅ (disque) | ✅ |
 | Modèle + fort (E5-small) | ⚠️ lent | ✅ |
 | `fp16` inférence | ✗ | ✅ |
@@ -585,13 +587,15 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 - [x] **#1** — stratified split dans `_split_records` ;
 - [x] **#1** — tokenisation `padding=True` + bucketisation par longueur ;
 - [x] **#2** — `max_length=64` ;
-- [ ] **#3** — scheduler `cosine` + `warmup_ratio=0.1` ;
+- [x] **#3** — scheduler `cosine` + `warmup_ratio=0.1` (v5 : `warmup_steps=0.1`) ;
 - [ ] **#3** — `load_best_model_at_end` + `save_strategy="epoch"` + early stopping
   (au lieu du mode horodatage) ;
 - [ ] **#4** — monter vers `intfloat/multilingual-e5-small` (continental training) ;
 - [ ] **#5** — recalibrer seuil `action` + `fp16` inférence GPU.
 
-> **Premier levier sans GPU (restant)** : scheduler `cosine` +
-> `warmup_ratio=0.1` (§3) — stabilise la fin de convergence, sans surcoût.
+> **Prochain levier sans GPU (restant)** : `load_best_model_at_end` +
+> `save_strategy="epoch"` + early stopping (§3) — évite le sur-entraînement,
+> au prix de checkpoints disque (trade-off §5.5).
 > Classification report ✅ (#1), stratified split ✅ (#2), padding dynamique +
-> bucketisation ✅ (#3), `max_length=64` ✅ (#2) : le report (#1) montre *quoi* améliorer dans le dataset.
+> bucketisation ✅ (#3), `max_length=64` ✅ (#2), scheduler `cosine` + warmup
+> ✅ (#3) : le report (#1) montre *quoi* améliorer dans le dataset.

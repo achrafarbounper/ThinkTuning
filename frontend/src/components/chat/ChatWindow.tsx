@@ -41,6 +41,7 @@ import type {
   ToolCallStatus,
 } from './types';
 import './chat.css';
+import { DEFAULT_BASE_URL } from "../../api/clientCore";
 
 /** Endpoint du backend, préfixé de la base URL configurée (Paramètres / VITE_API_URL). */
 const AI_ENDPOINT = '/api/v1/chat/ai';
