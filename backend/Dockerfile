@@ -13,9 +13,11 @@
 #   - installation OFFLINE depuis le wheelhouse : build reproductible,
 #     aucun accès index au stade runtime.
 #
-# NB mémoire : chaque worker charge le modèle à la première prédiction
-# (lazy, cf. core/predictor_cache) — dimensionner GUNICORN_WORKERS à la RAM
-# disponible (défaut : 2).
+# NB mémoire : chaque worker importe torch/transformers au démarrage (~450 Mo
+# RSS par worker) puis charge le modèle à la première prédiction (lazy, cf.
+# core/predictor_cache). GUNICORN_WORKERS doit donc être dimensionné à la RAM
+# disponible : défaut = 1, calibré pour les instances 512 Mo (Render Free /
+# Starter). Sur un plan >= 2 Go, GUNICORN_WORKERS=2 redevient viable.
 # ============================================================================
 
 # ---------------------------------------------------------------------------
@@ -44,15 +46,26 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # ---------------------------------------------------------------------------
 FROM python:3.13-slim AS runtime
 
+# OMP/MKL à 2 : les instances cloud gratuites partagent < 1 CPU — 4 threads
+# n'apportent rien et gonflent la RAM (arenas BLAS par thread).
+# GUNICORN_WORKERS=1 : calibré pour 512 Mo (Render Free/Starter). Chaque worker
+# importe la stack ML au boot ; à 2 workers le conteneur dépasse 512 Mo ->
+# OOM kill -> « No open HTTP ports detected » -> déploiement en échec.
+# CLASSIFIER_WARMUP / MODEL_SANITY_ON_STARTUP à 0 : ne pas charger de modèle
+# au démarrage (512 Mo ne peut de toute façon pas contenir le modèle de
+# 541 Mo) ; /api/v1/health répond immédiatement et le sanity reste appelable
+# via GET /health/model-sanity. Réactiver sur un plan >= 2 Go si souhaité.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HF_HOME=/app/.cache/huggingface \
     NLTK_DATA=/app/.cache/nltk \
-    OMP_NUM_THREADS=4 \
-    MKL_NUM_THREADS=4 \
-    GUNICORN_WORKERS=2
+    OMP_NUM_THREADS=2 \
+    MKL_NUM_THREADS=2 \
+    GUNICORN_WORKERS=1 \
+    MODEL_SANITY_ON_STARTUP=0 \
+    CLASSIFIER_WARMUP=0
 
 WORKDIR /app
 
@@ -81,10 +94,17 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 
 # sh -c + exec : GUNICORN_WORKERS paramétrable, exec remplace le shell (PID 1).
 # max-requests : recyclage périodique des workers (anti-fuite longue durée).
+# --no-control-socket : gunicorn >= 25.1 crée un socket unix de contrôle sous
+#   $HOME (/.gunicorn/… sur Render) — refusé pour le user 1000 non-root
+#   (« Control server error: [Errno 13] Permission denied: '/.gunicorn' »).
+#   Inutile en conteneur (outil gunicornc non utilisé), on le désactive.
+# -w : GUNICORN_WORKERS prioritaire, sinon WEB_CONCURRENCY (injecté par
+#   Render), sinon 1.
 CMD ["sh", "-c", "exec gunicorn api.main:app \
     -k uvicorn.workers.UvicornWorker \
-    -w \"${GUNICORN_WORKERS:-2}\" \
+    -w \"${GUNICORN_WORKERS:-${WEB_CONCURRENCY:-1}}\" \
     -b 0.0.0.0:8000 \
+    --no-control-socket \
     --graceful-timeout 30 \
     --max-requests 1000 \
     --max-requests-jitter 100 \
