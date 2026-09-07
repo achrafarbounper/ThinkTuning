@@ -147,7 +147,7 @@ def list_training_schedules_endpoint(
     return list_training_schedules(schedules=schedules)
 
 
-@router.delete("/train/schedules/{schedule_id}", status_code=204)
+@router.delete("/train/schedules/{schedule_id}", status_code=204, response_model=None)
 def delete_training_schedule_endpoint(
     schedule_id: str,
     _: bool = Depends(require_api_key),
