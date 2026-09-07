@@ -184,4 +184,7 @@ agent_workspace/
 /pytest_*.txt
 /fixtests_*.txt
 /frontend/build_out.txt
+
+# Artefacts de tests (fuite historique corrigée : ne plus suivre)
+/backend/tests/tmp_models/
 app/config/settings.py
