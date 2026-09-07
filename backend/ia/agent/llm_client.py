@@ -13,7 +13,7 @@ Deux providers sont supportés (plus « hf ») :
       (https://router.huggingface.co/v1/chat/completions), auth Bearer
       « HF_TOKEN », même flux SSE qu'OpenRouter — le payload est identique ;
     - ``lm_studio`` : serveur local LM Studio, endpoint compatible OpenAI
-      (http://192.168.184:1234/v1/chat/completions), AUCUNE authentification,
+      (http://192.168.1.184:1234/v1/chat/completions), AUCUNE authentification,
       même flux SSE qu'OpenRouter — le payload est identique (la fenêtre de
       contexte se règle dans l'UI LM Studio).
 

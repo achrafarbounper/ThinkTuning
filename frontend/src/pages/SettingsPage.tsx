@@ -51,7 +51,7 @@ export default function SettingsPage() {
     openrouterApiKey: agentSettings?.openrouterApiKey ?? "",
     hfUrl: agentSettings?.hfUrl ?? "https://router.huggingface.co/v1",
     hfApiKey: agentSettings?.hfApiKey ?? "",
-    lmStudioUrl: agentSettings?.lmStudioUrl ?? "http://192.168.184:1234/v1",
+    lmStudioUrl: agentSettings?.lmStudioUrl ?? "http://192.168.1.184:1234/v1",
     timeoutSeconds: agentSettings?.timeoutSeconds ?? 60,
     contextLength: agentSettings?.contextLength ?? 512,
     temperature: agentSettings?.temperature ?? 0.2,
@@ -177,7 +177,7 @@ export default function SettingsPage() {
                 } else if (e.target.value === "hf") {
                   updateDraft("hfUrl", "https://router.huggingface.co/v1");
                 } else if (e.target.value === "lm_studio") {
-                  updateDraft("lmStudioUrl", "http://192.168.184:1234/v1");
+                  updateDraft("lmStudioUrl", "http://192.168.1.184:1234/v1");
                 } else {
                   updateDraft("ollamaUrl", "");
                 }
@@ -304,7 +304,7 @@ export default function SettingsPage() {
                 type="text"
                 value={draft.lmStudioUrl}
                 onChange={(e) => updateDraft("lmStudioUrl", e.target.value)}
-                placeholder="http://192.168.184:1234/v1"
+                placeholder="http://192.168.1.184:1234/v1"
                 className="tt-input-tt-settings"
               />
             </label>

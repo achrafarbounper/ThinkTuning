@@ -462,7 +462,7 @@ La bascule est **globale côté serveur**, par variable d'environnement :
 | `OPENROUTER_API_KEY` | clé API OpenRouter — **requise** si provider = openrouter |
 | `AGENT_HF_URL` | endpoint HF (`https://router.huggingface.co/v1/chat/completions`, racine `/v1` acceptée) |
 | `HF_API_KEY` / `HF_TOKEN` | jeton HF — **requise** si provider = `hf` |
-| `AGENT_LM_STUDIO_URL` | endpoint LM Studio (`http://192.168.184:1234/v1/chat/completions`, racine `/v1` acceptée) — **aucune clé** |
+| `AGENT_LM_STUDIO_URL` | endpoint LM Studio (`http://192.168.1.184:1234/v1/chat/completions`, racine `/v1` acceptée) — **aucune clé** |
 
 Exemple pour passer à OpenRouter (`.env`) :
 
@@ -477,7 +477,7 @@ serveur dans LM Studio (*Developer* > *Local Server*, port 1234 par défaut) :
 
 ```env
 AGENT_PROVIDER=lm_studio
-AGENT_LM_STUDIO_URL=http://192.168.184:1234/v1
+AGENT_LM_STUDIO_URL=http://192.168.1.184:1234/v1
 ```
 
 LM Studio sert le modèle chargé dans son UI même si `AGENT_MODEL_NAME` est vide ;
