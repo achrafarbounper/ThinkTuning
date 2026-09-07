@@ -1,0 +1,51 @@
+# ==============================================================================
+# Blueprint Render — Backend ThinkTuning (codification de la configuration).
+#
+# Ce fichier est INERT tant qu'aucune instance Blueprint n'est créée depuis ce
+# dépôt (dashboard Render → New → Blueprint). Il documente la configuration
+# cible du service « thinktuning » (https://thinktuning.onrender.com).
+#
+# ATTENTION :
+#   - Pour un service DÉJÀ créé via le dashboard, le correctif le plus rapide
+#     est la saisie manuelle (dashboard → Environment → CORS_ALLOWED_ORIGINS),
+#     puis « Save Changes » (redéploiement automatique). Aucun code à pousser :
+#     la variable est lue au démarrage (api/main.py::_cors_allowed_origins).
+#   - Créer une instance Blueprint avec le même nom de service permet de
+#     synchroniser les ressources existantes (Render propose le rattachement) ;
+#     avec un nom différent, un NOUVEAU service (nouvelle URL *.onrender.com)
+#     est créé et VITE_API_URL côté frontend doit alors être mis à jour.
+# ==============================================================================
+services:
+  - type: web
+    name: thinktuning
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/v1/health
+    plan: free # plan gratuit = cold start après 15 min d'inactivité (502/latence ~1 min) ; « starter » pour un service toujours chaud
+    envVars:
+      # --- CORS : origine exacte du frontend déployé (SANS slash final) -------
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://think-tuning-ai.vercel.app
+      # Previews Vercel (sous-domaine variable) — nécessite le code lisant
+      # CORS_ALLOW_ORIGIN_REGEX (api/main.py), sinon ignorée. Regex préfixée
+      # par le nom de projet « think-tuning-ai » : couvre toutes les formes
+      # d'URL de preview (<hash>, git-<branche>, slug d'équipe) et refuse les
+      # autres projets Vercel. Variante stricte épinglée au slug d'équipe
+      # (si le slug d'équipe est « snowy-two-23 ») :
+      #   ^https://think-tuning-ai-[a-z0-9-]+-snowy-two-23\.vercel\.app$
+      - key: CORS_ALLOW_ORIGIN_REGEX
+        value: ^https://think-tuning-ai-[a-z0-9-]+\.vercel\.app$
+      # --- Secrets (à saisir manuellement dans le dashboard) ------------------
+      - key: API_KEY
+        sync: false
+      # --- Dimensionnement plan 512 Mo (chaque worker importe torch) ---------
+      - key: GUNICORN_WORKERS
+        value: "1" # 2 workers = OOM sur 512 Mo (« No open HTTP ports detected »)
+      - key: MODEL_SANITY_ON_STARTUP
+        value: "0" # ne pas charger le modèle (541 Mo) au démarrage
+      - key: CLASSIFIER_WARMUP
+        value: "0"
+      # --- Rate limiting derrière le proxy Render ----------------------------
+      - key: RATE_LIMIT_TRUST_PROXY
+        value: "1" # sinon IP interne partagée = blocage de tous les clients
