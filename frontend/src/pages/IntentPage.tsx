@@ -126,7 +126,7 @@ export default function IntentPage() {
     epochs: 3,
     batch_size: 32,
     learning_rate: 2e-5,
-    max_length: 128,
+    max_length: 64,
     test_size: 0.1,
     quantize_int8: false,
     activate: false,

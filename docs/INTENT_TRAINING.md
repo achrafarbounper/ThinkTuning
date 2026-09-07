@@ -214,7 +214,7 @@ les rejoue au dashboard :
 | `epochs` | `3` | entier > 0 |
 | `batch_size` | `32` | entier > 0 |
 | `learning_rate` | `2e-5` | > 0 |
-| `max_length` | `128` | entier > 0 |
+| `max_length` | `64` | entier > 0 |
 | `test_size` | `0.1` | ∈ ]0, 1[ |
 | `quantize_int8` | `False` | — |
 | `activate` | `False` | active la version post-entraînement |
@@ -439,7 +439,7 @@ POST /train/intent ──▶ pending ──▶ RUNNING ──▶ COMPLETED | FAI
 
 - **Machine** : encodeur léger (MiniLM, 12 M params) → entraînement **CPU
   possible** (lent) ou GPU (`torch` pické automatiquement par HF) ;
-- **RAM** : `batch_size=32` × `max_length=128` ~ 128 Mo + poids → OK CPU, le
+- **RAM** : `batch_size=32` × `max_length=64` ~ 64 Mo + poids → OK CPU, le
   frein devient les gros encodeurs ;
 - **Import lazy** : `torch`/`transformers`/`datasets` importés **dans le thread
   job** (l. 391-399) → l'API reste importable sans ces dépendances ;
@@ -490,7 +490,7 @@ curl -X POST "$API/classifiers/intent/reload" -H "X-API-Key:$KEY"
 
 | Point | Détail |
 |---|---|
-| `max_length=128` fixe | gaspille CPU sur les phrases courtes `chat`/`action` |
+| `max_length=64` ✅ (#2) | troncature à 64 tokens (intent ~30-40) — coût ~2× réduit |
 | Padding dynamique ✅ (#3) | `padding=False` + `DataCollatorWithPadding` (padding par batch) + `train_sampling_strategy="group_by_length"` (v5) |
 | LR constant `2e-5` | aucun scheduler (warmup/cosinus) dans `TrainingArguments` |
 | `save_strategy="no"` | aucun « meilleur checkpoint » — une seule version finale |
@@ -539,7 +539,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 
 ### ⚙️ 2. Tokenisation & batch (compatible CPU)
 
-- **2a. `max_length=64`** (intent ~30-40 tokens) : coupe le coût ~2× → libère RAM.
+- **2a. `max_length=64`** (intent ~30-40 tokens) — ✅ fait (§13 checklist #2) : coupe le coût ~2× → libère RAM.
 - **2b. `batch_size=64`** si RAM le permet → époque +1.5× plus rapide
   sans perte de convergence (encodeur, LR fixe).
 
@@ -584,14 +584,14 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 - [x] **#1** — `classification_report` (confusions `chat↔action`) ;
 - [x] **#1** — stratified split dans `_split_records` ;
 - [x] **#1** — tokenisation `padding=True` + bucketisation par longueur ;
-- [ ] **#2** — `max_length=64` ;
+- [x] **#2** — `max_length=64` ;
 - [ ] **#3** — scheduler `cosine` + `warmup_ratio=0.1` ;
 - [ ] **#3** — `load_best_model_at_end` + `save_strategy="epoch"` + early stopping
   (au lieu du mode horodatage) ;
 - [ ] **#4** — monter vers `intfloat/multilingual-e5-small` (continental training) ;
 - [ ] **#5** — recalibrer seuil `action` + `fp16` inférence GPU.
 
-> **Premier levier sans GPU (restant)** : `max_length=64` (§2) — coupe le
-> coût ~2× une fois le padding dynamique actif (zéro gaspillage ajouté).
+> **Premier levier sans GPU (restant)** : scheduler `cosine` +
+> `warmup_ratio=0.1` (§3) — stabilise la fin de convergence, sans surcoût.
 > Classification report ✅ (#1), stratified split ✅ (#2), padding dynamique +
-> bucketisation ✅ (#3) : le report (#1) montre *quoi* améliorer dans le dataset.
+> bucketisation ✅ (#3), `max_length=64` ✅ (#2) : le report (#1) montre *quoi* améliorer dans le dataset.

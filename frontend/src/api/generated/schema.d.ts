@@ -1322,7 +1322,10 @@ export interface components {
         };
         /** Body_predict_batch_api_v1_predict_batch_post */
         Body_predict_batch_api_v1_predict_batch_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /**
              * Text Column
@@ -1517,7 +1520,7 @@ export interface components {
          *       "dataset_path": "data/intent_dataset.jsonl",
          *       "epochs": 3,
          *       "learning_rate": 0.00002,
-         *       "max_length": 128,
+         *       "max_length": 64,
          *       "quantize_int8": false,
          *       "test_size": 0.1
          *     }
@@ -1552,7 +1555,7 @@ export interface components {
             learning_rate: number;
             /**
              * Max Length
-             * @default 128
+             * @default 64
              */
             max_length: number;
             /**
@@ -1997,10 +2000,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
     };
     responses: never;
