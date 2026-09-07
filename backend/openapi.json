@@ -3808,7 +3808,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -3820,7 +3820,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -3841,7 +3841,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File"
           },
           "text_column": {
@@ -4321,7 +4321,7 @@
           "max_length": {
             "type": "integer",
             "title": "Max Length",
-            "default": 128
+            "default": 64
           },
           "test_size": {
             "type": "number",
@@ -4350,7 +4350,7 @@
             "dataset_path": "data/intent_dataset.jsonl",
             "epochs": 3,
             "learning_rate": 2e-05,
-            "max_length": 128,
+            "max_length": 64,
             "quantize_int8": false,
             "test_size": 0.1
           }
@@ -5373,13 +5373,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",

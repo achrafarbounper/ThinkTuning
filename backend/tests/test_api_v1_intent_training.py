@@ -150,6 +150,7 @@ def test_v1_intent_start_returns_202_kind_intent(fake_intent):
     # Precheck appelé AVANT la création du job (validations défensives).
     assert len(fake_intent.runner.prechecked) == 1
     assert fake_intent.runner.prechecked[0].epochs == 2
+    assert fake_intent.runner.prechecked[0].max_length == 64  # max_length=64 (doc 13, item 2a)
 
 
 def test_v1_intent_start_requires_api_key(fake_intent):
