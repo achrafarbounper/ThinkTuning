@@ -83,7 +83,7 @@ class TestAuditTrail(unittest.TestCase):
 
     def test_limit_parameter(self):
         """Vérifie le paramètre de limite."""
-        for i in range(10):
+        for _ in range(10):
             log_tool_call(job_id="job1", tool="tool", args={}, result="ok", duration_ms=1.0, success=True)
         trail = get_audit_trail(job_id="job1", limit=5)
         self.assertEqual(len(trail), 5)

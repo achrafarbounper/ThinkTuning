@@ -14,7 +14,6 @@ l'IHM chaîne POST /classifiers/intent/reload (store et runtime sont séparés).
 import os
 import threading
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
@@ -111,7 +110,7 @@ def cancel_intent_training_endpoint(
 
 @router.get("/jobs", response_model=JobListResponse)
 def list_intent_training_jobs(
-    status: Optional[JobStatus] = Query(
+    status: JobStatus | None = Query(
         default=None,
         description="Filtrer par status : pending, running, completed, failed, cancelled",
     ),

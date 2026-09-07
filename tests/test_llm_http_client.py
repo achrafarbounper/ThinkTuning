@@ -211,8 +211,8 @@ def test_call_stream_error_payload_raises_clear_error():
     """Erreur métier EN PLEIN FLUX (statut HTTP 200) → RuntimeError explicite
     (plus de réponse vide silencieuse suivie d'un crash en aval)."""
     body = (
-        '{"error": {"code": 400, "message": "Conversation roles must alternate"}}\n'
-    ).encode()
+        b'{"error": {"code": 400, "message": "Conversation roles must alternate"}}\n'
+    )
 
     def handler(request):
         return httpx.Response(200, content=body,
@@ -227,9 +227,9 @@ def test_call_stream_non_object_error_line_is_ignored():
     """Ligne JSON valide mais NON-objet (erreur encodée « "message" ») :
     ignorée, le flux continue sans « 'str' object has no attribute 'get' »."""
     body = (
-        '"Erreur interne"\n'
-        '{"message": {"content": "Bonjour"}, "done": true}\n'
-    ).encode()
+        b'"Erreur interne"\n'
+        b'{"message": {"content": "Bonjour"}, "done": true}\n'
+    )
 
     def handler(request):
         return httpx.Response(200, content=body,

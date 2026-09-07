@@ -1,8 +1,5 @@
 # project/api/routes/train.py
 
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 import asyncio
 import json
 import os
@@ -10,25 +7,27 @@ import threading
 import time
 import uuid
 
-from api.dependencies.auth import require_api_key, _get_api_key
-from core.job_store import get_job_store
-from core.training_events import (
-    get_training_events_source,
-    ACTIVE_POLL_SECONDS,
-    STALL_MINUTES,
-)
-from core.trainer_runner import run_training, cancel_training
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+
+from api.dependencies.auth import _get_api_key, require_api_key
 from core import scheduler as schedule_manager
+from core.job_store import get_job_store
 from core.models import (
-    TrainRequest,
-    TrainJob,
-    JobStatus,
-    JobListResponse,
     EpochMetric,
-    TrainHistoryResponse,
-    ScheduleRequest,
+    JobListResponse,
+    JobStatus,
     ScheduledJob,
     ScheduleListResponse,
+    ScheduleRequest,
+    TrainHistoryResponse,
+    TrainJob,
+    TrainRequest,
+)
+from core.trainer_runner import cancel_training, run_training
+from core.training_events import (
+    ACTIVE_POLL_SECONDS,
+    STALL_MINUTES,
+    get_training_events_source,
 )
 
 router = APIRouter(prefix="/train", tags=["Training"])
@@ -87,7 +86,7 @@ def cancel_training_endpoint(job_id: str, _: bool = Depends(require_api_key)):
 
 @router.get("/jobs", response_model=JobListResponse)
 def list_training_jobs(
-    status: Optional[JobStatus] = Query(
+    status: JobStatus | None = Query(
         default=None,
         description="Filtrer par status : pending, running, completed, failed, cancelled",
     ),
@@ -209,9 +208,9 @@ async def stream_training_metrics(websocket: WebSocket, job_id: str):
 
     last_epoch = 0
     last_event_time = time.time()
-    last_step: Optional[str] = None
+    last_step: str | None = None
     last_log_seq = 0
-    last_progress_json: Optional[str] = None
+    last_progress_json: str | None = None
     try:
         while True:
             # Étape courante du pipeline : diffusée à la connexion puis à

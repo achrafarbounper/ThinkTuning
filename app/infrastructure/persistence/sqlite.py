@@ -13,6 +13,7 @@ from typing import Any
 
 from core.approval_store import ApprovalStore as _LegacyApprovalStore
 from core.audit_store import AuditStore as _LegacyAuditStore
+from core.flow_store import FlowStore as _LegacyFlowStore
 from core.run_store import RunStore as _LegacyRunStore
 from core.session_store import SessionStore as _LegacySessionStore
 
@@ -97,6 +98,39 @@ class SqliteApprovalStore(_LegacyApprovalStore):
         return self.get(request_id) or {"request_id": request_id, "id": request_id}
 
 
+class SqliteFlowStore(_LegacyFlowStore):
+    """``FlowStorePort`` — journal des sessions multi-agents (Flow Map).
+
+    Chaque session est une timeline horodatée d'événements SSE, rejouable
+    dans le dashboard. L'héritage du legacy préserve le schéma SQLite
+    (zéro migration de données).
+    """
+
+    def start_flow(self, prompt: str, model: str = "", source: str = "api") -> dict[str, Any]:
+        return super().start_flow(prompt, model=model, source=source)
+
+    def append_event(self, flow_id: str, event: str, data: dict, at_ms: float) -> None:
+        return super().append_event(flow_id, event, data, at_ms)
+
+    def finish_flow(
+        self,
+        flow_id: str,
+        status: str,
+        answer_summary: str = "",
+        error: str | None = None,
+    ) -> dict[str, Any] | None:
+        return super().finish_flow(flow_id, status, answer_summary=answer_summary, error=error)
+
+    def get(self, flow_id: str) -> dict[str, Any] | None:
+        return super().get(flow_id)
+
+    def list(self, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
+        return super().list(limit=limit, status=status)
+
+    def delete(self, flow_id: str) -> bool:
+        return super().delete(flow_id)
+
+
 # --- Fabrique de coexistence -------------------------------------------------
 # Pendant la migration, la couche applicative reçoit LES SINGLETONS legacy
 # (même instance, même base SQLite) derrière le typage du port : zéro changement
@@ -105,6 +139,7 @@ class SqliteApprovalStore(_LegacyApprovalStore):
 from app.domain.ports import (  # noqa: E402
     ApprovalStorePort,
     AuditStorePort,
+    FlowStorePort,
     RunStorePort,
     SessionStorePort,
 )
@@ -133,3 +168,10 @@ def default_approval_store() -> ApprovalStorePort:
     from core.approval_store import get_approval_store
 
     return get_approval_store()
+
+
+def default_flow_store() -> FlowStorePort:
+    """Store de sessions multi-agents par défaut (singleton legacy, même base)."""
+    from core.flow_store import get_flow_store
+
+    return get_flow_store()

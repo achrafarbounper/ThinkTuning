@@ -11,7 +11,6 @@ Lance avec : pytest tests/test_agent_logging.py -v
 
 import logging
 import os
-import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import pytest  # noqa: E402
@@ -205,7 +204,7 @@ def test_llm_client_repairs_latin1_mojibake_str_lines(monkeypatch):
             pass
 
         def iter_lines(self, decode_unicode=False):
-            yield '{"message": {"content": "%s"}, "done": true}' % mojibake
+            yield f'{{"message": {{"content": "{mojibake}"}}, "done": true}}'
 
         def close(self):
             pass

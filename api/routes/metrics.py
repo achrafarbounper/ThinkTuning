@@ -27,14 +27,15 @@ def metrics_json():
       {
         "scrape_at_ms": 1710000000000,
         "counters":   [{"name": "http_requests_total", "labels": {...}, "value": 42}],
-        "histograms":[{"name": "http_request_duration_seconds", "labels": {...}, "count": 4, "sum": 1.2}]
+        "histograms": [
+            {"name": "http_request_duration_seconds", "labels": {...}, "count": 4, "sum": 1.2}
+        ]
       }
     """
     scrape_at_ms = int(time.time() * 1000)
     counters = []
 
     for metric in REGISTRY.collect():
-        name = metric.name
         for sample in metric.samples:
             labels = {k: v for k, v in sample.labels.items()}
             bucket_label = labels.pop("le", None)
@@ -82,7 +83,16 @@ def _collect_histograms(registry=REGISTRY):
             key = label_key(labels)
 
             if sample.name.endswith("_sum"):
-                sums.setdefault((name, key), {"name": name, "labels": labels, "count": 0, "sum": sample.value, "buckets": []})
+                sums.setdefault(
+                    (name, key),
+                    {
+                        "name": name,
+                        "labels": labels,
+                        "count": 0,
+                        "sum": sample.value,
+                        "buckets": [],
+                    },
+                )
             elif bucket_label == "+Inf":
                 counts[(name, key)] = sample.value
             elif bucket_label is not None:

@@ -20,8 +20,8 @@ import json
 import queue
 import threading
 import time
-from typing import Any, Optional
 from collections.abc import AsyncIterator
+from typing import Any
 
 import requests
 from fastapi import (
@@ -34,74 +34,20 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.dependencies.auth import require_api_key, _get_api_key
-from core.agent_settings import get_agent_settings, save_agent_settings
-from core.agent_cache import (
-    REQUIRED_ARGS,
-    TOOL_META,
-    TOOLS,
-    _openrouter_chat_url,
-    _hf_chat_url,
-    _lm_studio_chat_url,
-    agent_config,
-    ask_multi_agent,
-    ask_multi_agent_streaming,
-    reload_agent_runner,
-)
-from core.approval_store import (
-    APPROVED,
-    PENDING,
-    REJECTED,
-    STATUSES,
-    get_approval_store,
-)
-from core.run_store import (
-    ERROR as RUN_ERROR,
-    STATUSES as RUN_STATUSES,
-    get_run_store,
-)
-from core.flow_store import (
-    AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
-    COMPLETED as FLOW_COMPLETED,
-    ERROR as FLOW_ERROR,
-    REJECTED as FLOW_REJECTED,
-    STATUSES as FLOW_STATUSES,
-    get_flow_store,
-)
-from core.session_store import get_session_store
-from core.feature_flags import active_features, flag  # Phase A (flags)
-from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
-from ia.copilot.suggestions import (  # Phase D (copilot)
-    complete_text,
-    suggest_for_context,
-)
-from ia.tools.plugin import loaded_plugins  # Phase B (plugins)
-from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
-from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
-from ia.tools.registry import (  # SCRUM-99 (tools personnalisés)
-    ToolRegistryError,
-    get_global_registry,
-)
-from ia.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard v1)
-from core.audit_store import (  # Phase A (audit / conformité)
-    ACT_APPROVAL,
-    ACT_CONFIG,
-    ACT_CONNECT,
-    ACT_RUN,
-    ACT_TOOL,
-    get_audit_store,
-)
+from api.dependencies.auth import _get_api_key, require_api_key
 
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
 from app.agent.factory import build_agent_core, new_core_enabled
-from app.domain.entities.plan import Intent
-from app.domain.errors import AgentRunError
-from app.infrastructure.legacy_approval_store import build_approval_store
-from app.infrastructure.events.in_memory import InMemoryEventBus
+from app.application.agent_settings_usecase import (
+    get_effective_settings,
+    update_settings,
+)
+
 # Use-cases (couche application) : la logique métier des runs vit ici,
 # les routes ci-dessous ne sont plus que des adaptateurs HTTP minces.
 from app.application.ask_usecase import run_ask_core
+from app.application.multi_agent_usecase import run_multi_agent, run_multi_agent_streaming
 from app.application.run_lifecycle import (
     core_api_status,
     core_store_status,
@@ -111,6 +57,90 @@ from app.application.run_lifecycle import (
     resolve_resume_hash,
 )
 from app.application.session_memory import load_session_history, persist_exchange
+from app.config.settings import get_settings
+from app.domain.entities.plan import Intent
+from app.domain.errors import AgentRunError
+from app.infrastructure.events.in_memory import InMemoryEventBus
+from app.infrastructure.legacy_approval_store import build_approval_store
+from app.infrastructure.legacy_multi_agent_adapter import build_multi_agent_orchestrator
+from app.infrastructure.legacy_settings_adapter import build_settings_port
+from core.agent_cache import (
+    REQUIRED_ARGS,
+    TOOL_META,
+    TOOLS,
+    _hf_chat_url,
+    _lm_studio_chat_url,
+    _openrouter_chat_url,
+    agent_config,
+    reload_agent_runner,
+)
+from core.approval_store import (
+    APPROVED,
+    REJECTED,
+    STATUSES,
+    get_approval_store,
+)
+from core.audit_store import (  # Phase A (audit / conformité)
+    ACT_APPROVAL,
+    ACT_CONNECT,
+    ACT_RUN,
+    ACT_TOOL,
+    get_audit_store,
+)
+
+
+def _flag(name: str) -> bool:
+    """Lit un feature flag depuis Settings (compatibilité avec l'ancien ``flag()``).
+
+    Utilise le cache de ``get_settings()`` — les tests qui basculent un flag par
+    ``monkeypatch.setenv`` doivent appeler ``get_settings.cache_clear()`` après.
+    """
+    return getattr(get_settings(), f"flag_{name}", False)
+
+
+def _active_features() -> list[str]:
+    """Liste ordonnée des flags activés (compatibilité avec l'ancien ``active_features()``)."""
+    return [name for name, active in get_settings().active_flags().items() if active]
+from core.flow_store import (
+    AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
+)
+from core.flow_store import (
+    COMPLETED as FLOW_COMPLETED,
+)
+from core.flow_store import (
+    ERROR as FLOW_ERROR,
+)
+from core.flow_store import (
+    REJECTED as FLOW_REJECTED,
+)
+from core.flow_store import (
+    STATUSES as FLOW_STATUSES,
+)
+from core.flow_store import (
+    get_flow_store,
+)
+from core.run_store import (
+    ERROR as RUN_ERROR,
+)
+from core.run_store import (
+    STATUSES as RUN_STATUSES,
+)
+from core.run_store import (
+    get_run_store,
+)
+from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
+from ia.copilot.suggestions import (  # Phase D (copilot)
+    complete_text,
+    suggest_for_context,
+)
+from ia.tools.plugin import loaded_plugins  # Phase B (plugins)
+from ia.tools.registry import (  # SCRUM-99 (tools personnalisés)
+    ToolRegistryError,
+    get_global_registry,
+)
+from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
+from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
+from ia.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard v1)
 
 router = APIRouter(prefix="/api/agent", tags=["Agent IA"])
 
@@ -124,7 +154,7 @@ def _audit_log(action: str, subject: str = "", detail: dict | None = None, **kw)
     No-op (retour None) quand le flag est inactif : zéro impact sur le
     comportement historique. ``kw`` peut porter actor/ip/request_id/run_id.
     """
-    if not flag("audit"):
+    if not _flag("audit"):
         return None
     store = get_audit_store()
     return store.log(action, subject=subject, detail=detail, **kw)
@@ -134,12 +164,12 @@ def _audit_log(action: str, subject: str = "", detail: dict | None = None, **kw)
 
 class AskRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="Instruction envoyée à l'agent.")
-    resume_request_id: Optional[str] = Field(
+    resume_request_id: str | None = Field(
         None,
         description="Relance une tâche en attente : id donné par une réponse "
         "« awaiting_approval » après validation humaine (approve).",
     )
-    session_id: Optional[str] = Field(
+    session_id: str | None = Field(
         None,
         description="Session de conversation (core/session_store) où journaliser "
         "l'échange ; absent : aucune persistance côté serveur.",
@@ -154,26 +184,26 @@ class AskStreamRequest(BaseModel):
     """
 
     prompt: str = Field(..., min_length=1, description="Instruction envoyée à l'agent.")
-    resume_request_id: Optional[str] = Field(None)
-    model: Optional[str] = Field(
+    resume_request_id: str | None = Field(None)
+    model: str | None = Field(
         None, max_length=100, description="Modèle LLM ; absent/vide = défaut serveur."
     )
     enable_thinking: bool = Field(False, description="Mode « Réflexion ». ")
-    session_id: Optional[str] = Field(None, description="Conversation cible (persistance).")
+    session_id: str | None = Field(None, description="Conversation cible (persistance).")
 
 
 class MultiAskRequest(BaseModel):
     """Corps de l'orchestration multi-agents (superviseur/workers)."""
 
     prompt: str = Field(..., min_length=1, description="Tâche globale soumise au superviseur.")
-    model: Optional[str] = Field(
+    model: str | None = Field(
         None, max_length=100, description="Modèle LLM ; absent/vide = défaut serveur."
     )
     parallel: bool = Field(
         True, description="Exécution parallèle des sous-tâches INDÉPENDANTES "
         "(défaut : activé — les dépendances déclarées restent séquentielles)."
     )
-    resume_request_id: Optional[str] = Field(
+    resume_request_id: str | None = Field(
         None,
         description="REPRISE NATIVE multi-agents : relance l'orchestration "
         "interrompue sur une validation humaine. L'action approuvée est "
@@ -229,8 +259,8 @@ class AskResponse(BaseModel):
     response: str
     model: str
     status: str = "completed"
-    request_id: Optional[str] = None
-    approval: Optional[dict] = None
+    request_id: str | None = None
+    approval: dict | None = None
 
 
 class ToolInfo(BaseModel):
@@ -281,31 +311,31 @@ class AgentSettingsUpdate(BaseModel):
     retour à la valeur par défaut du serveur.
     """
 
-    provider: Optional[str] = Field(
+    provider: str | None = Field(
         None, description="« ollama », « openrouter », « hf » ou « lm_studio »."
     )
-    model: Optional[str] = Field(None, max_length=200)
-    ollama_url: Optional[str] = Field(None, max_length=500)
-    openrouter_url: Optional[str] = Field(None, max_length=500)
-    openrouter_api_key: Optional[str] = Field(None, max_length=300)
-    hf_url: Optional[str] = Field(None, max_length=500)
-    hf_api_key: Optional[str] = Field(None, max_length=300)
-    lm_studio_url: Optional[str] = Field(None, max_length=500)
-    timeout_seconds: Optional[float] = Field(None, ge=10, le=3600)
-    context_length: Optional[int] = Field(None, ge=512, le=131072)
-    temperature: Optional[float] = Field(None, ge=0, le=2)
+    model: str | None = Field(None, max_length=200)
+    ollama_url: str | None = Field(None, max_length=500)
+    openrouter_url: str | None = Field(None, max_length=500)
+    openrouter_api_key: str | None = Field(None, max_length=300)
+    hf_url: str | None = Field(None, max_length=500)
+    hf_api_key: str | None = Field(None, max_length=300)
+    lm_studio_url: str | None = Field(None, max_length=500)
+    timeout_seconds: float | None = Field(None, ge=10, le=3600)
+    context_length: int | None = Field(None, ge=512, le=131072)
+    temperature: float | None = Field(None, ge=0, le=2)
 
 
 class ConnectivityTestRequest(BaseModel):
     """Sonde de connectivité ; champs absents -> valeurs effectives courantes."""
 
-    provider: Optional[str] = None
-    ollama_url: Optional[str] = None
-    openrouter_url: Optional[str] = None
-    openrouter_api_key: Optional[str] = None
-    hf_url: Optional[str] = None
-    hf_api_key: Optional[str] = None
-    lm_studio_url: Optional[str] = None
+    provider: str | None = None
+    ollama_url: str | None = None
+    openrouter_url: str | None = None
+    openrouter_api_key: str | None = None
+    hf_url: str | None = None
+    hf_api_key: str | None = None
+    lm_studio_url: str | None = None
 
 
 # --- Endpoints ----------------------------------------------------------------------
@@ -366,7 +396,9 @@ def run_tool(request: ToolRunRequest, _: bool = Depends(require_api_key)):
         with record_call(tool):  # Phase B : télémétrie d'usage
             result = TOOLS[tool](**request.args)
     except TypeError as exc:
-        raise HTTPException(status_code=400, detail=f"Arguments invalides pour {tool} : {exc}")
+        raise HTTPException(
+            status_code=400, detail=f"Arguments invalides pour {tool} : {exc}"
+        ) from exc
 
     return {"tool": tool, "result": result}
 
@@ -383,7 +415,7 @@ def recommend_tools(
     catalogue contre la requête ``q`` — type « Copilot » pour aider l'UI à
     suggérer l'outil pertinent avant même un appel LLM.
     """
-    if not flag("tool_analytics"):
+    if not _flag("tool_analytics"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_TOOL_ANALYTICS)")
     return {"query": q, "suggestions": suggest_tools(q, k=k)}
 
@@ -397,7 +429,7 @@ ENV_TOOL_REMOVED = "agent.tool.removed"
 @router.get("/tools/custom")
 def list_custom_tools(_: bool = Depends(require_api_key)):
     """Liste les tools DYNAMIQUES enregistrés (état runtime inclus)."""
-    if not flag("custom_tools"):
+    if not _flag("custom_tools"):
         raise HTTPException(
             status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
@@ -430,7 +462,7 @@ def create_custom_tool(
     ``allow_auto_approval=true`` (source humaine de confiance) honore la
     déclaration « safety » de la définition.
     """
-    if not flag("custom_tools"):
+    if not _flag("custom_tools"):
         raise HTTPException(
             status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
@@ -466,11 +498,11 @@ def create_custom_tool(
             compile(request.code, f"<custom-tool:{name}>", "exec"), namespace,
         )
     except SyntaxError as exc:
-        raise HTTPException(status_code=422, detail=f"Code invalide (syntaxe) : {exc}")
+        raise HTTPException(status_code=422, detail=f"Code invalide (syntaxe) : {exc}") from exc
     except Exception as exc:
         raise HTTPException(
             status_code=422, detail=f"Code invalide (erreur au chargement) : {exc}",
-        )
+        ) from exc
     func = namespace.get(name)
     if not callable(func):
         raise HTTPException(
@@ -487,7 +519,7 @@ def create_custom_tool(
             allow_auto_approval=request.allow_auto_approval,
         )
     except ToolRegistryError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     _audit_log(
         ACT_TOOL, subject=f"custom_tool:{name}",
@@ -519,7 +551,7 @@ def create_custom_tool(
 @router.delete("/tools/custom/{name}")
 def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
     """Retire un tool DYNAMIQUE (les tools natifs ne sont jamais retirables)."""
-    if not flag("custom_tools"):
+    if not _flag("custom_tools"):
         raise HTTPException(
             status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
@@ -534,7 +566,7 @@ def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
     try:
         registry.remove_tool(name)
     except ToolRegistryError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit_log(
         ACT_TOOL, subject=f"custom_tool:{name}", detail={"action": "unregister"},
     )
@@ -553,7 +585,7 @@ def tool_stats(reset: bool = False, _: bool = Depends(require_api_key)):
     Phase B (flag ``AGENT_TOOL_ANALYTICS``) — compteurs in-process depuis le
     démarrage (volatils) ; ``reset=1`` les remet à zéro.
     """
-    if not flag("tool_analytics"):
+    if not _flag("tool_analytics"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_TOOL_ANALYTICS)")
     return {"tools": get_stats(reset=reset), "plugins": loaded_plugins()}
 
@@ -586,7 +618,7 @@ def suggest(request: SuggestRequest, _: bool = Depends(require_api_key)):
     (Phase B) et le boost d'apprentissage issu des acceptations/refus
     enregistrés via ``/suggest/feedback``.
     """
-    if not flag("copilot"):
+    if not _flag("copilot"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_COPILOT)")
     return suggest_for_context(
         messages=request.messages,
@@ -599,7 +631,7 @@ def suggest(request: SuggestRequest, _: bool = Depends(require_api_key)):
 @router.post("/suggest/feedback")
 def suggest_feedback(request: SuggestFeedbackRequest, _: bool = Depends(require_api_key)):
     """Enregistre l'issue d'une suggestion (acceptée / refusée)."""
-    if not flag("copilot"):
+    if not _flag("copilot"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_COPILOT)")
     entry = get_feedback_store().record(
         tool=request.tool,
@@ -613,7 +645,7 @@ def suggest_feedback(request: SuggestFeedbackRequest, _: bool = Depends(require_
 @router.post("/complete")
 def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     """Complétion en ligne (suite probable du brouillon, via le LLM)."""
-    if not flag("copilot"):
+    if not _flag("copilot"):
         raise HTTPException(status_code=404, detail="Fonction désactivée (AGENT_COPILOT)")
     if not request.draft.strip():
         return {"completion": ""}
@@ -622,7 +654,7 @@ def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
 
         llm = get_agent_runner().core.llm
     except Exception:
-        raise HTTPException(status_code=503, detail="LLM indisponible pour la complétion")
+        raise HTTPException(status_code=503, detail="LLM indisponible pour la complétion") from None
     return {"completion": complete_text(llm, request.messages, request.draft)}
 
 
@@ -937,8 +969,8 @@ MAX_SESSION_CONTEXT_TURNS = 5
 
 
 def _load_session_history(
-    session_id: Optional[str],
-    resume_request_id: Optional[str],
+    session_id: str | None,
+    resume_request_id: str | None,
 ) -> list[dict]:
     """Délègue au use-case de mémoire conversationnelle
     (app/application/session_memory.load_session_history)."""
@@ -946,10 +978,10 @@ def _load_session_history(
 
 
 def _persist_exchange(
-    session_id: Optional[str],
+    session_id: str | None,
     prompt: str,
     answer: str,
-    tool_events: Optional[list[dict]] = None,
+    tool_events: list[dict] | None = None,
     thinking: str = "",
 ) -> None:
     """Délègue au use-case de mémoire conversationnelle
@@ -964,7 +996,7 @@ def _persist_exchange(
 
 @router.get("/approvals")
 def list_approvals(
-    status: Optional[str] = None, _: bool = Depends(require_api_key)
+    status: str | None = None, _: bool = Depends(require_api_key)
 ):
     """Liste des demandes d'approbation (toutes ou filtrées par statut)."""
     if status is not None and status not in STATUSES:
@@ -1029,8 +1061,8 @@ def reject_request(request_id: str, _: bool = Depends(require_api_key)):
 @router.get("/runs")
 def list_runs(
     limit: int = 50,
-    status: Optional[str] = None,
-    tool: Optional[str] = None,
+    status: str | None = None,
+    tool: str | None = None,
     _: bool = Depends(require_api_key),
 ):
     """Liste paginée des exécutions de l'agent (les plus récentes d'abord).
@@ -1075,14 +1107,23 @@ def _mask_key(key: str) -> str:
 
 def _settings_payload() -> dict:
     """Formate la config effective pour le dashboard (clé jamais en clair)."""
-    settings = get_agent_settings()
-    values = {key: entry["value"] for key, entry in settings.items()}
-    sources = {key: entry["source"] for key, entry in settings.items()}
-    api_key = values.pop("openrouter_api_key") or ""
-    hf_api_key = values.pop("hf_api_key") or ""
+    port = build_settings_port()
+    settings = get_effective_settings(port)
+    # Injecter la source (sqlite/env/default) pour chaque clé — le legacy le fait
+    # via get_agent_settings() qui lit la base ; ici on marque "sqlite" si la clé
+    # est persistée, sinon "env" si elle vient de Settings, sinon "default".
+    persisted_keys = set(port.get_all().keys())
+    sources = {}
+    for key in settings:
+        if key in persisted_keys:
+            sources[key] = "sqlite"
+        else:
+            sources[key] = "env"  # simplifié : pourrait être "default"
+    api_key = settings.pop("openrouter_api_key") or ""
+    hf_api_key = settings.pop("hf_api_key") or ""
     return {
         "settings": {
-            **values,
+            **settings,
             "has_openrouter_api_key": bool(api_key),
             "openrouter_api_key_masked": _mask_key(api_key),
             "has_hf_api_key": bool(hf_api_key),
@@ -1106,28 +1147,18 @@ def read_agent_settings(_: bool = Depends(require_api_key)):
 def update_agent_settings(
     update: AgentSettingsUpdate, _: bool = Depends(require_api_key)
 ):
-    """Sauvegarde partielle des paramètres puis rechargement immédiat de l'agent.
-
-    Seuls les champs fournis (non ``null``) sont écrits. Une chaîne vide sur un
-    champ texte revient à réinitialiser ce paramètre au défaut serveur.
-    Effet immédiat (reload du runner) : aucun redémarrage requis.
-    """
+    """Sauvegarde partielle des paramètres puis rechargement immédiat de l'agent."""
     values = update.model_dump(exclude_none=True)
+    port = build_settings_port()
     try:
-        save_agent_settings(values)
+        payload, errors, written_keys = _save_settings(port, values)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    _audit_log(
-        ACT_CONFIG,
-        subject="settings",
-        detail={"written_keys": sorted(values)},
-    )
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
 
-    payload = _settings_payload()
-    # Rechargement immédiat ; une config encore incomplète (ex: openrouter
-    # sans clé) n'est PAS une erreur de sauvegarde : on renvoie un avertissement
-    # que l'UI affiche, l'utilisateur complète ensuite.
+    # Rechargement immédiat ; une config encore incomplète n'est PAS une erreur.
     try:
         reload_agent_runner()
     except HTTPException as exc:
@@ -1135,8 +1166,37 @@ def update_agent_settings(
         payload["reload_ok"] = False
     else:
         payload["reload_ok"] = True
-    payload["written_keys"] = sorted(values)
+    payload["written_keys"] = written_keys
     return payload
+
+
+def _save_settings(port, values):
+    """Valide et persiste les paramètres via le use case."""
+    effective, errors, written_keys = update_settings(port, values)
+    if errors:
+        return _settings_payload_from(effective, port), errors, []
+    return _settings_payload_from(effective, port), [], written_keys
+
+
+def _settings_payload_from(effective, port):
+    """Formate un dict effectif en payload HTTP (factoring avec _settings_payload)."""
+    settings = dict(effective)
+    persisted_keys = set(port.get_all().keys())
+    sources = {}
+    for key in settings:
+        sources[key] = "sqlite" if key in persisted_keys else "env"
+    api_key = settings.pop("openrouter_api_key") or ""
+    hf_api_key = settings.pop("hf_api_key") or ""
+    return {
+        "settings": {
+            **settings,
+            "has_openrouter_api_key": bool(api_key),
+            "openrouter_api_key_masked": _mask_key(api_key),
+            "has_hf_api_key": bool(hf_api_key),
+            "hf_api_key_masked": _mask_key(hf_api_key),
+        },
+        "sources": sources,
+    }
 
 
 @router.post("/settings/test")
@@ -1229,10 +1289,10 @@ def test_agent_connectivity(
 
 @router.get("/audit")
 def list_audit(
-    action: Optional[str] = None,
-    subject: Optional[str] = None,
-    actor: Optional[str] = None,
-    run_id: Optional[str] = None,
+    action: str | None = None,
+    subject: str | None = None,
+    actor: str | None = None,
+    run_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
     _: bool = Depends(require_api_key),
@@ -1242,7 +1302,7 @@ def list_audit(
     Filtres AND sur ``action`` / ``subject`` / ``actor`` / ``run_id``. Sans le
     flag, renvoie une réponse 403 explicite (fonctionnalité désactivée).
     """
-    if not flag("audit"):
+    if not _flag("audit"):
         raise HTTPException(
             status_code=403,
             detail="Journal d'audit désactivé (flag AGENT_AUDIT inactif).",
@@ -1256,10 +1316,10 @@ def list_audit(
 @router.get("/features")
 def agent_features(_: bool = Depends(require_api_key)):
     """État des flags d'enhancement (rollout incrémental)."""
-    flags = {name: flag(name) for name in (
+    flags = {name: _flag(name) for name in (
         "reliability", "audit", "tool_analytics", "context", "copilot", "websocket",
     )}
-    return {"features": flags, "active": active_features()}
+    return {"features": flags, "active": _active_features()}
 
 
 # --- WebSocket bidirectionnel (Phase E, flag AGENT_WEBSOCKET) -------------------------
@@ -1285,7 +1345,7 @@ def agent_features(_: bool = Depends(require_api_key)):
 @router.websocket("/ws")
 async def agent_ws(websocket: WebSocket):
     """Canal Agent bidirectionnel (requiert le flag AGENT_WEBSOCKET)."""
-    if not flag("websocket"):
+    if not _flag("websocket"):
         await websocket.close(code=1008, reason="Fonction désactivée (AGENT_WEBSOCKET)")
         return
     if websocket.query_params.get("token") != _get_api_key():
@@ -1501,7 +1561,9 @@ def multi_ask(
     ``unexecuted`` liste explicitement les sous-tâches non exécutées (jamais
     noyées dans la réponse).
     """
-    result = ask_multi_agent(
+    orchestrator = build_multi_agent_orchestrator()
+    result = run_multi_agent(
+        orchestrator,
         request.prompt,
         model=request.model or None,
         parallel=request.parallel,
@@ -1576,7 +1638,9 @@ def multi_ask_stream(
 
     def worker() -> None:
         try:
-            result = ask_multi_agent_streaming(
+            orchestrator = build_multi_agent_orchestrator()
+            result = run_multi_agent_streaming(
+                orchestrator,
                 request.prompt,
                 model=request.model or None,
                 parallel=request.parallel,
@@ -1671,7 +1735,7 @@ def multi_ask_stream(
 @router.get("/flow")
 def list_flow_sessions(
     limit: int = 50,
-    status: Optional[str] = None,
+    status: str | None = None,
     _: bool = Depends(require_api_key),
 ):
     """Liste paginée des sessions multi-agents (Flow Map), plus récentes d'abord.

@@ -12,7 +12,6 @@ Les endpoints d'écriture exigent la clé API (X-API-Key) ; la lecture est
 publique comme les autres routes de consultation de l'agent.
 """
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -24,8 +23,8 @@ router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
 
 
 class SessionCreate(BaseModel):
-    title: Optional[str] = Field(None, max_length=200)
-    model: Optional[str] = Field(None, max_length=100)
+    title: str | None = Field(None, max_length=200)
+    model: str | None = Field(None, max_length=100)
 
 
 class SessionRename(BaseModel):

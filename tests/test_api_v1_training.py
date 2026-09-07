@@ -5,7 +5,7 @@ Les fakes substituent les trois ports (jobs / runner / schedules) via
 ``app.dependency_overrides`` (pattern officiel FastAPI) : AUCUN entraînement
 réel n'est lancé, aucune infrastructure touchée. Les tests WebSocket visent
 le handler PARTAGÉ avec le legacy (délégation v1) : ils utilisent le store
-SQLite isolé (même convention que test_train_stream.py).
+SQLite isolé (isolation par job_ids uuid => pas de collision).
 """
 
 import os
@@ -13,7 +13,7 @@ import tempfile
 
 os.environ.setdefault("API_KEY", "test-key")
 # Isolation : ne jamais toucher à la vraie base experiments/jobs.db
-# (même base de test que test_train_stream.py, job_ids uuid => pas de collision).
+# (base de test dédiée, job_ids uuid => pas de collision).
 os.environ.setdefault(
     "JOB_STORE_PATH",
     os.path.join(tempfile.gettempdir(), "thinktuning-test-jobs-stream.db"),
@@ -348,7 +348,7 @@ TOKEN = "test-key"  # API_KEY (DASHBOARD_WS_TOKEN non posé => repli clé API)
 
 @pytest.fixture()
 def ws_client():
-    """Client avec lifespan complet (comme test_train_stream.py)."""
+    """Client avec lifespan complet (lifespan app de l'API)."""
     with TestClient(app) as test_client:
         yield test_client
 

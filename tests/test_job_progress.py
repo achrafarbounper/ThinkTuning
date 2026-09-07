@@ -50,23 +50,23 @@ def test_job_logs_capture_and_since_seq():
 
     logs = job_logs.get_logs(job_id)
     # Le DEBUG est filtré (CAPTURE_LEVEL=INFO).
-    messages = [l["message"] for l in logs]
+    messages = [log["message"] for log in logs]
     assert "ligne A" in messages
     assert "ligne B" in messages
-    assert all("DEBUG" not in l["message"] for l in logs)
+    assert all("DEBUG" not in log["message"] for log in logs)
     # Tague d'étape + ordre des seq.
     assert logs[0]["step"] == "training"
-    assert [l["seq"] for l in logs] == sorted(l["seq"] for l in logs)
+    assert [log["seq"] for log in logs] == sorted(log["seq"] for log in logs)
     # Pagination par since_seq.
     last_seq = logs[-1]["seq"]
     assert job_logs.get_logs(job_id, since_seq=last_seq) == []
-    assert [l["message"] for l in job_logs.get_logs(job_id, since_seq=logs[0]["seq"])] == [
+    assert [log["message"] for log in job_logs.get_logs(job_id, since_seq=logs[0]["seq"])] == [
         "ligne B"
     ]
 
     # Un thread détaché ne capture plus rien pour ce job.
     logging.getLogger("test").info("hors job")
-    assert all("hors job" not in l["message"] for l in job_logs.get_logs(job_id))
+    assert all("hors job" not in log["message"] for log in job_logs.get_logs(job_id))
 
     job_logs.reset_job_logs(job_id)
     assert job_logs.get_logs(job_id) == []

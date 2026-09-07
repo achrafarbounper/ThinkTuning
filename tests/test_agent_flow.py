@@ -48,7 +48,7 @@ def client(monkeypatch, tmp_path):
     # L'endpoint lit le store partagé : on le pointe sur une base neuve.
     fs.reset_flow_store(str(tmp_path / "api_flow.db"))
 
-    def _streaming(prompt, model=None, parallel=False, on_event=None, **_kwargs):
+    def _streaming(*args, on_event=None, **_kwargs):
         if on_event is not None:
             on_event("agent.plan", {"plan": [
                 {"task_id": "task-1", "role": "web", "subtask": "cherche A"},
@@ -67,7 +67,7 @@ def client(monkeypatch, tmp_path):
             "workers": [], "unexecuted": [], "thinking": "", "duration_ms": 50.0,
         }
 
-    monkeypatch.setattr(agent_routes, "ask_multi_agent_streaming", _streaming)
+    monkeypatch.setattr(agent_routes, "run_multi_agent_streaming", _streaming)
 
     app = FastAPI()
     app.include_router(agent_routes.router)
@@ -176,7 +176,7 @@ def test_multi_stream_persists_awaiting_approval(client, monkeypatch):
     sous-tâche attend (invariant vérifié sur les workers)."""
     _plan = [{"task_id": "task-1", "role": "files", "subtask": "écris rapport.txt"}]
 
-    def _streaming_awaiting(prompt, model=None, parallel=False, on_event=None, **_):
+    def _streaming_awaiting(*args, on_event=None, **_):
         if on_event is not None:
             on_event("agent.plan", {"plan": _plan})
             on_event("agent.worker.approval", {
@@ -195,7 +195,7 @@ def test_multi_stream_persists_awaiting_approval(client, monkeypatch):
             "unexecuted": [], "thinking": "", "duration_ms": 5.0,
         }
 
-    monkeypatch.setattr(agent_routes, "ask_multi_agent_streaming", _streaming_awaiting)
+    monkeypatch.setattr(agent_routes, "run_multi_agent_streaming", _streaming_awaiting)
 
     with client.stream(
         "POST", "/api/agent/multi/ask/stream",
@@ -216,7 +216,7 @@ def test_multi_stream_persists_worker_thinking(client, monkeypatch):
     """FAIBLESSE #4 : la réflexion des workers (agent.worker.thinking) est
     enregistrée dans la timeline du Flow Map (replay/heatmap)."""
 
-    def _streaming_thinking(prompt, model=None, parallel=False, on_event=None, **_):
+    def _streaming_thinking(*args, on_event=None, **_):
         if on_event is not None:
             on_event("agent.plan", {"plan": [
                 {"task_id": "task-1", "role": "ops", "subtask": "diagnostic"},
@@ -235,7 +235,7 @@ def test_multi_stream_persists_worker_thinking(client, monkeypatch):
             "duration_ms": 5.0,
         }
 
-    monkeypatch.setattr(agent_routes, "ask_multi_agent_streaming", _streaming_thinking)
+    monkeypatch.setattr(agent_routes, "run_multi_agent_streaming", _streaming_thinking)
 
     with client.stream(
         "POST", "/api/agent/multi/ask/stream",

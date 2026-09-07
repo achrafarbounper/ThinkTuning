@@ -141,14 +141,17 @@ def test_read_settings(monkeypatch):
 def test_update_settings(monkeypatch):
     saved: dict[str, object] = {}
 
-    def _fake_save(values: dict) -> None:
+    def _fake_update(port, values: dict):
         saved.update(values)
+        return {"provider": "ollama"}, [], sorted(values.keys())
 
-    monkeypatch.setattr("api.routes.agent.save_agent_settings", _fake_save)
+    monkeypatch.setattr(
+        "api.routes.agent.update_settings", _fake_update
+    )
     monkeypatch.setattr("api.routes.agent.reload_agent_runner", lambda: None)
     monkeypatch.setattr(
-        "api.routes.agent._settings_payload",
-        lambda: {"settings": {"provider": "ollama"}},
+        "api.routes.agent._settings_payload_from",
+        lambda effective, port: {"settings": {"provider": "ollama"}},
     )
 
     response = client.put(
@@ -161,10 +164,12 @@ def test_update_settings(monkeypatch):
 
 
 def test_update_settings_rejects_invalid_value(monkeypatch):
-    def _boom(values: dict) -> None:
+    def _boom(port, values: dict):
         raise ValueError("Provider inconnu : 'toaster'")
 
-    monkeypatch.setattr("api.routes.agent.save_agent_settings", _boom)
+    monkeypatch.setattr(
+        "api.routes.agent.update_settings", _boom
+    )
 
     response = client.put(
         "/api/v1/agent/settings", json={"provider": "toaster"}, headers=AUTH

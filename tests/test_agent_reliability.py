@@ -11,12 +11,11 @@ Aucun réseau : ``requests.post`` est scripté, ``sleep`` / ``monotonic`` sont
 pilotés par monkeypatch. Lance avec : pytest tests/test_agent_reliability.py -v
 """
 
-import os
-import sys
 
 # Imports via le paquet réel ia.agent (plus aucun hack sys.path).
 import pytest  # noqa: E402
 import requests  # noqa: E402
+
 from ia.agent import reliability as rel  # noqa: E402
 from ia.agent.llm_client import LLMClient  # noqa: E402
 

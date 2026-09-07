@@ -38,7 +38,6 @@ def no_models(monkeypatch, tmp_path):
     empty_root.mkdir()
     monkeypatch.setattr("core.model_versioning.MODEL_ROOT", str(empty_root))
     monkeypatch.setattr("core.job_store.get_job_store", lambda: {})
-    monkeypatch.setattr("api.routes.health.get_job_store", lambda: {})
     return empty_root
 
 
@@ -51,7 +50,6 @@ def one_model(monkeypatch, tmp_path):
     (version_dir / "model.pt").write_bytes(b"fake-weights")
     monkeypatch.setattr("core.model_versioning.MODEL_ROOT", str(root))
     monkeypatch.setattr("core.job_store.get_job_store", lambda: {})
-    monkeypatch.setattr("api.routes.health.get_job_store", lambda: {})
     return version_dir
 
 
@@ -77,21 +75,6 @@ def test_v1_health_with_model(one_model):
     body = response.json()
     assert body["model_available"] is True
     assert body["model_dir"] == str(one_model)
-
-
-def test_v1_health_contract_matches_legacy(one_model):
-    """CONTRAT DECOUPLAGE : /api/v1/health expose le même shape que /health.
-
-    Verrouille la promesse du plan de migration : le dashboard peut basculer
-    endpoint par endpoint sans adaptation de payload.
-    """
-    legacy = client.get("/health")
-    v1 = client.get("/api/v1/health")
-
-    assert legacy.status_code == 200 and v1.status_code == 200
-    assert set(v1.json()) == set(legacy.json())
-    for key in ("model_available", "active_jobs", "maintenance_mode"):
-        assert v1.json()[key] == legacy.json()[key], key
 
 
 def test_v1_health_counts_only_running_jobs(monkeypatch):
@@ -128,14 +111,14 @@ def test_v1_health_reflects_maintenance_mode(monkeypatch):
 
 
 def test_v1_health_exempt_from_middleware_block(monkeypatch):
-    """Exemption symétrique : pendant la maintenance, /health ET /api/v1/health
-    restent répondants (un healthcheck bloqué est un healthcheck inutile)."""
+    """Exemption symétrique : pendant la maintenance, /api/v1/health reste
+    répondant (un healthcheck bloqué est un healthcheck inutile), tandis qu'un
+    endpoint métier v1 est bien bloqué par le middleware."""
     monkeypatch.setattr("api.middlewares.maintenance._MAINTENANCE_MODE", True)
 
-    assert client.get("/health").status_code == 200
     assert client.get("/api/v1/health").status_code == 200
-    # En revanche, un endpoint métier est bien bloqué par le middleware :
-    blocked = client.get("/models/details", headers={"X-API-Key": "test-key"})
+    # Un endpoint métier v1 est bloqué pendant la maintenance :
+    blocked = client.get("/api/v1/models/details", headers={"X-API-Key": "test-key"})
     assert blocked.status_code == 503
 
 

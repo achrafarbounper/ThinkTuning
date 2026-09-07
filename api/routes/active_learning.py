@@ -15,7 +15,6 @@ import json
 import os
 import threading
 import uuid
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -39,23 +38,23 @@ router = APIRouter(tags=["Active Learning"])
 _jobs_lock = threading.Lock()
 
 
-def _load_texts(dataset_path: Optional[str], texts: Optional[List[str]]) -> List[str]:
+def _load_texts(dataset_path: str | None, texts: list[str] | None) -> list[str]:
     if texts:
         return [str(t).strip() for t in texts if str(t).strip()]
     path = dataset_path or os.path.join("data", "train_enriched.jsonl")
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail=f"Dataset introuvable : {path}")
-    loaded: List[str] = []
+    loaded: list[str] = []
     if path.endswith(".csv"):
         import csv
 
-        with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+        with open(path, encoding="utf-8-sig", newline="") as fh:
             for row in csv.DictReader(fh):
                 value = (row.get("text") or "").strip()
                 if value:
                     loaded.append(value)
     else:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -89,7 +88,7 @@ def select_examples(req: ActiveLearningRequest, _: bool = Depends(require_api_ke
             top_n=req.top_n,
         )
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"total": len(records), "items": records}
 
 
@@ -100,7 +99,7 @@ def annotate(req: AnnotateRequest, _: bool = Depends(require_api_key)):
     try:
         record = store.annotate(req.text, req.label, force=req.force)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return record
 
 
@@ -111,19 +110,19 @@ def list_annotations(limit: int = 100, offset: int = 0, _: bool = Depends(requir
 
 
 @router.post("/annotate/export")
-def export_annotations(output_path: Optional[str] = None, _: bool = Depends(require_api_key)):
+def export_annotations(output_path: str | None = None, _: bool = Depends(require_api_key)):
     store = get_annotation_store()
     path = store.export_review_csv(output_path)
     return {"path": path, "count": store.count()}
 
 
 @router.post("/annotate/merge", response_model=MergeAnnotationsResponse)
-def merge_annotations(output_path: Optional[str] = None, _: bool = Depends(require_api_key)):
+def merge_annotations(output_path: str | None = None, _: bool = Depends(require_api_key)):
     store = get_annotation_store()
     try:
         stats = store.merge_annotations(output_path=output_path)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Echec de la fusion : {exc}")
+        raise HTTPException(status_code=500, detail=f"Echec de la fusion : {exc}") from exc
     return MergeAnnotationsResponse(stats=stats)
 
 

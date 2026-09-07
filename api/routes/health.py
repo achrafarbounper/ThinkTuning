@@ -2,14 +2,12 @@
 
 import os
 
-from typing import Optional
-
 from fastapi import APIRouter, HTTPException, Query
 
 from api.middlewares.maintenance import is_maintenance_mode
 from core.job_store import get_job_store
-from core.model_sanity import run_model_sanity, VERDICT_OK
-from core.model_versioning import list_model_versions, MODEL_ROOT
+from core.model_sanity import VERDICT_OK, run_model_sanity
+from core.model_versioning import MODEL_ROOT, list_model_versions
 from core.models import JobStatus
 from core.predictor_cache import get_predictor
 
@@ -34,7 +32,7 @@ def health():
 
 
 @router.get("/health/model-sanity")
-def model_sanity(model: Optional[str] = Query(
+def model_sanity(model: str | None = Query(
     None, alias="model_name",
     description="Version de modèle à vérifier (dossier sous experiments/models). "
                 "Par défaut : version active.",
@@ -55,7 +53,7 @@ def model_sanity(model: Optional[str] = Query(
             status_code=503,
             detail={"status": "unhealthy", "verdict": "model_unavailable",
                     "detail": f"Impossible de charger le modèle : {exc}"},
-        )
+        ) from exc
 
     report = run_model_sanity(predictor)
     report["model"] = model

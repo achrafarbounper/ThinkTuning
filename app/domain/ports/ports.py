@@ -224,6 +224,81 @@ class RunStorePort(Protocol):
 
 
 @runtime_checkable
+class FlowStorePort(Protocol):
+    """Contrat du journal des sessions multi-agents (cf. core/flow_store.py).
+
+    Chaque session (flow) est une timeline horodatée d'événements SSE, rejouable
+    dans le dashboard (Flow Map). Les événements sont appendus en temps réel
+    pendant l'exécution, puis la session est clôturée avec un statut final.
+    """
+
+    def start_flow(self, prompt: str, model: str = "", source: str = "api") -> dict[str, Any]:
+        """Crée une session ``running`` et retourne la ligne complète."""
+        ...
+
+    def append_event(self, flow_id: str, event: str, data: dict, at_ms: float) -> None:
+        """Ajoute un événement SSE à la timeline JSON de la session."""
+        ...
+
+    def finish_flow(
+        self,
+        flow_id: str,
+        status: str,
+        answer_summary: str = "",
+        error: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Clôture une session : statut final, résumé de réponse ou erreur."""
+        ...
+
+    def get(self, flow_id: str) -> dict[str, Any] | None:
+        """Détail complet d'une session (timeline incluse)."""
+        ...
+
+    def list(self, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
+        """Sessions les plus récentes d'abord. Filtre optionnel par statut."""
+        ...
+
+    def delete(self, flow_id: str) -> bool:
+        """Supprime une session enregistrée."""
+        ...
+
+
+@runtime_checkable
+class MultiAgentOrchestratorPort(Protocol):
+    """Contrat de l'orchestration multi-agents (cf. ia/agent/orchestrator.py).
+
+    Le cœur complexe (plan → dispatch → synthèse, budget, FSM, reprise) vit
+    dans ``ia/agent/orchestrator.py`` — ce port expose une façade mince qui
+    permet de l'injecter dans les use-cases et de le mocker dans les tests.
+    """
+
+    def run(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        parallel: bool = False,
+        resume_request_id: str | None = None,
+        enable_thinking: bool = False,
+    ) -> dict[str, Any]:
+        """Exécute le cycle complet (bloquant). Contrat de sortie stable."""
+        ...
+
+    def run_streaming(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        parallel: bool = False,
+        resume_request_id: str | None = None,
+        enable_thinking: bool = False,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Exécute le cycle complet (streaming SSE). Contrat de sortie stable."""
+        ...
+
+
+@runtime_checkable
 class ApprovalStorePort(Protocol):
     """Contrat de la file d'approbation humaine (cf. core/approval_store.py).
 
@@ -260,6 +335,28 @@ class ApprovalStorePort(Protocol):
 
     def list(self, status: str | None = None) -> list[dict[str, Any]]:
         """Liste les demandes (toutes si status=None, sinon filtrées par statut)."""
+        ...
+
+
+@runtime_checkable
+class AgentSettingsPort(Protocol):
+    """Contrat du store de paramètres persistés de l'agent (cf. core/agent_settings.py).
+
+    Config effective = priorité décroissante :
+        1. valeurs sauvegardées en base (via ``save_many``) ;
+        2. variables d'environnement (gérées par ``app.config.settings.Settings``) ;
+        3. défauts historiques.
+
+    ``get_all`` renvoie les paires persistées (dict vide si aucune) ;
+    ``save_many`` fait un upsert transactionnel des clés connues.
+    """
+
+    def get_all(self) -> dict[str, Any]:
+        """Charge toutes les paires persistées (dict vide si aucune)."""
+        ...
+
+    def save_many(self, values: dict[str, Any]) -> dict[str, Any]:
+        """Upsert transactionnel des clés connues ; renvoie ce qui a été écrit."""
         ...
 
 

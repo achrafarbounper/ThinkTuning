@@ -40,7 +40,6 @@ from ia.agent.orchestrator import (  # noqa: E402
 from ia.agent.plan_validator import PlanTask  # noqa: E402
 from ia.agent.roles import intent_decision_for  # noqa: E402
 
-
 # --- Fakes (mêmes conventions que test_multi_agent.py) -----------------------
 
 class FakeResult:
@@ -214,7 +213,7 @@ def test_worker_prompt_contient_l_intention():
     )
     coordinator.run("Cherche A puis calcule B.")
 
-    web = role_builder("web")
+    _web = role_builder("web")
 
 
 # --- SCRUM-99/100 : filtrage par rôle + repli FALLBACK_CHAT ---------------------

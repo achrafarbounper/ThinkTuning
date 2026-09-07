@@ -1,19 +1,25 @@
 # project/api/routes/models.py
 
+import json
+import logging
 import os
 import re
-import json
 import shutil
-import logging
-from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
+
 import api
 from api.dependencies.auth import require_api_key
-from core.model_versioning import list_model_versions, resolve_model_dir, validate_model_version, MODEL_ROOT
-from core.model_activation import activate_model, read_active_pointer, is_active
-from core.model_sanity import run_model_sanity, VERDICT_OK
-from core.predictor_cache import get_predictor, evict_cached_model
+from core.model_activation import activate_model, is_active, read_active_pointer
+from core.model_sanity import VERDICT_OK, run_model_sanity
+from core.model_versioning import (
+    MODEL_ROOT,
+    list_model_versions,
+    resolve_model_dir,
+    validate_model_version,
+)
 from core.models import ModelVersion
+from core.predictor_cache import evict_cached_model, get_predictor
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +41,9 @@ def activate_model_version(name: str, _: bool = Depends(require_api_key)):
         validate_model_version(os.path.join(MODEL_ROOT, name))
         pointer = activate_model(name)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"activated": True, **pointer}
 
 
@@ -63,7 +69,7 @@ def list_models(_: bool = Depends(require_api_key)):
     return items
 
 
-@router.get("/details", response_model=List[ModelVersion])
+@router.get("/details", response_model=list[ModelVersion])
 def list_models_details(_: bool = Depends(require_api_key)):
     """Renvoie la liste des modèles enregistrés, du plus récent au plus ancien."""
     model_versions = []
@@ -99,7 +105,7 @@ def get_model_report(name: str, _: bool = Depends(require_api_key)):
             detail=f"Training report not found for model '{name}'."
         )
 
-    with open(report_path, "r", encoding="utf-8") as fh:
+    with open(report_path, encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -132,7 +138,8 @@ def _structural_invalidity_reason(version_dir: str) -> str | None:
         return "dossier de version inexistant"
 
     if not any(
-        os.path.isfile(os.path.join(version_dir, f)) and os.path.getsize(os.path.join(version_dir, f)) > 0
+        os.path.isfile(os.path.join(version_dir, f))
+        and os.path.getsize(os.path.join(version_dir, f)) > 0
         for f in _TOKENIZER_FILES
     ):
         return "aucun fichier tokenizer"
@@ -141,7 +148,7 @@ def _structural_invalidity_reason(version_dir: str) -> str | None:
     if not os.path.isfile(config_path):
         return "config.json absent"
     try:
-        with open(config_path, "r", encoding="utf-8") as fh:
+        with open(config_path, encoding="utf-8") as fh:
             config = json.load(fh)
         if not isinstance(config, dict) or not config:
             return "config.json vide"
@@ -149,7 +156,8 @@ def _structural_invalidity_reason(version_dir: str) -> str | None:
         return f"config.json illisible : {exc}"
 
     if not any(
-        os.path.isfile(os.path.join(version_dir, f)) and os.path.getsize(os.path.join(version_dir, f)) > 0
+        os.path.isfile(os.path.join(version_dir, f))
+        and os.path.getsize(os.path.join(version_dir, f)) > 0
         for f in _WEIGHT_FILES
     ):
         return "aucun fichier de poids non vide"

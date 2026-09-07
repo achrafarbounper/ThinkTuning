@@ -1,6 +1,6 @@
 /**
  * Tests du client métier migrés v1 : getModelSanity (rapport 200 sain,
- * 503 enveloppe v1 domaine, 503 enveloppe legacy) et predict (URL, corps
+ * 503 enveloppe v1 domaine + repli details.detail) et predict (URL, corps
  * model_name, normalisation 503), autres erreurs propagées.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -100,17 +100,21 @@ describe("SentimentApiClient.getModelSanity (v1)", () => {
     expect(Array.isArray(report.results)).toBe(true);
   });
 
-  it("normalise encore un 503 enveloppe legacy (déploiement mixte)", async () => {
+  it("retombe sur error.details.detail quand error.message est vide", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(
         {
-          detail: {
-            status: "unhealthy",
-            verdict: "fallback_base_model",
-            detail: "Fallback base model détecté",
-            min_confidence: 0.4,
-            accuracy: 0.125,
-            results: [],
+          error: {
+            code: "model_unhealthy",
+            message: "",
+            details: {
+              status: "unhealthy",
+              verdict: "fallback_base_model",
+              detail: "Fallback base model détecté",
+              min_confidence: 0.4,
+              accuracy: 0.125,
+              results: [],
+            },
           },
         },
         503
@@ -127,7 +131,9 @@ describe("SentimentApiClient.getModelSanity (v1)", () => {
   });
 
   it("propage les erreurs non-503 (réseau, 404, ...)", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ detail: "introuvable" }, 404));
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: { code: "not_found", message: "introuvable" } }, 404)
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new SentimentApiClient({ baseUrl: "http://api" });
@@ -135,6 +141,7 @@ describe("SentimentApiClient.getModelSanity (v1)", () => {
 
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
+    expect(err.message).toBe("introuvable");
   });
 });
 

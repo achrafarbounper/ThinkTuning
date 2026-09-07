@@ -13,9 +13,8 @@ Lance avec : pytest tests/test_web_tools.py -v
 """
 
 import pytest
-from ia.tools import sandbox
-from ia.tools import web_tools
 
+from ia.tools import sandbox, web_tools
 
 # --- Fakes HTTP ----------------------------------------------------------------------
 

@@ -16,7 +16,6 @@ Aucun réseau : pur Python. Lance avec : pytest tests/test_plan_validator.py -v
 
 import json
 import os
-import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

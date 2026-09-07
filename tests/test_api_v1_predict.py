@@ -299,3 +299,62 @@ def test_v1_predict_batch_rate_limited(fake_legacy_predictor, monkeypatch):
 
     assert first.status_code == 200, first.text
     assert second.status_code == 429, second.text
+
+
+def test_v1_predict_batch_parquet(fake_legacy_predictor):
+    """response_format=parquet => lecture pandas (colonne text + prédictions)."""
+    import io
+
+    import pandas as pd
+
+    response = client.post(
+        "/api/v1/predict/batch",
+        files={"file": ("t.csv", b"text\nhello\nworld\n", "text/csv")},
+        data={"text_column": "text", "response_format": "parquet"},
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200, response.text
+    assert "predictions.parquet" in response.headers.get("Content-Disposition", "")
+    df = pd.read_parquet(io.BytesIO(response.content))
+    assert {"row_index", "text", "sentiment", "confidence"}.issubset(df.columns)
+    assert df.loc[0, "text"] == "hello"
+    assert df.loc[0, "sentiment"] in {"positive", "negative", "neutral"}
+    assert isinstance(df.loc[0, "confidence"], float)
+
+
+def test_v1_predict_batch_forwards_model(monkeypatch):
+    """Le paramètre query `model` est transmis au prédicteur (règle legacy)."""
+    captured = {"model": None}
+
+    class _Cap:
+        def predict(self, texts):
+            return [{"sentiment": "positive", "confidence": 0.9} for _ in texts]
+
+    def _fake_get_predictor(model_name=None):
+        captured["model"] = model_name
+        return _Cap()
+
+    monkeypatch.setattr(api, "_get_predictor", _fake_get_predictor)
+
+    response = client.post(
+        "/api/v1/predict/batch?model=vintage-2024",
+        files={"file": ("t.csv", b"text\nhello\n", "text/csv")},
+        data={"text_column": "text", "response_format": "json"},
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["model"] == "vintage-2024"
+
+
+def test_v1_predict_batch_empty_file(fake_legacy_predictor):
+    """Fichier vide => 400 (refus explicite, pas de 500)."""
+    response = client.post(
+        "/api/v1/predict/batch",
+        files={"file": ("t.csv", b"", "text/csv")},
+        data={"response_format": "json"},
+        headers=AUTH,
+    )
+
+    assert response.status_code == 400, response.text

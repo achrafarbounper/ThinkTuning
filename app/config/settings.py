@@ -49,6 +49,7 @@ _FLAG_NAMES = (
     "copilot",
     "websocket",
     "multi_agent",
+    "custom_tools",  # SCRUM-99 : tools personnalisés dynamiques
     "new_core",  # bascule du noyau agentique v2 (AGENT_NEW_CORE)
     "llm_v2",    # client LLM propre vs legacy (AGENT_LLM_V2)
 )
@@ -135,6 +136,11 @@ class Settings(BaseSettings):
     # LLMClientPort, retry + circuit breaker réutilisés) remplace le legacy.
     # ``AGENT_LLM_V2=0`` conserve le repli legacy tant que le chemin v1 vit.
     flag_llm_v2: bool = True
+
+    # SCRUM-99 : tools personnalisés dynamiques (registre + propositions du
+    # planner + API d'enregistrement humain). ACTIVÉ par défaut depuis la
+    # mise en production du registre custom.
+    flag_custom_tools: bool = True
 
     @model_validator(mode="before")
     @classmethod

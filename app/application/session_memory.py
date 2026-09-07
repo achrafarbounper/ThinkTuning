@@ -12,7 +12,7 @@ Note de migration : les imports legacy (``ia.agent.context``,
 
 from __future__ import annotations
 
-from core.feature_flags import flag
+from app.config.settings import get_settings
 from core.session_store import get_session_store
 from ia.agent.context import (
     DEFAULT_HISTORY_BUDGET_TOKENS,
@@ -74,7 +74,7 @@ def load_session_history(
     # Phase C (flag ``AGENT_CONTEXT``) : budget en jetons avec résumé LLM des
     # tours débordants, puis mémoire inter-sessions si la session est neuve.
     # Sans le flag : comportement historique strictement préservé.
-    if not flag("context"):
+    if not get_settings().flag_context:
         return kept
     try:
         import os as _os
@@ -132,7 +132,7 @@ def persist_exchange(
         # Résumé déterministe (sans LLM) conservé sous la clé « global » et
         # réinjecté uniquement dans les NOUVELLES sessions (cf.
         # load_session_history). Best-effort : ne casse jamais le tour.
-        if flag("context"):
+        if get_settings().flag_context:
             previous = store.get_memory("global")
             store.save_memory(
                 "global",

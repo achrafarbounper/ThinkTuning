@@ -252,15 +252,18 @@ function formatArgsPreview(args: Record<string, unknown> | undefined): string {
 }
 
 /**
- * Extrait le message d'erreur FastAPI (`detail`) d'une réponse non-OK.
- * Repli sur un message générique si le corps n'est pas JSON ou sans `detail`.
+ * Extrait le message d'erreur de l'enveloppe v1 (`error.message`) d'une
+ * réponse non-OK. Repli sur un message générique si le corps n'est pas JSON
+ * ou sans `error.message`.
  */
 async function apiErrorMessage(response: Response): Promise<string> {
   const generic = `Le serveur a répondu ${response.status} (${response.statusText})`;
   try {
     const data = await response.json();
-    const detail = (data as { detail?: unknown })?.detail;
-    if (typeof detail === 'string' && detail) return detail;
+    const error = (data as { error?: { message?: unknown } })?.error;
+    if (error && typeof error.message === 'string' && error.message) {
+      return error.message;
+    }
   } catch {
     /* corps non-JSON : on garde le message générique */
   }

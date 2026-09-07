@@ -122,7 +122,7 @@ def test_augment_dataset_targets_neutral_class_by_default():
         }
     )
     dataset = Dataset.from_pandas(data)
-    original_neutral_frac = sum(l == 1 for l in dataset["label"]) / len(dataset)
+    original_neutral_frac = sum(lbl == 1 for lbl in dataset["label"]) / len(dataset)
 
     augmented = augment_dataset(
         dataset,

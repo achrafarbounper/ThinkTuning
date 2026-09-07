@@ -271,6 +271,6 @@ appels et les types.
 ### Tests
 
 ```bash
-python -m pytest tests/test_intent_train_api.py -q
+python -m pytest tests/test_api_v1_intent_training.py -q
 cd dashboard && npx vitest run src/api/intentTrainApi.test.ts src/components/IntentTrainJobTracker.test.tsx
 ```

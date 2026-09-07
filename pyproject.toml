@@ -67,6 +67,34 @@ select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
 # E501 géré par line-length ; les TODO/héritages sont annotés dans le code.
 ignore = ["B008"]  # Depends() en signature FastAPI (idiome officiel)
 
+[tool.ruff.lint.per-file-ignores]
+# api/__init__.py : façade d'amorçage. L'ordre des imports est CONTRAINT (les
+# flags d'environnement/API_KEY sont posés avant tout import core/src) et le
+# regroupement reflète l'ordre d'initialisation, pas le style ; les re-exports
+# intentionnels sont déclarés dans __all__.
+"api/__init__.py" = ["E402", "I001"]
+# api/routes/agent.py : legacy en cours de strangulation (Phase C). Les E402
+# sont causés par les imports fragmentés (structure préexistante + helpers
+# insérés en C3). L'épuration complète du fichier est prévue en Phase D2.
+"api/routes/agent.py" = ["E402"]
+# Tests legacy : lignes longues dans les assertions/data (faible ROI de reformater).
+# E402 ajouté : imports après docstring/setup (structure legacy).
+"tests/test_audit.py" = ["E501"]
+"tests/test_preprocess.py" = ["E501"]
+"tests/test_plan_correct.py" = ["E501"]
+"tests/test_merge_reviewed_data.py" = ["E501"]
+"tests/test_api_drift.py" = ["E501"]
+"tests/test_active_learning.py" = ["E501", "E402"]
+"tests/test_augmentation.py" = ["E501"]
+"tests/test_agent_logging.py" = ["E501"]
+"tests/test_api_explain.py" = ["E501"]
+"tests/test_evaluate_by_lang.py" = ["E501"]
+"tests/test_label_dataset.py" = ["E501", "E402"]
+"tests/test_predictor.py" = ["E501"]
+"tests/test_sandbox_policy.py" = ["E501"]
+"tests/test_web_tools.py" = ["E501"]
+"tests/test_agent_parser_loop.py" = ["E402"]
+
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

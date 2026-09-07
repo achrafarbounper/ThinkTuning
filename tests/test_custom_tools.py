@@ -6,14 +6,12 @@ des définitions standard v1 et cohérence avec tools_config.json / TOOL_META.
 Lance : pytest tests/test_custom_tools.py -v
 """
 
-import json
 
 import pytest
 
 from ia.tools.custom_tools import EXAMPLE_TOOL_DEFINITIONS, call_api, run_shell
-from ia.tools.tool_schema import validate_tool_definition
 from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META
-
+from ia.tools.tool_schema import validate_tool_definition
 
 # --- run_shell -----------------------------------------------------------------
 

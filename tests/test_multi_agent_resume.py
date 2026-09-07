@@ -21,7 +21,6 @@ from ia.agent.orchestrator import (
     MultiAgentCoordinator,
 )
 
-
 # --- Fakes --------------------------------------------------------------------
 
 class FakeResult:
