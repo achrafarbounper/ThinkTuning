@@ -1,6 +1,6 @@
 services:
   train:
-    build: .
+    build: ./backend
     image: thinktuning:latest
     container_name: thinktuning-train
     command: ["python", "train.py", "--max_per_lang", "500", "--epochs", "2", "--batch_size", "8"]
@@ -8,38 +8,38 @@ services:
       - OMP_NUM_THREADS=4
       - MKL_NUM_THREADS=4
     volumes:
-      - ./configs:/app/configs
-      - ./experiments:/app/experiments
+      - ./backend/configs:/app/configs
+      - ./backend/experiments:/app/experiments
       - hf-cache:/app/.cache
 
   predict:
-    build: .
+    build: ./backend
     image: thinktuning:latest
     container_name: thinktuning-predict
     command: ["python", "predict.py", "Ce produit est fantastique, je recommande !"]
     volumes:
-      - ./experiments:/app/experiments
+      - ./backend/experiments:/app/experiments
       - hf-cache:/app/.cache
     profiles: ["predict"]
 
   evaluate:
-    build: .
+    build: ./backend
     image: thinktuning:latest
     container_name: thinktuning-evaluate
     command: ["python", "evaluate.py", "--max_per_lang", "500"]
     volumes:
-      - ./experiments:/app/experiments
+      - ./backend/experiments:/app/experiments
       - hf-cache:/app/.cache
     profiles: ["evaluate"]
 
   calibrate:
-    build: .
+    build: ./backend
     image: thinktuning:latest
     container_name: thinktuning-calibrate
     command: ["python", "calibrate.py", "--max_per_lang", "500"]
     volumes:
-      - ./experiments:/app/experiments
-      - ./outputs:/app/outputs
+      - ./backend/experiments:/app/experiments
+      - ./backend/outputs:/app/outputs
       - hf-cache:/app/.cache
     profiles: ["calibrate"]
 
@@ -62,7 +62,7 @@ services:
 
 
   app:
-    build: .
+    build: ./backend
     image: thinktuning:latest
     container_name: thinktuning-app
     # init: true -> un process init récolte les zombies (gunicorn pré-fork).
@@ -88,25 +88,25 @@ services:
       - AGENT_SEARCH_LANGUAGE=${AGENT_SEARCH_LANGUAGE:-fr}
       - AGENT_PRIVATE_HOST_ALLOWLIST=${AGENT_PRIVATE_HOST_ALLOWLIST:-searxng,127.0.0.1,localhost}
     volumes:
-      - ./experiments:/app/experiments
+      - ./backend/experiments:/app/experiments
       - hf-cache:/app/.cache
     profiles: ["app"]
 
   # ---------------------------------------------------------------------------
   # Dashboard React (Phase 5 — découplage déploiement) : image séparée, nginx
   # standalone qui proxifie /api/* vers le service « app » ci-dessus via le
-  # template envsubst (dashboard/templates/default.conf.template).
+  # template envsubst (frontend/templates/default.conf.template).
   # `--profile app up` démarre API + dashboard ; le healthcheck de l'image API
   # garantit que le dashboard n'arrive qu'avec une API prête.
   # ---------------------------------------------------------------------------
   dashboard:
-    build: ./dashboard
+    build: ./frontend
     image: thinktuning-dashboard:latest
     container_name: thinktuning-dashboard
     init: true
     environment:
       # Variables du template nginx (envsubst au DÉMARRAGE du conteneur,
-      # cf. dashboard/templates/default.conf.template) — pas des build args.
+      # cf. frontend/templates/default.conf.template) — pas des build args.
       - API_UPSTREAM=app:8000
       - FRONTEND_PORT=8080
     ports:

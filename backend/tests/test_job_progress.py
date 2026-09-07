@@ -231,8 +231,8 @@ def test_train_job_steps_order_matches_jobsteps_ts():
     from pathlib import Path
 
     js = (
-        Path(__file__).resolve().parents[1]
-        / "dashboard"
+        Path(__file__).resolve().parents[2]
+        / "frontend"
         / "src"
         / "api"
         / "jobSteps.ts"

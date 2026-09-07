@@ -1,5 +1,5 @@
 {
-  "name": "dashboard",
+  "name": "frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate:api-types": "openapi-typescript ../openapi.json -o src/api/generated/schema.d.ts"
+    "generate:api-types": "openapi-typescript ../backend/openapi.json -o src/api/generated/schema.d.ts"
   },
   "dependencies": {
     "react": "^19.2.8",

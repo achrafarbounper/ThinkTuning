@@ -13,7 +13,7 @@ non versionnée) vers une architecture **découplée** :
 
 - **Backend** : API FastAPI autonome (`/api/v1/*` versionné), image Docker
   dédiée, gunicorn + UvicornWorker.
-- **Frontend** : dashboard React/Vite isolé (`dashboard/`), image nginx
+- **Frontend** : dashboard React/Vite isolé (`frontend/`), image nginx
   dédiée, proxy `/api` vers l'API.
 - **Contrat** : HTTP versionné, verrouillé par tests de contrat.
 
@@ -175,8 +175,8 @@ Deux images Docker indépendantes (Phase 5) :
 
 | Service | Dockerfile | Expose | Healthcheck | User |
 |---|---|---|---|---|
-| API | `Dockerfile` (racine) — multi-stage wheelhouse (pip offline), gunicorn + UvicornWorker, `init: true`, `--max-requests` | 8000 | `GET /api/v1/health` (public, exempté maintenance) | non-root |
-| Dashboard | `dashboard/Dockerfile` — build Vite + nginx standalone, template `envsubst` (`API_UPSTREAM=app:8000`), SSE/buffering off, user 101 | 8080 | GET `/` | non-root |
+| API | `backend/Dockerfile` — multi-stage wheelhouse (pip offline), gunicorn + UvicornWorker, `init: true`, `--max-requests` | 8000 | `GET /api/v1/health` (public, exempté maintenance) | non-root |
+| Dashboard | `frontend/Dockerfile` — build Vite + nginx standalone, template `envsubst` (`API_UPSTREAM=app:8000`), SSE/buffering off, user 101 | 8080 | GET `/` | non-root |
 
 Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
 
@@ -211,9 +211,9 @@ Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
    posture documentée dans les tests de contrat).
 
 ### Dette assumée
-- `supervisord.conf`, `entrypoint.py`, `dashboard/nginx.conf` : suivis par git
+- `supervisord.conf`, `entrypoint.py`, `frontend/nginx.conf` : suivis par git
   et **référencés** (commentaire de `app/application/health_usecase.py`,
-  `dashboard/Dockerfile` copie `nginx.main.conf`) — suppression à traiter avec
+  `frontend/Dockerfile` copie `nginx.main.conf`) — suppression à traiter avec
   ces références, pas en simple `git rm`.
 - 110 erreurs ruff au total : ~101 dans les routeurs legacy non montés
   (encore importés par la v1 via attribut de module) + ~9 sur le périmètre v1

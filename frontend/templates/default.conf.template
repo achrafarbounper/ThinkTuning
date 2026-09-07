@@ -2,7 +2,7 @@
 # Template nginx du dashboard (envsubst exécuté par l'image officielle nginx :
 # /etc/nginx/templates/*.template -> /etc/nginx/conf.d/*.conf au démarrage).
 #
-# Variables (fournies par dashboard/Dockerfile, surchargeables au run) :
+# Variables (fournies par frontend/Dockerfile, surchargeables au run) :
 #   FRONTEND_PORT : port d'écoute (8080 : compatible user non-root)
 #   API_UPSTREAM  : cible du proxy /api (nom de service compose « app:8000 »,
 #                   ou hôte:port externe)

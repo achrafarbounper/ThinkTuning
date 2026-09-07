@@ -86,14 +86,6 @@ logs/
 .tmp/
 
 # ===========================
-# Node (Dashboard)
-# ===========================
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-.eslintcache
-
-# ===========================
 # Docker Build Context
 # ===========================
 Dockerfile

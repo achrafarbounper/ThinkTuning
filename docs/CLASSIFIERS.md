@@ -243,7 +243,7 @@ Refactor de `scripts/train_intent.py` en module importable, exécuté dans un
 thread daemon (`run_intent_training(job_id, req)`) avec le contrat de job du
 sentiment (`core/trainer_runner.py`) : étapes canoniques
 `INTENT_TRAIN_JOB_STEPS` (`core/models.py`, alignées sur
-`dashboard/src/api/jobSteps.ts`), `job.progress` (pourcentage global),
+`frontend/src/api/jobSteps.ts`), `job.progress` (pourcentage global),
 métriques par epoch dans la table `train_metrics` existante (diffusées par le
 WebSocket `/train/stream/{job_id}` sans changement), logs capturés par
 `core/job_logs.py`, annulation via `IntentTrainingCancelled` — l'exception est
@@ -263,9 +263,9 @@ d'intention existante), `epochs`, `batch_size`, `learning_rate`,
 
 `IntentPage` (`#/intention`) expose : formulaire d'entraînement + tracker
 (`IntentTrainJobTracker`, étapes `INTENT_TRAIN_STEPS` de
-`dashboard/src/api/jobSteps.ts`), historique des jobs d'intention, tableau des
+`frontend/src/api/jobSteps.ts`), historique des jobs d'intention, tableau des
 versions avec activation (activation → rechargement du classifieur, chaînage
-côté client). La façade `dashboard/src/api/intentTrainApi.ts` regroupe les
+côté client). La façade `frontend/src/api/intentTrainApi.ts` regroupe les
 appels et les types.
 
 ### Tests

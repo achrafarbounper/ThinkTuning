@@ -183,5 +183,8 @@ agent_workspace/
 /e2e_*.txt
 /pytest_*.txt
 /fixtests_*.txt
-/dashboard/build_out.txt
+/frontend/build_out.txt
+
+# Artefacts de tests (fuite historique corrigée : ne plus suivre)
+/backend/tests/tmp_models/
 app/config/settings.py

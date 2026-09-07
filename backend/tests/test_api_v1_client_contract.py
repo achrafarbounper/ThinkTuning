@@ -33,8 +33,10 @@ os.environ.setdefault("API_KEY", "test-key")
 import api as _api  # noqa: E402, F401  (charge l'application, isole l'env)
 from api import app  # noqa: E402
 
+# Racine Python (backend/). Le frontend (ex-dashboard/) vit un niveau
+# au-dessus, à la racine du dépôt : ../frontend/src.
 ROOT = Path(__file__).resolve().parents[1]
-CLIENT_SRC = ROOT / "dashboard" / "src"
+CLIENT_SRC = ROOT.parent / "frontend" / "src"
 
 _PATH_RE = r'/api/v1/[^\s\'\"\`<>]*'
 
