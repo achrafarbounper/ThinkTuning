@@ -90,11 +90,15 @@ async def lifespan(_app: FastAPI):
     # Le sanity check charge potentiellement le modèle (plusieurs secondes) :
     # exécuté en thread daemon pour ne pas retarder la disponibilité de l'API.
     # L'état reste visible via GET /health/model-sanity.
-    threading.Thread(
-        target=_run_startup_model_sanity,
-        name="startup-model-sanity",
-        daemon=True,
-    ).start()
+    # MODEL_SANITY_ON_STARTUP=0 : démarrage sans toucher aux poids (petites
+    # instances 512 Mo, cf. Dockerfile) ; le sanity reste disponible à la
+    # demande via GET /health/model-sanity.
+    if os.getenv("MODEL_SANITY_ON_STARTUP", "1") != "0":
+        threading.Thread(
+            target=_run_startup_model_sanity,
+            name="startup-model-sanity",
+            daemon=True,
+        ).start()
     # Phase 2 : réchauffe le classifieur de sentiment en arrière-plan (le cold
     # start est porté par un thread daemon pendant que l'API répond déjà).
     # Désactivable via CLASSIFIER_WARMUP=0 (c'est le défaut des tests/CI : ne

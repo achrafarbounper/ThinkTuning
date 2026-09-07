@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     agent_hf_url: str = "https://router.huggingface.co/v1/chat/completions"
     # Endpoint chat LM Studio : serveur LOCAL compatible OpenAI (aucune clé
     # requise ; la fenêtre de contexte se règle dans l'UI LM Studio).
-    agent_lm_studio_url: str = "http://192.168.184:1234/v1/chat/completions"
+    agent_lm_studio_url: str = "http://192.168.1.184:1234/v1/chat/completions"
     # Aucune clé par défaut : le secret vient de l'environnement OPENROUTER_API_KEY.
     # Le validateur `_validate_provider` échoue vite si le provider l'exige sans clé.
     openrouter_api_key: str | None = None

@@ -74,6 +74,10 @@ services:
       - API_KEY=${API_KEY}
       - JOB_STORE_PATH=/app/experiments/jobs.db
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173,http://localhost:3000}
+      # L'image Docker désactive warmup/sanity au boot (petites instances cloud
+      # 512 Mo, cf. Dockerfile) ; en local on conserve le comportement complet.
+      - MODEL_SANITY_ON_STARTUP=1
+      - CLASSIFIER_WARMUP=1
       # Provider LLM de l'agent : « ollama » (défaut) ou « openrouter ».
       - AGENT_PROVIDER=${AGENT_PROVIDER:-ollama}
       - AGENT_MODEL_NAME=${AGENT_MODEL_NAME:-}

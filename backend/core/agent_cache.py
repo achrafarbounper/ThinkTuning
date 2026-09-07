@@ -81,7 +81,7 @@ DEFAULT_HF_MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
 # LM Studio : serveur LOCAL compatible OpenAI (aucune clé requise ; la
 # fenêtre de contexte se règle dans l'UI LM Studio). Le dashboard enregistre
 # la racine « /v1 » — normalisée par _lm_studio_chat_url().
-DEFAULT_LM_STUDIO_URL = "http://192.168.184:1234/v1/chat/completions"
+DEFAULT_LM_STUDIO_URL = "http://192.168.1.184:1234/v1/chat/completions"
 # Modèle par défaut : LM Studio sert le modèle chargé quand l'identifiant ne
 # correspond pas — on laisse vide pour que GET /v1/models alimente le
 # sélecteur du chat (surcharge via AGENT_MODEL_NAME).
@@ -138,7 +138,7 @@ def _hf_chat_url(url: str | None) -> str:
 def _lm_studio_chat_url(url: str | None) -> str:
     """Normalise une URL LM Studio vers l'endpoint chat complet.
 
-    Accepte la racine de l'API (« http://192.168.184:1234/v1 ») ou l'endpoint
+    Accepte la racine de l'API (« http://192.168.1.184:1234/v1 ») ou l'endpoint
     complet (« .../v1/chat/completions »), comme _openrouter_chat_url.
     """
     url = (url or "").strip().rstrip("/")
@@ -588,7 +588,7 @@ def _list_hf_models(cfg: dict) -> dict:
 def _lm_studio_base_api() -> str:
     """Racine de l'API LM Studio déduite de l'URL du endpoint chat.
 
-    « http://192.168.184:1234/v1/chat/completions » -> « .../v1 ».
+    « http://192.168.1.184:1234/v1/chat/completions » -> « .../v1 ».
     """
     url = agent_config()["lm_studio_url"]
     marker = url.find("/chat/completions")
