@@ -7,16 +7,17 @@ en français et anglais.
 ## Structure
 
 ```
-sentiment_project/
-├── augmentation.py   # Système de recomposition (EDA) : SR, RI, RS, RD
-├── data_loader.py     # Chargement du dataset multilingue + application de l'augmentation
-├── train.py            # Fine-tuning de XLM-RoBERTa sur le dataset augmenté
-├── predict.py         # Inférence sur de nouveaux textes
-├── dashboard/          # Interface web React + Vite (analyse, assistant IA, entraînement…)
-├── api/                # API FastAPI (routes, middlewares, auth par clé)
-├── core/               # Stores SQLite, versionnage des modèles, cache predictor
-├── ia/                 # Agent IA (Ollama/OpenRouter/HF/LM Studio) + outils sandboxés
-└── requirements.txt
+ThinkTuning/
+├── backend/             # Racine du projet Python (API + ML) — les chemins relatifs (configs/, data/, experiments/) y résolvent
+│   ├── api/             # API FastAPI (routes v1, middlewares, auth par clé)
+│   ├── app/             # Noyau hexagonal : domain / application / infrastructure
+│   ├── core/            # Stores SQLite, versionnage des modèles, cache predictor
+│   ├── ia/              # Agent IA (Ollama/OpenRouter/HF/LM Studio) + outils sandboxés
+│   ├── src/             # ML : dataset, augmentation (EDA : SR/RI/RS/RD), entraînement, inférence
+│   ├── train.py         # Fine-tuning de XLM-RoBERTa sur le dataset augmenté
+│   ├── predict.py       # Inférence sur de nouveaux textes
+│   └── requirements.txt
+└── frontend/            # Interface web React + Vite (analyse, assistant IA, entraînement…)
 ```
 
 ## Installation (Windows, version CPU)
@@ -29,7 +30,8 @@ venv\Scripts\activate
 
 pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
+pip install -e ./backend
 python -c "import nltk; nltk.download('wordnet'); nltk.download('omw-1.4'); nltk.download('punkt')"
 ```
 
@@ -603,11 +605,11 @@ curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
 Doc interactive : http://localhost:8000/docs. Notes :
 
 - `psycopg2-binary` (déjà dans requirements.txt) n'est requis que pour `postgres_query`.
-- Tests offline de tous ces outils : `pytest tests/test_agent_tools.py tests/test_web_tools.py tests/test_agent_api.py tests/test_agent_logging.py -v`.
+- Tests offline de tous ces outils (depuis `backend/`) : `pytest tests/test_agent_tools.py tests/test_web_tools.py tests/test_agent_api.py tests/test_agent_logging.py -v`.
 
 ## Dashboard (interface web React)
 
-Le projet embarque une interface web complète dans `dashboard/`, construite
+Le projet embarque une interface web complète dans `frontend/`, construite
 avec **React 19 + Vite + TypeScript**. Elle interagit avec l'API FastAPI
 (`/api/*`) et permet de piloter tout le pipeline sans ligne de commande.
 
@@ -625,23 +627,25 @@ Pages disponibles (navigation par hachage `#/…`) :
 ### Lancement en développement
 
 ```bash
-# Terminal 1 — API FastAPI
-venv\Scripts\python -m uvicorn api.main:app --reload --port 8000
+# Terminal 1 — API FastAPI (depuis backend/ : les imports et .env y résolvent)
+cd backend
+..\venv\Scripts\python -m uvicorn api.main:app --reload --port 8000
 
 # Terminal 2 — frontend (Vite dev server)
-cd dashboard
+cd frontend
 npm install
 npm run dev            # http://localhost:5173
 ```
 
 Le proxy Vite transfère `/api/*` vers `http://localhost:8000`
-(voir `dashboard/vite.config.js`), donc `fetch("/api/…")` fonctionne tel quel.
+(voir `frontend/vite.config.ts`), donc `fetch("/api/…")` fonctionne tel quel.
 
 ### Lancement en production (Docker)
 
-Le Dockerfile racine construit le dashboard puis le sert via **nginx** dans le
-service `app` du `docker-compose.yml` (port hôte `8080`) ; nginx inverse-proxy
-les appels `/api/*` vers uvicorn (même conteneur) :
+Deux images indépendantes : `backend/Dockerfile` construit l'API FastAPI
+(gunicorn + workers uvicorn, port hôte `8000`) et `frontend/Dockerfile`
+construit le dashboard puis le sert via **nginx** standalone (port hôte
+`8080`), qui inverse-proxy les appels `/api/*` vers le service API :
 
 ```bash
 docker compose build
@@ -667,14 +671,14 @@ dashboard la résout dans cet ordre :
 
 1. la configuration persistée en `localStorage` (champ « API_KEY côté serveur »
    du formulaire Paramètres) ;
-2. la variable d'environnement Vite `VITE_API_KEY` (`dashboard/.env.local`,
+2. la variable d'environnement Vite `VITE_API_KEY` (`frontend/.env.local`,
    ex. `VITE_API_KEY=dev-local-api-key`).
 
 Sans clé, le backend répond `401` et le message s'affiche dans l'interface.
 
-> Notes — le `dashboard/README.md` documente l'interface de chat en détail
+> Notes — le `frontend/README.md` documente l'interface de chat en détail
 > (streaming SSE, retombée JSON, contrat `POST /api/ai`), et
-> `dashboard/TRAIN_JOB_TRACKER.md` explique le suivi temps réel des jobs
+> `frontend/TRAIN_JOB_TRACKER.md` explique le suivi temps réel des jobs
 > d'entraînement.
 
 ## Docker
@@ -728,7 +732,7 @@ GET /train/stream/{job_id}?token=<DASHBOARD_WS_TOKEN ou API_KEY>
   multi-workers). Pour passer à une diffusion push (Redis pub/sub, NATS, ...)
   plus tard, il suffit d'implémenter la même interface — l'endpoint ne change
   pas.
-- **Dashboard** : le composant `TrainMetricsStream` (`dashboard/src/…`) se
+- **Dashboard** : le composant `TrainMetricsStream` (`frontend/src/…`) se
   connecte via `client.getTrainMetricsStreamUrl(jobId)` et affiche la loss et
   le F1 epoch par epoch sous le suivi de job.
 

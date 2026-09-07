@@ -64,7 +64,7 @@ Règles d'interface :
 ## 3. Architecture cible (frontend)
 
 ```
-dashboard/src/
+frontend/src/
 ├── api/            # Transport (clientCore) + endpoints métier (1 module/domaine)
 ├── context/        # AppProvider : config, santé, modèles, logs (état GLOBAL uniquement)
 ├── hooks/          # usePolling, useLocalStorage, useExplain… (réutilisables, testés)
