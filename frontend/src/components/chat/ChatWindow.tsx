@@ -40,7 +40,6 @@ import type {
   ToolCallData,
   ToolCallStatus,
 } from './types';
-import { DEFAULT_BASE_URL } from '../api/clientCore';
 import './chat.css';
 
 /** Endpoint du backend, préfixé de la base URL configurée (Paramètres / VITE_API_URL). */
