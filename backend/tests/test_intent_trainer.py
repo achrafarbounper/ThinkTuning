@@ -15,6 +15,11 @@ Checklist #2 — split train/val stratifié :
     cas limites : 1 seul exemple (pas de split), classe à 1 occurrence (repli
     shuffle documenté).
 
+Checklist #3 — tokenisation « padding dynamique + bucketisation » :
+  - ``_padding_bucket_config`` : source unique CLI/API — pas de padding fixe
+    (``padding=False``), padding par batch (``DataCollatorWithPadding``),
+    ``train_sampling_strategy="group_by_length"`` (v5, LengthGroupedSampler HF).
+
 Aucune dépendance lourde (pas de torch/transformers) ni réseau : on teste les
 fonctions pures sur des échantillons déterministes.
 """
@@ -29,6 +34,7 @@ import pytest
 from core.intent_trainer import (
     _format_intent_report,
     _intent_classification_report,
+    _padding_bucket_config,
     _split_records,
 )
 
@@ -176,3 +182,25 @@ class TestSplitRecords:
         train, val = _split_records(records, 0.1)
         assert len(val) == 20  # ceil(200 * 0.1)
         assert len(train) == 180
+
+
+class TestPaddingBucketConfig:
+    """Config « padding dynamique + bucketisation » (§13 checklist #3)."""
+
+    def test_pas_de_padding_fixe(self) -> None:
+        cfg = _padding_bucket_config(64)["tokenizer"]
+        assert cfg == {"padding": False, "truncation": True, "max_length": 64}
+
+    def test_max_length_propage_comme_troncature(self) -> None:
+        cfg = _padding_bucket_config(128)["tokenizer"]
+        assert cfg["max_length"] == 128
+        assert cfg["padding"] is False
+        assert cfg["truncation"] is True
+
+    def test_padding_par_batch_et_bucketisation(self) -> None:
+        cfg = _padding_bucket_config(128)
+        # Le DataCollator pad à la longueur réelle de chaque batch.
+        assert cfg["collator"] == {"padding": True}
+        # v5 : train_sampling_strategy="group_by_length" (LengthGroupedSampler
+        # HF) — remplace l'ancien group_by_length=True retiré en v5.
+        assert cfg["training_args"] == {"train_sampling_strategy": "group_by_length"}
