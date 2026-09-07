@@ -32,6 +32,12 @@ from core.intent_store import (  # noqa: E402
     list_intent_model_versions,
     set_active_intent_version,
 )
+# Diagnostic classification_report chat↔action (parité API — cf. §13 de
+# docs/INTENT_TRAINING.md) : helpers purs, aucun import lourd.
+from core.intent_trainer import (  # noqa: E402
+    _format_intent_report,
+    _intent_classification_report,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger("train_intent")
@@ -135,24 +141,37 @@ def main() -> None:
     )
 
     def _compute_metrics(eval_pred) -> dict[str, float]:
-        """Accuracy + finesse des probabilités sur le split d'évaluation.
+        """Accuracy + finesse des probabilités + diagnostic classification.
 
         ``eval_avg_confidence`` proche de 0.5 signale un modèle qui hésite
         (entraînement insuffisant) ; ``eval_below_60pct`` est la part de
-        prédictions rendues avec moins de 60 % de confiance.
+        prédictions rendues avec moins de 60 % de confiance. Le
+        ``classification_report`` sklearn (§13) rend visibles les confusions
+        ``chat ↔ action`` (rapport + matrice journalisés à chaque évaluation).
         """
         import numpy as np
 
         logits = np.asarray(getattr(eval_pred, "predictions", eval_pred[0]))
-        labels = np.asarray(getattr(eval_pred, "label_ids", eval_pred[1]))
+        labels_true = np.asarray(getattr(eval_pred, "label_ids", eval_pred[1]))
         exp = np.exp(logits - logits.max(axis=-1, keepdims=True))
         probs = exp / exp.sum(axis=-1, keepdims=True)
         preds = probs.argmax(axis=-1)
         top = probs[np.arange(preds.shape[0]), preds]
+        diag = _intent_classification_report(
+            preds, labels_true, list(default_intent_labels())
+        )
+        logger.info(
+            "Classification report (chat↔action) :\n%s",
+            _format_intent_report(diag, list(default_intent_labels())),
+        )
         return {
-            "eval_accuracy": float((preds == labels).mean()),
+            "eval_accuracy": float((preds == labels_true).mean()),
             "eval_avg_confidence": float(top.mean()),
             "eval_below_60pct": float((top < 0.6).mean()),
+            "eval_f1_macro": diag["f1_macro"],
+            "eval_f1_chat": diag["f1_per_class"].get("chat"),
+            "eval_f1_action": diag["f1_per_class"].get("action"),
+            "eval_confusion_matrix": diag["confusion_matrix"],
         }
 
     trainer = Trainer(
@@ -163,9 +182,10 @@ def main() -> None:
     trainer.train()
     eval_metrics = trainer.evaluate()
     logger.info(
-        "Évaluation finale : accuracy=%.3f, confiance moyenne=%.3f "
+        "Évaluation finale : accuracy=%.3f, f1_macro=%.3f, confiance moyenne=%.3f "
         "(%.1f%% des prédictions sous 60 %% de confiance)",
         eval_metrics.get("eval_accuracy", 0.0),
+        eval_metrics.get("eval_f1_macro", 0.0),
         eval_metrics.get("eval_avg_confidence", 0.0),
         eval_metrics.get("eval_below_60pct", 0.0) * 100.0,
     )
