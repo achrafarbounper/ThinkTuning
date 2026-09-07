@@ -183,5 +183,5 @@ agent_workspace/
 /e2e_*.txt
 /pytest_*.txt
 /fixtests_*.txt
-/dashboard/build_out.txt
+/frontend/build_out.txt
 app/config/settings.py

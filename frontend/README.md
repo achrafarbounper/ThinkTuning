@@ -48,7 +48,7 @@ l'en-tête `X-API-Key` à chaque requête. La clé est résolue dans cet ordre :
    `thinktuning.apiConfig` — champ « API_KEY côté serveur » du formulaire
    Configuration) ;
 2. la variable d'environnement Vite `VITE_API_KEY` (fichier
-   `dashboard/.env.local`, ex. `VITE_API_KEY=dev-local-api-key`).
+   `.env.local`, ex. `VITE_API_KEY=dev-local-api-key`).
 
 Sans clé, la requête part sans en-tête et le backend répond 401 ; le message
 d'erreur s'affiche alors dans la bulle du chat.

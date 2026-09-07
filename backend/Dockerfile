@@ -3,7 +3,7 @@
 # Image API ThinkTuning — PRODUCTION-READY (Phase 5, découplage déploiement)
 #
 # Contient UNIQUEMENT l'API FastAPI (le dashboard est une image séparée,
-# cf. dashboard/Dockerfile) :
+# cf. frontend/Dockerfile) :
 #   - multi-stage : wheels compilés dans un builder jetable, runtime sans
 #     toolchain (build-essential) ni cache pip ;
 #   - gunicorn + workers uvicorn (supervision, redémarrage worker,

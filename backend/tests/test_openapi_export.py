@@ -2,7 +2,7 @@
 """Verrou de fraîcheur de ``openapi.json`` — source de la génération client TS.
 
 Le spec commité à la racine est la source unique du client TypeScript
-(`npm run generate:api-types` dans ``dashboard/``). Il doit donc refléter
+(`npm run generate:api-types` dans ``frontend/``). Il doit donc refléter
 EXACTEMENT l'application montée :
 
 1. ``test_openapi_json_est_frais`` — régénère le spec en mémoire et compare

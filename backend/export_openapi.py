@@ -1,7 +1,7 @@
 # project/export_openapi.py
 """Exporte la spécification OpenAPI de l'API (surface v1, post-strangler).
 
-Usage (depuis la racine du dépôt) :
+Usage (depuis backend/, la racine du projet Python) :
 
     python export_openapi.py                       # -> openapi.json
     python export_openapi.py --out docs/api.json   # destination explicite
@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out",
         default="openapi.json",
-        help="Fichier de destination (défaut : openapi.json à la racine).",
+        help="Fichier de destination (défaut : openapi.json à la racine de backend/).",
     )
     # argv injectable : testable in-process (le smoke test du verrou de
     # contrat appelle main([...]) sans subprocess ni effet env parasite).

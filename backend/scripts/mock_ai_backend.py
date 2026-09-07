@@ -16,7 +16,7 @@ contrat que `api/routes/ai_chat.py` :
 
 Astuce : si le port 8000 est déjà occupé par la vraie API, lancez
 `PORT=8001 venv\\Scripts\\python scripts\\mock_ai_backend.py` et adaptez le
-`target` du proxy dans `dashboard/vite.config.js`.
+`target` du proxy dans `frontend/vite.config.ts`.
 """
 
 import asyncio
