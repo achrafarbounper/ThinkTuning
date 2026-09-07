@@ -20,6 +20,11 @@ Checklist #3 — tokenisation « padding dynamique + bucketisation » :
     (``padding=False``), padding par batch (``DataCollatorWithPadding``),
     ``train_sampling_strategy="group_by_length"`` (v5, LengthGroupedSampler HF).
 
+Checklist #3 — scheduler LR :
+  - ``_scheduler_training_args`` : source unique CLI/API — ``cosine`` + warmup
+    10 % (v5 : ``warmup_ratio`` retiré, ``warmup_steps`` float ∈ [0, 1[ =
+    fraction du nombre total de steps).
+
 Aucune dépendance lourde (pas de torch/transformers) ni réseau : on teste les
 fonctions pures sur des échantillons déterministes.
 """
@@ -35,6 +40,7 @@ from core.intent_trainer import (
     _format_intent_report,
     _intent_classification_report,
     _padding_bucket_config,
+    _scheduler_training_args,
     _split_records,
 )
 
@@ -204,3 +210,24 @@ class TestPaddingBucketConfig:
         # v5 : train_sampling_strategy="group_by_length" (LengthGroupedSampler
         # HF) — remplace l'ancien group_by_length=True retiré en v5.
         assert cfg["training_args"] == {"train_sampling_strategy": "group_by_length"}
+
+
+class TestSchedulerTrainingArgs:
+    """Config « scheduler LR » (§13 checklist #3) — cosine + warmup 10 %."""
+
+    def test_cosine_et_warmup_10pct(self) -> None:
+        cfg = _scheduler_training_args()
+        assert cfg["lr_scheduler_type"] == "cosine"
+        # v5 : `warmup_ratio` a été retiré des TrainingArguments ; un float
+        # ∈ [0, 1[ dans `warmup_steps` est interprété comme une fraction du
+        # nombre total de steps (TrainingArguments.get_warmup_steps).
+        assert cfg["warmup_steps"] == pytest.approx(0.1)
+
+    def test_kwargs_consommes_tels_quels_par_api_et_cli(self) -> None:
+        # Le dict est étalé (**kwargs) tel quel dans les deux appels
+        # TrainingArguments (API _run_intent_pipeline et CLI train_intent) :
+        # parité mécanique CLI/API, aucune clé superflue.
+        assert set(_scheduler_training_args()) == {
+            "lr_scheduler_type",
+            "warmup_steps",
+        }

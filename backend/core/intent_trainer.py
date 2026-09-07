@@ -232,6 +232,32 @@ def _padding_bucket_config(max_length: int) -> dict:
     }
 
 
+# Scheduler LR (§13 checklist #3) : le LR constant (2e-5) est défensif ;
+# cosine + warmup stabilisent le début ET la fin de convergence.
+LR_SCHEDULER_TYPE = "cosine"
+# Transformers v5 : `warmup_ratio` a été retiré des TrainingArguments — un
+# `warmup_steps` float ∈ [0, 1[ y est interprété comme une fraction du nombre
+# total de steps (cf. TrainingArguments.get_warmup_steps) : équivalent exact
+# du `warmup_ratio=0.1` d'avant la v5.
+WARMUP_RATIO = 0.1
+
+
+def _scheduler_training_args() -> dict:
+    """Kwargs « scheduler LR » (§13 checklist #3) — source unique CLI/API.
+
+    Remplace le LR constant (``2e-5``) par :
+
+    - ``lr_scheduler_type="cosine"`` : décroissance cosinus après le warmup
+      (``get_cosine_schedule_with_warmup``) — converge mieux au-delà de
+      3 epochs qu'un LR constant ;
+    - ``warmup_steps=0.1`` : montée linéaire 0 → ``learning_rate`` pendant
+      10 % du total des steps (v5 : float ∈ [0, 1[ = ratio du total, cf.
+      ``TrainingArguments.get_warmup_steps``) — stabilise le début
+      d'entraînement.
+    """
+    return {"lr_scheduler_type": LR_SCHEDULER_TYPE, "warmup_steps": WARMUP_RATIO}
+
+
 # ---------------------------------------------------------------------------
 # Avancement temps réel (job.progress) — même structure que trainer_runner
 # ---------------------------------------------------------------------------
@@ -664,6 +690,10 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         num_train_epochs=req.epochs,
         per_device_train_batch_size=req.batch_size,
         learning_rate=req.learning_rate,
+        # Scheduler cosine + warmup 10 % (§13 checklist #3) — remplace le LR
+        # constant ; source unique CLI/API (v5 : warmup_steps float ∈ [0,1[
+        # = fraction du total des steps).
+        **_scheduler_training_args(),
         eval_strategy="epoch" if eval_ds is not None else "no",
         logging_strategy="steps",
         logging_steps=20,
