@@ -40,9 +40,10 @@ import type {
   ToolCallData,
   ToolCallStatus,
 } from './types';
+import { DEFAULT_BASE_URL } from '../api/clientCore';
 import './chat.css';
 
-/** Endpoint du backend (proxifié par Vite vers l'API FastAPI en développement). */
+/** Endpoint du backend, préfixé de la base URL configurée (Paramètres / VITE_API_URL). */
 const AI_ENDPOINT = '/api/v1/chat/ai';
 
 /**
@@ -78,7 +79,7 @@ const SESSIONS_ENDPOINT = '/api/v1/sessions';
 /** Clé de persistance de la conversation active (localStorage). */
 const CHAT_SESSION_STORAGE_KEY = 'thinktuning.chatSession';
 
-/** Endpoint listant les modèles LLM disponibles (même proxy que le chat). */
+/** Endpoint listant les modèles LLM disponibles (même base que le chat). */
 const MODELS_ENDPOINT = '/api/v1/chat/models';
 
 /** Clé de stockage partagée avec le dashboard (voir CONFIG_STORAGE_KEY dans context/AppContext.jsx). */
@@ -138,6 +139,26 @@ function resolveApiKey(): string {
     /* stockage indisponible ou JSON invalide : on utilise le repli ci-dessous */
   }
   return import.meta.env.VITE_API_KEY ?? '';
+}
+
+/**
+ * Résout la base URL de l'API (tous les appels fetch du chat sont préfixés)..
+ *
+ * Source principale : la configuration du dashboard persistée en localStorage
+ * (champ « URL de l'API » du formulaire Configuration) ; repli : la
+ * variable d'environnement Vite VITE_API_URL (et son défaut local). Résolue
+ * à chaque envoi afin de prendre en compte un changement de configuration sans
+ * recharger la page. Base vide = chemins relatifs (proxy nginx Docker,etc.).:
+ */
+function resolveBaseUrl(): string {
+  try {
+    const raw = window.localStorage.getItem(API_CONFIG_STORAGE_KEY);
+    const baseUrl = raw ? (JSON.parse(raw) as { baseUrl?: string }).baseUrl : undefined;
+    if (baseUrl) return baseUrl.replace(/\/+$/, '');
+  } catch {
+    /* stockage indisponible ou JSON invalide : on utilise le repli ci-dessous */
+  }
+  return DEFAULT_BASE_URL.replace(/\/+$/, '');
 }
 
 /** Relit le modèle LLM choisi pour le chat ('' = modèle par défaut serveur). */
@@ -345,7 +366,8 @@ export function ChatWindow() {
         const apiKey = resolveApiKey();
         if (apiKey) headers['X-API-Key'] = apiKey;
 
-        const response = await fetch(MODELS_ENDPOINT, { headers });
+        const base = resolveBaseUrl();
+        const response = await fetch(`${base}${MODELS_ENDPOINT}`, { headers });
         if (!response.ok) {
           throw new Error(await apiErrorMessage(response));
         }
@@ -376,7 +398,8 @@ export function ChatWindow() {
       const apiKey = resolveApiKey();
       if (apiKey) headers['X-API-Key'] = apiKey;
       try {
-        const response = await fetch(SESSIONS_ENDPOINT, { headers });
+        const base = resolveBaseUrl();
+        const response = await fetch(`${base}${SESSIONS_ENDPOINT}`, { headers });
         if (!response.ok) {
           throw new Error(await apiErrorMessage(response));
         }
@@ -406,7 +429,8 @@ export function ChatWindow() {
       const apiKey = resolveApiKey();
       if (apiKey) headers['X-API-Key'] = apiKey;
       try {
-        const response = await fetch(`${SESSIONS_ENDPOINT}/${id}/messages`, { headers });
+        const base = resolveBaseUrl();
+        const response = await fetch(`${base}${SESSIONS_ENDPOINT}/${id}/messages`, { headers });
         if (!response.ok) throw new Error(await apiErrorMessage(response));
         const stored = (await response.json()) as { messages: StoredMessage[] };
         const storedMessages = stored.messages ?? [];
@@ -449,7 +473,8 @@ export function ChatWindow() {
     const apiKey = resolveApiKey();
     if (apiKey) headers['X-API-Key'] = apiKey;
     try {
-      const response = await fetch(SESSIONS_ENDPOINT, {
+      const base = resolveBaseUrl();
+      const response = await fetch(`${base}${SESSIONS_ENDPOINT}`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ title: 'Nouvelle tâche' }),
@@ -781,7 +806,8 @@ export function ChatWindow() {
       if (resumeRequestId) body.resume_request_id = resumeRequestId;
       if (enableThinking) body.enable_thinking = true;
 
-      const response = await fetch(MULTI_ASK_STREAM_ENDPOINT, {
+      const base = resolveBaseUrl();
+      const response = await fetch(`${base}${MULTI_ASK_STREAM_ENDPOINT}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -965,6 +991,7 @@ export function ChatWindow() {
       const apiKey = resolveApiKey();
       if (apiKey) headers['X-API-Key'] = apiKey;
 
+const base = resolveBaseUrl();
       /** Applique le statut final (contrat AskResponse du noyau). */
       const handleFinal = (data: AgentAskResponse, alreadyStreamed: boolean): void => {
         if (data.status === 'awaiting_approval' && data.request_id) {
@@ -992,7 +1019,7 @@ export function ChatWindow() {
         if (sessionId) body.session_id = sessionId;
         if (resumeRequestId) body.resume_request_id = resumeRequestId;
 
-        const response = await fetch(CORE_ASK_ENDPOINT, {
+        const response = await fetch(`${base}${CORE_ASK_ENDPOINT}`, {
           method: 'POST',
           headers,
           body: JSON.stringify(body),
@@ -1011,7 +1038,7 @@ export function ChatWindow() {
       // Mode « Réflexion » : le noyau diffuse son raisonnement (thinking_delta).
       if (enableThinking) body.enable_thinking = true;
 
-      const response = await fetch(CORE_ASK_STREAM_ENDPOINT, {
+      const response = await fetch(`${base}${CORE_ASK_STREAM_ENDPOINT}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -1141,7 +1168,8 @@ export function ChatWindow() {
         const apiKey = resolveApiKey();
         if (apiKey) headers['X-API-Key'] = apiKey;
 
-        const response = await fetch(AI_ENDPOINT, {
+        const base = resolveBaseUrl();
+        const response = await fetch(`${base}${AI_ENDPOINT}`, {
           method: 'POST',
           headers,
           body: JSON.stringify(body),
@@ -1213,7 +1241,8 @@ export function ChatWindow() {
       const headers: Record<string, string> = {};
       const apiKey = resolveApiKey();
       if (apiKey) headers['X-API-Key'] = apiKey;
-      const response = await fetch(`${APPROVALS_ENDPOINT}/${requestId}/approve`, {
+      const base = resolveBaseUrl();
+      const response = await fetch(`${base}${APPROVALS_ENDPOINT}/${requestId}/approve`, {
         method: 'POST',
         headers,
         signal: controller.signal,
@@ -1274,7 +1303,8 @@ export function ChatWindow() {
       const headers: Record<string, string> = {};
       const apiKey = resolveApiKey();
       if (apiKey) headers['X-API-Key'] = apiKey;
-      const response = await fetch(`${APPROVALS_ENDPOINT}/${requestId}/reject`, {
+      const base = resolveBaseUrl();
+      const response = await fetch(`${base}${APPROVALS_ENDPOINT}/${requestId}/reject`, {
         method: 'POST',
         headers,
       });
