@@ -22,7 +22,8 @@ Différences assumées avec l'entraînement sentiment :
     Hugging Face (pas le ``Trainer`` maison de src/model/trainer.py) ;
   - versions dans ``experiments/intent_models/<horodatage>`` via
     core/intent_store.py (activation = pointeur ``active.json``) ;
-  - métriques : accuracy + confiance moyenne (pas de F1 macro 3 classes).
+  - métriques : accuracy + confiance moyenne + F1 macro/par-classe
+    (classification_report diagnostic chat↔action, cf. §13).
 
 Note d'implémentation : contrairement à ``trainer_runner.run_training`` dont
 l'``except Exception`` écrase le statut CANCELLED posé par ``cancel_training``,
@@ -281,6 +282,77 @@ def _persist_epoch_metrics(store, job_id: str, records) -> None:
         )
 
 
+def _intent_classification_report(preds, labels_true, label_names: list[str]) -> dict:
+    """Diagnostic classification_report sklearn (§13) pour le classifieur chat/action.
+
+    Pure & testable (aucune dépendance torch) : rend visible les confusions
+    ``chat ↔ action`` qui sont invisibles avec l'accuracy seule. Retourne le
+    rapport détaillé (précision/recall/F1 par classe), la matrice de confusion
+    et les F1-macro / F1-par-classe, ces derniers persistés dans ``train_metrics``
+    par `_IntentJobCallback.on_evaluate` (colonne ``f1_macro`` auparavant à NULL).
+    """
+    import numpy as np
+    from sklearn.metrics import classification_report, confusion_matrix
+
+    preds = np.asarray(preds).ravel()
+    labels_true = np.asarray(labels_true).ravel()
+    labels = list(range(len(label_names)))
+    report = classification_report(
+        labels_true,
+        preds,
+        labels=labels,
+        target_names=list(label_names),
+        output_dict=True,
+        zero_division=0,
+    )
+    matrix = confusion_matrix(labels_true, preds, labels=labels)
+    f1_macro = float(report.get("macro avg", {}).get("f1-score", 0.0))
+    f1_per_class = {
+        name: float(report.get(name, {}).get("f1-score", 0.0)) for name in label_names
+    }
+    return {
+        "report": report,
+        "confusion_matrix": matrix.tolist(),
+        "f1_macro": f1_macro,
+        "f1_per_class": f1_per_class,
+    }
+
+
+def _format_intent_report(diag: dict, label_names: list[str]) -> str:
+    """Formate le diagnostic (classification_report + matrice) en bloc texte logs."""
+    report = diag["report"]
+    lines = ["classification report (confusions chat↔action) :"]
+    header = f"{'classe':<8} {'precision':>10} {'rappel':>10} {'f1':>10} {'support':>10}"
+    lines += [header, "-" * len(header)]
+    for name in label_names:
+        row = report.get(name, {})
+        lines.append(
+            f"{name:<8} "
+            f"{row.get('precision', 0.0):>10.3f} "
+            f"{row.get('recall', 0.0):>10.3f} "
+            f"{row.get('f1-score', 0.0):>10.3f} "
+            f"{row.get('support', 0):>10}"
+        )
+    avg = report.get("macro avg", {})
+    lines.append("-" * len(header))
+    lines.append(
+        f"{'macro':<8} "
+        f"{avg.get('precision', 0.0):>10.3f} "
+        f"{avg.get('recall', 0.0):>10.3f} "
+        f"{avg.get('f1-score', 0.0):>10.3f} "
+        f"{avg.get('support', 0):>10}"
+    )
+    matrix = diag["confusion_matrix"]
+    lines.append("")
+    lines.append(
+        f"matrice de confusion (lignes=gold, colonnes=pred) "
+        f"{list(label_names)} -> {list(label_names)}"
+    )
+    for row in matrix:
+        lines.append("  " + "  ".join(f"{v:>6}" for v in row))
+    return "\n".join(lines)
+
+
 def _set_step(job, store, job_id: str, step: str) -> None:
     """Transition d'étape canonique : job.step + progress + logs taggués."""
     job.step = step
@@ -450,11 +522,15 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         ).map(_tokenize, batched=True)
 
     def _compute_metrics(eval_pred):
-        """Accuracy + finesse des probabilités (identique au CLI).
+        """Accuracy + finesse des probabilités + diagnostic classification.
 
-        ``eval_avg_confidence`` proche de 0.5 signale un modèle qui hésite ;
-        ``eval_below_60pct`` est la part de prédictions rendues avec moins
-        de 60 % de confiance.
+        Ajoute le ``classification_report`` sklearn (§13 Diagnostic (1)) : les
+        confusions ``chat ↔ action`` — invisibles avec l'accuracy seule — sont
+        journalisées (rapport + matrice de confusion) à chaque évaluation, afin
+        de localiser quelles phrases posent problème avant d'optimiser le modèle.
+        Le F1 macro et le F1 par classe sont renvoyés pour être persistés dans
+        ``train_metrics`` par `_IntentJobCallback.on_evaluate` (colonne
+        ``f1_macro`` auparavant systématiquement à NULL).
         """
         import numpy as np
 
@@ -464,10 +540,22 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         probs = exp / exp.sum(axis=-1, keepdims=True)
         preds = probs.argmax(axis=-1)
         top = probs[np.arange(preds.shape[0]), preds]
+
+        diag = _intent_classification_report(preds, labels_true, labels)
+        # Diagnostic loggué dans le flux du job (capturé par core/job_logs) :
+        # rend visible la matrice de confusion chat↔action + F1 par classe.
+        logger.info(
+            "Classification report (chat↔action) :\n%s",
+            _format_intent_report(diag, labels),
+        )
         return {
             "eval_accuracy": float((preds == labels_true).mean()),
             "eval_avg_confidence": float(top.mean()),
             "eval_below_60pct": float((top < 0.6).mean()),
+            "eval_f1_macro": diag["f1_macro"],
+            "eval_f1_chat": diag["f1_per_class"].get("chat"),
+            "eval_f1_action": diag["f1_per_class"].get("action"),
+            "eval_confusion_matrix": diag["confusion_matrix"],
         }
 
     class _IntentJobCallback(TrainerCallback):
@@ -501,15 +589,17 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
                     {
                         "epoch": epoch,
                         "loss": metrics.get("eval_loss"),
-                        "f1_macro": None,
+                        "f1_macro": metrics.get("eval_f1_macro"),
                         "accuracy": metrics.get("eval_accuracy"),
                     }
                 ],
             )
             logger.info(
-                "Epoch %d évaluée | accuracy=%.3f | confiance moyenne=%.3f",
+                "Epoch %d évaluée | accuracy=%.3f | f1_macro=%.3f | "
+                "confiance moyenne=%.3f",
                 epoch,
                 float(metrics.get("eval_accuracy", 0.0)),
+                float(metrics.get("eval_f1_macro", 0.0)),
                 float(metrics.get("eval_avg_confidence", 0.0)),
             )
 
@@ -545,9 +635,10 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
     if eval_ds is not None:
         eval_metrics = trainer.evaluate()
         logger.info(
-            "Évaluation finale : accuracy=%.3f, confiance moyenne=%.3f "
-            "(%.1f%% des prédictions sous 60 %% de confiance)",
+            "Évaluation finale : accuracy=%.3f, f1_macro=%.3f, confiance "
+            "moyenne=%.3f (%.1f%% des prédictions sous 60 %% de confiance)",
             float(eval_metrics.get("eval_accuracy", 0.0)),
+            float(eval_metrics.get("eval_f1_macro", 0.0)),
             float(eval_metrics.get("eval_avg_confidence", 0.0)),
             float(eval_metrics.get("eval_below_60pct", 0.0)) * 100.0,
         )
