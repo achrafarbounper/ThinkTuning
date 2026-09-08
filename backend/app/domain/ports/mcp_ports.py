@@ -24,7 +24,7 @@ Règles d'or :
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -294,7 +294,7 @@ class MCPSecurityScope(BaseModel):
         """
         if not reason or not reason.strip():
             raise ValueError("Le motif de révocation ne peut pas être vide.")
-        now = at or datetime.now(timezone.utc)
+        now = at or datetime.now(UTC)
         return self.model_copy(
             update={
                 "revoked": True,
