@@ -363,6 +363,12 @@ déterministes (`fallback_intent` via `IntentClassifier` + `fallback.py` :
 seuil safety `action`; sous le seuil → `chat`).
 Surcharge CPU minimale (~2–8 ms), fallback garantit la disponibilité.
 
+**Seuil calibré (#5a)** : la règle de démotion est partagée
+(`apply_safety_threshold`) et le seuil est mesuré sur la val par
+`scripts/calibrate_intent_threshold.py` — au défaut `0.5`, aucune démotion
+n'est possible (règles `action` ≥ 0.62, argmax softmax ≥ 0.5) et toute
+démotion dégrade : val règles acc 0.667 / modèle acc 0.967 (seed 42).
+
 ---
 
 ## 7. Exposition API et contrat
@@ -502,6 +508,7 @@ curl -X POST "$API/classifiers/intent/reload" -H "X-API-Key:$KEY"
 | Padding dynamique ✅ (#3) | `padding=False` + `DataCollatorWithPadding` (padding par batch) + `train_sampling_strategy="group_by_length"` (v5) |
 | Scheduler ✅ (#3) | `lr_scheduler_type="cosine"` + warmup 10 % (`warmup_steps=0.1`, v5) — plus de LR constant |
 | Checkpoints disque ✅ (#3) | `save_strategy="epoch"` bornés (`save_total_limit=2`) — coût disque assumé, meilleur epoch publié |
+| Seuil `action` 0.5 | calibré sur la val (#5a) — plateau sans démotion ; rappel `action` des règles 0.50 (limite du lexique de marqueurs, pas du seuil) |
 | Métriques | accuracy + confiance ; **f1/classification report présents depuis §13 #1** |
 | Split stratifié ✅ (#2) | `train_test_split(stratify=labels)` — répartition préservée ; repli shuffle si classe à 1 occurrence |
 | `fp16` absent | inutile en CPU ; manquant si GPU présent |
@@ -573,7 +580,11 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 ### 🔍 5. Inférence (déploiement)
 
 - **5a. Recalibrer le seuil `action`** du fallback (`fallback_intent` dans
-  `ia/agent/classifiers/fallback.py`) sur la val — baisser si trop conservateur.
+  `ia/agent/classifiers/fallback.py`) sur la val — ✅ fait (§13 checklist #5) :
+  `scripts/calibrate_intent_threshold.py` confirme `threshold=0.5` optimal
+  (plateau sans démotion 0–0.70 règles / 0–0.95 modèle ; « baisser » = no-op :
+  règles ≥ 0.62, argmax ≥ 0.5) ; limite réelle = rappel `action` des règles
+  (0.50) — levier lexique/données, pas seuil.
 - **5b. `fp16` en inférence GPU** (`torch_dtype=float16`) → latence ↓.
 
 ### Matrice décision — GPU disponible ?
@@ -598,12 +609,12 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 - [x] **#3** — `load_best_model_at_end` + `save_strategy="epoch"` + early stopping
   (au lieu du mode horodatage) ;
 - [ ] **#4** — monter vers `intfloat/multilingual-e5-small` (continental training) ;
-- [ ] **#5** — recalibrer seuil `action` + `fp16` inférence GPU.
+- [x] **#5** — recalibrer seuil `action` (5a — calibré sur la val, script) ;
+- [ ] **#5** — `fp16` inférence GPU (5b) ;
 
-> **Prochain levier sans GPU (restant)** : recalibrer le seuil `action` du
-> fallback (#5a) — gratuit et guidé par le report (#1) ; le modèle + fort (#4)
-> et le `fp16` inférence (#5b) attendent un GPU.
+> **Leviers restants (tous GPU)** : modèle + fort (#4) et `fp16` inférence
+> (#5b) — sans GPU, l'optimisation est complète côté CPU.
 > Classification report ✅ (#1), stratified split ✅ (#2), padding dynamique +
 > bucketisation ✅ (#3), `max_length=64` ✅ (#2), scheduler `cosine` + warmup
-> ✅ (#3), meilleur-checkpoint + early stopping ✅ (#3) : le report (#1)
-> montre *quoi* améliorer dans le dataset.
+> ✅ (#3), meilleur-checkpoint + early stopping ✅ (#3), seuil `action` calibré
+> ✅ (#5a) : le report (#1) montre *quoi* améliorer dans le dataset.

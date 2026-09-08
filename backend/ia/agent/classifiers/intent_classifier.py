@@ -52,6 +52,26 @@ def resolve_intent_model_optional(model_name: str | None = None) -> str | None:
         return None
 
 
+def apply_safety_threshold(
+    label: str, confidence: float, threshold: float
+) -> tuple[str, float]:
+    """Seuil de sécurité partagé : une ``action`` sous ``threshold`` → ``chat``.
+
+    Règle de décision unique des trois moteurs (règles / torch / onnx) — ne
+    jamais déclencher une action sur une prédiction peu sûre. Consommée par
+    ``IntentClassifier._to_result`` et par le script de calibration
+    ``scripts/calibrate_intent_threshold.py`` (§13 checklist #5a).
+
+    Note de calibration : softmax 2 classes → confiance d'argmax toujours
+    >= 0.5 ; règles ``fallback_intent`` → confiance ``action`` toujours
+    >= 0.62. Au défaut ``threshold=0.5``, la démotion ne peut donc jamais se
+    déclencher : monter le seuil ne fait que sécuriser des actions peu sûres.
+    """
+    if confidence < threshold and label == "action":
+        return "chat", round(1.0 - confidence, 3)
+    return label, confidence
+
+
 class IntentClassifier(BaseClassifier):
     """Classifieur chat/action avec repli automatique sur les règles.
 
@@ -243,18 +263,20 @@ class IntentClassifier(BaseClassifier):
         latency: float = 0.0,
         probabilities: dict[str, float] | None = None,
     ) -> PredictionResult:
-        # Seuil : sous ``threshold``, on retombe sur ``chat`` (sécurité : ne
-        # jamais déclencher une action sur une prédiction peu sûre). La
-        # distribution reflète alors la DÉCISION rendue : l'invariant
-        # ``probabilities[label] == confidence`` reste vrai après bascule.
-        if confidence < self.threshold and label == "action":
-            label, confidence = "chat", round(1.0 - confidence, 3)
-            if probabilities is not None:
-                other = next(lab for lab in _INTENT_LABELS if lab != label)
-                probabilities = {
-                    label: float(confidence),
-                    other: round(1.0 - confidence, 3),
-                }
+        # Seuil de sécurité partagé (§13 #5a) : sous ``threshold``, une action
+        # retombe en ``chat``. La distribution reflète alors la DÉCISION
+        # rendue : l'invariant ``probabilities[label] == confidence`` reste
+        # vrai après bascule.
+        new_label, new_confidence = apply_safety_threshold(
+            label, confidence, self.threshold
+        )
+        if new_label != label and probabilities is not None:
+            other = next(lab for lab in _INTENT_LABELS if lab != new_label)
+            probabilities = {
+                new_label: float(new_confidence),
+                other: round(1.0 - new_confidence, 3),
+            }
+        label, confidence = new_label, new_confidence
         return PredictionResult(
             text=text, label=label, confidence=confidence, latency_ms=latency,
             model_name=self.model_name or "",
