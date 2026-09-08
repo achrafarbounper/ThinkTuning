@@ -21,6 +21,7 @@ import logging
 import sys
 from typing import TextIO
 
+from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 
 logger = logging.getLogger("thinktuning.mcp.stdio")
@@ -51,7 +52,9 @@ def serve_stdio(
     """
     reader = input_stream or sys.stdin
     writer = output_stream or sys.stdout
-    server = build_mcp_server()
+    # Tâche 12 : le transport stdio audite aussi (client_id anonyme — le
+    # protocole stdio ne porte pas d'identité client).
+    server = build_mcp_server(audit=audit_mcp_call)
     try:
         while True:
             raw = _read_message(reader)

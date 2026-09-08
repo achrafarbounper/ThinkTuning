@@ -40,6 +40,32 @@ ACT_APPROVAL = "approval"        # décision approve / reject
 ACT_CONFIG = "config_change"     # modification de la configuration LLM
 ACT_CONNECT = "connectivity"     # sonde de connectivité provider
 
+# Actions d'audit MCP (S4, tâche 12 — docs/mcp/MCP_SECURITY.md) : chaque appel
+# MCP (tools/call, resources/read, prompts/get, sampling/create, orchestrate)
+# est tracé dans la MÊME table agent_audit que les actions de l'agent —
+# ``subject`` porte toujours le ``client_id`` MCP, ``detail`` la description
+# de l'appel (tool/URI/prompt, arguments anonymisés, is_error, scope).
+ACT_MCP_TOOL_CALL = "mcp_tool_call"        # outils/call (hors orchestrate)
+ACT_MCP_RESOURCE_READ = "mcp_resource_read"  # resources/read
+ACT_MCP_PROMPT_GET = "mcp_prompt_get"      # prompts/get
+ACT_MCP_SAMPLING = "mcp_sampling"          # sampling/create
+ACT_MCP_ORCHESTRATE = "mcp_orchestrate"    # tools/call sur le tool ``orchestrate``
+
+# Regroupement des actions MCP — ordre stable pour l'agrégation (mcp_metrics)
+# et le tri du dashboard interne.
+MCP_ACTIONS = (
+    ACT_MCP_TOOL_CALL,
+    ACT_MCP_RESOURCE_READ,
+    ACT_MCP_PROMPT_GET,
+    ACT_MCP_SAMPLING,
+    ACT_MCP_ORCHESTRATE,
+)
+
+# Marqueur d'échec écrit dans ``detail`` par l'infrastructure MCP — la valeur
+# est un booléen JSON (``"is_error": true``) : on l'utilise pour l'agrégation
+# SQL du taux d'erreur (molécule stable, rédigée par notre propre code).
+_IS_ERROR_KEY = '"is_error": true'
+
 # Clés sensibles à anonymiser dans le détail (comparaison insensible à la casse).
 SENSITIVE_KEYS = {
     "api_key",
@@ -256,6 +282,56 @@ class AuditStore:
             "total": total,
             "limit": limit,
             "offset": offset,
+        }
+
+    def mcp_metrics(self) -> dict:
+        """Agrégats MCP pour le dashboard interne (S4, tâche 12).
+
+        Sources : la table ``agent_audit`` filtrée sur ``MCP_ACTIONS``.
+
+            ``call_volume`` :  total d'appels MCP + répartition par action ;
+            ``errors`` :       appels dont le ``detail`` porte ``is_error: true``
+                               (les échecs sont JOURNALISÉS et marqués à
+                               l'écriture par l'infrastructure MCP) ;
+            ``error_rate`` :   ``errors / total`` (0.0 si aucun appel).
+
+        Retourne une molécule stable (jamais de clé manquante) — le front la
+        consomme directement. ``sqlite3`` par indices (aucune row_factory posée
+        sur la connexion, cf. ``_connect``).
+        """
+        placeholders = ",".join("?" * len(MCP_ACTIONS))
+        actions = list(MCP_ACTIONS)
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    f"SELECT action, COUNT(*) AS n FROM agent_audit "
+                    f"WHERE action IN ({placeholders}) GROUP BY action",
+                    actions,
+                ).fetchall()
+                total = conn.execute(
+                    f"SELECT COUNT(*) AS n FROM agent_audit "
+                    f"WHERE action IN ({placeholders})",
+                    actions,
+                ).fetchone()[0]
+                errors = conn.execute(
+                    f"SELECT COUNT(*) AS n FROM agent_audit "
+                    f"WHERE action IN ({placeholders})"
+                    f" AND detail_json LIKE ?",
+                    [*actions, f"%{_IS_ERROR_KEY}%"],
+                ).fetchone()[0]
+            finally:
+                conn.close()
+        by_action = {action: 0 for action in MCP_ACTIONS}
+        for row in rows:
+            by_action[row[0]] = row[1]
+        total = int(total or 0)
+        errors = int(errors or 0)
+        return {
+            "total": total,
+            "by_action": by_action,
+            "errors": errors,
+            "error_rate": round(errors / total, 4) if total else 0.0,
         }
 
 

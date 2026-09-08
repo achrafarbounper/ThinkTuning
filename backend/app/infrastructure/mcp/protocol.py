@@ -43,6 +43,10 @@ class MCPMethod:
     RESOURCES_READ = "resources/read"
     PROMPTS_LIST = "prompts/list"
     PROMPTS_GET = "prompts/get"
+    # Sampling (roadmap v2.0.0, tâche 15) — le port ``SamplingPort`` existe déjà
+    # (app/domain/ports/mcp_ports.py) ; le dispatch AUDITE la demande puis la
+    # rejette proprement tant que l'implémentation n'est pas livrée (v2.0.0).
+    SAMPLING_CREATE = "sampling/create"
     NOTIFICATIONS_INITIALIZED = "notifications/initialized"
 
 
