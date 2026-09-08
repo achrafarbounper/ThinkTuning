@@ -255,8 +255,11 @@ def test_stdio_invalid_json():
 
 
 def test_resources_list_v100_and_prompts_task9():
-    """v1.0.0 (tâches 8 + 9) + extension v1.1.0 (tâche 13) : resources/list → les
-    10 resources thinktuning:// ; prompts/list → les 2 prompts ThinkTuning."""
+    """v1.0.0 (taches 8 + 9) + extensions v1.1.0 (taches 13 + 14).
+
+    resources/list -> les 10 resources thinktuning:// ; prompts/list ->
+    les 5 prompts ThinkTuning (les 2 de la tache 9 + les 3 de la tache 14).
+    """
     server = build_mcp_server()
     resources = json.loads(server.handle_text(
         json.dumps({"jsonrpc": "2.0", "id": 9, "method": "resources/list"})
@@ -279,7 +282,13 @@ def test_resources_list_v100_and_prompts_task9():
         "thinktuning://health",
     } == uris
     names = {prompt["name"] for prompt in prompts["result"]["prompts"]}
-    assert names == {"analyze-sentiment", "plan-training"}
+    assert names == {
+        "analyze-sentiment",
+        "plan-training",
+        "summarize-job",
+        "compare-models",
+        "explain-prediction",
+    }
 def test_call_tool_mcp_version():
     """tools/call sur mcp_version → version de la surface MCP (isError: false)."""
     server = build_mcp_server(version=MCPVersion(major=0, minor=1, patch=0))

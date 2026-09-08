@@ -84,9 +84,14 @@ def test_provider_implements_mcp_prompt_registry_port(provider: PromptProvider) 
 
 
 def test_list_prompts_returns_exactly_the_two_prompts(provider: PromptProvider) -> None:
-    """``list_prompts()`` → les 2 prompts de la checklist, ordre déterministe."""
+    """``list_prompts()`` -> les 2 prompts tache 9 en tete, ordre deterministe.
+
+    Tache 14 (S5, v1.1.0) : la surface est etendue a 5 - ces 2 prompts
+    d'origine restent un PREFIXE garanti (non-regression), les 3 nouveaux
+    etant couverts exhaustivement par tests/test_mcp_prompts_5.py.
+    """
     prompts = provider.list_prompts()
-    assert [prompt.name for prompt in prompts] == [
+    assert [prompt.name for prompt in prompts][:2] == [
         PROMPT_ANALYZE_SENTIMENT,
         PROMPT_PLAN_TRAINING,
     ]
@@ -213,13 +218,17 @@ def test_get_prompt_non_string_value_is_validation_error(
 
 
 def test_prompts_list_returns_the_two_prompts(server: MCPServer) -> None:
-    """``prompts/list`` → les 2 prompts projetés (name + arguments)."""
+    """``prompts/list`` -> les 2 prompts tache 9 inclus (surface etendue a 5).
+
+    Non-regression tache 9 : les 2 noms d'origine restent presents ; la
+    couverture exhaustive des 5 vit dans tests/test_mcp_prompts_5.py.
+    """
     reply = _rpc(server, 1, "prompts/list")
     prompts = reply["result"]["prompts"]
-    assert {p["name"] for p in prompts} == {
+    assert {
         PROMPT_ANALYZE_SENTIMENT,
         PROMPT_PLAN_TRAINING,
-    }
+    } <= {p["name"] for p in prompts}
     for prompt in prompts:
         assert set(prompt) == {"name", "description", "arguments"}
 

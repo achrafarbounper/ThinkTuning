@@ -335,12 +335,24 @@
 > (liste 5 → 10, garantie de sous-ensemble tâche 8).
 
 ### Tâche 14 : 3 Prompts (extension)
-- [ ] Ajouter 3 prompts supplémentaires :
+- [x] Ajouter 3 prompts supplémentaires :
   - `summarize-job` → "Résume le job {job_id}"
   - `compare-models` → "Compare les modèles {v1} et {v2}"
   - `explain-prediction` → "Explique la prédiction pour: {text}"
-- [ ] `prompt_provider.py` → 5 prompts totaux
-- [ ] Test : `test_mcp_prompts_5.py` — 5 prompts + arguments
+- [x] `prompt_provider.py` → 5 prompts totaux
+- [x] Test : `test_mcp_prompts_5.py` — 5 prompts + arguments
+
+> **Livré (S5)** : ``PromptProvider`` étendu à 5 prompts (2 tâche 9 +
+> 3 tâche 14) — catalogue statique, ordre déterministe, résolution pure
+> locale. Sécurité fail-closed inchangée : nom inconnu → ``NotFoundError``,
+> argument requis manquant / valeur non-string → ``ValidationError``,
+> surplus ignoré, valeurs non re-formatées. ``compare-models`` porte 2
+> arguments requis (``v1``, ``v2``). ``build_mcp_server()`` branche les 5
+> par défaut. Tests : ``tests/test_mcp_prompts_5.py`` (nouveau, 21 tests :
+> contrat, catalogue, arguments, résolutions, sécurité, JSON-RPC
+> ``prompts/list``/``prompts/get`` + capability) ; ``test_mcp_prompts.py``
+> + ``test_mcp_server_basic.py`` mis à jour (garantie de sous-ensemble /
+> préfixe tâche 9, miroir du pattern resources tâche 13).
 
 ### Tâche 15 : SamplingPort (reverse LLM)
 - [ ] `app/domain/ports/mcp_ports.py` → `SamplingPort` :

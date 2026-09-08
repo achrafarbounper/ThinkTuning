@@ -22,7 +22,8 @@ Tâche 8 (S3) : ``build_mcp_server()`` branche aussi le registre des RESOURCES
 le remplace entièrement (tests, déploiements restreints).
 
 Tâche 9 (S3) : ``build_mcp_server()`` branche aussi le registre des PROMPTS
-(``PromptProvider`` — 2 prompts : analyze-sentiment, plan-training) ;
+(``PromptProvider`` — 5 prompts : analyze-sentiment, plan-training,
+summarize-job, compare-models, explain-prediction — tâches 9 + 14) ;
 ``prompt_provider=...`` le remplace entièrement (tests, déploiements
 restreints).
 
@@ -126,8 +127,9 @@ def build_mcp_server(
             (``list_resources()`` nulle) pour une surface supportant MCP
             resources sans en lister aucune.
         prompt_provider: source des prompts MCP ; ``None`` → registre par
-            défaut (``PromptProvider``, tâche 9 : 2 prompts —
-            analyze-sentiment, plan-training). Passer un provider VIDE
+            défaut (``PromptProvider``, tâches 9 + 14 : 5 prompts —
+            analyze-sentiment, plan-training, summarize-job, compare-models,
+            explain-prediction). Passer un provider VIDE
             (``list_prompts()`` nulle) pour une surface supportant MCP
             prompts sans en lister aucun.
         audit: hook d'audit des appels MCP (tâche 12) ; ``None`` → aucune
@@ -154,7 +156,7 @@ def build_mcp_server(
         # lecture).
         resource_provider = build_legacy_resource_provider()
     if prompt_provider is None:
-        # Tâche 9 : les 2 prompts ThinkTuning — catalogue statique, sans I/O.
+        # Tâches 9 + 14 : les 5 prompts ThinkTuning — catalogue statique, sans I/O.
         prompt_provider = build_prompt_provider()
     server = MCPServer(
         name=MCP_SERVER_NAME,
