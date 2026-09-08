@@ -144,17 +144,44 @@
 > 307 passed.
 
 ### Tâche 8 : 5 Resources `thinktuning://`
-- [ ] `app/infrastructure/mcp/resources/resource_provider.py` :
+- [x] `app/infrastructure/mcp/resources/resource_provider.py` :
   - `thinktuning://jobs` → `job_list()` → JSON
   - `thinktuning://jobs/{job_id}` → `job_get(job_id)` → JSON
   - `thinktuning://models` → `model_versions()` → JSON
   - `thinktuning://datasets/{path}/stats` → `dataset_stats(path)` → JSON
   - `thinktuning://config` → `agent_config()` → JSON
-- [ ] `MCPResource` entity : `uri`, `name`, `description`, `mimeType`
-- [ ] `ListResources` → retourne les 5 resources
-- [ ] `ReadResource(uri)` → résout l'URI → appelle le tool interne
-- [ ] Sécurité : `safe_resolve` pour les chemins, `query_only` pour SQL
-- [ ] Test : `test_mcp_resources.py` — `ListResources` + `ReadResource`
+- [x] `MCPResource` entity : `uri`, `name`, `description`, `mimeType`
+- [x] `ListResources` → retourne les 5 resources
+- [x] `ReadResource(uri)` → résout l'URI → appelle le tool interne
+- [x] Sécurité : `safe_resolve` pour les chemins, `query_only` pour SQL
+- [x] Test : `test_mcp_resources.py` — `ListResources` + `ReadResource`
+
+> **Livré (S3)** : ``LegacyResourceProvider`` (port ``MCPResourceRegistryPort``,
+> tâche 3) dans ``app/infrastructure/mcp/resources/resource_provider.py`` —
+> 3 resources statiques + 2 paramétrées (``jobs/{job_id}``,
+> ``datasets/{path}/stats``), résolues par DÉLÉGATION aux tools internes
+> read-only (``job_list``/``job_get``/``model_versions``/``dataset_stats``
+> legacy + ``core.agent_cache.agent_config``) : zéro règle réimplémentée.
+> Sécurité défense en profondeur : (1) parsing strict des URI par routes
+> regex ancrées — traversée (``..``), backslash, caractères de contrôle,
+> double-encodage (``%`` résiduel post-``unquote``) et segments vides refusés
+> AVANT toute I/O ; (2) ``safe_resolve`` porté par délégation pour les chemins
+> (2ᵉ ligne de défense) ; (3) SQLite ``mode=ro`` + ``PRAGMA query_only`` pour
+> le SQL (jobs.db) ; (4) ``thinktuning://config`` masque les clés API
+> (``has_*`` + ``*_masked``, convention dashboard) — JAMAIS en clair.
+> Serveur : ``resources/list`` (5) + ``resources/read`` (contenu
+> ``{uri, mimeType?, text}``, ``NotFoundError`` → JSON-RPC -32602) +
+> capability ``resources`` annoncée à l'initialize ; ``build_mcp_server()``
+> branche le registre par défaut (tools internes résolus paresseusement —
+> construction sans I/O ni import lourd). Entité ``MCPResource`` (uri, name,
+> description, mimeType) dans le domaine ; port ``list_resources()`` typé
+> ``list[MCPResource]`` ; bonus ``list_resource_templates()`` (gabarits MCP,
+> préparation tâche 13). Tests : ``tests/test_mcp_resources.py`` (38 :
+> ListResources, ReadResource statique/paramétrée, 10 URIs malveillantes,
+> intégration legacy réelle en sandbox tmp — jobs.db query_only, dataset CSV,
+> évasion ``safe_resolve`` bloquée) ; ``test_mcp_ports_contract.py`` mis à
+> jour (fake → ``MCPResource``) ; ``test_mcp_server_basic.py`` (surface v1.0.0 :
+> 5 resources). Suite MCP complète : 340 passed.
 
 ### Tâche 9 : 2 Prompts MCP
 - [ ] `app/infrastructure/mcp/prompts/prompt_provider.py` :

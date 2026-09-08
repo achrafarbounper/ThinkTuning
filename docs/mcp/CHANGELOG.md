@@ -226,3 +226,74 @@
   tâches 8/9 — cible roadmap 2026-09-30).
 - Garde-fou inchangé : tout tool dont la posture compilée n'est pas
   read-only est EXCLU de la surface, même présent dans la sélection.
+
+### Ajouts — 5 Resources `thinktuning://` (tâche 8)
+- **Provider** : `app/infrastructure/mcp/resources/resource_provider.py` —
+  `LegacyResourceProvider` implémente le port domaine
+  `MCPResourceRegistryPort` (tâche 3) : chaque resource est une VUE
+  lecture-seule résolue par DÉLÉGATION aux tools internes (zéro règle
+  réimplémentée, même principe que `legacy_tool_provider`) :
+  - `thinktuning://jobs` → `job_list()` → JSON (20 derniers jobs) ;
+  - `thinktuning://jobs/{job_id}` → `job_get(job_id)` → JSON (payload complet) ;
+  - `thinktuning://models` → `model_versions()` → JSON (versions sandbox) ;
+  - `thinktuning://datasets/{path}/stats` → `dataset_stats(path)` → JSON
+    (chemin RELATIF multi-segments sous la sandbox) ;
+  - `thinktuning://config` → `agent_config()` → JSON (clés API masquées).
+- **Domaine** : entité `MCPResource` (`uri`, `name`, `description`,
+  `mimeType`, immuable + `to_dict()` aligné spec MCP `resources/list`) dans
+  `app/domain/entities/mcp.py` ; le port `list_resources()` est désormais
+  typé `list[MCPResource]` (le port spéculatif de la tâche 3 retourne
+  l'entité réelle) ; bonus `list_resource_templates()` — les 2 URIs
+  paramétrées exposées comme `MCPResourceTemplate` (préparation
+  `resources/templates/list`, tâche 13).
+- **Sécurité (défense en profondeur, fail-closed)** :
+  - URI : parsing strict par routes regex ancrées (ordre déterministe) —
+    URI inconnue → `NotFoundError` (aucun oracle d'inventaire) ; segments
+    validés APRÈS un décodage percent-encoding unique : traversée (`..`),
+    segments vides/`.`, backslash, caractères de contrôle et `%` résiduel
+    (anti double-encodage) refusés AVANT toute I/O, longueurs plafonnées ;
+  - chemins : `safe_resolve` porté PAR DÉLÉGATION (`ia/tools/sandbox.py`) —
+    2ᵉ ligne de défense derrière la validation d'URI ;
+  - SQL : jobs.db ouverte en `mode=ro` + `PRAGMA query_only`
+    (`ia/tools/ml_tools.py`) — toute écriture refusée par SQLite ;
+  - secrets : `thinktuning://config` retire les clés API (`openrouter`,
+    HF) et les remplace par `has_*` + `*_masked` (convention dashboard
+    `_settings_payload`) — JAMAIS en clair sur la surface MCP ;
+  - résolution paresseuse des tools internes (premier `read_resource`) :
+    construction du provider sans I/O ni import lourd (fastapi/requests ne
+    sont chargés que si `thinktuning://config` est lu).
+- **Serveur** : `resources/read` ajouté au protocole (`MCPMethod`) et au
+  dispatch (`{contents: [{uri, mimeType?, text}]}`) ; `NotFoundError` →
+  erreur JSON-RPC `Invalid params` (-32602, jamais un crash) ; autres
+  exceptions → `Internal error` (fail-closed) ; capability `resources`
+  annoncée à l'`initialize` quand un registre est branché ;
+  `build_mcp_server()` branche `LegacyResourceProvider` par défaut
+  (`resource_provider=...` remplace entièrement).
+- **Exports** : `LegacyResourceProvider` + `build_legacy_resource_provider`
+  ré-exportés par `app.infrastructure.mcp` (nouveau sous-paquet `resources/`).
+
+### Tests (tâche 8)
+- `tests/test_mcp_resources.py` (nouveau, 38 tests) : entité `MCPResource`
+  (immutabilité + projection), `ListResources` = les 5 (port + JSON-RPC +
+  fabrique par défaut), `ReadResource` statique/paramétré (délégation
+  vérifiée, chemin multi-segments), masquage des clés API, 10 URIs
+  malveillantes rejetées (traversée, double-encodage, backslash, null
+  byte…), erreurs serveur (404 → -32602, `uri` manquant), capability
+  `initialize`, intégration legacy RÉELLE en sandbox temporaire
+  (`AGENT_SANDBOX_ROOT` → tmp_path) : jobs.db lue en `query_only` (INSERT
+  refusé), dataset CSV profilé (pandas), évasion de chemin bloquée par
+  `safe_resolve`, versions de modèles scannées.
+- `tests/test_mcp_ports_contract.py` mis à jour : fake
+  `_FakeResourceRegistry` retourne `MCPResource` (nouveau type du port).
+- `tests/test_mcp_server_basic.py` mis à jour : `resources/list` par défaut
+  = les 5 resources v1.0.0 (prompts toujours vides — tâche 9).
+- Suite MCP complète : **340 passed**.
+
+### Notes de migration (tâche 8)
+- Breaking-behavior maîtrisé : `resources/list` par défaut passe de `[]` à
+  5 resources (extension additive read-only) et `initialize` annonce la
+  capability `resources` — les clients MCP conformes découvrent les
+  resources dynamiquement (aucun code client à changer).
+- Aucune écriture possible via les resources : toutes les lectures passent
+  par des tools read-only (`AUTO_APPROVE`), SQLite en lecture stricte et
+  la sandbox — MCP ne bypass jamais la security interne.

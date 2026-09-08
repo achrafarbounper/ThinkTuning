@@ -254,8 +254,9 @@ def test_stdio_invalid_json():
     assert reply["error"]["code"] == ErrorCode.PARSE_ERROR
 
 
-def test_resources_and_prompts_empty():
-    """resources/list & prompts/list → listes vides (v0.1.0)."""
+def test_resources_list_v100_and_prompts_empty():
+    """v1.0.0 (tâche 8) : resources/list → les 5 resources thinktuning:// ;
+    prompts/list → liste vide (les prompts arrivent à la tâche 9)."""
     server = build_mcp_server()
     resources = json.loads(server.handle_text(
         json.dumps({"jsonrpc": "2.0", "id": 9, "method": "resources/list"})
@@ -263,7 +264,15 @@ def test_resources_and_prompts_empty():
     prompts = json.loads(server.handle_text(
         json.dumps({"jsonrpc": "2.0", "id": 10, "method": "prompts/list"})
     ))
-    assert resources["result"]["resources"] == []
+    uris = {resource["uri"] for resource in resources["result"]["resources"]}
+    assert len(uris) == 5
+    assert {
+        "thinktuning://jobs",
+        "thinktuning://jobs/{job_id}",
+        "thinktuning://models",
+        "thinktuning://datasets/{path}/stats",
+        "thinktuning://config",
+    } == uris
     assert prompts["result"]["prompts"] == []
 def test_call_tool_mcp_version():
     """tools/call sur mcp_version → version de la surface MCP (isError: false)."""

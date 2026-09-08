@@ -29,7 +29,7 @@ from typing import Any, Protocol, runtime_checkable
 from app.domain.entities.mcp import (
     MCPPromptMessage,
     MCPPromptTemplate,
-    MCPResourceTemplate,
+    MCPResource,
     MCPTool,
 )
 from app.domain.ports.ports import Message
@@ -80,22 +80,31 @@ class MCPToolRegistryPort(Protocol):
 class MCPResourceRegistryPort(Protocol):
     """Contrat des ressources MCP (MCP ``resources/list`` + ``resources/read``).
 
-    'URI templates ↔ tools' : chaque template ``thinktuning://job/{job_id}``
-    est résolu à la lecture par ``read_resource`` (potentiellement via un tool
-    backend). La liste des templates sert à ``resources/templates`` dans
-    l'initialisation du handshake MCP.
+    « URI templates ↔ tools » : chaque template ``thinktuning://jobs/{job_id}``
+    est résolu à la lecture par ``read_resource`` (via un tool backend). La
+    liste des resources sert à ``resources/list`` dans l'initialisation du
+    handshake MCP ; les gabarits paramétrés sont distingués côté provider
+    (``list_resource_templates``, préparation ``resources/templates/list``).
 
-    La vraie implémentation arrive en S3 (tâche 8 : 5 resources statiques) et
-    S5 (tâche 11 : 10 resources) ; le port est défini maintenant pour que le
-    serveur sache où brancher le registre dès qu'il est prêt.
+    Implémentation livrée en S3 (tâche 8 : 5 resources ``thinktuning://`` via
+    ``LegacyResourceProvider``) ; extension en S5 (tâche 11 : 10 resources).
+
+    Règles :
+        - la liste est de la MÉTADONNÉE pure (aucune I/O) : le catalogue se
+          construit sans toucher aux tools backend ;
+        - ``read_resource`` lève ``NotFoundError`` (404) si l'URI est inconnue
+          ou si la cible l'est (job/dataset absent, chemin hors sandbox) — le
+          serveur traduit en erreur JSON-RPC ; l'anti-traversée et la lecture
+          seule (``safe_resolve``, SQLite ``query_only``) restent portées par
+          l'implémentation (délégation aux tools legacy).
     """
 
-    def list_resources(self) -> list[MCPResourceTemplate]:
-        """Templates URI exposés (ressources statiques + templates dynamiques)."""
+    def list_resources(self) -> list[MCPResource]:
+        """Resources exposées (statiques + gabarits des paramétrées)."""
         ...
 
     def read_resource(self, uri: str) -> str:
-        """Résout une URI concrète en contenu texte.
+        """Résout une URI concrète en contenu texte (JSON sérialisé).
 
         Lève ``NotFoundError`` (404) si l'URI est inconnue ou non autorisée
         pour le scope du client. L'anti-SSRF et la validation de chemin
