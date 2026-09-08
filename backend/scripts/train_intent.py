@@ -36,6 +36,8 @@ from core.intent_store import (  # noqa: E402
 # intent, sans imports lourds — diagnostic classification_report (confusions
 # chat↔action) + split train/val stratifié.
 from core.intent_trainer import (  # noqa: E402
+    EARLY_STOPPING_PATIENCE,
+    _best_checkpoint_training_args,
     _format_intent_report,
     _intent_classification_report,
     _padding_bucket_config,
@@ -100,6 +102,7 @@ def main() -> None:
             AutoModelForSequenceClassification,
             AutoTokenizer,
             DataCollatorWithPadding,
+            EarlyStoppingCallback,
             Trainer,
             TrainingArguments,
         )
@@ -146,11 +149,16 @@ def main() -> None:
     timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
     output_dir = Path(INTENT_MODEL_ROOT) / timestamp
 
+    # Meilleur checkpoint + early stopping (§13 checklist #3, parité API) :
+    # sans val (dataset à 1 ligne), repli « une seule version finale ».
+    best_ckpt = eval_ds is not None
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
-        eval_strategy="epoch",
+        # Meilleur checkpoint + early stopping (§13 checklist #3) — remplace
+        # le mode horodatage ; source unique CLI/API (repli « no » sans val).
+        **_best_checkpoint_training_args(best_ckpt),
         logging_strategy="steps",
         logging_steps=20,
         learning_rate=args.lr,
@@ -196,10 +204,17 @@ def main() -> None:
             "eval_confusion_matrix": diag["confusion_matrix"],
         }
 
+    callbacks: list = []
+    if best_ckpt:
+        callbacks.append(
+            EarlyStoppingCallback(early_stopping_patience=EARLY_STOPPING_PATIENCE)
+        )
+
     trainer = Trainer(
         model=model, args=training_args,
         train_dataset=train_ds, eval_dataset=eval_ds,
         compute_metrics=_compute_metrics,
+        callbacks=callbacks,
         # Padding par batch (dynamique) — cf. _padding_bucket_config.
         data_collator=DataCollatorWithPadding(
             tokenizer=tokenizer,
@@ -207,15 +222,23 @@ def main() -> None:
         ),
     )
     trainer.train()
-    eval_metrics = trainer.evaluate()
-    logger.info(
-        "Évaluation finale : accuracy=%.3f, f1_macro=%.3f, confiance moyenne=%.3f "
-        "(%.1f%% des prédictions sous 60 %% de confiance)",
-        eval_metrics.get("eval_accuracy", 0.0),
-        eval_metrics.get("eval_f1_macro", 0.0),
-        eval_metrics.get("eval_avg_confidence", 0.0),
-        eval_metrics.get("eval_below_60pct", 0.0) * 100.0,
-    )
+    if best_ckpt and trainer.state.best_metric is not None:
+        logger.info(
+            "Meilleur checkpoint : %s (accuracy=%.3f) rechargé avant sauvegarde.",
+            trainer.state.best_model_checkpoint,
+            float(trainer.state.best_metric),
+        )
+    # Val vide (dataset à 1 ligne) → pas d'évaluation finale (aucun crash).
+    if best_ckpt:
+        eval_metrics = trainer.evaluate()
+        logger.info(
+            "Évaluation finale : accuracy=%.3f, f1_macro=%.3f, confiance moyenne=%.3f "
+            "(%.1f%% des prédictions sous 60 %% de confiance)",
+            eval_metrics.get("eval_accuracy", 0.0),
+            eval_metrics.get("eval_f1_macro", 0.0),
+            eval_metrics.get("eval_avg_confidence", 0.0),
+            eval_metrics.get("eval_below_60pct", 0.0) * 100.0,
+        )
 
     if args.quantize_int8:
         try:

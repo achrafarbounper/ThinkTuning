@@ -258,6 +258,49 @@ def _scheduler_training_args() -> dict:
     return {"lr_scheduler_type": LR_SCHEDULER_TYPE, "warmup_steps": WARMUP_RATIO}
 
 
+# Meilleur checkpoint + early stopping (§13 checklist #3) : le « meilleur »
+# epoch est rechargé avant la sauvegarde finale, à la place du dernier (mode
+# horodatage historique) — et l'entraînement s'arrête si la val stagne.
+BEST_CHECKPOINT_METRIC = "accuracy"  # eval_accuracy produite par _compute_metrics
+EARLY_STOPPING_PATIENCE = 2          # epochs sans amélioration avant arrêt
+SAVE_TOTAL_LIMIT = 2                 # borne disque des checkpoints intermédiaires
+
+
+def _best_checkpoint_training_args(has_eval: bool) -> dict:
+    """Kwargs « meilleur checkpoint + early stopping » (§13 checklist #3).
+
+    Mode retenu **à la place** du mode horodatage (``save_strategy="no"``) :
+
+    - ``save_strategy="epoch"`` : checkpoints intermédiaires dans le répertoire
+      de version, bornés par ``save_total_limit`` (le meilleur n'est jamais
+      purgé) ;
+    - ``metric_for_best_model="accuracy"`` + ``load_best_model_at_end=True`` :
+      à la fin du train, les poids du meilleur epoch (accuracy de val) sont
+      rechargés — la version finale sauvegardée contient le meilleur modèle ;
+    - ``EarlyStoppingCallback(patience=2)`` (callbacks du Trainer) arrête
+      l'entraînement quand l'accuracy de val stagne.
+
+    ``has_eval=False`` (dataset à 1 exemple → val vide) : repli historique —
+    aucune métrique disponible → une seule version finale ; de plus,
+    ``load_best_model_at_end`` exige que save/eval strategies matchent (v5 :
+    « --load_best_model_at_end requires the save and eval strategy to match »),
+    d'où ``eval_strategy="no"`` + ``save_strategy="no"``.
+    """
+    if not has_eval:
+        return {
+            "eval_strategy": "no",
+            "save_strategy": "no",
+            "load_best_model_at_end": False,
+        }
+    return {
+        "eval_strategy": "epoch",
+        "save_strategy": "epoch",
+        "save_total_limit": SAVE_TOTAL_LIMIT,
+        "metric_for_best_model": BEST_CHECKPOINT_METRIC,
+        "load_best_model_at_end": True,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Avancement temps réel (job.progress) — même structure que trainer_runner
 # ---------------------------------------------------------------------------
@@ -547,6 +590,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
             AutoModelForSequenceClassification,
             AutoTokenizer,
             DataCollatorWithPadding,
+            EarlyStoppingCallback,
             Trainer,
             TrainerCallback,
             TrainingArguments,
@@ -685,6 +729,10 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
                 float(metrics.get("eval_avg_confidence", 0.0)),
             )
 
+    # Meilleur checkpoint + early stopping (§13 checklist #3) : possible
+    # uniquement avec un jeu de val (métrique + strategies save/eval).
+    best_ckpt = eval_ds is not None
+
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         num_train_epochs=req.epochs,
@@ -694,25 +742,32 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         # constant ; source unique CLI/API (v5 : warmup_steps float ∈ [0,1[
         # = fraction du total des steps).
         **_scheduler_training_args(),
-        eval_strategy="epoch" if eval_ds is not None else "no",
+        # Meilleur checkpoint + early stopping (§13 checklist #3) — remplace
+        # le mode horodatage ; source unique CLI/API (repli « no » sans val).
+        **_best_checkpoint_training_args(best_ckpt),
         logging_strategy="steps",
         logging_steps=20,
         seed=42,
         report_to=[],
-        save_strategy="no",  # une seule version finale, sauvegardée ci-dessous
         disable_tqdm=True,   # pas de barres tqdm dans les logs serveur
         # Bucketisation par longueur (padding dynamique) — §13 checklist #3 :
         # moins de padding par batch → RAM/CPU libérés (compatible CPU).
         train_sampling_strategy=padding_cfg["training_args"]["train_sampling_strategy"],
     )
 
+    callbacks: list = [_IntentJobCallback(cancel_event)]
+    if best_ckpt:
+        callbacks.append(
+            EarlyStoppingCallback(early_stopping_patience=EARLY_STOPPING_PATIENCE)
+        )
+
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        compute_metrics=_compute_metrics if eval_ds is not None else None,
-        callbacks=[_IntentJobCallback(cancel_event)],
+        compute_metrics=_compute_metrics if best_ckpt else None,
+        callbacks=callbacks,
         # Padding par batch (dynamique) — cf. _padding_bucket_config.
         data_collator=DataCollatorWithPadding(
             tokenizer=tokenizer,
@@ -726,6 +781,12 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         req.learning_rate,
     )
     trainer.train()
+    if best_ckpt and trainer.state.best_metric is not None:
+        logger.info(
+            "Meilleur checkpoint : %s (accuracy=%.3f) rechargé avant sauvegarde.",
+            trainer.state.best_model_checkpoint,
+            float(trainer.state.best_metric),
+        )
     if eval_ds is not None:
         eval_metrics = trainer.evaluate()
         logger.info(
