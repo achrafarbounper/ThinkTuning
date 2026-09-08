@@ -22,11 +22,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.domain.entities.mcp import MCPScopeRole, MCPVersion
+from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
 from app.infrastructure.mcp import mcp_server_sse
 from app.infrastructure.mcp.mcp_server import (
     InMemoryToolProvider,
-    MCPTool,
     ToolError,
 )
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server

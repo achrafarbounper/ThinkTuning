@@ -33,7 +33,7 @@
 
 ### Rec. 2 : MCP = surface principale
 - **Existant** : `api/routes/agent.py` → `GET /tools` (liste 25 tools)
-- **Nouveau** : `app/infrastructure/mcp/mcp_server_sse.py` → `ListToolsRequest` → interroge `ToolRegistryPort`
+- **Nouveau** : `app/infrastructure/mcp/mcp_server_sse.py` → `ListToolsRequest` → interroge `MCPToolRegistryPort` (port domaine, tâche 3)
 
 ### Rec. 3 : Protocol interne = configuration
 - **Existant** : `ia/tools/tools_config.json` (manifeste thinktuning.tool/v1)
@@ -44,7 +44,10 @@
 - **Existant** : `ia/agent/approvals.py` → `classify(tool, args)` → `Decision` (auto_approve/approve/reject)
 - **Existant** : `ia/agent/policies/sandbox_policy.py` → `decide(tool, args)` → `Decision`
 - **Nouveau** : `app/infrastructure/mcp/policy_adapter.py` → mappe `Decision` → MCP `annotations.readOnlyHint` / `destructiveHint`
-- **Nouveau** : `app/domain/ports/mcp_ports.py` → `MCPSecurityScope` (scope → visible_tools)
+- **Fait (tâche 3)** : `app/domain/ports/mcp_ports.py` → 4 ports
+  `@runtime_checkable` (`MCPToolRegistryPort`, `MCPResourceRegistryPort`,
+  `MCPPromptRegistryPort`, `SamplingPort`) ; `MCPSecurityScope`
+  (client store → visible_tools) arrive en S4.
 
 ### Rec. 8 : Audit
 - **Existant** : `core/audit_store.py` → `ACT_TOOL`, `ACT_RUN`, `ACT_APPROVAL`

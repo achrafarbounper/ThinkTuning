@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -176,3 +179,153 @@ _SCOPE_ROLE_RANK = {
     MCPScopeRole.OPERATOR: 2,
     MCPScopeRole.ADMIN: 3,
 }
+
+
+# ============================================================
+# MCP TOOLS & SUPPORTING ENTITIES  (S1 — Bootstrap)
+# ============================================================
+#
+# Ces entités sont PURES : aucune I/O, aucune dépendance framework.
+# Elles vivent dans le domaine car décrites par les ports MCP
+# (app/domain/ports/mcp_ports.py) et projetées par le serveur MCP
+# (app/infrastructure/mcp/mcp_server.py). Le déplacement de ``MCPTool``
+# de l'infrastructure vers le domaine est la formalisation demandée par
+# la tâche 3 : le domaine est la source de vérité, pas l'infrastructure.
+#
+
+
+@dataclass(frozen=True, slots=True)
+class MCPTool:
+    """Métadonnées + handler d'un tool exposé via MCP.
+
+    Value object immuable — le domaine ne connaît ni transport, ni sandbox.
+    La projection MCP (``to_dict``) est pure : l'infrastructure appelle
+    ``to_dict`` pour construire la réponse ``tools/list``.
+
+    Attributs :
+        name :           identifiant MCP unique du tool ;
+        description :    description lisible (listée dans tools/list) ;
+        input_schema :   JSON Schema des arguments (``inputSchema`` MCP) ;
+        annotations :    ``annotations`` MCP — readOnlyHint / destructiveHint /
+                         idempotentHint. La projection de la politique
+                         ``thinktuning.tool/v1`` (safety) vers ces annotations
+                         arrive en S2 (policy_adapter, tâche 5) ;
+        required_scope : rôle minimal pour VOIR et APPELER le tool
+                         (``MCPScopeRole``, docs/mcp/MCP_SECURITY.md) ;
+        handler :        exécution pure ``(arguments: dict) -> str`` ; lève
+                         ``ToolError`` pour une erreur métier (isError).
+    """
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    annotations: dict[str, bool]
+    required_scope: MCPScopeRole
+    handler: Callable[[dict[str, Any]], str]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Projection MCP du tool (``tools/list``)."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "inputSchema": self.input_schema,
+            "annotations": self.annotations,
+        }
+
+
+@dataclass(frozen=True)
+class MCPPromptArgument:
+    """Argument d'un prompt-resource template (MCP ``prompts/arguments``).
+
+    ``description`` est optionnelle (MCP la rend optionnelle dans la spec) ;
+    ``required`` vaut ``False`` par défaut (convention projet : opt-in explicite).
+    """
+
+    name: str
+    description: str = ""
+    required: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """Projection MCP de l'argument."""
+        result: dict[str, Any] = {"name": self.name}
+        if self.description:
+            result["description"] = self.description
+        result["required"] = self.required
+        return result
+
+
+@dataclass(frozen=True)
+class MCPResourceTemplate:
+    """Template de ressource MCP — URI template ↔ tool backend.
+
+    Déclare un URI template (``thinktuning://job/{job_id}``) dont la résolution
+    est déléguée à ``MCPResourceRegistryPort.read_resource`` (potentiellement
+    via un tool backend). Servira à ``resources/list`` /
+    ``resources/templates/list`` (roadmap v1.0+).
+
+    Aligné sur la spec MCP ``resources/templates/list``.
+    """
+
+    uri_template: str
+    name: str
+    description: str = ""
+    mime_type: str = "text/plain"
+    arguments: tuple[MCPPromptArgument, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Projection MCP du template (``resources/templates``)."""
+        result: dict[str, Any] = {
+            "uriTemplate": self.uri_template,
+            "name": self.name,
+        }
+        if self.description:
+            result["description"] = self.description
+        if self.mime_type:
+            result["mimeType"] = self.mime_type
+        if self.arguments:
+            result["arguments"] = [a.to_dict() for a in self.arguments]
+        return result
+
+
+@dataclass(frozen=True)
+class MCPPromptTemplate:
+    """Template de prompt MCP (``prompts/list``).
+
+    ``name`` + ``description`` + ``arguments`` → catalogue pour
+    ``prompts/get`` : le client fournit les arguments, le serveur résout le
+    template en messages (role + content).
+
+    Aligné sur la spec MCP ``prompts/list``.
+    """
+
+    name: str
+    description: str = ""
+    arguments: tuple[MCPPromptArgument, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Projection MCP du prompt (``prompts/list``)."""
+        result: dict[str, Any] = {"name": self.name}
+        if self.description:
+            result["description"] = self.description
+        if self.arguments:
+            result["arguments"] = [a.to_dict() for a in self.arguments]
+        return result
+
+
+@dataclass(frozen=True)
+class MCPPromptMessage:
+    """Message d'un prompt résolu (``prompts/get`` → ``messages``).
+
+    ``content`` est le texte brut du message ; ``to_dict`` projette vers le
+    format MCP ``{role, content: {type: "text", text}}``.
+    """
+
+    role: str
+    content: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Projection MCP du message (``prompts/get`` response)."""
+        return {
+            "role": self.role,
+            "content": {"type": "text", "text": self.content},
+        }

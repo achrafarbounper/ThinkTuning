@@ -1,6 +1,12 @@
 # project/app/domain/ports/__init__.py
 """Ports du domaine (imports publics)."""
 
+from .mcp_ports import (  # noqa: F401
+    MCPPromptRegistryPort,
+    MCPResourceRegistryPort,
+    MCPToolRegistryPort,
+    SamplingPort,
+)
 from .model_versioning_ports import (  # noqa: F401
     EvaluationPort,
     ModelVersioningPort,
@@ -43,12 +49,16 @@ __all__ = [
     "IntentTrainingRunnerPort",
     "IntentVersioningPort",
     "LLMClientPort",
+    "MCPResourceRegistryPort",
+    "MCPPromptRegistryPort",
+    "MCPToolRegistryPort",
     "Message",
     "ModelRepositoryPort",
     "ModelVersioningPort",
     "MultiAgentOrchestratorPort",
     "PredictionPort",
     "RunStorePort",
+    "SamplingPort",
     "SessionStorePort",
     "SystemStatusPort",
     "ToolRegistryPort",

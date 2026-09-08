@@ -48,3 +48,35 @@
 - Le scope CLIENT complet (`MCPSecurityScope` : client_id, visible_tools,
   quotas, révocations) arrive en S4 (client store) ; le rôle S1 est fixé par
   construction (`build_mcp_server(scope=...)`).
+
+### Ajouts — MCP Domain Ports (tâche 3)
+- **Ports** : `app/domain/ports/mcp_ports.py` — 4 Protocols
+  `@runtime_checkable` : `MCPToolRegistryPort` (`list_tools`/`call_tool`),
+  `MCPResourceRegistryPort` (`list_resources`/`read_resource`),
+  `MCPPromptRegistryPort` (`list_prompts`/`get_prompt`), `SamplingPort`
+  (`create_text`). Règle d'or : le port rend la vérité non filtrée ; le
+  filtrage par scope reste en infrastructure (`MCPServer._visible_tools`),
+  les erreurs métier (404/422) passent par `app/domain/errors.py`.
+- **Domaine** : `MCPTool` déplacé de `app/infrastructure/mcp/mcp_server.py`
+  vers `app/domain/entities/mcp.py` (`required_scope`, `handler`,
+  `to_dict()`) ; nouvelles entités gelées `MCPPromptArgument`,
+  `MCPResourceTemplate`, `MCPPromptTemplate`, `MCPPromptMessage` (projections
+  `to_dict()` alignées spec MCP), exportées via `app.domain.entities`.
+- **Rétrocompatibilité** : alias `ToolProvider = MCPToolRegistryPort`
+  conservé dans `mcp_server.py` (ré-exporté par `app/infrastructure/mcp`) ;
+  `InMemoryToolProvider` satisfait le port via structural typing ;
+  `build_mcp_server(tool_provider=...)` est typé contre le port.
+
+### Tests (tâche 3)
+- `tests/test_mcp_ports_contract.py` (22 tests) : `isinstance` sur les 4
+  ports, `list_tools`/`call_tool` (+ `ToolError`), serveur end-to-end
+  `tools/list` + `tools/call`, immutabilité + projections `to_dict`, contrats
+  fake resource/prompt/sampling (404/422 via erreurs domaine), filtrage scope
+  READ_ONLY vs ADMIN. Suite MCP complète : 76 passed
+  (`test_mcp_ports_contract` + `test_mcp_server_basic` + `test_mcp_version`).
+
+### Notes de migration (tâche 3)
+- Aucun breaking change : `ToolProvider` et `MCPTool` restent importables
+  depuis `app.infrastructure.mcp.mcp_server` (alias / ré-export domaine) ;
+- les futures implémentations (adaptateur legacy `ToolRegistry` en S2,
+  sampling en S6) se branchent sur les ports sans toucher au transport.
