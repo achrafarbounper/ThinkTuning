@@ -11,6 +11,8 @@ from .mcp import (  # noqa: F401
     MCPScopeRole,
     MCPTool,
     MCPVersion,
+    SamplingRequest,
+    SamplingResponse,
 )
 from .plan import (  # noqa: F401
     Action,
@@ -54,6 +56,8 @@ __all__ = [
     "PlanStep",
     "PlanValidationReport",
     "PredictionResult",
+    "SamplingRequest",
+    "SamplingResponse",
     "SanityReport",
     "args_hash",
     "utc_now_iso",

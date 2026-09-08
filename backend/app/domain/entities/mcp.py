@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Sémantique X.Y.Z stricte (semver sans pré-release ni build) :
 #   - exactement 3 composants numériques ("1.2", "1.2.3.4" rejetés) ;
@@ -368,3 +368,74 @@ class MCPPromptMessage:
             "role": self.role,
             "content": {"type": "text", "text": self.content},
         }
+
+
+class SamplingRequest(BaseModel):
+    """Requete de sampling MCP (``sampling/createMessage`` -> LLM)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    messages: list[dict[str, Any]] = Field(
+        ...,
+        min_length=1,
+        description="Historique OpenAI : [{'role': ..., 'content': ...}] (min 1).",
+    )
+    max_tokens: int | None = Field(default=None, ge=1, le=100000)
+    system_prompt: str | None = Field(default=None)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+
+    @field_validator("messages")
+    @classmethod
+    def _validate_messages(
+        cls, value: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        for index, message in enumerate(value):
+            if not isinstance(message, dict):
+                raise ValueError(f"Message #{index} : objet attendu.")
+            role = message.get("role")
+            if not isinstance(role, str) or not role.strip():
+                raise ValueError(f"Message #{index} : 'role' (str) requis.")
+            content = message.get("content")
+            if isinstance(content, str):
+                if not content.strip():
+                    raise ValueError(f"Message #{index} : 'content' vide.")
+            elif isinstance(content, list):
+                if not content:
+                    raise ValueError(f"Message #{index} : 'content' vide.")
+                for block in content:
+                    if not isinstance(block, dict) or not isinstance(
+                        block.get("text", ""), str
+                    ):
+                        raise ValueError(
+                            f"Message #{index} : bloc 'text' (str) requis."
+                        )
+            else:
+                raise ValueError(f"Message #{index} : 'content' str|list requis.")
+        return value
+
+    def effective_messages(self) -> list[dict[str, Any]]:
+        """Messages effectifs envoyes au LLM (system prefixe si present)."""
+        if self.system_prompt:
+            return [{"role": "system", "content": self.system_prompt}, *self.messages]
+        return list(self.messages)
+
+
+class SamplingResponse(BaseModel):
+    """Reponse de sampling MCP (completion LLM)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    text: str = Field(..., min_length=1)
+    model: str = Field(default="")
+    stop_reason: str = Field(default="end_turn", min_length=1)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Projection MCP de la reponse (``createMessage`` result)."""
+        result: dict[str, Any] = {
+            "role": "assistant",
+            "content": {"type": "text", "text": self.text},
+            "stopReason": self.stop_reason,
+        }
+        if self.model:
+            result["model"] = self.model
+        return result
