@@ -48,6 +48,13 @@
   `@runtime_checkable` (`MCPToolRegistryPort`, `MCPResourceRegistryPort`,
   `MCPPromptRegistryPort`, `SamplingPort`) ; `MCPSecurityScope`
   (client store → visible_tools) arrive en S4.
+- **Fait (tâche 5)** : `app/infrastructure/mcp/policy_adapter.py` →
+  `decide`/`decide_action` (délégation stricte `sandbox_policy`, verdict typé
+  `PolicyVerdict` + raison auditée) → `decision_to_annotations`
+  (readOnlyHint/destructiveHint/idempotentHint, fail-closed) ;
+  `visible_tools()` (filtre par rôle `MCPScopeRole.granted` + whitelist S4) ;
+  `ScopeFilteredToolProvider` (projection `tools/list`) et
+  `PolicyGateToolProvider` (gate `tools/call` : auto/approve/reject).
 
 ### Rec. 8 : Audit
 - **Existant** : `core/audit_store.py` → `ACT_TOOL`, `ACT_RUN`, `ACT_APPROVAL`
