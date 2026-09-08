@@ -3,10 +3,10 @@
 
 from .mcp import (  # noqa: F401
     DEFAULT_MCP_VERSION,
-    MCPResourceTemplate,
     MCPPromptArgument,
     MCPPromptMessage,
     MCPPromptTemplate,
+    MCPResourceTemplate,
     MCPScopeRole,
     MCPTool,
     MCPVersion,

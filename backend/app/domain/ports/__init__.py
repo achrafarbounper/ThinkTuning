@@ -2,8 +2,8 @@
 """Ports du domaine (imports publics)."""
 
 from .mcp_ports import (  # noqa: F401
-    MCPResourceRegistryPort,
     MCPPromptRegistryPort,
+    MCPResourceRegistryPort,
     MCPToolRegistryPort,
     SamplingPort,
 )
