@@ -209,6 +209,7 @@ class DynamicBatcher:
                         item.error = error
                         item.done.set()
                 else:
+                    assert results is not None  # erreur None ⇒ inférence réussie
                     for seq, result in zip(seqs, results, strict=True):
                         item = self._items.pop(seq, None)
                         if item is None:

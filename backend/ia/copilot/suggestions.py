@@ -23,8 +23,8 @@ try:  # import relatif dual (paquet ia.* ou modules top-level via sys.path)
     from ..tools.tool_discovery import suggest_tools
     from ..tools.tool_registry import REQUIRED_ARGS
 except ImportError:  # pragma: no cover
-    from tools.tool_discovery import suggest_tools
-    from tools.tool_registry import REQUIRED_ARGS
+    from tools.tool_discovery import suggest_tools  # type: ignore[no-redef]
+    from tools.tool_registry import REQUIRED_ARGS  # type: ignore[no-redef]
 
 from .feedback import get_feedback_store
 

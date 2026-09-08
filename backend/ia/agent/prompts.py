@@ -22,9 +22,9 @@ from .roles import get_role
 def build_planner_prompt(
     prompt: str,
     role_names: List[str],
-    role_tools: Optional[Dict[str, List[str]]] = None,
-    intent: Optional[str] = None,
-    intent_confidence: Optional[float] = None,
+    role_tools: Dict[str, List[str]] | None = None,
+    intent: str | None = None,
+    intent_confidence: float | None = None,
     allow_tool_proposals: bool = False,
     max_tool_proposals: int = 1,
 ) -> str:

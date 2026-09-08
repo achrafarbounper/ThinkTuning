@@ -9,7 +9,7 @@ la frontière de typage qui permettra de swapper l'implémentation
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from core.approval_store import ApprovalStore as _LegacyApprovalStore
 from core.audit_store import AuditStore as _LegacyAuditStore
@@ -27,8 +27,11 @@ class SqliteSessionStore(_LegacySessionStore):
         role: str,
         content: str,
         tool_calls: list[dict[str, Any]] | None = None,
+        thinking: str = "",
     ) -> dict[str, Any] | None:
-        return super().append_message(session_id, role, content, tool_calls=tool_calls)
+        return super().append_message(
+            session_id, role, content, tool_calls=tool_calls, thinking=thinking
+        )
 
 
 class SqliteAuditStore(_LegacyAuditStore):
@@ -80,7 +83,7 @@ class SqliteApprovalStore(_LegacyApprovalStore):
     ``app/infrastructure/legacy_approval_store``).
     """
 
-    def create(
+    def create(  # type: ignore[override]  # convention port : LIGNE, pas l'id legacy
         self,
         tool: str,
         args: Any,
@@ -153,9 +156,16 @@ def default_session_store() -> SessionStorePort:
 
 
 def default_audit_store() -> AuditStorePort:
+    """Store d'audit par défaut (singleton legacy, même base).
+
+    Coexistence strangler assumée (identité du singleton verrouillée par
+    ``test_persistence_ports``) : le legacy satisfait le port SAUF ``query``
+    (renvoie l'enveloppe ``items/total/limit/offset`` au lieu de la liste) —
+    le ``cast`` documente cette dette sans changer le comportement.
+    """
     from core.audit_store import get_audit_store
 
-    return get_audit_store()
+    return cast(AuditStorePort, get_audit_store())
 
 
 def default_run_store() -> RunStorePort:
@@ -165,9 +175,17 @@ def default_run_store() -> RunStorePort:
 
 
 def default_approval_store() -> ApprovalStorePort:
+    """Store d'approbation par défaut (singleton legacy, même base).
+
+    Coexistence strangler assumée (identité du singleton verrouillée par
+    ``test_persistence_ports``) : le legacy satisfait le port SAUF ``create``
+    (renvoie l'identifiant brut au lieu de la ligne) — le ``cast`` documente
+    cette dette ; la façade typée de référence est
+    ``app/infrastructure/legacy_approval_store``.
+    """
     from core.approval_store import get_approval_store
 
-    return get_approval_store()
+    return cast(ApprovalStorePort, get_approval_store())
 
 
 def default_flow_store() -> FlowStorePort:

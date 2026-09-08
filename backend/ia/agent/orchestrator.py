@@ -132,8 +132,8 @@ def build_role_agent(
     from .system_prompt import build_system_prompt
 
     if role_name == "lead":
-        tools = {}
-        required = {}
+        tools: Dict[str, Callable[..., Any]] = {}
+        required: Dict[str, List[str]] = {}
         system_prompt = build_synthesis_system()
     else:
         tools = resolve_role_tools(role_name, tools_registry)
@@ -504,7 +504,7 @@ class MultiAgentCoordinator:
                 TOOL_PROPOSAL_LIMITED
                 if "plafond" in reason else TOOL_PROPOSAL_REJECTED
             )
-            entry = {
+            entry: Dict[str, Any] = {
                 "name": note.get("name", ""),
                 "task_id": note.get("task_id", ""),
                 "status": "rejected",
@@ -525,7 +525,7 @@ class MultiAgentCoordinator:
                 "definition": proposal,
             })
             approved, reason = self._review_tool_proposal(proposal)
-            entry: Dict[str, Any] = {
+            entry = {
                 "name": name,
                 "task_id": proposal.get("task_id", ""),
                 "definition": proposal,
@@ -969,7 +969,7 @@ class MultiAgentCoordinator:
         """
         started = time.perf_counter()
         if enable_thinking is not None:
-            self._run_thinking = bool(enable_thinking)
+            self._run_thinking: bool | None = bool(enable_thinking)
         try:
             if not prompt or not str(prompt).strip():
                 return {

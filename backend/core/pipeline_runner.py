@@ -29,7 +29,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Étapes exposées à l'UI (PipelineJobTracker du dashboard).
 PIPELINE_STEPS = ["queued", "labeling", "filtering", "finetuning", "done"]
 
-_job_cancel_events = {}
+_job_cancel_events: dict[str, threading.Event] = {}
 
 
 def get_cancel_event(job_id: str) -> threading.Event:
@@ -122,7 +122,7 @@ def build_finetune_cmd(params: PipelineRequest, train_file: str, output_dir: str
     return cmd
 
 
-def run_finetune(cmd, cancel_event: threading.Event = None, cwd: str = PROJECT_ROOT):
+def run_finetune(cmd, cancel_event: threading.Event | None = None, cwd: str = PROJECT_ROOT):
     """Exécute finetune_llm.py en subprocess, annulable via *cancel_event*.
 
     Lève RuntimeError sur code de sortie non nul et sur annulation.

@@ -17,6 +17,7 @@ que run_training) et reutilise le job store existant pour le suivi.
 import logging
 import os
 import time
+from typing import Any
 
 from core.annotation_store import get_annotation_store
 from core.model_activation import (
@@ -98,7 +99,7 @@ def run_cycle(job_id: str, train_req, auto_activate: bool = True) -> None:
 
     # --- 4. Activation conditionnelle (sans regression) ----------------------
     job.progress["cycle"]["step"] = "activation"
-    activation = {
+    activation: dict[str, Any] = {
         "new_version": new_version,
         "new_f1_macro": new_f1,
         "previous_version": base_version,

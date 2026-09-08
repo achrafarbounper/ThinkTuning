@@ -37,8 +37,8 @@ try:  # rich est présent dans requirements.txt ; le repli reste possible.
     from rich.console import Console
     from rich.logging import RichHandler
 except ImportError:  # pragma: no cover - environnement sans rich
-    Console = None
-    RichHandler = None
+    Console = None  # type: ignore[assignment,misc]  # repli ANSI plus bas
+    RichHandler = None  # type: ignore[assignment,misc]  # repli ANSI plus bas
 
 # Marqueur posé sur NOS handlers console : permet de rester idempotent sans
 # toucher aux handlers d'uvicorn ou de pytest.

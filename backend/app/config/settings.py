@@ -117,13 +117,14 @@ class Settings(BaseSettings):
     model_sanity_min_confidence: float = Field(default=0.4, ge=0.0, le=1.0)
 
     # --- Feature flags agent (AGENT_<NOM> = 1/true/yes/on) -------------------
-    flag_reliability: bool = 1
-    flag_audit: bool = 1
-    flag_tool_analytics: bool = 1
-    flag_context: bool = 1
-    flag_copilot: bool = 1
-    flag_websocket: bool = 1
-    flag_multi_agent: bool = 1
+    # Défauts True (1 == True) : pydantic-settings parse l'env vers bool.
+    flag_reliability: bool = True
+    flag_audit: bool = True
+    flag_tool_analytics: bool = True
+    flag_context: bool = True
+    flag_copilot: bool = True
+    flag_websocket: bool = True
+    flag_multi_agent: bool = True
     # Bascule du noyau agentique v2 : ACTIVÉ par défaut depuis la bascule en
     # production (rollout terminé). Peut venir de l'environnement
     # (AGENT_NEW_CORE) ou du fichier .env (lu par pydantic-settings,

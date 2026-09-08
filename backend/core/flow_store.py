@@ -21,6 +21,7 @@ import sqlite3
 import threading
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 AGENT_FLOW_PATH = os.getenv("AGENT_FLOW_PATH", os.path.join("experiments", "agent_flows.db"))
 
@@ -221,7 +222,8 @@ class FlowStore:
                     "SELECT id, prompt, model, status, answer_summary, error, "
                     "events_json, created_at, finished_at FROM agent_flows"
                 )
-                conditions, params = [], []
+                conditions: list[str] = []
+                params: list[Any] = []
                 if status:
                     conditions.append("status = ?")
                     params.append(status)

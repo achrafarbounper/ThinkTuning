@@ -15,7 +15,7 @@ Compatible FR + EN via WordNet Open Multilingual (OMW).
 import random
 import re
 import logging
-from typing import List
+from typing import Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +202,7 @@ def random_deletion(words: List[str], lang: str = "en", p: float = 0.1) -> List[
 # ---------------------------------------------------------------------------
 
 # Cache global des pipelines de traduction (chargés une seule fois par process).
-_TRANSLATION_PIPELINES = {}
+_TRANSLATION_PIPELINES: dict[tuple[str, str], Any] = {}
 
 # Modèles Helsinki-NLP/opus-mt par paire de langues
 _MT_MODELS = {

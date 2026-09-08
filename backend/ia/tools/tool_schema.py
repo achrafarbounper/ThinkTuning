@@ -380,7 +380,7 @@ def check_args_against_definition(
         if not isinstance(spec, dict):
             continue  # paramètre libre (non déclaré) : toléré
         ptype = spec.get("type")
-        check = _TYPE_CHECKS.get(ptype)
+        check = _TYPE_CHECKS.get(ptype) if isinstance(ptype, str) else None
         if check is not None and not check(value):
             errors.append(
                 f"type invalide pour « {key} » : attendu {ptype}, "

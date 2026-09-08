@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.domain.ports import EventBusPort
 
@@ -66,5 +66,9 @@ class InMemoryEventBus(EventBusPort):
         return len(self._handlers.get(event_type, []))
 
 
-# Conformité structurelle explicite (signatures vérifiées par test).
-_REF: EventBusPort = InMemoryEventBus
+# Conformité structurelle explicite (signatures vérifiées par test) : mypy
+# valide ici que l'implémentation satisfait le port (INSTANCE, pas classe).
+if TYPE_CHECKING:
+
+    def _conformance_check(bus: InMemoryEventBus) -> EventBusPort:
+        return bus

@@ -23,7 +23,7 @@ from api.dependencies.composition import (
     get_prediction_port,
     get_system_status_port,
 )
-from api.schemas.health import HealthResponse, SanityVerdictResponse
+from api.schemas.health import HealthResponse, SanityCaseResultOut, SanityVerdictResponse
 from app.application.health_usecase import run_health_check, run_model_sanity_check
 from app.domain.entities.prediction import SanityReport
 from app.domain.errors import ModelSanityError
@@ -82,5 +82,5 @@ def model_sanity(
         min_confidence=report.min_confidence,
         accuracy=report.accuracy,
         model=model_name,
-        results=[asdict(r) for r in report.results],
+        results=[SanityCaseResultOut(**asdict(r)) for r in report.results],
     )

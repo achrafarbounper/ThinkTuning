@@ -192,7 +192,9 @@ def ai_chat(req: ChatRequest, _: bool = Depends(require_api_key)) -> StreamingRe
     # on renvoie une vraie erreur HTTP au lieu d'un flux SSE interrompu.
     first_kind, first_payload = events.get()
     if first_kind == "http_error":
-        raise first_payload
+        if isinstance(first_payload, BaseException):
+            raise first_payload  # noqa: TRY201 - re-lever l'HTTPException d'origine
+        raise HTTPException(status_code=502, detail=str(first_payload))
     if first_kind == "error":
         raise HTTPException(status_code=502, detail=str(first_payload))
 
@@ -216,7 +218,14 @@ def ai_chat(req: ChatRequest, _: bool = Depends(require_api_key)) -> StreamingRe
                 if kind in ("http_error", "error"):
                     # Panne SURVENUE en cours de flux : on ne peut plus
                     # changer le statut HTTP, on émet un événement d'erreur.
-                    detail = payload.detail if kind == "http_error" else str(payload)
+                    if kind == "http_error":
+                        detail = (
+                            str(payload.detail)
+                            if isinstance(payload, HTTPException)
+                            else str(payload)
+                        )
+                    else:
+                        detail = str(payload)
                     yield _sse({"error": detail})
                     yield "data: [DONE]\n\n"
                     return

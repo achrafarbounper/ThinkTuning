@@ -1,6 +1,10 @@
 # project/app/domain/entities/__init__.py
 """Entités du domaine (imports publics)."""
 
+from .mcp import (  # noqa: F401
+    DEFAULT_MCP_VERSION,
+    MCPVersion,
+)
 from .plan import (  # noqa: F401
     Action,
     ActionCategory,
@@ -27,8 +31,10 @@ __all__ = [
     "ApprovalDecision",
     "ApprovalStatus",
     "Decision",
+    "DEFAULT_MCP_VERSION",
     "HealthSnapshot",
     "Intent",
+    "MCPVersion",
     "Plan",
     "PlanErrorCode",
     "PlanStep",

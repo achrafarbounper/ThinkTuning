@@ -303,11 +303,6 @@ class ModelVersion(BaseModel):
     path: str
     created_at: Optional[float] = None
     active: bool = False
-class ModelVersion(BaseModel):
-    name: str
-    path: str
-    created_at: Optional[float] = None
-    active: bool = False
 
 
 class PipelineRequest(BaseModel):

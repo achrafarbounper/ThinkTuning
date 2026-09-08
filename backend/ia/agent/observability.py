@@ -149,7 +149,7 @@ class ObservabilityStore:
         for s in samples:
             tool_durations[s.tool_name].append(s.duration_ms)
 
-        result = []
+        result: List[Dict[str, Any]] = []
         for tool, durs in tool_durations.items():
             avg = sum(durs) / len(durs)
             if avg >= threshold_ms or max(durs) >= threshold_ms:

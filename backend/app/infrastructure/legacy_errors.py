@@ -20,6 +20,8 @@ agent mappe 502/503/504 (``AgentRunError`` / ``ServiceUnavailableError``
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from fastapi import HTTPException
 
 from app.domain.errors import (
@@ -41,7 +43,7 @@ DEFAULT_STATUS_TO_ERROR: dict[int, type[DomainError]] = {
 def convert_legacy_http_error(
     exc: HTTPException,
     *,
-    status_overrides: dict[int, type[DomainError]] | None = None,
+    status_overrides: Mapping[int, type[DomainError]] | None = None,
 ) -> DomainError:
     """Traduit une ``HTTPException`` legacy en erreur de domaine équivalente.
 

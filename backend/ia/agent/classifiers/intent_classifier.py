@@ -105,9 +105,9 @@ class IntentClassifier(BaseClassifier):
         self.quantize_int8 = quantize_int8
         self.threshold = threshold
 
-        self._model = None          # PyTorch chargé (paresseux)
-        self._tokenizer = None
-        self._onnx = None
+        self._model: Any = None          # PyTorch chargé (paresseux)
+        self._tokenizer: Any = None
+        self._onnx: Any = None
         self._metrics = ClassifierMetrics()
         self._load_error: str | None = None
 
@@ -307,4 +307,3 @@ class IntentClassifier(BaseClassifier):
 
     def get_metrics(self) -> dict[str, Any]:
         return {"name": self.name, **self._metrics.to_dict()}
-        self._load_error: str | None = None

@@ -57,6 +57,13 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 
+# Version de la surface MCP (docs/mcp/IMPLEMENTATION_PLAN.md) — INDÉPENDANTE de
+# la version du package ([project] version) : cadencée par la feuille de route
+# MCP (S1 bootstrap = 0.1.0 → S7 = 3.0.0). Lue par
+# app/infrastructure/mcp/version_loader.py via MCPVersion.from_toml_source.
+[tool.mcp]
+version = "0.1.0"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

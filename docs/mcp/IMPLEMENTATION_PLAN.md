@@ -1,0 +1,253 @@
+# MCP Implementation Plan — Checklist Opérationnelle
+
+> **Produit par** : MCP Product Council  
+> **Date** : 2026-09-08  
+> **Statut** : Ready for Engineering
+
+---
+
+## 🔄 Chronologie d’Exécution (7 semaines)
+
+| Semaine | Sprint | Livrable | Owner | Tests |
+|---|---|---|---|---|
+| **S1** | MCP Bootstrap | `MCPServerLayer` (SSE + stdio) + `MCPVersion` | Backend Lead | `test_mcp_server.py` |
+| **S2** | v0.1.0 Tools | 12 tools read-only exposés via MCP | Agent Lead | `test_mcp_manifest.py` |
+| **S3** | v1.0.0 Beta | 25 tools + 5 resources + 2 prompts | Full MCP Team | `test_mcp_conformance.py` |
+| **S4** | Security | Scopes + quotas + audit + client store | Security Officer | `test_mcp_security.py` |
+| **S5** | v1.1.0 Resources | 10 resources + 3 prompts + sampling port | Agent Lead | `test_mcp_sampling.py` |
+| **S6** | v2.0.0 Sampling | SamplingPort + orchestrate tool | ML Lead | `test_mcp_orchestrate.py` |
+| **S7** | v3.0.0 MCP-First | HTTP API legacy + CI/CD MCP | Platform Lead | `test_mcp_first.py` |
+
+---
+
+## 🧩 Tâches par Semaine (S1 — Bootstrap)
+
+### Tâche 1 : MCP Version (`MCPVersion`)
+- [x] `app/domain/entities/mcp.py` → `MCPVersion(major.minor.patch)`
+- [x] Lire depuis `pyproject.toml` → `[tool.mcp.version] = "0.1.0"`
+- [x] Test : `test_mcp_version.py`
+
+### Tâche 2 : MCP Server Layer (SSE + stdio)
+- [ ] `app/infrastructure/mcp/mcp_server_sse.py` — FastAPI SSE endpoint (`POST /mcp/sse`)
+- [ ] `app/infrastructure/mcp/mcp_server_stdio.py` — stdio entry point (`thinktuning-mcp`)
+- [ ] `app/infrastructure/mcp/mcp_server_factory.py` — build server with scope
+- [ ] Test : `test_mcp_server_basic.py` (ListTools, CallTool)
+
+### Tâche 3 : MCP Domain Ports
+- [ ] `app/domain/ports/mcp_ports.py` :
+  - `MCPToolRegistryPort` (interface de projection des tools)
+  - `MCPResourceRegistryPort` (URI templates ↔ tools)
+  - `MCPPromptRegistryPort` (templates MCP)
+  - `SamplingPort` (reverse LLM inference)
+- [ ] Test : `test_mcp_ports_contract.py` (verify legacy implements the ports)
+
+---
+
+## 🧩 Tâches par Semaine (S2 — v0.1.0 Tools)
+
+### Tâche 4 : Manifest Generator
+- [ ] `app/infrastructure/mcp/manifest_generator.py` :
+  - Compile `tools_config.json` → MCP manifest
+  - Mappe `thinktuning.tool/v1 safety` → MCP `annotations`
+  - `to_json_schema()` déjà existant → reuse
+- [ ] `docs/mcp/MANIFEST.md` — catalogue produit généré
+
+### Tâche 5 : Policy Adapter
+- [ ] `app/infrastructure/mcp/policy_adapter.py` :
+  - `decide_action()` (sandbox_policy) → MCP annotations
+  - `readOnlyHint` / `destructiveHint` / `idempotentHint`
+  - Filter par scope (`visible_tools`)
+
+### Tâche 6 : 12 Tools Read-Only
+- [ ] Sélectionner : `add`, `calc`, `web_search`, `web_fetch`, `web_read`, `http_get`
+- [ ] `read_file`, `list_dir`, `find_file`, `file_info`, `file_checksum`, `head_file`, `count_lines`
+- [ ] Tous passent par `check_command_allowed` + `safe_resolve` + `enforce_host_policy`
+- [ ] Annotations : `readOnlyHint: true`, `idempotentHint: true`
+
+---
+
+## 🧩 Tâches par Semaine (S3 — v1.0.0 Beta)
+
+### Tâche 7 : 25 Tools (extension read-only)
+- [ ] Ajouter 13 tools read-only supplémentaires :
+  - `job_list`, `job_get`, `model_versions`, `dataset_stats`, `predict_sentiment`
+  - `env_info`, `disk_usage`, `gpu_info`, `now`
+  - `touch`, `file_info`, `count_lines`, `tail_file`
+- [ ] Chaque tool passe par `decide_action()` → `AUTO_APPROVE` (read-only)
+- [ ] Annotations cohérentes : `readOnlyHint: true`
+- [ ] Test : `test_mcp_tools_25.py` — vérifie les 25 tools + annotations
+
+### Tâche 8 : 5 Resources `thinktuning://`
+- [ ] `app/infrastructure/mcp/resources/resource_provider.py` :
+  - `thinktuning://jobs` → `job_list()` → JSON
+  - `thinktuning://jobs/{job_id}` → `job_get(job_id)` → JSON
+  - `thinktuning://models` → `model_versions()` → JSON
+  - `thinktuning://datasets/{path}/stats` → `dataset_stats(path)` → JSON
+  - `thinktuning://config` → `agent_config()` → JSON
+- [ ] `MCPResource` entity : `uri`, `name`, `description`, `mimeType`
+- [ ] `ListResources` → retourne les 5 resources
+- [ ] `ReadResource(uri)` → résout l'URI → appelle le tool interne
+- [ ] Sécurité : `safe_resolve` pour les chemins, `query_only` pour SQL
+- [ ] Test : `test_mcp_resources.py` — `ListResources` + `ReadResource`
+
+### Tâche 9 : 2 Prompts MCP
+- [ ] `app/infrastructure/mcp/prompts/prompt_provider.py` :
+  - `analyze-sentiment` → template : "Analyse le sentiment de ce texte: {text}"
+  - `plan-training` → template : "Planifie un entraînement pour: {dataset}"
+- [ ] `MCPPrompt` entity : `name`, `description`, `arguments`
+- [ ] `ListPrompts` → retourne les 2 prompts
+- [ ] `GetPrompt(name, arguments)` → résout le template → retourne les messages
+- [ ] Test : `test_mcp_prompts.py` — `ListPrompts` + `GetPrompt`
+
+---
+
+## 🧩 Tâches par Semaine (S4 — Security)
+
+### Tâche 10 : MCPSecurityScope + Client Store
+- [ ] `app/domain/ports/mcp_ports.py` → `MCPSecurityScope` (14 champs) :
+  - `client_id`, `tenant_id`, `role`, `visible_tools`, `visible_resources`
+  - `visible_prompts`, `sampling_enabled`, `rate_limit_per_minute`
+  - `destructive_quota`, `revoked`, `revoked_at`, `revoked_reason`
+- [ ] `core/mcp_client_store.py` → `MCPClientStore` :
+  - `register(client_id, secret, scope)` → crée un client
+  - `revoke(client_id, reason)` → révoque un client
+  - `list()` → liste les clients
+  - `metrics(client_id)` → call_count, error_rate, scope_usage
+- [ ] Test : `test_mcp_client_store.py` — CRUD + révocation
+
+### Tâche 11 : Scopes + Quotas + Rate Limiting
+- [ ] `app/infrastructure/mcp/security/scope_enforcer.py` :
+  - `check_scope(client_id, tool_name)` → vérifie `visible_tools`
+  - `check_quota(client_id, tool_name)` → vérifie `destructive_quota`
+  - `check_rate_limit(client_id)` → vérifie `rate_limit_per_minute`
+- [ ] Intégrer avec `api/middlewares/rate_limit.py` existant
+- [ ] 4 rôles : `read_only` (12 tools), `contributor` (25 tools), `operator` (35 tools), `admin` (40 tools)
+- [ ] Test : `test_mcp_scope_enforcer.py` — chaque rôle + cas de dépassement
+
+### Tâche 12 : Audit Trail MCP
+- [ ] `core/audit_store.py` → ajouter les events :
+  - `ACT_MCP_TOOL_CALL = "mcp_tool_call"`
+  - `ACT_MCP_RESOURCE_READ = "mcp_resource_read"`
+  - `ACT_MCP_PROMPT_GET = "mcp_prompt_get"`
+  - `ACT_MCP_SAMPLING = "mcp_sampling"`
+  - `ACT_MCP_ORCHESTRATE = "mcp_orchestrate"`
+- [ ] Chaque appel MCP → `audit_log(ACT_MCP_*, subject=client_id, detail={...})`
+- [ ] Dashboard interne : métriques MCP (error rate, call volume, revoked clients)
+- [ ] Test : `test_mcp_audit.py` — vérifie que chaque call est auditée
+
+---
+
+## 🧩 Tâches par Semaine (S5 — v1.1.0 Resources + Prompts)
+
+### Tâche 13 : 10 Resources (extension)
+- [ ] Ajouter 5 resources supplémentaires :
+  - `thinktuning://jobs/{job_id}/logs` → logs d'un job
+  - `thinktuning://models/{version}/info` → métadonnées d'un modèle
+  - `thinktuning://datasets/{path}/preview` → aperçu d'un dataset
+  - `thinktuning://metrics/{job_id}` → métriques d'entraînement
+  - `thinktuning://health` → santé du système
+- [ ] `resource_provider.py` → résout les URI dynamiques (regex/path params)
+- [ ] Test : `test_mcp_resources_10.py` — 10 resources + URI dynamiques
+
+### Tâche 14 : 3 Prompts (extension)
+- [ ] Ajouter 3 prompts supplémentaires :
+  - `summarize-job` → "Résume le job {job_id}"
+  - `compare-models` → "Compare les modèles {v1} et {v2}"
+  - `explain-prediction` → "Explique la prédiction pour: {text}"
+- [ ] `prompt_provider.py` → 5 prompts totaux
+- [ ] Test : `test_mcp_prompts_5.py` — 5 prompts + arguments
+
+### Tâche 15 : SamplingPort (reverse LLM)
+- [ ] `app/domain/ports/mcp_ports.py` → `SamplingPort` :
+  - `create_message(messages, max_tokens)` → demande LLM inference au client
+- [ ] `app/infrastructure/mcp/sampling/sampling_adapter.py` :
+  - Implémente `SamplingPort` via `HttpLLMClient` existant
+  - `create_message()` → `llm.call(messages)` → retourne la complétion
+- [ ] `SamplingRequest` / `SamplingResponse` entities
+- [ ] Test : `test_mcp_sampling.py` — `create_message` + vérification de la réponse
+
+---
+
+## 🧩 Tâches par Semaine (S6 — v2.0.0 Sampling + Orchestrate)
+
+### Tâche 16 : Tool MCP `orchestrate`
+- [ ] `app/infrastructure/mcp/tools/orchestrate_tool.py` :
+  - `orchestrate(prompt, session_id, scope)` → wrap `AgentCore.run()`
+  - Appelle `build_agent_core()` → `core.run(Intent(prompt=prompt))`
+  - Retourne `AgentRunResult.answer` + traces
+- [ ] Sécurité : passe par `decide_action()` → `APPROVE` (mutation → validation humaine)
+- [ ] `orchestrate` est un tool MCP **distinct** des tools bruts
+- [ ] Test : `test_mcp_orchestrate.py` — `orchestrate("analyse ce dataset")` → réponse
+
+### Tâche 17 : 35 Tools (extension avec write/exec)
+- [ ] Ajouter 10 tools avec `APPROVE` (write/exec filtré) :
+  - `write_file`, `write_json`, `append_file`, `make_dir`, `copy_path`
+  - `run_command`, `run_python`, `start_training`, `cancel_training`, `stop_training`
+- [ ] Chaque tool passe par `decide_action()` → `APPROVE` → validation humaine
+- [ ] Annotations : `destructiveHint: true`, `idempotentHint: false`
+- [ ] Test : `test_mcp_tools_35.py` — 35 tools + policy APPROVE
+
+### Tâche 18 : v2.0.0 Breaking Change + Migration
+- [ ] `docs/mcp/migration/v1-to-v2.md` — guide de migration clients
+- [ ] Breaking change : `SamplingPort` ajouté → clients doivent mettre à jour
+- [ ] Changelog : `v2.0.0` — "Added SamplingPort + orchestrate tool"
+- [ ] Notification : email/Slack aux clients enregistrés
+- [ ] Test : `test_mcp_v2_conformance.py` — conformité v2
+
+---
+
+## 🧩 Tâches par Semaine (S7 — v3.0.0 MCP-First)
+
+### Tâche 19 : 40 Tools (full catalogue)
+- [ ] Ajouter 5 tools supplémentaires :
+  - `move_path`, `remove_path`, `split_file`, `dedupe_lines`, `unzip_file`
+- [ ] 40 tools totaux — catalogue complet
+- [ ] Tous les tools passent par `decide_action()` + `MCPSecurityScope`
+- [ ] Test : `test_mcp_tools_40.py` — 40 tools + scopes
+
+### Tâche 20 : HTTP API Legacy + MCP-First
+- [ ] `api/routes/agent.py` → marquer `@deprecated` (HTTP API)
+- [ ] Feature flag `MCP_FIRST=true` → HTTP API en mode read-only
+- [ ] Dashboard migre vers MCP-over-SSE (`POST /mcp/sse`)
+- [ ] `ARCHITECTURE.md` → mettre à jour le diagramme (MCP = surface)
+- [ ] Test : `test_mcp_first.py` — HTTP API legacy + MCP actif
+
+### Tâche 21 : CI/CD MCP + Production Readiness
+- [ ] `.github/workflows/ci.yml` → ajouter `test_mcp_*.py` dans la pipeline
+- [ ] `docker-compose.yml` → service `thinktuning-mcp` (SSE + stdio)
+- [ ] `render.yaml` → profil MCP pour le déploiement
+- [ ] `docs/mcp/CLIENT_REGISTRY.md` — publier le registre des clients
+- [ ] `docs/mcp/CHANGELOG.md` — v3.0.0 publié
+- [ ] Test final : `test_mcp_production.py` — 40 tools + 15 resources + 8 prompts + sampling + orchestrate
+
+---
+
+## 🛡️ Checklist de Validation MCP (CI)
+
+Chaque PR MCP doit passer :
+
+- [ ] `python -m pytest tests/test_mcp_*.py -q` — vert
+- [ ] `python -c "from mcp import Client; c = Client(); print(c.list_tools())"` — 12+ tools
+- [ ] `docs/mcp/CHANGELOG.md` — mis à jour
+- [ ] RFC mergé dans `docs/mcp/rfc/` — si nouveau tool/resource/prompt
+- [ ] `docs/mcp/MANIFEST.md` — régénéré et commité
+- [ ] Audit trail vérifié (`ACT_MCP_*` events dans `agent_audit`)
+- [ ] Scope/security testé (`contrib` blocked, `read_only` allowed)
+- [ ] Versioning bumpé (SemVer)
+
+---
+
+## 🚨 Rollback Plan
+
+Si MCP cause un incident critique :
+- `MCP_SERVER_ENABLED=false` → désactive le serveur MCP
+- Le Council est notifié automatiquement (audit trail)
+- Les clients MCP reçoivent `503 Service Unavailable` + lien vers le changelog
+
+---
+
+## 📌 Lien vers le code existant
+
+→ **Traçabilité complète** : voir `docs/mcp/MCP_IMPLEMENTATION_MAPPING.md`
+→ **Architecture hexagonale** : voir `ARCHITECTURE.md`
+→ **Standard thinktuning.tool/v1** : voir `docs/TOOL_STANDARD.md`

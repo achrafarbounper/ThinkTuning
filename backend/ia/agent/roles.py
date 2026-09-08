@@ -12,7 +12,7 @@ la résolution (``resolve_role_tools``) le signale au lieu de planter silencieus
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 # --- Noms d'outils par famille (réfèrent aux clés du registre) ---
 _WEB = ["web_search", "web_fetch", "web_read", "http_get", "http_post"]
@@ -196,7 +196,9 @@ def role_tools() -> Dict[str, List[str]]:
     }
 
 
-def resolve_role_tools(name: str, registry: Dict[str, object]) -> Dict[str, object]:
+def resolve_role_tools(
+    name: str, registry: Dict[str, Callable[..., Any]]
+) -> Dict[str, Callable[..., Any]]:
     """Sous-ensemble d'outils réel d'un rôle depuis le registre central.
 
     Sélectionne dans ``registry`` (ex. TOOLS) les outils déclarés du rôle.

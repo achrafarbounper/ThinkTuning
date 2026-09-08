@@ -172,7 +172,7 @@ class Predictor:
     multilingues (fr/en) sur des textes.
     """
 
-    def __init__(self, model_path: str, max_length: int = None):
+    def __init__(self, model_path: str, max_length: int | None = None):
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model path not found: {model_path}")
 
@@ -204,20 +204,20 @@ class Predictor:
             except Exception:
                 # Fallback : cherche un fichier de poids torch pur (.pt / .bin /
                 # model_state_dict.pt) et le charge dans un modèle HF neuf.
-                state_dict_path = None
+                fallback_state_dict: str | None = None
                 for fname in ("model.pt", "model_state_dict.pt", "pytorch_model.bin"):
                     candidate = os.path.join(resolved_model_path, fname)
                     if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
-                        state_dict_path = candidate
+                        fallback_state_dict = candidate
                         break
-                if state_dict_path is None:
+                if fallback_state_dict is None:
                     # EXACTEMENT ce que le test attend
                     raise FileNotFoundError("model.pt")
 
-                state = torch.load(state_dict_path, map_location="cpu")
+                state = torch.load(fallback_state_dict, map_location="cpu")
                 if not isinstance(state, dict):
                     raise RuntimeError(
-                        f"Fichier de poids illisible (pas un state_dict) : {state_dict_path}"
+                        f"Fichier de poids illisible (pas un state_dict) : {fallback_state_dict}"
                     )
                 # Le try initial a échoué (ex. tokenizer absent du dossier) :
                 # tokenizer + modèle doivent être (re)chargés ICI, avant toute
@@ -236,7 +236,7 @@ class Predictor:
                     raise RuntimeError(
                         "Checkpoint incompatible avec "
                         f"{type(self.model).__name__} : clés inattendues "
-                        f"{sorted(unexpected)[:10]} dans {state_dict_path}. "
+                        f"{sorted(unexpected)[:10]} dans {fallback_state_dict}. "
                         "La version du modèle est probablement corrompue ; "
                         "ré-entraînez (POST /train) ou activez une autre version."
                     )
