@@ -10,7 +10,13 @@
   - ``mcp_server_stdio.py`` → entry point ``thinktuning-mcp`` (tâche 2) ;
 - ``manifest_generator`` (tâche 4) : compile ``ia/tools/tools_config.json``
   (standard ``thinktuning.tool/v1``) → manifeste MCP (``inputSchema`` réutilisant
-  ``to_json_schema``, ``safety`` → annotations) + catalogue ``docs/mcp/MANIFEST.md``.
+  ``to_json_schema``, ``safety`` → annotations) + catalogue ``docs/mcp/MANIFEST.md`` ;
+- ``policy_adapter`` (tâche 5) : projection RUNTIME de la policy de sandbox
+  (``app/agent/policies/sandbox_policy.py``) vers MCP — verdicts typés
+  ``PolicyVerdict`` (délégation stricte, zéro règle dupliquée), annotations
+  ``readOnlyHint``/``destructiveHint``/``idempotentHint``, filtre de scope
+  (``visible_tools``) et providers sécurisés (``ScopeFilteredToolProvider``,
+  ``PolicyGateToolProvider`` : MCP n'est pas un bypass de la security interne).
 """
 
 from __future__ import annotations
@@ -25,6 +31,15 @@ from app.infrastructure.mcp.mcp_server import (
 )
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.mcp_server_sse import router as mcp_sse_router
+from app.infrastructure.mcp.policy_adapter import (
+    PolicyGateToolProvider,
+    PolicyVerdict,
+    ScopeFilteredToolProvider,
+    decide,
+    decide_action,
+    decision_to_annotations,
+    visible_tools,
+)
 from app.infrastructure.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
     MCP_SERVER_NAME,
@@ -48,10 +63,17 @@ __all__ = [
     "MCPVersion",
     "MCPServer",
     "MCP_SERVER_NAME",
+    "PolicyGateToolProvider",
+    "PolicyVerdict",
     "ProtocolError",
+    "ScopeFilteredToolProvider",
     "ToolError",
     "ToolProvider",
     "build_mcp_server",
+    "decide",
+    "decide_action",
+    "decision_to_annotations",
     "load_mcp_version",
     "mcp_sse_router",
+    "visible_tools",
 ]

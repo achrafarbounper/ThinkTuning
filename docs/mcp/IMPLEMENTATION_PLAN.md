@@ -64,10 +64,26 @@
 
 
 ### Tâche 5 : Policy Adapter
-- [ ] `app/infrastructure/mcp/policy_adapter.py` :
+- [x] `app/infrastructure/mcp/policy_adapter.py` :
   - `decide_action()` (sandbox_policy) → MCP annotations
   - `readOnlyHint` / `destructiveHint` / `idempotentHint`
   - Filter par scope (`visible_tools`)
+
+> **Livré (S2)** : projection RUNTIME de la policy — `decide`/`decide_action`
+> délèguent à `sandbox_policy.decide` (source de vérité unique, zéro règle
+> dupliquée) et projettent le verdict via `decision_to_annotations`
+> (AUTO_APPROVE → read-only ; APPROVE/REJECT → mutation fail-closed, le
+> blocage porté par `PolicyVerdict.decision`, les hints restant des
+> indications). `PolicyVerdict` porte les prédicats
+> `allowed`/`requires_approval`/`blocked` + une raison auditée (`to_dict`
+> prêt pour `ACT_MCP_TOOL_CALL`, tâche 12). Filtre de scope :
+> `visible_tools()` (rôle `MCPScopeRole.granted` fail-closed + whitelist
+> explicite pour `MCPSecurityScope` S4) ; deux providers du port
+> `MCPToolRegistryPort` : `ScopeFilteredToolProvider` (projection sécurisée
+> `tools/list`, tool invisible = tool absent) et `PolicyGateToolProvider`
+> (gate `tools/call` : auto → exécution, approve → validation humaine,
+> reject → refus — MCP n'est pas un bypass de la security interne). Test :
+> `tests/test_mcp_policy_adapter.py`.
 
 ### Tâche 6 : 12 Tools Read-Only
 - [ ] Sélectionner : `add`, `calc`, `web_search`, `web_fetch`, `web_read`, `http_get`

@@ -207,9 +207,10 @@ class MCPTool:
         description :    description lisible (listée dans tools/list) ;
         input_schema :   JSON Schema des arguments (``inputSchema`` MCP) ;
         annotations :    ``annotations`` MCP — readOnlyHint / destructiveHint /
-                         idempotentHint. La projection de la politique
-                         ``thinktuning.tool/v1`` (safety) vers ces annotations
-                         arrive en S2 (policy_adapter, tâche 5) ;
+                         idempotentHint. Projetées DESIGN-TIME depuis la
+                         politique ``thinktuning.tool/v1`` (safety) par
+                         ``manifest_generator`` (tâche 4) et réévaluées
+                         RUNTIME par appel via le ``policy_adapter`` (tâche 5) ;
         required_scope : rôle minimal pour VOIR et APPELER le tool
                          (``MCPScopeRole``, docs/mcp/MCP_SECURITY.md) ;
         handler :        exécution pure ``(arguments: dict) -> str`` ; lève
