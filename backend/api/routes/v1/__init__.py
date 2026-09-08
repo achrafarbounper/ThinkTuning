@@ -20,6 +20,7 @@ from . import (
     explain,
     health,
     intent_training,
+    mcp,
     metrics,
     models,
     pipeline,
@@ -44,5 +45,6 @@ router.include_router(explain.router)
 router.include_router(pipeline.router)
 router.include_router(active_learning.router)
 router.include_router(classifiers.router)
+router.include_router(mcp.router)
 
 __all__ = ["router"]

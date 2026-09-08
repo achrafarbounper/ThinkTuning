@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
@@ -40,8 +40,31 @@ from app.infrastructure.mcp.protocol import (
     parse_jsonrpc,
     success_result,
 )
+from core.audit_store import (  # S4, tâche 12 : actions d'audit normalisées MCP
+    ACT_MCP_ORCHESTRATE,
+    ACT_MCP_PROMPT_GET,
+    ACT_MCP_RESOURCE_READ,
+    ACT_MCP_SAMPLING,
+    ACT_MCP_TOOL_CALL,
+)
 
 logger = logging.getLogger("thinktuning.mcp.server")
+
+# Actions d'audit par méthode MCP (tâche 12). ``tools/call`` est traité à part :
+# le nom de tool tranche entre ``ACT_MCP_TOOL_CALL`` et ``ACT_MCP_ORCHESTRATE``.
+_AUDIT_ACTION_BY_METHOD: dict[str, str | None] = {
+    MCPMethod.TOOLS_CALL: None,  # résolu par nom de tool (orchestrate vs restant)
+    MCPMethod.RESOURCES_READ: ACT_MCP_RESOURCE_READ,
+    MCPMethod.PROMPTS_GET: ACT_MCP_PROMPT_GET,
+    MCPMethod.SAMPLING_CREATE: ACT_MCP_SAMPLING,
+}
+
+
+def _request_run_id(request_id: Any) -> str | None:
+    """``run_id`` MCP : id JSON-RPC normalisé en str (``mcp_request_id``)."""
+    if request_id is None:
+        return None
+    return str(request_id)
 
 
 class ToolError(RuntimeError):
@@ -77,7 +100,10 @@ class MCPServer:
             sans resources (comportement v0.1.0 des constructions sur mesure) ;
         prompt_provider: source des prompts (port ``MCPPromptRegistryPort``,
             tâche 9 : 2 prompts ThinkTuning) — ``None`` → surface sans
-            prompts (comportement v0.1.0 des constructions sur mesure).
+            prompts (comportement v0.1.0 des constructions sur mesure) ;
+        audit: hook d'audit ``(action, *, subject, detail, run_id)`` invoqué
+            pour chaque appel MCP d'action (tâche 12) — ``None`` → aucune
+            écriture (les transports branchent ``mcp_audit.audit_mcp_call``).
     """
 
     def __init__(
@@ -89,6 +115,7 @@ class MCPServer:
         tool_provider: MCPToolRegistryPort,
         resource_provider: MCPResourceRegistryPort | None = None,
         prompt_provider: MCPPromptRegistryPort | None = None,
+        audit: Callable[..., Any] | None = None,
     ) -> None:
         self.name = name
         self.version = version
@@ -96,11 +123,20 @@ class MCPServer:
         self.tool_provider = tool_provider
         self.resource_provider = resource_provider
         self.prompt_provider = prompt_provider
+        # Hook d'audit injecté (S4, tâche 12) : ``None`` → aucune écriture (les
+        # transports SSE/stdio branchent ``app.infrastructure.mcp.mcp_audit``).
+        self.audit = audit
 
     # --- Surface publique --------------------------------------------------------
 
-    def handle_text(self, raw: str) -> str | None:
+    def handle_text(self, raw: str, *, client_id: str = "anonymous") -> str | None:
         """Parse un message JSON-RPC (texte brut) et retourne la réponse encodée.
+
+        Args :
+            raw : corps JSON-RPC (texte) ;
+            client_id : identité du client MCP appelant — portée en
+                ``subject`` de chaque entrée d'audit produite par cet appel
+                (le transport la résout depuis son en-tête / sa session).
 
         Returns:
             La réponse JSON-RPC sérialisée à émettre, ou ``None`` pour une
@@ -111,14 +147,16 @@ class MCPServer:
         except ProtocolError as exc:
             return self._encode(error_result(None, exc.code, exc.message))
         try:
-            response = self._dispatch(payload)
+            response = self._dispatch(payload, client_id=client_id)
         except ProtocolError as exc:
             response = error_result(None, exc.code, exc.message)
         return self._encode(response)
 
     # --- Dispatch -------------------------------------------------------------------
 
-    def _dispatch(self, payload: dict[str, Any] | list[Any]) -> dict[str, Any] | None:
+    def _dispatch(
+        self, payload: dict[str, Any] | list[Any], *, client_id: str
+    ) -> dict[str, Any] | None:
         """Dispatch d'un message déjà parsé → enveloppe JSON-RPC (ou None)."""
         if not isinstance(payload, dict):
             raise ProtocolError(
@@ -140,12 +178,30 @@ class MCPServer:
         request_id = payload.get("id")
         if not isinstance(params, dict):
             params = {}
-        return self._handle_method(method, request_id, params)
+        return self._handle_method(method, request_id, params, client_id)
 
     def _handle_method(
+        self,
+        method: str,
+        request_id: Any,
+        params: dict[str, Any],
+        client_id: str,
+    ) -> dict[str, Any]:
+        """Dispatch d'une méthode de REQUÊTE (id présent) → réponse JSON-RPC.
+
+        Chaque méthode d'ACTION (tools/call, resources/read, prompts/get,
+        sampling/create) est ensuite AUDITÉE de façon centralisée
+        (``_audit_method``) — y compris en cas d'échec : l'audit porte sur
+        l'APPEL, pas seulement sur les succès (S4, tâche 12).
+        """
+        response = self._dispatch_method(method, request_id, params)
+        self._audit_method(method, params, response, client_id, request_id)
+        return response
+
+    def _dispatch_method(
         self, method: str, request_id: Any, params: dict[str, Any]
     ) -> dict[str, Any]:
-        """Dispatch d'une méthode de REQUÊTE (id présent) → réponse JSON-RPC."""
+        """Associe une méthode de requête à son handler (sans audit)."""
         if method == MCPMethod.INITIALIZE:
             return success_result(request_id, self._initialize_result())
         if method == MCPMethod.PING:
@@ -164,6 +220,16 @@ class MCPServer:
             return self._handle_prompts_list(request_id)
         if method == MCPMethod.PROMPTS_GET:
             return self._handle_prompts_get(request_id, params)
+        if method == MCPMethod.SAMPLING_CREATE:
+            # L'audit (ACT_MCP_SAMPLING) est produit par ``_audit_method`` AVANT
+            # le rejet : l'appel non disponible est tout de même tracé
+            # (fail-closed — aucune capacité sampling exposée avant la v2.0.0).
+            logger.info("MCP sampling/create demandé mais indisponible (v2.0.0)")
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "sampling/create not available yet (roadmap v2.0.0)",
+            )
         raise ProtocolError(ErrorCode.METHOD_NOT_FOUND, f"Method not found: {method}")
 
     def _handle_notification(self, method: str) -> None:
@@ -172,6 +238,110 @@ class MCPServer:
             logger.info("MCP client initialized (scope=%s)", self.scope.value)
             return
         logger.info("Notification MCP ignorée : %s", method)
+
+    # --- Audit MCP (S4, tâche 12) ----------------------------------------------------
+
+    def _audit_method(
+        self,
+        method: str,
+        params: dict[str, Any],
+        response: dict[str, Any],
+        client_id: str,
+        request_id: Any,
+    ) -> None:
+        """Journalise un appel MCP d'action via le hook d'audit injecté.
+
+        ``subject`` = ``client_id`` (docs/mcp/MCP_SECURITY.md) ; ``detail`` =
+        description de l'appel (tool/URI/prompt, arguments anonymisés par le
+        store, ``is_error``, ``scope``) ; ``run_id`` = id JSON-RPC de la
+        requête (``mcp_request_id``). L'écriture est NON BLOQUANTE : le hook
+        ne doit JAMAIS altérer la réponse MCP.
+        """
+        if method == MCPMethod.TOOLS_CALL:
+            tool_name = params.get("name")
+            action = (
+                ACT_MCP_ORCHESTRATE
+                if tool_name == "orchestrate"
+                else ACT_MCP_TOOL_CALL
+            )
+            self._audit_event(
+                action,
+                subject=client_id,
+                detail={
+                    "method": method,
+                    "tool": tool_name if isinstance(tool_name, str) else None,
+                    "arguments": self._arguments_or_empty(params),
+                    "is_error": self._response_is_error(response),
+                    "scope": self.scope.value,
+                },
+                run_id=request_id,
+            )
+            return
+        action = _AUDIT_ACTION_BY_METHOD.get(method)
+        if action is None:
+            return  # catalogue / handshake : aucune action à auditer
+        if method == MCPMethod.RESOURCES_READ:
+            uri = params.get("uri")
+            detail = {
+                "method": method,
+                "uri": uri if isinstance(uri, str) else None,
+                "is_error": self._response_is_error(response),
+                "scope": self.scope.value,
+            }
+        elif method == MCPMethod.PROMPTS_GET:
+            prompt_name = params.get("name")
+            detail = {
+                "method": method,
+                "prompt": prompt_name if isinstance(prompt_name, str) else None,
+                "arguments": self._arguments_or_empty(params),
+                "is_error": self._response_is_error(response),
+                "scope": self.scope.value,
+            }
+        elif method == MCPMethod.SAMPLING_CREATE:
+            detail = {
+                "method": method,
+                "sampling_requested": bool(params),
+                "is_error": self._response_is_error(response),
+                "scope": self.scope.value,
+            }
+        else:
+            return
+        self._audit_event(action, subject=client_id, detail=detail, run_id=request_id)
+
+    @staticmethod
+    def _arguments_or_empty(params: dict[str, Any]) -> dict[str, Any]:
+        """Arguments MCP de l'appel (``None`` / non-objet → ``{}``) pour l'audit."""
+        arguments = params.get("arguments")
+        return dict(arguments) if isinstance(arguments, dict) else {}
+
+    @staticmethod
+    def _response_is_error(response: dict[str, Any]) -> bool:
+        """L'appel auditée a-t-il échoué ? (erreur JSON-RPC OU ``isError``)."""
+        return bool(response.get("error")) or bool(
+            response.get("result", {}).get("isError")
+        )
+
+    def _audit_event(
+        self,
+        action: str,
+        *,
+        subject: str,
+        detail: dict[str, Any],
+        run_id: Any,
+    ) -> Any:
+        """Appelle le hook d'audit en isolant TOUTE exception (jamais fatal)."""
+        if self.audit is None:
+            return None
+        try:
+            return self.audit(
+                action,
+                subject=subject,
+                detail=detail,
+                run_id=_request_run_id(run_id),
+            )
+        except Exception:  # pragma: no cover - défensif, non bloquant par contrat
+            logger.exception("Audit MCP %s impossible (hook) — non bloquant", action)
+            return None
 
     # --- initialize -----------------------------------------------------------------
 

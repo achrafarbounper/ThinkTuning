@@ -254,15 +254,40 @@
 > rate limit burst + isolation + refill, partage de la primitive).
 
 ### Tâche 12 : Audit Trail MCP
-- [ ] `core/audit_store.py` → ajouter les events :
+- [x] `core/audit_store.py` → ajouter les events :
   - `ACT_MCP_TOOL_CALL = "mcp_tool_call"`
   - `ACT_MCP_RESOURCE_READ = "mcp_resource_read"`
   - `ACT_MCP_PROMPT_GET = "mcp_prompt_get"`
   - `ACT_MCP_SAMPLING = "mcp_sampling"`
   - `ACT_MCP_ORCHESTRATE = "mcp_orchestrate"`
-- [ ] Chaque appel MCP → `audit_log(ACT_MCP_*, subject=client_id, detail={...})`
-- [ ] Dashboard interne : métriques MCP (error rate, call volume, revoked clients)
-- [ ] Test : `test_mcp_audit.py` — vérifie que chaque call est auditée
+- [x] Chaque appel MCP → `audit_log(ACT_MCP_*, subject=client_id, detail={...})`
+- [x] Dashboard interne : métriques MCP (error rate, call volume, revoked clients)
+- [x] Test : `test_mcp_audit.py` — vérifie que chaque call est auditée
+
+> **Livré (S4)** : `core/audit_store.py` — les 5 actions normalisées MCP +
+> regroupement `MCP_ACTIONS` (ordre stable d'agrégation) + `mcp_metrics()`
+> (volume total, répartition par action, erreurs `is_error: true`, error rate —
+> molécule stable, jamais de clé manquante). Infrastructure :
+> `app/infrastructure/mcp/mcp_audit.py` — `audit_mcp_call()` NON BLOQUANT
+> (un échec d'audit ne fait JAMAIS tomber un appel MCP, incident loggé),
+> `actor="mcp"`, interrupteur `MCP_AUDIT_ENABLED` (défaut true, rollback
+> explicite), import paresseux du store (aucune base créée à l'import).
+> Serveur (`mcp_server.py`) : hook d'audit injecté à la construction,
+> `_audit_method()` centralisé — `tools/call` tranche `mcp_tool_call` vs
+> `mcp_orchestrate` par nom de tool, `detail` = méthode + tool/URI/prompt +
+> arguments (anonymisés par `redact()` du store) + `is_error` + scope,
+> `run_id` = id JSON-RPC ; les ÉCHECS sont audités comme les succès et les
+> méthodes de catalogue/handshake (initialize, ping, lists) ne produisent
+> aucune entrée. Transports SSE (`X-Client-Id` → subject, repli session id /
+> anonymous) et stdio (anonymous) branchent le hook via
+> `build_mcp_server(audit=...)`. Dashboard : `api/routes/mcp.py`
+> (`GET /mcp/metrics` — call volume, error_rate MCP, clients total/active/
+> revoked + détail par client trié par volume) délégué par la surface v1
+> (`api/routes/v1/mcp.py`, protégée `require_api_key` — strangler, parité par
+> construction). Test : `tests/test_mcp_audit.py` — 14 tests (chaque action
+> auditée avec subject/client_id, échecs tracés `is_error`, handshake non
+> audité, hook fautif non bloquant, interrupteur, métriques agrégées,
+> dashboard 401 + volume/error rate/revoked). Suite MCP : 438 passed.
 
 ---
 

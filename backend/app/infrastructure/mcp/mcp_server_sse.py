@@ -38,6 +38,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response
 
+from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 
 logger = logging.getLogger("thinktuning.mcp.sse")
@@ -55,7 +56,9 @@ _MCP_SERVER_ENABLED = os.getenv("MCP_SERVER_ENABLED", "true").strip().lower() no
 
 # Instance partagée du serveur (stateless, thread-safe) — scope par défaut
 # read_only ; la politique CLIENT complète arrive avec le client store (S4).
-_server = build_mcp_server()
+# Tâche 12 : le hook d'audit journalise chaque appel d'action MCP dans
+# ``agent_audit`` (subject = client_id de l'en-tête ``X-Client-Id``).
+_server = build_mcp_server(audit=audit_mcp_call)
 
 
 def mcp_server_enabled() -> bool:
@@ -83,6 +86,7 @@ def _sse_message(payload: dict[str, Any] | str | None) -> str:
 async def mcp_sse(
     request: Request,
     mcp_session_id: str | None = Header(default=None, alias="Mcp-Session-Id"),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
 ) -> Response:
     """Endpoint MCP SSE : JSON-RPC request → flux SSE avec la réponse.
 
@@ -90,6 +94,12 @@ async def mcp_sse(
     flux ``text/event-stream`` à événement unique (``message``) — conforme au
     protocole MCP streamable HTTP sans dépendance externe. L'entête
     ``Mcp-Session-Id`` est écho de la session (stateless en S1).
+
+    Tâche 12 (audit) : l'entête optionnelle ``X-Client-Id`` identifie le
+    client MCP appelant — chaque appel d'action est journalisé dans
+    ``agent_audit`` avec ``subject`` = client_id (repli : id de session,
+    sinon ``anonymous``). L'authentification forte (secret client store)
+    reste à brancher en S4/S5.
     """
     if not mcp_server_enabled():
         return JSONResponse(
@@ -102,8 +112,9 @@ async def mcp_sse(
             },
         )
     raw = (await request.body()).decode("utf-8", errors="replace")
-    response_payload = _server.handle_text(raw)
     session_id = mcp_session_id or f"tt-{uuid.uuid4().hex[:16]}"
+    client_id = (x_client_id or session_id).strip() or "anonymous"
+    response_payload = _server.handle_text(raw, client_id=client_id)
     headers = {
         "Mcp-Session-Id": session_id,
         "Cache-Control": "no-cache",

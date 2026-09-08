@@ -40,6 +40,8 @@ démarre même si ``pyproject.toml`` est absent (fallback ``DEFAULT_MCP_VERSION`
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from typing import Any
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
 from app.domain.ports.mcp_ports import (
@@ -102,6 +104,7 @@ def build_mcp_server(
     tool_provider: ToolProvider | None = None,
     resource_provider: MCPResourceRegistryPort | None = None,
     prompt_provider: MCPPromptRegistryPort | None = None,
+    audit: Callable[..., Any] | None = None,
 ) -> MCPServer:
     """Construit un ``MCPServer`` prêt à l'emploi pour un transport.
 
@@ -122,6 +125,10 @@ def build_mcp_server(
             analyze-sentiment, plan-training). Passer un provider VIDE
             (``list_prompts()`` nulle) pour une surface supportant MCP
             prompts sans en lister aucun.
+        audit: hook d'audit des appels MCP (tâche 12) ; ``None`` → aucune
+            écriture. Les transports passent ``mcp_audit.audit_mcp_call`` —
+            chaque tools/call, resources/read, prompts/get et sampling/create
+            est alors journalisé dans ``agent_audit`` (subject=client_id).
 
     Returns:
         Un ``MCPServer`` configuré (dispatch JSON-RPC, prêt pour SSE/stdio).
@@ -150,6 +157,7 @@ def build_mcp_server(
         tool_provider=provider,
         resource_provider=resource_provider,
         prompt_provider=prompt_provider,
+        audit=audit,
     )
     logger.info(
         "Serveur MCP construit : %s@%s (scope=%s, tools=%d, resources=%d, prompts=%d)",
