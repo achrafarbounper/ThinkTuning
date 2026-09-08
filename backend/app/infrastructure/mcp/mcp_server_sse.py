@@ -14,6 +14,13 @@ Conventions MCP respectées :
       SSE émet un commentaire de garde (``: ok``) pour rester bien formé ;
     - erreur de protocole : réponse JSON-RPC ``error`` (id: null) dans le flux.
 
+Note strangler : l'endpoint MCP est déclaré ``include_in_schema=False`` — il
+n'est PAS une route REST et n'a aucune raison d'apparaître dans
+``openapi.json`` (source du client TypeScript, verrou
+``test_aucune_route_hors_v1_montee``). MCP possède son propre discovery
+(``initialize`` → ``capabilities``) : le transport SSE reste monté en
+``/mcp/sse`` (voir docs/mcp/IMPLEMENTATION_PLAN.md) sans casser le contrat v1.
+
 Rollback (docs/mcp/IMPLEMENTATION_PLAN.md) : si ``MCP_SERVER_ENABLED=false``,
 toute requête reçoit ``503 Service Unavailable`` — le serveur MCP est désactivé
 sans toucher au reste de l'API.
@@ -72,7 +79,7 @@ def _sse_message(payload: dict[str, Any] | str | None) -> str:
     return f"event: message\ndata: {data}\n\n"
 
 
-@router.post("/sse")
+@router.post("/sse", include_in_schema=False)
 async def mcp_sse(
     request: Request,
     mcp_session_id: str | None = Header(default=None, alias="Mcp-Session-Id"),
