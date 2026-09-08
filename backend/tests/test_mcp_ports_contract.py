@@ -360,6 +360,18 @@ def test_fake_resource_registry_unknown_uri() -> None:
 class _FakeSamplingPort:
     """Fake de SamplingPort pour le contrat S1 (reverse LLM inference)."""
 
+    def create_message(self, request: object) -> object:
+        from app.domain.entities.mcp import SamplingResponse
+
+        content = ""
+        msgs = getattr(request, "messages", [])
+        if msgs:
+            last = msgs[-1].get("content", "")
+            if isinstance(last, list):
+                last = " ".join(c.get("text", "") for c in last if isinstance(c, dict))
+            content = str(last)
+        return SamplingResponse(text=f"[sampled] {content}")
+
     def create_text(
         self,
         messages: list[Message],

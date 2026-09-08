@@ -355,13 +355,33 @@
 > préfixe tâche 9, miroir du pattern resources tâche 13).
 
 ### Tâche 15 : SamplingPort (reverse LLM)
-- [ ] `app/domain/ports/mcp_ports.py` → `SamplingPort` :
+- [x] `app/domain/ports/mcp_ports.py` → `SamplingPort` :
   - `create_message(messages, max_tokens)` → demande LLM inference au client
-- [ ] `app/infrastructure/mcp/sampling/sampling_adapter.py` :
+- [x] `app/infrastructure/mcp/sampling/sampling_adapter.py` :
   - Implémente `SamplingPort` via `HttpLLMClient` existant
   - `create_message()` → `llm.call(messages)` → retourne la complétion
-- [ ] `SamplingRequest` / `SamplingResponse` entities
-- [ ] Test : `test_mcp_sampling.py` — `create_message` + vérification de la réponse
+- [x] `SamplingRequest` / `SamplingResponse` entities
+- [x] Test : `test_mcp_sampling.py` — `create_message` + vérification de la réponse
+
+> **Livré (S5)** : ``SamplingPort`` étendu en contrat canonique
+> ``create_message(request: SamplingRequest) -> SamplingResponse``
+> (``mcp_ports.py``) avec forme legacy ``create_message(messages,
+> max_tokens)`` normalisée + commodité S1 ``create_text(...)`` conservée
+> (rétrocompatible, via helper ``_sampling_create_text``). Entités pures
+> ``SamplingRequest`` / ``SamplingResponse`` (``entities/mcp.py`` : Pydantic
+> v2 frozen, validation fail-fast ``role``/``content``/``max_tokens``,
+> ``effective_messages()`` préfixant ``system_prompt``,
+> ``to_dict()`` → projection MCP ``createMessage``). Adaptateur
+> ``app/infrastructure/mcp/sampling/sampling_adapter.py`` :
+> ``SamplingAdapter(llm: LLMClientPort)`` — délégation stricte
+> ``effective_messages() -> llm.call(messages) -> SamplingResponse``
+> (``HttpLLMClient`` en prod via ``build_sampling_adapter()``,
+> ``StubLLMClient`` en tests) ; réponse vide → ``LLMClientError``,
+> erreur provider enveloppée (domaine) ; ``model`` repris de
+> ``getattr(llm, "model", "")``. Tests :
+> ``tests/test_mcp_sampling.py`` (19 tests : entités + ``create_message``
+> canonique/legacy + vérification de la réponse + erreurs + fabrique) ;
+> ``test_mcp_ports_contract.py`` mis à jour (fake S1 + ``create_message``).
 
 ---
 

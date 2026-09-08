@@ -34,6 +34,8 @@ from app.domain.entities.mcp import (
     MCPPromptTemplate,
     MCPResource,
     MCPTool,
+    SamplingRequest,
+    SamplingResponse,
 )
 from app.domain.ports.ports import Message
 
@@ -43,6 +45,9 @@ __all__ = [
     "MCPSecurityScope",
     "MCPToolRegistryPort",
     "SamplingPort",
+    "SamplingRequest",
+    "SamplingResponse",
+    "_sampling_create_text",
 ]
 
 
@@ -148,21 +153,28 @@ class MCPPromptRegistryPort(Protocol):
 
 @runtime_checkable
 class SamplingPort(Protocol):
-    """Reverse LLM inference — MCP ``sampling/create``.
+    """Reverse LLM inference — MCP ``sampling/create`` (tache 15, S6 v2.0.0).
 
-    Le serveur MCP agit comme CLIENT de son propre LLM sur demande d'un client
-    MCP : celui-ci fournit les messages et les préférences, le serveur génère
-    du texte via ``SamplingPort``.
+    Le serveur MCP agit comme CLIENT de son propre LLM sur demande d'un
+    client MCP : celui-ci fournit les messages et les preferences, le
+    serveur genere du texte via ``SamplingPort``.
 
-    C'est la couche d'abstraction entre le transport MCP (``sampling/create``)
-    et l'implémentation LLM (``HttpLLMClient``, ``StubLLMClient``) : un client
-    ``LLMClientPort`` compatible peut implémenter ce port pour exposer le
-    sampling. Le scope ``sampling_enabled`` (S4, MCP_SECURITY.md) contrôle
-    l'accès.
+    Deux niveaux (compatibilite S1 -> S6) :
+      - ``create_message(request)`` — contrat CANONIQUE (tache 15) :
+        entree validee ``SamplingRequest`` -> sortie typee
+        ``SamplingResponse`` ;
+      - ``create_text(...)`` — commodite S1 (``str`` direct) ; les
+        implementations DOIVENT le fournir par delegation a
+        ``create_message`` (defaut via ``_sampling_create_text``).
 
-    La vraie implémentation arrive en S6 (tâche 15 : ``SamplingPort`` +
-    orchestrate tool).
+    Le scope ``sampling_enabled`` (S4, MCP_SECURITY.md) controle l'acces ;
+    ``LLMClientError`` (domaine) en cas d'echec provider -> le serveur MCP
+    traduit en ``error`` JSON-RPC (code -32603).
     """
+
+    def create_message(self, request: SamplingRequest) -> SamplingResponse:
+        """Genere une completion typee depuis une requete validee."""
+        ...
 
     def create_text(
         self,
@@ -172,12 +184,31 @@ class SamplingPort(Protocol):
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> str:
-        """Génère du texte depuis une liste de messages.
-
-        Lève ``LLMClientError`` (domaine) en cas d'échec du provider LLM ; le
-        serveur MCP traduit en ``error`` JSON-RPC (code -32603).
-        """
+        """Genere du texte brut (commodite deleguant a ``create_message``)."""
         ...
+
+
+def _sampling_create_text(
+    port: SamplingPort,
+    messages: list[Message],
+    *,
+    system_prompt: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+) -> str:
+    """Implémentation par défaut de ``create_text`` via ``create_message``.
+
+    Construit la ``SamplingRequest`` (validation Pydantic fail-fast),
+    délègue au contrat canonique, et ne rend que ``response.text``.
+    Factorisée ici pour que chaque adaptateur l'utilise sans duplication.
+    """
+    request = SamplingRequest(
+        messages=[dict(m) for m in messages],
+        max_tokens=max_tokens,
+        system_prompt=system_prompt,
+        temperature=temperature,
+    )
+    return port.create_message(request).text
 
 
 # ============================================================

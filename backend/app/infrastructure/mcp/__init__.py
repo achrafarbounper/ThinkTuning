@@ -45,6 +45,9 @@
   ``rate_limit_bucket.py`` (primitive ``TokenBucket`` PARTAGÉE avec le
   middleware REST ``api/middlewares/rate_limit.py`` — zéro duplication).
   Le paquet security n'importe JAMAIS ``api`` (suite MCP légère).
+- ``sampling/`` (tâche 15) : ``SamplingAdapter`` (port ``SamplingPort``) —
+  reverse LLM via ``LLMClientPort`` existant (``llm.call(messages)``),
+  ``SamplingRequest``/``SamplingResponse`` (entités ``app/domain/entities``).
 """
 
 from __future__ import annotations
@@ -90,6 +93,10 @@ from app.infrastructure.mcp.resources.resource_provider import (
     LegacyResourceProvider,
     build_legacy_resource_provider,
 )
+from app.infrastructure.mcp.sampling.sampling_adapter import (
+    SamplingAdapter,
+    build_sampling_adapter,
+)
 from app.infrastructure.mcp.version_loader import load_mcp_version
 
 # NOTE : ``manifest_generator`` n'est PAS ré-exporté ici (comme ``mcp_server_stdio``)
@@ -113,6 +120,7 @@ __all__ = [
     "PromptProvider",
     "ProtocolError",
     "ScopeFilteredToolProvider",
+    "SamplingAdapter",
     "ToolError",
     "ToolProvider",
     "V010_READ_ONLY_TOOLS",
@@ -120,6 +128,7 @@ __all__ = [
     "build_legacy_resource_provider",
     "build_mcp_server",
     "build_prompt_provider",
+    "build_sampling_adapter",
     "build_v010_read_only_provider",
     "build_v100_read_only_provider",
     "decide",
