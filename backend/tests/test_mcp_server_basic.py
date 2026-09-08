@@ -255,8 +255,8 @@ def test_stdio_invalid_json():
 
 
 def test_resources_list_v100_and_prompts_task9():
-    """v1.0.0 (tâches 8 + 9) : resources/list → les 5 resources
-    thinktuning:// ; prompts/list → les 2 prompts ThinkTuning."""
+    """v1.0.0 (tâches 8 + 9) + extension v1.1.0 (tâche 13) : resources/list → les
+    10 resources thinktuning:// ; prompts/list → les 2 prompts ThinkTuning."""
     server = build_mcp_server()
     resources = json.loads(server.handle_text(
         json.dumps({"jsonrpc": "2.0", "id": 9, "method": "resources/list"})
@@ -265,13 +265,18 @@ def test_resources_list_v100_and_prompts_task9():
         json.dumps({"jsonrpc": "2.0", "id": 10, "method": "prompts/list"})
     ))
     uris = {resource["uri"] for resource in resources["result"]["resources"]}
-    assert len(uris) == 5
+    assert len(uris) == 10
     assert {
         "thinktuning://jobs",
         "thinktuning://jobs/{job_id}",
+        "thinktuning://jobs/{job_id}/logs",
         "thinktuning://models",
+        "thinktuning://models/{version}/info",
         "thinktuning://datasets/{path}/stats",
+        "thinktuning://datasets/{path}/preview",
+        "thinktuning://metrics/{job_id}",
         "thinktuning://config",
+        "thinktuning://health",
     } == uris
     names = {prompt["name"] for prompt in prompts["result"]["prompts"]}
     assert names == {"analyze-sentiment", "plan-training"}
