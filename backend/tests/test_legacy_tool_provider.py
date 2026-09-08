@@ -1,11 +1,13 @@
 # project/tests/test_legacy_tool_provider.py
-"""Tests du provider MCP read-only — projection du registre legacy (S2, tâche 6).
+"""Tests du provider MCP read-only — projection du registre legacy (S2, tâche 6 ; extension S3, tâche 7).
 
 Couverture du livrable « 12 tools read-only » (13 noms réels, la checklist de
-l'IMPLEMENTATION_PLAN.md arrondissait le compte) :
+l'IMPLEMENTATION_PLAN.md arrondissait le compte) puis de l'extension v1.0.0
+(``V100_READ_ONLY_TOOLS`` — 25 tools, tâche 7) :
 
     1. sélection : ``V010_READ_ONLY_TOOLS`` = exactement les 13 tools nommés,
        exposés en ordre alphabétique (déterministe), aucun tool mutatif ;
+       ``V100_READ_ONLY_TOOLS`` = les 25 tools (13 v0.1.0 + 12 extension) ;
     2. contrat port : ``MCPToolRegistryPort`` (tâche 3) — ``list_tools`` /
        ``call_tool`` + erreurs ``ToolError`` (→ MCP ``isError``) ;
     3. annotations : ``readOnlyHint: true`` / ``destructiveHint: false`` /
@@ -24,7 +26,7 @@ l'IMPLEMENTATION_PLAN.md arrondissait le compte) :
     7. fail-closed à la construction : posture mutation / nom inconnu /
        implémentation absente → EXCLUS du catalogue (warning tracé) ;
     8. intégration serveur : ``build_mcp_server()`` par défaut = bootstrap S1
-       (2 tools) + sélection v0.1.0 (13) = 15 tools, appels ``tools/call``
+       (2 tools) + sélection v1.0.0 (25) = 27 tools, appels ``tools/call``
        JSON-RPC de bout en bout (``add``, ``read_file``).
 
 Aucun appel réseau ni dépendance lourde (ni torch, ni transformers).
@@ -43,8 +45,10 @@ from app.infrastructure.mcp.mcp_server import ToolError
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.legacy_tool_provider import (
     V010_READ_ONLY_TOOLS,
+    V100_READ_ONLY_TOOLS,
     LegacyRegistryToolProvider,
     build_v010_read_only_provider,
+    build_v100_read_only_provider,
 )
 
 _LOGGER = "thinktuning.mcp.tools"
@@ -67,6 +71,23 @@ _CHECKLIST_V010 = {
     "count_lines",
 }
 
+# Checklist v1.0.0 (tâche 7) — V010 (13) + extension read-only (12) =
+# « 25 tools » (docs/mcp/MCP_ROADMAP.md, v1.0.0 Public Beta).
+_CHECKLIST_V100 = _CHECKLIST_V010 | {
+    "job_list",
+    "job_get",
+    "model_versions",
+    "dataset_stats",
+    "predict_sentiment",
+    "env_info",
+    "disk_usage",
+    "gpu_info",
+    "now",
+    "tail_file",
+    "read_json",
+    "search_in_files",
+}
+
 # Représentants de MAUVAISES postures — jamais exposés par la surface read-only.
 _MUTATING_LEGACY_TOOLS = {
     "write_file",
@@ -79,8 +100,14 @@ _MUTATING_LEGACY_TOOLS = {
 
 @pytest.fixture
 def provider() -> LegacyRegistryToolProvider:
-    """Provider réel : registre legacy + tools_config.json (comme en prod)."""
+    """Provider réel de la surface v0.1.0 explicite (13 tools — comme en prod v0.1.0)."""
     return build_v010_read_only_provider()
+
+
+@pytest.fixture
+def provider_v100() -> LegacyRegistryToolProvider:
+    """Provider réel de la surface v1.0.0 (25 tools — par défaut, comme en prod)."""
+    return build_v100_read_only_provider()
 
 
 @pytest.fixture(scope="module")
@@ -109,6 +136,58 @@ def sandbox(tmp_path, monkeypatch):
 def test_v010_selection_matches_task6_checklist() -> None:
     """``V010_READ_ONLY_TOOLS`` = exactement la checklist (13 tools nommés)."""
     assert set(V010_READ_ONLY_TOOLS) == _CHECKLIST_V010
+
+
+def test_v100_selection_matches_task7_checklist() -> None:
+    """``V100_READ_ONLY_TOOLS`` = V010 ∪ extension read-only = les 25 tools."""
+    assert set(V100_READ_ONLY_TOOLS) == _CHECKLIST_V100
+    assert len(V100_READ_ONLY_TOOLS) == 25
+
+
+def test_v100_provider_exposes_25_tools_sorted(provider_v100) -> None:
+    """``build_v100_read_only_provider()`` expose les 25 tools, sans doublon."""
+    names = [tool.name for tool in provider_v100.list_tools()]
+    assert set(names) == _CHECKLIST_V100
+    assert names == sorted(names)
+    assert len(names) == 25
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["job_list", "job_get", "model_versions", "dataset_stats", "predict_sentiment"],
+)
+def test_v100_metier_tools_are_declared_safe(name: str) -> None:
+    """Les 5 tools métier : posture read-only via la DÉCLARATION ``safety`` (tâche 7).
+
+    Auparavant UNKNOWN → fail-closed (mutation + admin) ; la déclaration
+    ``safety: safe`` (tools_config.json) lève le gap sans toucher au classifieur.
+    """
+    from app.infrastructure.mcp.manifest_generator import compile_tool
+    from ia.tools.tool_registry import TOOL_META
+
+    entry, _ = compile_tool(name, TOOL_META[name])
+    assert entry["safety"] == {
+        "level": "safe",
+        "requires_approval": False,
+        "source": "declared",
+    }
+    assert entry["annotations"] == {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    }
+    assert entry["requiredScope"] == "read_only"
+
+
+def test_v100_every_tool_is_read_only_and_read_only_scope(provider_v100) -> None:
+    expected = {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    }
+    for tool in provider_v100.list_tools():
+        assert tool.annotations == expected, tool.name
+        assert tool.required_scope is MCPScopeRole.READ_ONLY, tool.name
 
 
 def test_provider_exposes_exactly_the_selection_sorted(provider) -> None:
@@ -336,8 +415,8 @@ def test_exclusions_are_logged(caplog) -> None:
 # --- 8. Intégration serveur -------------------------------------------------------
 
 
-def test_default_server_exposes_bootstrap_plus_v010() -> None:
-    """Surface par défaut = bootstrap S1 (2) + sélection v0.1.0 (13) = 15 tools."""
+def test_default_server_exposes_bootstrap_plus_v100() -> None:
+    """Surface par défaut = bootstrap S1 (2) + sélection v1.0.0 (25) = 27 tools."""
     server = build_mcp_server()
     reply = json.loads(
         server.handle_text(
@@ -346,8 +425,8 @@ def test_default_server_exposes_bootstrap_plus_v010() -> None:
     )
     names = {tool["name"] for tool in reply["result"]["tools"]}
     assert {"mcp_version", "server_info"} <= names
-    assert _CHECKLIST_V010 <= names
-    assert len(names) == 15
+    assert _CHECKLIST_V100 <= names
+    assert len(names) == 27
 
 
 def test_default_server_read_only_posture() -> None:
@@ -358,7 +437,7 @@ def test_default_server_read_only_posture() -> None:
         )
     )
     for tool in reply["result"]["tools"]:
-        if tool["name"] in _CHECKLIST_V010:
+        if tool["name"] in _CHECKLIST_V100:
             assert tool["annotations"]["readOnlyHint"] is True, tool["name"]
 
 
@@ -390,8 +469,8 @@ def test_call_file_tool_end_to_end(sandbox) -> None:
     assert '"lines": 3' in reply["result"]["content"][0]["text"]
 
 
-def test_read_only_scope_sees_whole_v010_surface() -> None:
-    """Scope read_only : les 13 tools (exigence minimale) sont visibles."""
+def test_read_only_scope_sees_whole_v100_surface() -> None:
+    """Scope read_only : les  25 tools (exigence minimale) sont visibles."""
     server = build_mcp_server(scope=MCPScopeRole.READ_ONLY)
     reply = json.loads(
         server.handle_text(
@@ -399,4 +478,5 @@ def test_read_only_scope_sees_whole_v010_surface() -> None:
         )
     )
     names = {tool["name"] for tool in reply["result"]["tools"]}
-    assert _CHECKLIST_V010 <= names
+    assert _CHECKLIST_V100 <= names
+

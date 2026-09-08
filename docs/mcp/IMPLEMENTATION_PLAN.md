@@ -114,13 +114,34 @@
 ## 🧩 Tâches par Semaine (S3 — v1.0.0 Beta)
 
 ### Tâche 7 : 25 Tools (extension read-only)
-- [ ] Ajouter 13 tools read-only supplémentaires :
+- [x] Ajouter 13 tools read-only supplémentaires :
   - `job_list`, `job_get`, `model_versions`, `dataset_stats`, `predict_sentiment`
   - `env_info`, `disk_usage`, `gpu_info`, `now`
   - `touch`, `file_info`, `count_lines`, `tail_file`
-- [ ] Chaque tool passe par `decide_action()` → `AUTO_APPROVE` (read-only)
-- [ ] Annotations cohérentes : `readOnlyHint: true`
-- [ ] Test : `test_mcp_tools_25.py` — vérifie les 25 tools + annotations
+- [x] Chaque tool passe par `decide_action()` → `AUTO_APPROVE` (read-only)
+- [x] Annotations cohérentes : `readOnlyHint: true`
+- [x] Test : `test_mcp_tools_25.py` — vérifie les 25 tools + annotations
+
+> **Livré (S3)** : ``V100_READ_ONLY_TOOLS`` (25 tools uniques) dans
+> ``app/infrastructure/mcp/legacy_tool_provider.py`` — l'union des deux
+> checklists (tâche 6 : 13 noms ; tâche 7 : 13 noms) donne 24 uniques
+> (``file_info``/``count_lines`` déjà v0.1.0) ; ``touch`` est une ÉCRITURE
+> (WRITE dur, ``sandbox_policy.classify_tool``) — JAMAIS exposée par la
+> surface read-only, elle rejoindra la surface write/exec (tâche 17) ;
+> deux lectures pures déjà classées READ (``read_json``, ``search_in_files``)
+> complètent le compte produit « 25 » (roadmap v1.0.0 Public Beta). Les 5
+> tools métier (``job_list``/``job_get``/``model_versions``/``dataset_stats``/
+> ``predict_sentiment``), auparavant UNKNOWN → fail-closed (mutation + admin),
+> ont reçu la déclaration ``safety: safe`` (tools_config.json, standard v1) →
+> posture read-only DÉCLARÉE dans le manifeste compilé (``MANIFEST.md``
+> régénéré : 33 read-only / 24 mutation, warnings 12 → 7). ``classify_tool`` :
+> ``add``/``calc`` → READ (alignement runtime du design-time « safe » —
+> ``decide_action()`` → ``AUTO_APPROVE`` pour les 25). ``build_mcp_server()``
+> expose par défaut bootstrap S1 (2) + sélection v1.0.0 (25) = 27 tools ;
+> ``build_v010_read_only_provider()`` reste disponible (13 tools,
+> déploiements restreints). Tests : ``tests/test_mcp_tools_25.py`` (nouveau,
+> 5) + ``test_legacy_tool_provider.py`` étendu (48) ; suite MCP complète :
+> 307 passed.
 
 ### Tâche 8 : 5 Resources `thinktuning://`
 - [ ] `app/infrastructure/mcp/resources/resource_provider.py` :
@@ -267,7 +288,7 @@
 
 ---
 
-## 🛡️ Checklist de Validation MCP (CI)
+## 🛡 Checklist de Validation MCP (CI)
 
 Chaque PR MCP doit passer :
 

@@ -18,6 +18,18 @@ SÉLECTION v0.1.0 (``V010_READ_ONLY_TOOLS``) — checklist de la tâche 6 :
 Le label « 12 tools » de la roadmap (docs/mcp/MCP_ROADMAP.md) arrondissait la
 sélection : la checklist opérationnelle en nomme 13, toutes implémentées ici.
 
+SÉLECTION v1.0.0 (``V100_READ_ONLY_TOOLS``, tâche 7) — extension
+read-only de la roadmap (docs/mcp/MCP_ROADMAP.md) : 25 tools uniques.
+L'union des deux checklists (v0.1.0 : 13 noms + tâche 7 : 13 noms)
+donne 24 uniques (``file_info``/``count_lines`` en commun) ; ``touch`` est
+une ÉCRITURE (jamais exposée par la surface read-only — tâche 17) ; deux
+lectures pures (``read_json``/``search_in_files``) complètent le compte.
+Les 5 tools métier (``job_list``/``job_get``/``model_versions``/
+``dataset_stats``/``predict_sentiment``, auparavant UNKNOWN/fail-closed)
+ont reçu une déclaration ``safety: safe`` (tools_config.json, tâche 7) :
+chaque tool de la sélection passe par ``decide_action()`` → ``AUTO_APPROVE``
+et ressort ``readOnlyHint: true`` du manifeste compilé.
+
 GARANTIES DE SÉCURITÉ (checklist tâche 6 : « check_command_allowed +
 safe_resolve + enforce_host_policy ») — portées PAR DÉLÉGATION aux
 implémentations legacy, zéro duplication de règle :
@@ -65,8 +77,10 @@ logger = logging.getLogger("thinktuning.mcp.tools")
 
 __all__ = [
     "V010_READ_ONLY_TOOLS",
+    "V100_READ_ONLY_TOOLS",
     "LegacyRegistryToolProvider",
     "build_v010_read_only_provider",
+    "build_v100_read_only_provider",
 ]
 
 # ---------------------------------------------------------------------------
@@ -91,6 +105,52 @@ V010_READ_ONLY_TOOLS: frozenset[str] = frozenset(
         "head_file",
         "count_lines",
     }
+)
+
+# ---------------------------------------------------------------------------
+# Sélection v1.0.0 (tâche 7) — extension read-only : 25 tools uniques.
+# Le label « 25 tools » de la roadmap (v1.0.0 Public Beta) est tenu ainsi :
+#     - l'union des deux checklists (tâche 6 : V010 — 13 noms ; tâche  7 : 13
+#       noms) donne  24 uniques — ``file_info`` et ``count_lines`` figuraient déjà
+#       dans ``V010_READ_ONLY_TOOLS`` ;
+#     - ``touch`` (crée / rafraîchit un fichier, cf. ``ia/tools/file_tools.py``) est
+#       une ÉCRITURE (classification WRITE dure, cf. ``sandbox_policy.classify_tool``) —
+#       la surface read-only n'expose JAMAIS de mutation ; il rejoindra la surface
+#       write/exec à la tâche 17 ;
+#     - deux lectures pures déjà classées READ (``read_json``, ``search_in_files``) — famille
+#       « lecture fichiers / recherche texte » — complètent le catalogue pour tenir le
+#       compte produit (25] — déjà read-only dans le manifeste compilé,zéro
+#       changement de policy.
+
+# Chaque tool de la sélection passe par ``decide_action()`` → ``AUTO_APPROVE``
+# (lecture pure : READ/SYSTEM/NETWORK, cf. ``sandbox_policy.decide``) et
+# ressort ``readOnlyHint: true`` du manifeste compilé (safety déclarée pour les
+# 5 tools métier — ``job_list``, ``job_get``, ``model_versions``, ``dataset_stats``,
+# ``predict_sentiment`` — auparavant UNKNOWN/fail-closed ; cf. tools_config.json).
+# ---------------------------------------------------------------------------
+V100_READ_ONLY_TOOLS: frozenset[str] = frozenset(
+    # Union déterministe (set) : V010 (13) + extension v1.0.0 (12)
+    V010_READ_ONLY_TOOLS
+    | frozenset(
+        {
+            # métier ThinkTuning — lecture (jobs, modèles, dataset, sentiment)
+            "job_list",
+            "job_get",
+            "model_versions",
+            "dataset_stats",
+            "predict_sentiment",
+            # système / diagnostic — lecture
+            "env_info",
+            "disk_usage",
+            "gpu_info",
+            "now",
+            # fichiers : lecture pure (compléments de la famille — symétriques de
+            # head_file / count_lines ; lectures pures déjà classées READ)
+            "tail_file",
+            "read_json",
+            "search_in_files",
+        }
+    )
 )
 
 
@@ -118,7 +178,7 @@ class LegacyRegistryToolProvider(MCPToolRegistryPort):
     de la compilation, les handlers sont câblés par ``entry_to_mcp_tool``).
 
     Args:
-        selection:     noms exposés (défaut : ``V010_READ_ONLY_TOOLS``) ;
+        selection:     noms exposés (défaut : ``V100_READ_ONLY_TOOLS``) ;
         tools:         implémentations ``{name: callable}`` (défaut : ``TOOLS``
             legacy) — injectable pour les tests ;
         required_args: arguments obligatoires ``{name: [args]}`` (défaut :
@@ -135,7 +195,7 @@ class LegacyRegistryToolProvider(MCPToolRegistryPort):
     def __init__(
         self,
         *,
-        selection: Collection[str] = V010_READ_ONLY_TOOLS,
+        selection: Collection[str] = V100_READ_ONLY_TOOLS,
         tools: Mapping[str, Callable[..., Any]] | None = None,
         required_args: Mapping[str, Sequence[str]] | None = None,
         manifest: Mapping[str, Mapping[str, Any]] | None = None,
@@ -234,5 +294,15 @@ class LegacyRegistryToolProvider(MCPToolRegistryPort):
 
 
 def build_v010_read_only_provider() -> LegacyRegistryToolProvider:
-    """Provider par défaut de la surface v0.1.0 (sélection complète)."""
+    """Provider de la surface v0.1.0 (sélection explicite — 13 tools).
+
+    La surface PAR DÉFAUT du serveur MCP est la v1.0.0
+    (``build_v100_read_only_provider``, tâche 7) — ce builder reste
+    disponible pour les déploiements restreints / tests v0.1.0.
+    """
+    return LegacyRegistryToolProvider(selection=V010_READ_ONLY_TOOLS)
+
+
+def build_v100_read_only_provider() -> LegacyRegistryToolProvider:
+    """Provider par défaut de la surface v1.0.0 (25 tools read-only, tâche 7)."""
     return LegacyRegistryToolProvider()

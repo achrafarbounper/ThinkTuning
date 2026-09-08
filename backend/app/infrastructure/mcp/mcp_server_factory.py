@@ -7,11 +7,12 @@ avec deux tools de démonstration/contrat :
     - ``mcp_version``  : version de la surface MCP (read-only) ;
     - ``server_info``  : identité du serveur MCP (read-only).
 
-La surface v0.1.0 (tâche 6) est la projection du registre legacy sur le port
-domaine ``MCPToolRegistryPort`` : ``LegacyRegistryToolProvider`` (tâche 6)
-expose la sélection read-only ``V010_READ_ONLY_TOOLS`` (13 tools nommés par la
-checklist de la tâche 6 — cf. ``legacy_tool_provider.py``). Les deux tools
-bootstrap S1 restent exposés à côté :
+La surface v1.0.0 (tâche  7) est la projection du registre legacy sur le port
+domaine ``MCPToolRegistryPort`` : ``LegacyRegistryToolProvider`` (tâche  6)
+expose la sélection read-only ``V100_READ_ONLY_TOOLS`` (25 tools read-only : la
+checklist v0.1.0, 13 nommés, tâche  6, plus extension read-only tâche  7) —
+toutes implémentées ici (cf. ``legacy_tool_provider.py``). Les deux tools bootstrap S1
+restent exposés à côté :
 
     - ``mcp_version``  : version de la surface MCP (read-only) ;
     - ``server_info``  : identité du serveur MCP (read-only).
@@ -31,7 +32,7 @@ from __future__ import annotations
 import logging
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
-from app.infrastructure.mcp.legacy_tool_provider import build_v010_read_only_provider
+from app.infrastructure.mcp.legacy_tool_provider import build_v100_read_only_provider
 from app.infrastructure.mcp.mcp_server import (
     InMemoryToolProvider,
     MCPServer,
@@ -91,16 +92,16 @@ def build_mcp_server(
             ``load_mcp_version`` (pyproject.toml ``[tool.mcp] version``) ;
         tool_provider:  source de vérité des tools ; ``None`` → registre par
             défaut (bootstrap S1 ``mcp_version``/``server_info`` + sélection
-            read-only v0.1.0 du registre legacy, tâche 6).
+            read-only v1.0.0 du registre legacy (25 tools, tâche  7).
 
     Returns:
         Un ``MCPServer`` configuré (dispatch JSON-RPC, prêt pour SSE/stdio).
     """
     resolved_version = version or load_mcp_version()
     if tool_provider is None:
-        # Surface v0.1.0 (tâche 6) : bootstrap S1 + sélection read-only projetée
+        # Surface v1.0.0 (tâche  7) : bootstrap S1 + sélection read-only projetée
         # du registre legacy (compilation manifeste à la construction).
-        legacy = build_v010_read_only_provider()
+        legacy = build_v100_read_only_provider()
         provider = InMemoryToolProvider(
             [*_bootstrap_tools(resolved_version), *legacy.list_tools()]
         )
