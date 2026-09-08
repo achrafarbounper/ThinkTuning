@@ -195,3 +195,12 @@ register_domain_error_handlers(app)
 
 app.include_router(v1_router, prefix="/api/v1")
 
+# === MCP Server Layer (S1 — Bootstrap, docs/mcp/IMPLEMENTATION_PLAN.md) ===
+# Surface MCP montée en parallèle de l'API REST : les clients MCP
+# (Claude Desktop, Cursor…) s'adressent à ``POST /mcp/sse`` sans passer par le
+# découplage /api/v1. Interrupteur de rollback : ``MCP_SERVER_ENABLED=false``
+# → 503 (le serveur MCP est désactivé sans toucher au reste de l'API).
+from app.infrastructure.mcp.mcp_server_sse import router as mcp_router  # noqa: E402
+
+app.include_router(mcp_router)
+

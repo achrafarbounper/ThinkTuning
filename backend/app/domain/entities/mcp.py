@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 import tomllib
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -131,3 +132,47 @@ class MCPVersion(BaseModel):
 # Version livrée par le bootstrap S1 (docs/mcp/IMPLEMENTATION_PLAN.md) —
 # fallback du loader quand pyproject.toml est absent ou inexploitable.
 DEFAULT_MCP_VERSION = MCPVersion(major=0, minor=1, patch=0)
+
+
+class MCPScopeRole(StrEnum):
+    """Rôle de sécurité d'un client MCP (docs/mcp/MCP_SECURITY.md).
+
+    Les rôles sont ORDONNÉS du plus restrictif au plus permissif :
+
+        read_only (12 tools lecture) < contributor (25 tools + write filtré)
+        < operator (35 tools + exec filtré) < admin (40 tools full access)
+
+    ``granted`` conditionne la visibilité d'un tool pendant le bootstrap S1
+    (tâche 2 : ``build_mcp_server(scope=...)``). Le scope CLIENT complet
+    (``MCPSecurityScope`` : client_id, visible_tools, quotas, révocation…)
+    arrive avec le client store de la S4 — il s'appuiera sur ce rôle.
+    """
+
+    READ_ONLY = "read_only"
+    CONTRIBUTOR = "contributor"
+    OPERATOR = "operator"
+    ADMIN = "admin"
+
+    def granted(self, required: MCPScopeRole | str) -> bool:
+        """Le rôle courant couvre-t-il un élément exigeant ``required`` ?
+
+        Fail-closed : un ``required`` inconnu lève ``ValueError`` (un rôle
+        inexistant ne doit jamais être contourné par un simple ``granted``
+        comparant des chaînes).
+        """
+        if not isinstance(required, MCPScopeRole):
+            required = MCPScopeRole(required)
+        return _SCOPE_ROLE_RANK[self] >= _SCOPE_ROLE_RANK[required]
+
+    @property
+    def rank(self) -> int:
+        """Ordre de privilège (0 = read_only → 3 = admin)."""
+        return _SCOPE_ROLE_RANK[self]
+
+
+_SCOPE_ROLE_RANK = {
+    MCPScopeRole.READ_ONLY: 0,
+    MCPScopeRole.CONTRIBUTOR: 1,
+    MCPScopeRole.OPERATOR: 2,
+    MCPScopeRole.ADMIN: 3,
+}

@@ -28,10 +28,10 @@
 - [x] Test : `test_mcp_version.py`
 
 ### Tâche 2 : MCP Server Layer (SSE + stdio)
-- [ ] `app/infrastructure/mcp/mcp_server_sse.py` — FastAPI SSE endpoint (`POST /mcp/sse`)
-- [ ] `app/infrastructure/mcp/mcp_server_stdio.py` — stdio entry point (`thinktuning-mcp`)
-- [ ] `app/infrastructure/mcp/mcp_server_factory.py` — build server with scope
-- [ ] Test : `test_mcp_server_basic.py` (ListTools, CallTool)
+- [x] `app/infrastructure/mcp/mcp_server_sse.py` — FastAPI SSE endpoint (`POST /mcp/sse`)
+- [x] `app/infrastructure/mcp/mcp_server_stdio.py` — stdio entry point (`thinktuning-mcp`)
+- [x] `app/infrastructure/mcp/mcp_server_factory.py` — build server with scope
+- [x] Test : `test_mcp_server_basic.py` (ListTools, CallTool)
 
 ### Tâche 3 : MCP Domain Ports
 - [ ] `app/domain/ports/mcp_ports.py` :

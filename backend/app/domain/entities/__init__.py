@@ -3,6 +3,7 @@
 
 from .mcp import (  # noqa: F401
     DEFAULT_MCP_VERSION,
+    MCPScopeRole,
     MCPVersion,
 )
 from .plan import (  # noqa: F401
@@ -34,6 +35,7 @@ __all__ = [
     "DEFAULT_MCP_VERSION",
     "HealthSnapshot",
     "Intent",
+    "MCPScopeRole",
     "MCPVersion",
     "Plan",
     "PlanErrorCode",
