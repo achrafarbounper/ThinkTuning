@@ -23,9 +23,9 @@
 ## 🧩 Tâches par Semaine (S1 — Bootstrap)
 
 ### Tâche 1 : MCP Version (`MCPVersion`)
-- [ ] `app/domain/entities/mcp.py` → `MCPVersion(major.minor.patch)`
-- [ ] Lire depuis `pyproject.toml` → `[tool.mcp.version] = "0.1.0"`
-- [ ] Test : `test_mcp_version.py`
+- [x] `app/domain/entities/mcp.py` → `MCPVersion(major.minor.patch)`
+- [x] Lire depuis `pyproject.toml` → `[tool.mcp.version] = "0.1.0"`
+- [x] Test : `test_mcp_version.py`
 
 ### Tâche 2 : MCP Server Layer (SSE + stdio)
 - [ ] `app/infrastructure/mcp/mcp_server_sse.py` — FastAPI SSE endpoint (`POST /mcp/sse`)
