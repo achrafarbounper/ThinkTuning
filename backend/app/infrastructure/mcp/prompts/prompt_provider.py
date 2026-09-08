@@ -1,15 +1,18 @@
 # project/app/infrastructure/mcp/prompts/prompt_provider.py
-"""Provider MCP des prompts ThinkTuning — tâche 9 (S3, v1.0.0 Beta).
+"""Provider MCP des prompts ThinkTuning — tâches 9 (S3, v1.0.0 Beta) + 14 (S5, v1.1.0).
 
 Implémente le port domaine ``MCPPromptRegistryPort`` (tâche 3) : chaque prompt
 est un template nommé résolu LOCALEMENT — aucune I/O, aucun appel tool, aucun
 appel LLM (catalogue statique possédée par le serveur) :
 
-    name               → template                                    → argument
+    name               → template                                    → argument(s)
     analyze-sentiment  → "Analyse le sentiment de ce texte: {text}"      → text (requis)
     plan-training      → "Planifie un entraînement pour: {dataset}"      → dataset (requis)
+    summarize-job      → "Résume le job {job_id}"                        → job_id (requis)
+    compare-models     → "Compare les modèles {v1} et {v2}"              → v1, v2 (requis)
+    explain-prediction → "Explique la prédiction pour: {text}"           → text (requis)
 
-SÉCURITÉ (checklist tâche 9) — fail-closed :
+SÉCURITÉ (checklists tâches 9 et 14) — fail-closed :
 
     1. nom : tout prompt non déclaré → ``NotFoundError`` (message actionnable :
        le catalogue est public via ``prompts/list``, lister les noms ne fuit
@@ -49,19 +52,29 @@ logger = logging.getLogger("thinktuning.mcp.prompts")
 
 __all__ = [
     "PROMPT_ANALYZE_SENTIMENT",
+    "PROMPT_COMPARE_MODELS",
+    "PROMPT_EXPLAIN_PREDICTION",
     "PROMPT_PLAN_TRAINING",
+    "PROMPT_SUMMARIZE_JOB",
     "PromptProvider",
     "build_prompt_provider",
 ]
 
-# Noms des prompts (identifiants MCP stables — checklist tâche 9).
+# Noms des prompts (identifiants MCP stables — checklists tâches 9 + 14).
 PROMPT_ANALYZE_SENTIMENT = "analyze-sentiment"
 PROMPT_PLAN_TRAINING = "plan-training"
+PROMPT_SUMMARIZE_JOB = "summarize-job"
+PROMPT_COMPARE_MODELS = "compare-models"
+PROMPT_EXPLAIN_PREDICTION = "explain-prediction"
 
 # Templates possédés par le SERVEUR (les arguments du client ne sont que des
-# valeurs substituées — cf. sécurité §3). Un placeholder par template.
+# valeurs substituées — cf. sécurité §3). Un placeholder par template,
+# sauf compare-models qui en porte deux ({v1}, {v2}).
 _ANALYZE_SENTIMENT_TEMPLATE = "Analyse le sentiment de ce texte: {text}"
 _PLAN_TRAINING_TEMPLATE = "Planifie un entraînement pour: {dataset}"
+_SUMMARIZE_JOB_TEMPLATE = "Résume le job {job_id}"
+_COMPARE_MODELS_TEMPLATE = "Compare les modèles {v1} et {v2}"
+_EXPLAIN_PREDICTION_TEMPLATE = "Explique la prédiction pour: {text}"
 
 # Catalogue statique (métadonnées ``prompts/list``) — tuple immuable, ordre
 # déterministe : la liste est de la MÉTADONNÉE pure (aucune I/O).
@@ -94,6 +107,53 @@ _PROMPTS: tuple[MCPPromptTemplate, ...] = (
             ),
         ),
     ),
+    MCPPromptTemplate(
+        name=PROMPT_SUMMARIZE_JOB,
+        description=(
+            "Résume un job d'entraînement ThinkTuning (statut, métriques, "
+            "artefacts) à partir de son identifiant."
+        ),
+        arguments=(
+            MCPPromptArgument(
+                name="job_id",
+                description="Identifiant du job (ex. j-1, voir thinktuning://jobs).",
+                required=True,
+            ),
+        ),
+    ),
+    MCPPromptTemplate(
+        name=PROMPT_COMPARE_MODELS,
+        description=(
+            "Compare deux versions de modèles ThinkTuning (métriques, "
+            "artefacts, rapport d'entraînement)."
+        ),
+        arguments=(
+            MCPPromptArgument(
+                name="v1",
+                description="Première version de modèle (ex. 20260908T000000Z).",
+                required=True,
+            ),
+            MCPPromptArgument(
+                name="v2",
+                description="Seconde version de modèle à comparer à v1.",
+                required=True,
+            ),
+        ),
+    ),
+    MCPPromptTemplate(
+        name=PROMPT_EXPLAIN_PREDICTION,
+        description=(
+            "Explique la prédiction de sentiment pour un texte brut (FR/EN) — "
+            "template prêt pour l'analyse ThinkTuning."
+        ),
+        arguments=(
+            MCPPromptArgument(
+                name="text",
+                description="Texte dont la prédiction doit être expliquée.",
+                required=True,
+            ),
+        ),
+    ),
 )
 
 # Index nom → prompt (validation des arguments) — dérivé du même catalogue.
@@ -106,18 +166,21 @@ _PROMPT_INDEX: dict[str, MCPPromptTemplate] = {
 _TEMPLATES: dict[str, str] = {
     PROMPT_ANALYZE_SENTIMENT: _ANALYZE_SENTIMENT_TEMPLATE,
     PROMPT_PLAN_TRAINING: _PLAN_TRAINING_TEMPLATE,
+    PROMPT_SUMMARIZE_JOB: _SUMMARIZE_JOB_TEMPLATE,
+    PROMPT_COMPARE_MODELS: _COMPARE_MODELS_TEMPLATE,
+    PROMPT_EXPLAIN_PREDICTION: _EXPLAIN_PREDICTION_TEMPLATE,
 }
 
 
 class PromptProvider(MCPPromptRegistryPort):
-    """``MCPPromptRegistryPort`` — les 2 prompts ThinkTuning (tâche 9).
+    """``MCPPromptRegistryPort`` — les 5 prompts ThinkTuning (tâches 9 + 14).
 
     Stateless et thread-safe : le catalogue est immuable (tuples), la
     résolution est pure (aucune I/O) — une instance partagée suffit.
     """
 
     def list_prompts(self) -> list[MCPPromptTemplate]:
-        """Les 2 prompts du catalogue (``prompts/list``) — métadonnée pure."""
+        """Les 5 prompts du catalogue (``prompts/list``) — métadonnée pure."""
         return list(_PROMPTS)
 
     def get_prompt(
@@ -128,7 +191,9 @@ class PromptProvider(MCPPromptRegistryPort):
         """Résout un prompt en messages (``prompts/get``).
 
         Args:
-            name: nom du prompt (``analyze-sentiment`` | ``plan-training``) ;
+            name: nom du prompt (``analyze-sentiment`` | ``plan-training``
+                | ``summarize-job`` | ``compare-models``
+                | ``explain-prediction``) ;
             arguments: valeurs des arguments (chaînes) ; ``None`` → aucun.
 
         Returns:
@@ -167,7 +232,7 @@ class PromptProvider(MCPPromptRegistryPort):
 
 
 def build_prompt_provider() -> PromptProvider:
-    """Provider par défaut des 2 prompts ThinkTuning (tâche 9).
+    """Provider par défaut des 5 prompts ThinkTuning (tâches 9 + 14).
 
     Construction SANS I/O ni import lourd : le catalogue est statique.
     """
