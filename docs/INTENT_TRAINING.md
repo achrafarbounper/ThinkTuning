@@ -293,17 +293,23 @@ Le callback `_IntentJobCallback` :
 | `warmup_steps` | `0.1` (v5 : float ∈ [0,1[ = 10 % des steps) | montée linéaire 0 → LR ; remplace le `warmup_ratio` retiré en v5 |
 | `eval_strategy` | `"epoch"` si val sinon `"no"` | évite l'overhead sur petits datasets |
 | `logging_steps` | `20` | logs serveur réguliers |
-| `save_strategy` | `"no"` | **une seule version finale** (pas de checkpoints) |
+| `save_strategy` | `"epoch"` (repli `"no"` sans val) | checkpoints par epoch bornés — le meilleur est rechargé (§13 #3) |
+| `save_total_limit` | `2` | borne disque ; le meilleur checkpoint n'est jamais purgé |
+| `metric_for_best_model` | `"accuracy"` | critère « meilleur » = accuracy de val (`eval_accuracy`) |
+| `load_best_model_at_end` | `True` (False sans val) | la version finale publiée contient les poids du **meilleur** epoch |
+| `EarlyStoppingCallback` | `patience=2` | arrêt anticipé si l'accuracy de val stagne 2 epochs |
 | `seed` | `42` | reproductibilité |
 | `report_to` | `[]` | pas d'expérimentation externe |
 | `disable_tqdm` | `True` | logs serveur propres |
 
-> `save_strategy="no"` (contrairement au sentiment `save_steps=200`) : le modèle
-> est écrit **une seule fois**, à l'étape `saving_model`. Aucun checkpoint
-> intermédiaire → on ne retient **pas** le « meilleur » (epoch) en mémoire, mais
-> la métrologie par epoch est quand-même **persistée** (`train_metrics`) et
-> affichée.
-  token-level — **aucun bug de collator** ici (contrairement au LLM causal,
+> `save_strategy="epoch"` (§13 #3 — au lieu du `"no"` historique) : des
+> checkpoints intermédiaires sont écrits dans le répertoire de version (limités
+> à 2, le meilleur jamais purgé) et le **meilleur** epoch (accuracy de val) est
+> rechargé en mémoire avant l'étape `saving_model` — la version horodatée
+> publiée contient donc les poids du meilleur epoch, pas du dernier. Sans val
+> (dataset à 1 exemple), repli historique : `save_strategy="no"` —
+> `load_best_model_at_end` exige que save/eval strategies matchent. La
+> métrologie par epoch reste **persistée** (`train_metrics`) et affichée.
 ### 5.6 Entraînement → quantification → sauvegarde
 
 ```python
@@ -356,6 +362,12 @@ _save_model(model, tokenizer, output_dir)   # config.json + model.safetensors + 
 déterministes (`fallback_intent` via `IntentClassifier` + `fallback.py` :
 seuil safety `action`; sous le seuil → `chat`).
 Surcharge CPU minimale (~2–8 ms), fallback garantit la disponibilité.
+
+**Seuil calibré (#5a)** : la règle de démotion est partagée
+(`apply_safety_threshold`) et le seuil est mesuré sur la val par
+`scripts/calibrate_intent_threshold.py` — au défaut `0.5`, aucune démotion
+n'est possible (règles `action` ≥ 0.62, argmax softmax ≥ 0.5) et toute
+démotion dégrade : val règles acc 0.667 / modèle acc 0.967 (seed 42).
 
 ---
 
@@ -495,7 +507,8 @@ curl -X POST "$API/classifiers/intent/reload" -H "X-API-Key:$KEY"
 | `max_length=64` ✅ (#2) | troncature à 64 tokens (intent ~30-40) — coût ~2× réduit |
 | Padding dynamique ✅ (#3) | `padding=False` + `DataCollatorWithPadding` (padding par batch) + `train_sampling_strategy="group_by_length"` (v5) |
 | Scheduler ✅ (#3) | `lr_scheduler_type="cosine"` + warmup 10 % (`warmup_steps=0.1`, v5) — plus de LR constant |
-| `save_strategy="no"` | aucun « meilleur checkpoint » — une seule version finale |
+| Checkpoints disque ✅ (#3) | `save_strategy="epoch"` bornés (`save_total_limit=2`) — coût disque assumé, meilleur epoch publié |
+| Seuil `action` 0.5 | calibré sur la val (#5a) — plateau sans démotion ; rappel `action` des règles 0.50 (limite du lexique de marqueurs, pas du seuil) |
 | Métriques | accuracy + confiance ; **f1/classification report présents depuis §13 #1** |
 | Split stratifié ✅ (#2) | `train_test_split(stratify=labels)` — répartition préservée ; repli shuffle si classe à 1 occurrence |
 | `fp16` absent | inutile en CPU ; manquant si GPU présent |
@@ -550,11 +563,12 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 | Changement | Pourquoi |
 |---|---|
 | `lr_scheduler_type="cosine"` + warmup 10 % ✅ fait (§13 checklist #3) | LR 2e-5 constant est défensif ; cosinus+warmup converge mieux >3 epochs (v5 : `warmup_ratio` retiré → `warmup_steps=0.1` float ∈ [0,1[) |
-| `metric_for_best_model="accuracy"` + `load_best_model_at_end=True` + `save_strategy="epoch"` + `save_total_limit=2` + `EarlyStoppingCallback(patience=2)` | **contrebalancer** §12 (`save_strategy="no"`) — nécessite de choisir ce mode |
+| `metric_for_best_model="accuracy"` + `load_best_model_at_end=True` + `save_strategy="epoch"` + `save_total_limit=2` + `EarlyStoppingCallback(patience=2)` ✅ fait (§13 checklist #3) | mode **meilleur-checkpoint** retenu (repli horodatage sans val) — le meilleur epoch est publié, l'arrêt anticipé coupe la stagnation |
 
-> ⚠️ Trade-off §5.5 : choisir **version horodatée** (actuel,
-> `save_strategy="no"`) **ou** meilleur-checkpoint
-> (`save_strategy="epoch"`) — ne pas faire les deux sans `load_best_model_at_end`.
+> ✅ Trade-off §5.5 **tranché** (#3) : mode **meilleur-checkpoint** retenu —
+> `load_best_model_at_end` garantit que la version horodatée publiée contient
+> les poids du meilleur epoch, avec checkpoints intermédiaires bornés
+> (`save_total_limit=2`). Sans val → repli horodatage (`save_strategy="no"`).
 
 ### 📈 4. Modèle + fort (GPU)
 
@@ -566,7 +580,11 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 ### 🔍 5. Inférence (déploiement)
 
 - **5a. Recalibrer le seuil `action`** du fallback (`fallback_intent` dans
-  `ia/agent/classifiers/fallback.py`) sur la val — baisser si trop conservateur.
+  `ia/agent/classifiers/fallback.py`) sur la val — ✅ fait (§13 checklist #5) :
+  `scripts/calibrate_intent_threshold.py` confirme `threshold=0.5` optimal
+  (plateau sans démotion 0–0.70 règles / 0–0.95 modèle ; « baisser » = no-op :
+  règles ≥ 0.62, argmax ≥ 0.5) ; limite réelle = rappel `action` des règles
+  (0.50) — levier lexique/données, pas seuil.
 - **5b. `fp16` en inférence GPU** (`torch_dtype=float16`) → latence ↓.
 
 ### Matrice décision — GPU disponible ?
@@ -577,7 +595,7 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 | `max_length=64` | ✅ | — |
 | `batch_size=64` | ⚠️ (RAM) | ✅ |
 | Scheduler cosine + warmup ✅ (#3) | ✅ | ✅ |
-| `load_best_model_at_end` + `save_strategy="epoch"` | ✅ (disque) | ✅ |
+| `load_best_model_at_end` + `save_strategy="epoch"` ✅ (#3) | ✅ (disque) | ✅ |
 | Modèle + fort (E5-small) | ⚠️ lent | ✅ |
 | `fp16` inférence | ✗ | ✅ |
 
@@ -588,14 +606,15 @@ persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 - [x] **#1** — tokenisation `padding=True` + bucketisation par longueur ;
 - [x] **#2** — `max_length=64` ;
 - [x] **#3** — scheduler `cosine` + `warmup_ratio=0.1` (v5 : `warmup_steps=0.1`) ;
-- [ ] **#3** — `load_best_model_at_end` + `save_strategy="epoch"` + early stopping
+- [x] **#3** — `load_best_model_at_end` + `save_strategy="epoch"` + early stopping
   (au lieu du mode horodatage) ;
 - [ ] **#4** — monter vers `intfloat/multilingual-e5-small` (continental training) ;
-- [ ] **#5** — recalibrer seuil `action` + `fp16` inférence GPU.
+- [x] **#5** — recalibrer seuil `action` (5a — calibré sur la val, script) ;
+- [ ] **#5** — `fp16` inférence GPU (5b) ;
 
-> **Prochain levier sans GPU (restant)** : `load_best_model_at_end` +
-> `save_strategy="epoch"` + early stopping (§3) — évite le sur-entraînement,
-> au prix de checkpoints disque (trade-off §5.5).
+> **Leviers restants (tous GPU)** : modèle + fort (#4) et `fp16` inférence
+> (#5b) — sans GPU, l'optimisation est complète côté CPU.
 > Classification report ✅ (#1), stratified split ✅ (#2), padding dynamique +
 > bucketisation ✅ (#3), `max_length=64` ✅ (#2), scheduler `cosine` + warmup
-> ✅ (#3) : le report (#1) montre *quoi* améliorer dans le dataset.
+> ✅ (#3), meilleur-checkpoint + early stopping ✅ (#3), seuil `action` calibré
+> ✅ (#5a) : le report (#1) montre *quoi* améliorer dans le dataset.

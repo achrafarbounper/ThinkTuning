@@ -26,6 +26,7 @@ from core.intent_store import (
 )
 from ia.agent.classifiers.intent_classifier import (
     IntentClassifier,
+    apply_safety_threshold,
     resolve_intent_model_optional,
 )
 
@@ -99,6 +100,30 @@ class TestIntentClassifierRules:
     def test_validation_threshold(self) -> None:
         with pytest.raises(ValueError):
             IntentClassifier(engine="rules", threshold=1.5)
+
+
+class TestApplySafetyThreshold:
+    """Règle de seuil partagée (§13 checklist #5a)."""
+
+    def test_action_sous_le_seuil_demoinee_en_chat(self) -> None:
+        # 0.62 = confiance « 1 marqueur » du fallback ; 0.65 la démotionne.
+        assert apply_safety_threshold("action", 0.62, 0.65) == ("chat", 0.38)
+
+    def test_action_au_dessus_du_seuil_conservee(self) -> None:
+        assert apply_safety_threshold("action", 0.95, 0.65) == ("action", 0.95)
+
+    def test_chat_jamais_demoine(self) -> None:
+        # Le seuil ne tranche que les actions (sécurité : ne pas exécuter).
+        assert apply_safety_threshold("chat", 0.51, 0.8) == ("chat", 0.51)
+
+    def test_seuil_zero_ne_demoine_rien(self) -> None:
+        assert apply_safety_threshold("action", 0.01, 0.0) == ("action", 0.01)
+
+    def test_defaut_0_5_est_le_moins_conservateur(self) -> None:
+        # Règles : confiance ``action`` >= 0.62 ; softmax 2 classes : argmax
+        # >= 0.5 → au défaut 0.5, la démotion ne peut jamais se déclencher.
+        for conf in (0.5, 0.55, 0.62, 0.7, 0.95):
+            assert apply_safety_threshold("action", conf, 0.5) == ("action", conf)
 
 
 # ---------------------------------------------------------------------------

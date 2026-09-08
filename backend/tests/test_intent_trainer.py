@@ -25,6 +25,12 @@ Checklist #3 — scheduler LR :
     10 % (v5 : ``warmup_ratio`` retiré, ``warmup_steps`` float ∈ [0, 1[ =
     fraction du nombre total de steps).
 
+Checklist #3 — meilleur checkpoint + early stopping :
+  - ``_best_checkpoint_training_args`` : source unique CLI/API — checkpoints
+    par epoch bornés (``save_total_limit=2``), meilleur epoch (``accuracy`` de
+    val) rechargé avant la sauvegarde finale, ``EarlyStoppingCallback``
+    (patience 2) ; repli « une seule version finale » sans val.
+
 Aucune dépendance lourde (pas de torch/transformers) ni réseau : on teste les
 fonctions pures sur des échantillons déterministes.
 """
@@ -37,6 +43,8 @@ from collections import Counter
 import pytest
 
 from core.intent_trainer import (
+    EARLY_STOPPING_PATIENCE,
+    _best_checkpoint_training_args,
     _format_intent_report,
     _intent_classification_report,
     _padding_bucket_config,
@@ -231,3 +239,29 @@ class TestSchedulerTrainingArgs:
             "lr_scheduler_type",
             "warmup_steps",
         }
+
+
+class TestBestCheckpointTrainingArgs:
+    """Config « meilleur checkpoint + early stopping » (§13 checklist #3)."""
+
+    def test_mode_meilleur_checkpoint_avec_val(self) -> None:
+        cfg = _best_checkpoint_training_args(True)
+        assert cfg["eval_strategy"] == "epoch"
+        assert cfg["save_strategy"] == "epoch"
+        assert cfg["save_total_limit"] == 2
+        assert cfg["metric_for_best_model"] == "accuracy"
+        assert cfg["load_best_model_at_end"] is True
+
+    def test_repli_historique_sans_val(self) -> None:
+        # Dataset à 1 exemple → val vide : aucune métrique → repli « une seule
+        # version finale » ; load_best_model_at_end exige de plus que save/eval
+        # strategies matchent (v5) — d'où eval/save à "no".
+        cfg = _best_checkpoint_training_args(False)
+        assert cfg == {
+            "eval_strategy": "no",
+            "save_strategy": "no",
+            "load_best_model_at_end": False,
+        }
+
+    def test_patience_early_stopping(self) -> None:
+        assert EARLY_STOPPING_PATIENCE == 2

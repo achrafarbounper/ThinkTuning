@@ -1322,10 +1322,7 @@ export interface components {
         };
         /** Body_predict_batch_api_v1_predict_batch_post */
         Body_predict_batch_api_v1_predict_batch_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /**
              * Text Column
@@ -2000,6 +1997,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
