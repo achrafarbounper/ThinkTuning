@@ -735,6 +735,13 @@ def test_real_health_roundtrip(
     sandbox : les adaptateurs lisent ``experiments/`` relativement au process,
     aucun fichier du dépôt n'est créé)."""
     monkeypatch.chdir(sandbox_root)
+    # Isolation du store global : le singleton ``core.job_store`` est chargé
+    # en mémoire à l'import depuis ``backend/experiments/jobs.db`` (état
+    # développeur local, ex. 12 RUNNING) et ne suit PAS le chdir. Sans cette
+    # isolation, ``active_jobs`` dépend de la machine qui lance le test
+    # (flake d'ordre : passe seul, casse en suite complète). On simule la
+    # « base vierge » attendue (même pattern que test_api_v1_health).
+    monkeypatch.setattr("core.job_store.get_job_store", lambda: {})
     _make_model_version(sandbox_root)
     payload = json.loads(legacy_provider.read_resource("thinktuning://health"))
     assert payload["status"] == "ok"
