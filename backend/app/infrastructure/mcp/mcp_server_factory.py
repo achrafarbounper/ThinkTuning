@@ -18,14 +18,18 @@ restent exposés à côté :
     - ``server_info``  : identité du serveur MCP (read-only).
 
 Tâche 8 (S3) : ``build_mcp_server()`` branche aussi le registre des RESOURCES
-``thinktuning://`` (``LegacyResourceProvider`` — 5 resources : jobs, jobs/
-{job_id}, models, datasets/{path}/stats, config) ; ``resource_provider=...``
+``thinktuning://`` (``LegacyResourceProvider``) ; ``resource_provider=...``
 le remplace entièrement (tests, déploiements restreints).
 
 Tâche 9 (S3) : ``build_mcp_server()`` branche aussi le registre des PROMPTS
 (``PromptProvider`` — 2 prompts : analyze-sentiment, plan-training) ;
 ``prompt_provider=...`` le remplace entièrement (tests, déploiements
 restreints).
+
+Tâche 13 (S5, v1.1.0) : la surface resources est étendue à 10 (4 statiques +
+6 paramétrées : logs de job, métadonnées de modèle, aperçu de dataset,
+métriques d'entraînement, santé) — même provider, résolution par routes
+regex ancrées.
 
 Le registre par défaut est donc l'UNION (bootstrap + sélection read-only) ;
 ``build_mcp_server(tool_provider=...)`` le remplace entièrement (tests,
@@ -117,9 +121,10 @@ def build_mcp_server(
             défaut (bootstrap S1 ``mcp_version``/``server_info`` + sélection
             read-only v1.0.0 du registre legacy (25 tools, tâche  7).
         resource_provider: source des resources ``thinktuning://`` ;
-            ``None`` → registre par défaut (``LegacyResourceProvider``, tâche 8 :
-            5 resources). Passer un provider VIDE (``list_resources()`` nulle)
-            pour une surface supportant MCP resources sans en lister aucune.
+            ``None`` → registre par défaut (``LegacyResourceProvider``,
+            tâches 8 + 13 : 10 resources). Passer un provider VIDE
+            (``list_resources()`` nulle) pour une surface supportant MCP
+            resources sans en lister aucune.
         prompt_provider: source des prompts MCP ; ``None`` → registre par
             défaut (``PromptProvider``, tâche 9 : 2 prompts —
             analyze-sentiment, plan-training). Passer un provider VIDE
@@ -144,8 +149,9 @@ def build_mcp_server(
     else:
         provider = tool_provider
     if resource_provider is None:
-        # Tâche 8 : les 5 resources thinktuning:// — construction SANS I/O ni
-        # import lourd (tools internes résolus paresseusement à la lecture).
+        # Tâches 8 + 13 : les 10 resources thinktuning:// — construction SANS
+        # I/O ni import lourd (sources internes résolues paresseusement à la
+        # lecture).
         resource_provider = build_legacy_resource_provider()
     if prompt_provider is None:
         # Tâche 9 : les 2 prompts ThinkTuning — catalogue statique, sans I/O.

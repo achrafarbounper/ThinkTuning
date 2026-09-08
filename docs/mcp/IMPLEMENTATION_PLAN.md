@@ -294,14 +294,45 @@
 ## 🧩 Tâches par Semaine (S5 — v1.1.0 Resources + Prompts)
 
 ### Tâche 13 : 10 Resources (extension)
-- [ ] Ajouter 5 resources supplémentaires :
+- [x] Ajouter 5 resources supplémentaires :
   - `thinktuning://jobs/{job_id}/logs` → logs d'un job
   - `thinktuning://models/{version}/info` → métadonnées d'un modèle
   - `thinktuning://datasets/{path}/preview` → aperçu d'un dataset
   - `thinktuning://metrics/{job_id}` → métriques d'entraînement
   - `thinktuning://health` → santé du système
-- [ ] `resource_provider.py` → résout les URI dynamiques (regex/path params)
-- [ ] Test : `test_mcp_resources_10.py` — 10 resources + URI dynamiques
+- [x] `resource_provider.py` → résout les URI dynamiques (regex/path params)
+- [x] Test : `test_mcp_resources_10.py` — 10 resources + URI dynamiques
+
+> **Livré (S5)** : ``LegacyResourceProvider`` étendu à 10 resources
+> (4 statiques + 6 paramétrées) via table de routes ``_ROUTES`` — regex
+> ancrées, ordre déterministe, validation des segments (anti-traversée
+> ``..``/``.``/``''``, anti double-encodage, backslash, octets nul/contrôle,
+> plafond 200 chars) AVANT toute I/O. Chaque nouvelle route DÉLÈGUE aux
+> sources internes (zéro règle réimplémentée) : ``jobs/{job_id}/logs`` →
+> existence via ``job_get`` + lignes via ``core.job_logs`` (même source
+> mémoire que le WS ``/train/stream``) ; ``models/{version}/info`` →
+> présence via ``model_versions`` + drapeau actif, artefacts +
+> ``training_report.json``/``id2label.json`` lus sous racine sandbox
+> revalidée ``safe_resolve`` ; ``datasets/{path}/preview`` → ``head_file``
+> plafonnée à 50 lignes, même règle de format que ``dataset_stats``
+> (``.env`` refusé AVANT lecture) ; ``metrics/{job_id}`` → existence via
+> ``job_get`` puis SELECT miroir de ``core/job_store.py`` sur connexion
+> ``mode=ro`` + ``PRAGMA query_only`` (ne crée JAMAIS la base) ;
+> ``health`` → délégation exacte au use case hexagonal
+> ``run_health_check`` + adaptateurs legacy par défaut (shape
+> ``HealthSnapshot``, identique au /health legacy). Erreurs métier
+> (``ValueError``/``OSError``) → ``NotFoundError`` fail-closed ;
+> ``RuntimeError`` propage (serveur → ``Internal error``). Construction
+> toujours sans I/O ni import lourd (résolveurs paresseux ;
+> ``list_resources()`` = métadonnée pure). Correctif au passage :
+> ``system_status_adapter`` — import circulaire réel (``api.middlewares``
+> au niveau module → ``api/__init__`` → ``composition.bootstrap()``)
+> devenu paresseux (cassait aussi le transport stdio en production).
+> Tests : ``tests/test_mcp_resources_10.py`` (nouveau, 52 tests : fakes
+> unitaires — contrat, routes, sécurité, gaps JSON-RPC ``resources/read``
+> + templates — + intégration legacy réelle en sandbox tmp) ;
+> ``test_mcp_resources.py`` + ``test_mcp_server_basic.py`` mis à jour
+> (liste 5 → 10, garantie de sous-ensemble tâche 8).
 
 ### Tâche 14 : 3 Prompts (extension)
 - [ ] Ajouter 3 prompts supplémentaires :

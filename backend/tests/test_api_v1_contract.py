@@ -77,6 +77,9 @@ V1_PATHS = {
     # active learning, classifiers.
     "/api/v1/metrics": {"get"},
     "/api/v1/metrics/json": {"get"},
+    # S4 tâche 12 — observabilité MCP (dashboard interne : call volume,
+    # error rate, révocations) déléguée au handler legacy api.routes.mcp.
+    "/api/v1/mcp/metrics": {"get"},
     "/api/v1/drift": {"post"},
     "/api/v1/explain": {"post"},
     "/api/v1/pipeline": {"post"},
@@ -236,10 +239,12 @@ def test_auth_posture_is_locked():
         ("/api/v1/chat/models", "get"),
         ("/api/v1/chat/ai", "post"),
         # Phase 3d-5 — la surface écrite est protégée (drift, explain,
-        # pipeline, active learning, annotate, classifiers predict/reload).
+        # pipeline, active learning, annotate, classifiers predict/reload)
+        # + observabilité MCP (surface d'administration interne).
         # Les GET metrics / classifiers restent PUBLICS (parité legacy).
         ("/api/v1/drift", "post"),
         ("/api/v1/explain", "post"),
+        ("/api/v1/mcp/metrics", "get"),
         ("/api/v1/pipeline", "post"),
         ("/api/v1/pipeline/status/{job_id}", "get"),
         ("/api/v1/pipeline/cancel/{job_id}", "post"),

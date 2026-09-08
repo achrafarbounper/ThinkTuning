@@ -1,6 +1,12 @@
 # project/tests/test_mcp_resources.py
 """Tests d'acceptation — Tâche 8 : 5 Resources « thinktuning:// » (S3, v1.0.0 Beta).
 
+Tâche 13 (S5, v1.1.0) : la surface est étendue à 10 (4 statiques +
+6 paramétrées). Les assertions de LISTE reflètent la surface complète ;
+les tests de LECTURE restants couvrent les 5 resources d'origine
+(non-régression), les 5 nouvelles étant couvertes exhaustivement par
+test_mcp_resources_10.py.
+
 Checklist (docs/mcp/IMPLEMENTATION_PLAN.md, tâche 8) :
 
     - ``LegacyResourceProvider`` expose les 5 resources (3 statiques +
@@ -37,7 +43,7 @@ import pytest
 from app.domain.entities.mcp import MCPResource, MCPResourceTemplate, MCPScopeRole, MCPVersion
 from app.domain.errors import NotFoundError
 from app.domain.ports.mcp_ports import MCPResourceRegistryPort
-from app.infrastructure.mcp.mcp_server import MCPServer, InMemoryToolProvider
+from app.infrastructure.mcp.mcp_server import InMemoryToolProvider, MCPServer
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.protocol import ErrorCode
 from app.infrastructure.mcp.resources.resource_provider import (
@@ -46,6 +52,9 @@ from app.infrastructure.mcp.resources.resource_provider import (
 )
 
 # Les 5 URI de la checklist tâche 8 (ordre alphabétique pour comparaison d'ensemble).
+# Tâche 13 (S5, v1.1.0) : la surface est étendue à 10 — ces 5 URI d'origine
+# restent un SOUS-ENSEMBLE garanti (non-régression), les 5 nouvelles sont
+# couvertes exhaustivement par tests/test_mcp_resources_10.py.
 EXPECTED_URIS = frozenset(
     {
         "thinktuning://jobs",
@@ -53,6 +62,17 @@ EXPECTED_URIS = frozenset(
         "thinktuning://models",
         "thinktuning://datasets/{path}/stats",
         "thinktuning://config",
+    }
+)
+
+# Surface complète après extension tâche 13 (4 statiques + 6 paramétrées).
+EXPECTED_URIS_10 = EXPECTED_URIS | frozenset(
+    {
+        "thinktuning://jobs/{job_id}/logs",
+        "thinktuning://models/{version}/info",
+        "thinktuning://datasets/{path}/preview",
+        "thinktuning://metrics/{job_id}",
+        "thinktuning://health",
     }
 )
 
@@ -74,7 +94,9 @@ def _fake_job_list(**_kwargs) -> dict:
 def _fake_job_get(job_id: str) -> dict:
     if job_id == "j-1":
         return {"job_id": "j-1", "status": "completed", "step": 3, "error": None}
-    raise ValueError(f"Job introuvable : '{job_id}'. Utilisez job_list pour voir les jobs existants.")
+    raise ValueError(
+        f"Job introuvable : '{job_id}'. Utilisez job_list pour voir les jobs existants."
+    )
 
 
 def _fake_model_versions() -> dict:
@@ -157,11 +179,16 @@ def test_provider_implements_resource_registry_port(provider) -> None:
 
 
 def test_list_resources_returns_exactly_the_5(provider) -> None:
-    """``ListResources`` → les 5 resources nommées par la checklist tâche 8."""
+    """``ListResources`` → les 10 resources (les 5 de la tâche 8 + 5 tâche 13).
+
+    Non-régression tâche 8 : les 5 URI d'origine restent présentes ; la
+    couverture exhaustive des 5 nouvelles vit dans test_mcp_resources_10.py.
+    """
     resources = provider.list_resources()
-    assert len(resources) == 5
+    assert len(resources) == 10
     assert all(isinstance(r, MCPResource) for r in resources)
-    assert {r.uri for r in resources} == EXPECTED_URIS
+    assert {r.uri for r in resources} == EXPECTED_URIS_10
+    assert EXPECTED_URIS <= {r.uri for r in resources}
     for resource in resources:
         assert resource.name, resource.uri
         assert resource.description, resource.uri
@@ -169,11 +196,15 @@ def test_list_resources_returns_exactly_the_5(provider) -> None:
 
 
 def test_list_resource_templates_covers_dynamic_uris(provider) -> None:
-    """Les 2 URIs paramétrées sont aussi exposées comme gabarits MCP (S5-ready)."""
+    """Les 6 URIs paramétrées sont aussi exposées comme gabarits MCP (S5)."""
     templates = provider.list_resource_templates()
     assert {t.uri_template for t in templates} == {
         "thinktuning://jobs/{job_id}",
+        "thinktuning://jobs/{job_id}/logs",
+        "thinktuning://models/{version}/info",
         "thinktuning://datasets/{path}/stats",
+        "thinktuning://datasets/{path}/preview",
+        "thinktuning://metrics/{job_id}",
     }
     assert all(isinstance(t, MCPResourceTemplate) for t in templates)
     job_template = next(t for t in templates if t.uri_template == "thinktuning://jobs/{job_id}")
@@ -188,22 +219,22 @@ def test_list_resources_is_pure_metadata(provider) -> None:
 
 
 def test_server_resources_list_returns_5(provider) -> None:
-    """``resources/list`` JSON-RPC → les 5 resources projetées (uri + name)."""
+    """``resources/list`` JSON-RPC → les 10 resources projetées (uri + name)."""
     server = build_mcp_server(
         tool_provider=InMemoryToolProvider([]), resource_provider=provider
     )
     reply = _rpc(server, 1, "resources/list")
     resources = reply["result"]["resources"]
-    assert len(resources) == 5
-    assert {r["uri"] for r in resources} == EXPECTED_URIS
+    assert len(resources) == 10
+    assert {r["uri"] for r in resources} == EXPECTED_URIS_10
     assert all({"uri", "name", "description", "mimeType"} <= set(r) for r in resources)
 
 
 def test_factory_wires_resources_by_default() -> None:
-    """``build_mcp_server()`` branche le registre des 5 resources (tâche 8)."""
+    """``build_mcp_server()`` branche le registre des 10 resources (tâches 8+13)."""
     server = build_mcp_server()
     reply = _rpc(server, 2, "resources/list")
-    assert {r["uri"] for r in reply["result"]["resources"]} == EXPECTED_URIS
+    assert {r["uri"] for r in reply["result"]["resources"]} == EXPECTED_URIS_10
 
 
 def test_initialize_advertises_resources_capability(provider) -> None:
