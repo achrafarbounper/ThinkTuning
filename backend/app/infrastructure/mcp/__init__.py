@@ -33,6 +33,12 @@
   URI (anti-traversée, anti double-encodage), ``safe_resolve`` porté par
   délégation, SQLite ``mode=ro`` + ``query_only``, clés API masquées.
   ``build_mcp_server()`` branche ce registre par défaut.
+- ``prompts/`` (tâche 9) : ``PromptProvider`` (port ``MCPPromptRegistryPort``)
+  — 2 prompts résolus localement (aucune I/O, aucun tool, aucun LLM) :
+  ``analyze-sentiment`` (``text``) et ``plan-training`` (``dataset``).
+  Sécurité : fail-closed (nom inconnu → ``NotFoundError``, argument requis
+  manquant / valeur non-string → ``ValidationError``), templates possédés
+  par le serveur. ``build_mcp_server()`` branche ce registre par défaut.
 """
 
 from __future__ import annotations
@@ -62,6 +68,10 @@ from app.infrastructure.mcp.policy_adapter import (
     decide_action,
     decision_to_annotations,
     visible_tools,
+)
+from app.infrastructure.mcp.prompts.prompt_provider import (
+    PromptProvider,
+    build_prompt_provider,
 )
 from app.infrastructure.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
@@ -94,6 +104,7 @@ __all__ = [
     "MCP_SERVER_NAME",
     "PolicyGateToolProvider",
     "PolicyVerdict",
+    "PromptProvider",
     "ProtocolError",
     "ScopeFilteredToolProvider",
     "ToolError",
@@ -102,6 +113,7 @@ __all__ = [
     "V100_READ_ONLY_TOOLS",
     "build_legacy_resource_provider",
     "build_mcp_server",
+    "build_prompt_provider",
     "build_v010_read_only_provider",
     "build_v100_read_only_provider",
     "decide",

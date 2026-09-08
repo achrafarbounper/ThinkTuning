@@ -297,3 +297,66 @@
 - Aucune écriture possible via les resources : toutes les lectures passent
   par des tools read-only (`AUTO_APPROVE`), SQLite en lecture stricte et
   la sandbox — MCP ne bypass jamais la security interne.
+
+### Ajouts — 2 Prompts MCP (tâche 9)
+- **Provider** : `app/infrastructure/mcp/prompts/prompt_provider.py` (nouveau
+  sous-paquet `prompts/`) — `PromptProvider` hérite du port domaine
+  `MCPPromptRegistryPort` (tâche 3, même convention que
+  `LegacyResourceProvider`) : chaque prompt est un template nommé résolu
+  LOCALEMENT (aucune I/O, aucun tool, aucun LLM) :
+  - `analyze-sentiment` → « Analyse le sentiment de ce texte: {text} »
+    (argument `text`, requis) ;
+  - `plan-training` → « Planifie un entraînement pour: {dataset} »
+    (argument `dataset`, requis).
+- **Domaine** : entités posées à la tâche 3 et réutilisées telles quelles —
+  `MCPPromptTemplate` (`name`, `description`, `arguments`),
+  `MCPPromptArgument` (`name`, `description`, `required`),
+  `MCPPromptMessage` (`role`, `content`), projections `to_dict()` alignées
+  sur la spec MCP (`prompts/list`, `prompts/get`).
+- **Sécurité (fail-closed)** :
+  - nom : prompt non déclaré → `NotFoundError` (message actionnable — le
+    catalogue est public via `prompts/list`, lister les noms ne fuit rien) ;
+  - arguments : argument requis manquant → `ValidationError` (422,
+    client-réparable) ; valeur non-string → `ValidationError` (la spec MCP
+    ne transporte que des chaînes — on n'interpole JAMAIS un objet) ;
+  - interpolation : les templates sont possédés par le SERVEUR, les
+    arguments du client ne sont que des VALEURS substituées (`str.format`)
+    — pas d'accès attribut/index contrôlé par le client, valeurs substituées
+    non re-traitées comme des gabarits (pas de récursion) ;
+  - arguments surnuméraires : ignorés (pas d'oracle d'erreur différentiel).
+- **Serveur** : `prompts/get` ajouté au protocole (`MCPMethod`) et au
+  dispatch (`{description?, messages: [{role, content: {type: text, text}}]}`)
+  ; `NotFoundError`/`ValidationError` → erreur JSON-RPC `Invalid params`
+  (-32602, message actionable préservé, jamais un crash) ; autres exceptions
+  → `Internal error` (fail-closed) ; capability `prompts` annoncée à
+  l'`initialize` quand un registre est branché (une surface sans prompts est
+  indiscernable d'un prompt inconnu) ; `build_mcp_server()` branche
+  `PromptProvider` par défaut (`prompt_provider=...` remplace entièrement).
+- **Exports** : `PromptProvider` + `build_prompt_provider` ré-exportés par
+  `app.infrastructure.mcp` (nouveau sous-paquet `prompts/`, parité avec
+  `resources/`).
+
+### Tests (tâche 9)
+- `tests/test_mcp_prompts.py` (nouveau, 21 tests) : contrat de port
+  (`isinstance`, héritage), `ListPrompts` = les 2 (ordre déterministe,
+  métadonnées + projection spec), `GetPrompt` résolution exacte des 2
+  templates (FR/EN), projection MCP du message, surplus d'arguments ignoré,
+  valeurs substituées non re-traitées comme gabarits, erreurs fail-closed
+  (inconnu → 404, requis manquant / `arguments=None` / valeur non-string →
+  422), erreurs serveur (404/422 → -32602, `name` manquant, `arguments`
+  non-objet, surface sans registre indiscernable d'un prompt inconnu),
+  capability `initialize` (annoncée avec registre, absente sans).
+- `tests/test_mcp_server_basic.py` mis à jour : `prompts/list` par défaut =
+  les 2 prompts v1.0.0 (remplace l'attente « liste vide » de la tâche 8).
+- Suite MCP complète : **356 passed**.
+
+### Notes de migration (tâche 9)
+- Breaking-behavior maîtrisé : `prompts/list` par défaut passe de `[]` à
+  2 prompts et `initialize` annonce la capability `prompts` — les clients
+  MCP conformes découvrent les prompts dynamiquement (aucun code client à
+  changer) ; la surface REST v1, les tools et les resources restent
+  inchangés.
+- Aucun effet de bord : la résolution d'un prompt est une substitution de
+  chaînes pure (aucune I/O, aucun appel tool/LLM, aucune écriture) ; la
+  version de surface MCP reste `[tool.mcp] version = 0.1.0` (le bump 1.0.0
+  suivra le jalon Public Beta complet).

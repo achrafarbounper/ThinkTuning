@@ -10,8 +10,9 @@ stdio) partagent ce module — enveloppes, méthodes et codes d'erreur ne sont
 Conformité :
     - enveloppe JSON-RPC 2.0 (https://www.jsonrpc.org/specification) ;
     - MCP ``protocolVersion`` = "2025-06-18" (streamable HTTP) ;
-    - methods couvertes au bootstrap : initialize, ping, tools/list,
-      tools/call, resources/list, prompts/list, notifications/initialized.
+    - methods couvertes : initialize, ping, tools/list, tools/call,
+      resources/list, resources/read, prompts/list, prompts/get,
+      notifications/initialized.
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ class MCPMethod:
     RESOURCES_LIST = "resources/list"
     RESOURCES_READ = "resources/read"
     PROMPTS_LIST = "prompts/list"
+    PROMPTS_GET = "prompts/get"
     NOTIFICATIONS_INITIALIZED = "notifications/initialized"
 
 
