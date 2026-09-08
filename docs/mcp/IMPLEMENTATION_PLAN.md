@@ -34,12 +34,12 @@
 - [x] Test : `test_mcp_server_basic.py` (ListTools, CallTool)
 
 ### Tâche 3 : MCP Domain Ports
-- [ ] `app/domain/ports/mcp_ports.py` :
+- [x] `app/domain/ports/mcp_ports.py` :
   - `MCPToolRegistryPort` (interface de projection des tools)
   - `MCPResourceRegistryPort` (URI templates ↔ tools)
   - `MCPPromptRegistryPort` (templates MCP)
   - `SamplingPort` (reverse LLM inference)
-- [ ] Test : `test_mcp_ports_contract.py` (verify legacy implements the ports)
+- [x] Test : `test_mcp_ports_contract.py` (verify legacy implements the ports)
 
 ---
 

@@ -6,10 +6,10 @@ Séparation des responsabilités (hexagonale, docs/mcp/MCP_IMPLEMENTATION_MAPPIN
       tools/call…) et le scope de sécurité — mais AUCUN transport ;
     - ``mcp_server_sse.py`` / ``mcp_server_stdio.py`` ne font que câbler ce
       cœur sur leur entrée/sortie ;
-    - la source de vérité des tools (``ToolProvider``) sera formalisée en port
-      domaine ``MCPToolRegistryPort`` (tâche 3) : ce Protocol en matérialise
-      déjà la jointure et la fabrique (``mcp_server_factory.py``) fournit le
-      registre bootstrap de la S1.
+        - la source de vérité des tools est formalisée en port domaine
+      ``MCPToolRegistryPort`` (app/domain/ports/mcp_ports.py, tâche 3) :
+      ``ToolProvider`` est un alias rétrocompatible. La fabrique
+      (``mcp_server_factory.py``) fournit le registre bootstrap de la S1.
 
 S1 = dispatch SYNCHRONE : tous les handlers de tools du bootstrap sont purs.
 L'asynchronicité des futurs tools (sampling / orchestrate, S6) s'ajoutera par
@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from collections.abc import Iterable
+from typing import Any
 
-from app.domain.entities.mcp import MCPScopeRole, MCPVersion
+from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
+from app.domain.ports.mcp_ports import MCPToolRegistryPort
 from app.infrastructure.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
     MCP_SERVER_NAME,
@@ -47,67 +47,26 @@ class ToolError(RuntimeError):
     """
 
 
-@dataclass(frozen=True, slots=True)
-class MCPTool:
-    """Métadonnées + handler d'un tool exposé au bootstrap S1.
-
-    Attributs:
-        name:           identifiant MCP unique du tool ;
-        description:    description lisible (listée dans tools/list) ;
-        input_schema:   JSON Schema des arguments (``inputSchema`` MCP) ;
-        annotations:    ``annotations`` MCP (readOnlyHint, destructiveHint,
-            idempotentHint) — la projection de la politique thinktuning.tool/v1
-            (safety) vers ces annotations arrive en S2 (policy_adapter, tâche 5) ;
-        required_scope: rôle minimal pour VOIR et APPELER le tool
-            (MCPScopeRole, docs/mcp/MCP_SECURITY.md) ;
-        handler:        exécution pure ``(arguments: dict) -> str`` ; lève
-            ``ToolError`` pour une erreur métier (isError).
-    """
-
-    name: str
-    description: str
-    input_schema: dict[str, Any]
-    annotations: dict[str, bool]
-    required_scope: MCPScopeRole
-    handler: Callable[[dict[str, Any]], str]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Projection MCP du tool (tools/list)."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "inputSchema": self.input_schema,
-            "annotations": self.annotations,
-        }
-
-
-@runtime_checkable
-class ToolProvider(Protocol):
-    """Source de vérité des tools exposés (S1) → ``MCPToolRegistryPort`` (tâche 3).
-
-    Le serveur ne connaît que ce contrat : il projette ``list_tools`` en
-    tools/list et délègue ``call_tool``. Les registres réels (ToolRegistry
-    legacy, registre dynamique SCRUM-99) pourront l'implémenter sans toucher
-    aux transports.
-    """
-
-    def list_tools(self) -> list[MCPTool]: ...
-
-    def call_tool(self, name: str, arguments: dict[str, Any]) -> str: ...
+# MCPTool et ToolProvider sont désormais dans le domaine (tâche 3) :
+#   - MCPTool ← app/domain/entities/mcp.py (entité pure, déplacée de l'infra)
+#   - MCPToolRegistryPort ← app/domain/ports/mcp_ports.py (Protocol)
+# ToolProvider est conservé comme alias rétrocompatible pour les imports existants.
+ToolProvider = MCPToolRegistryPort
 
 
 class MCPServer:
     """Dispatch JSON-RPC 2.0 / MCP, stateless et thread-safe.
 
-    Instance par client ou partagée : aucun état mutable entre requêtes (les
-    handlers de tools passent par le ``ToolProvider`` injecté). Le scope de
-    sécurité est FIXÉ à la construction (fabrique, build with scope).
+        Instance par client ou partagée : aucun état mutable entre requêtes (les
+    handlers de tools passent par le ``MCPToolRegistryPort`` injecté). Le scope
+    de sécurité est FIXÉ à la construction (fabrique, build with scope).
 
     Attributes:
         name:           nom du serveur (``serverInfo.name``) ;
         version:        version de la surface MCP (``serverInfo.version``) ;
         scope:          rôle du client (filtre la visibilité des tools) ;
-        tool_provider:  source des tools (contrat ``ToolProvider``).
+        tool_provider:  source des tools (port ``MCPToolRegistryPort``, alias
+            rétrocompatible ``ToolProvider``).
     """
 
     def __init__(
@@ -116,7 +75,7 @@ class MCPServer:
         name: str = MCP_SERVER_NAME,
         version: MCPVersion,
         scope: MCPScopeRole,
-        tool_provider: ToolProvider,
+        tool_provider: MCPToolRegistryPort,
     ) -> None:
         self.name = name
         self.version = version
@@ -277,9 +236,9 @@ __all__ = [
 class InMemoryToolProvider:
     """Registre de tools en mémoire, immutable après construction.
 
-    Bootstrap S1 : suffisant pour ListTools/CallTool en attendant la
-    projection du registre legacy via ``MCPToolRegistryPort`` (tâche 3) /
-    la livraison des 12 tools read-only (S2, tâche 6).
+        Bootstrap S1 : suffisant pour ListTools/CallTool en attendant la
+    projection du registre legacy ``ToolRegistry`` sur le port
+    ``MCPToolRegistryPort`` (S2, tâche 6 : 12 tools read-only).
     """
 
     def __init__(self, tools: Iterable[MCPTool]) -> None:

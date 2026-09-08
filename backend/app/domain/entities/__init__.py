@@ -3,7 +3,12 @@
 
 from .mcp import (  # noqa: F401
     DEFAULT_MCP_VERSION,
+    MCPResourceTemplate,
+    MCPPromptArgument,
+    MCPPromptMessage,
+    MCPPromptTemplate,
     MCPScopeRole,
+    MCPTool,
     MCPVersion,
 )
 from .plan import (  # noqa: F401
@@ -32,10 +37,15 @@ __all__ = [
     "ApprovalDecision",
     "ApprovalStatus",
     "Decision",
-    "DEFAULT_MCP_VERSION",
+        "DEFAULT_MCP_VERSION",
     "HealthSnapshot",
     "Intent",
+    "MCPResourceTemplate",
+    "MCPPromptArgument",
+    "MCPPromptMessage",
+    "MCPPromptTemplate",
     "MCPScopeRole",
+    "MCPTool",
     "MCPVersion",
     "Plan",
     "PlanErrorCode",

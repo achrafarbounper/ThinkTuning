@@ -325,6 +325,16 @@ interface TrainJobTrackerProps { jobId: string; onComplete?: () => void; }
 - Privilégier la lecture des fichiers de contrat (ports, schemas OpenAPI, entities) pour comprendre les interfaces avant l'implémentation.
 
 ---
+### ✔ Checks qualité (mode non bloquant)
+
+ThinkTuning utilise des checks qualité progressifs pour éviter la dette technique :
+
+```bash
+# Linting (Ruff)
+ruff check backend/app || true
+
+# Typage (Mypy)
+mypy backend/app || true
 
 ## Références clés
 

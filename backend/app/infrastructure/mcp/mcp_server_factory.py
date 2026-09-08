@@ -21,11 +21,10 @@ from __future__ import annotations
 
 import logging
 
-from app.domain.entities.mcp import MCPScopeRole, MCPVersion
+from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
 from app.infrastructure.mcp.mcp_server import (
     InMemoryToolProvider,
     MCPServer,
-    MCPTool,
     ToolProvider,
 )
 from app.infrastructure.mcp.protocol import MCP_SERVER_NAME, empty_input_schema
