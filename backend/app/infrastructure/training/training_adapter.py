@@ -20,6 +20,7 @@ import uuid
 
 from app.domain.errors import NotFoundError
 from app.domain.ports.training_ports import (
+    MetricRows,
     TrainingJobsPort,
     TrainingRunnerPort,
     TrainingSchedulesPort,
@@ -47,7 +48,7 @@ class ModuleTrainingJobsAdapter:
             status=status, kind=kind, limit=limit, offset=offset
         )
 
-    def metrics(self, job_id: str) -> list[dict]:
+    def metrics(self, job_id: str) -> MetricRows:
         return get_job_store().get_job_metrics(job_id)
 
 

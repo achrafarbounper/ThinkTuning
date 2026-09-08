@@ -141,8 +141,9 @@ def _hf_key_entry(stored: dict) -> dict:
     if "hf_api_key" in stored:
         return {"value": stored["hf_api_key"], "source": "sqlite"}
     for env_key in ("HF_API_KEY", "HF_TOKEN"):
-        if (os.getenv(env_key) or "").strip():
-            return {"value": os.getenv(env_key).strip(), "source": "env"}
+        value = os.getenv(env_key) or ""
+        if value.strip():
+            return {"value": value.strip(), "source": "env"}
     return {"value": "", "source": "default"}
 
 

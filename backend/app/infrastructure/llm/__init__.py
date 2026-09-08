@@ -15,6 +15,8 @@ est liée au retrait du chemin v1 (``core/agent_cache.py`` l'utilise encore).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.domain.ports import LLMClientPort
 from app.infrastructure.llm.http_client import HttpLLMClient
 from app.infrastructure.llm.stub_client import StubLLMClient
@@ -62,5 +64,10 @@ def _build_http_client(**overrides: object) -> HttpLLMClient:
     return HttpLLMClient(**kwargs)  # type: ignore[arg-type]
 
 
-# Conformité structurelle (signatures vérifiées par test).
-_REF: LLMClientPort = HttpLLMClient
+# Conformité structurelle (signatures vérifiées par test) : mypy valide ici
+# que HttpLLMClient satisfait LLMClientPort (INSTANCE, pas classe — le client
+# n'est jamais instancié au chargement du module).
+if TYPE_CHECKING:
+
+    def _conformance_check(client: HttpLLMClient) -> LLMClientPort:
+        return client

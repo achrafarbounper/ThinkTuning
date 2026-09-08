@@ -20,6 +20,7 @@ import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 AGENT_RUN_PATH = os.getenv("AGENT_RUN_PATH", os.path.join("experiments", "agent_runs.db"))
 
@@ -224,7 +225,8 @@ class RunStore:
             conn = self._connect()
             try:
                 sql = f"SELECT {_SELECT_COLUMNS} FROM agent_runs"
-                conditions, params = [], []
+                conditions: list[str] = []
+                params: list[Any] = []
                 if status:
                     conditions.append("status = ?")
                     params.append(status)

@@ -23,7 +23,9 @@ Ajouter un outil :
 """
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 # Imports relatifs : fonctionnent à la fois sous le paquet « ia.tools » (tests :
 # from ia.agent.agent_core import ...) et sous la racine « tools » (runtime :
@@ -83,7 +85,7 @@ from .ops_tools import (
 from .ops_tools import docker_stats
 from .custom_tools import call_api, run_shell  # SCRUM-99 (tools d'exemple)
 
-TOOLS = {
+TOOLS: dict[str, Callable[..., Any]] = {
     # math
     "add": add,
     # calculatrice sûre
@@ -181,4 +183,4 @@ def required_args_of(name: str) -> list[str]:
 
 # Dérivé : un clé manquante dans le JSON est une source de divergence -> le
 # test anti-divergence échoue, plutôt que de produire un prompt incomplet.
-REQUIRED_ARGS = {name: meta.get("required_args", []) for name, meta in TOOL_META.items()}
+REQUIRED_ARGS: dict[str, list[str]] = {name: meta.get("required_args", []) for name, meta in TOOL_META.items()}

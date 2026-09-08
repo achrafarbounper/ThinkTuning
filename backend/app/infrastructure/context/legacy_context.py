@@ -9,6 +9,8 @@ tard sans toucher aux use-cases.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.domain.ports import ContextPort, Message
 from ia.agent import context as _legacy
 
@@ -45,5 +47,9 @@ class LegacyContextProvider:
 
 
 # Conformité structurelle explicite (rappel : runtime_checkable ne vérifie pas
-# les signatures — le test de contrat les introspecte).
-_REF: ContextPort = LegacyContextProvider
+# les signatures — le test de contrat les introspecte). mypy valide ici que
+# l'adaptateur satisfait le port (INSTANCE, pas classe).
+if TYPE_CHECKING:
+
+    def _conformance_check(provider: LegacyContextProvider) -> ContextPort:
+        return provider

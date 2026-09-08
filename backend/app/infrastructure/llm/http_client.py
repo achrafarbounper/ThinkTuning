@@ -32,7 +32,7 @@ from typing import Any
 
 import httpx
 
-from app.infrastructure.llm.errors import classify_llm_error
+from app.infrastructure.llm.errors import ErrorClass, classify_llm_error
 from ia.agent.encoding import repair_utf8_mojibake
 from ia.agent.reliability import CircuitBreaker, retry
 from ia.agent.thinking import extract_thinking
@@ -148,7 +148,7 @@ class HttpLLMClient:
         self.think = bool(think)
         self.last_thinking = ""
         self.last_error: BaseException | None = None
-        self.last_error_class = None
+        self.last_error_class: ErrorClass | None = None
 
         self._transport = transport
         self.retry_attempts = (

@@ -57,7 +57,7 @@ def gpu_info() -> dict:
     try:
         import torch
     except ImportError:
-        torch = None
+        torch = None  # type: ignore[assignment]  # sonde optionnelle
     if torch is not None:
         info["torch_available"] = True
         info["torch_version"] = torch.__version__

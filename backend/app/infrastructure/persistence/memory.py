@@ -42,7 +42,7 @@ class MemoryRunStore:
         with self._lock:
             self._seq += 1
             run_id = f"run-{self._seq:04d}-{uuid.uuid4().hex[:6]}"
-            row = {
+            row: dict[str, Any] = {
                 "id": run_id,
                 "prompt": prompt or "",
                 "model": model or "",

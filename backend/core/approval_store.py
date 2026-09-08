@@ -195,7 +195,7 @@ class ApprovalStore:
                     ).fetchall()
             finally:
                 conn.close()
-        return [self._row_to_dict(row) for row in rows]
+        return [d for d in (self._row_to_dict(r) for r in rows) if d is not None]
 
     # --- Décisions --------------------------------------------------------------------
 

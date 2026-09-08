@@ -123,7 +123,7 @@ def process_tool_call(
         return executor(context.args)
 
     # Envelopper avec les middlewares (en ordre inverse pour le chaînage)
-    chain = _execute_tool
+    chain: Callable[[ToolContext], Any] = _execute_tool
     for priority, mw_func in reversed(middlewares):
         chain = _make_middleware_chain(mw_func, chain, priority)
 

@@ -14,9 +14,14 @@ domaine ici).
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.models import IntentTrainRequest, TrainJob, TrainRequest
+
+# Alias de contrat : lignes de métriques par epoch (dicts JSON du store).
+# Indispensable : dans le corps de classe, ``list`` est masqué par la méthode
+# ``list`` du Protocol — le builtin n'est plus résolvable en annotation.
+MetricRows = list[dict[str, Any]]
 
 
 class TrainingRunnerPort(Protocol):
@@ -54,7 +59,7 @@ class TrainingJobsPort(Protocol):
         """
         ...
 
-    def metrics(self, job_id: str) -> list[dict]:
+    def metrics(self, job_id: str) -> MetricRows:
         """Lignes de métriques par epoch (liste vide si aucune)."""
         ...
 

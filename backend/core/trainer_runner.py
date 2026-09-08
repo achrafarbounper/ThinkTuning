@@ -21,7 +21,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from src.utils.flags import TEST_MODE
 import torch
 logger = logging.getLogger(__name__)
-_job_cancel_events = {}
+_job_cancel_events: dict[str, threading.Event] = {}
 
 
 def _safe_len(obj):

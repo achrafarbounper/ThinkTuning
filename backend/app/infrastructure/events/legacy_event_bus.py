@@ -12,7 +12,7 @@ remplacement éventuel de ce wrapper (Phase 3), sans changer le port.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.domain.ports import EventBusPort
 from ia.agent.event_bus import get_event_bus
@@ -52,5 +52,10 @@ def legacy_bus() -> LegacyEventBus:
     return LegacyEventBus()
 
 
-# Conformité structurelle explicite (signatures vérifiées par test).
-_REF: EventBusPort = LegacyEventBus
+# Conformité structurelle explicite (signatures vérifiées par test) : mypy
+# valide ici que l'adaptateur satisfait le port (INSTANCE, pas classe — un
+# instantané importerait le singleton legacy au chargement du module).
+if TYPE_CHECKING:
+
+    def _conformance_check(bus: LegacyEventBus) -> EventBusPort:
+        return bus

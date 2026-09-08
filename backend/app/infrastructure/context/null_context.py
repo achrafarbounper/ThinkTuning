@@ -13,6 +13,8 @@ zéro dépendance externe.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.domain.ports import ContextPort, Message
 
 
@@ -62,5 +64,9 @@ class NullContextProvider:
         }
 
 
-# Conformité structurelle explicite.
-_REF: ContextPort = NullContextProvider
+# Conformité structurelle explicite : mypy valide ici que l'implémentation
+# satisfait le port (INSTANCE, pas classe).
+if TYPE_CHECKING:
+
+    def _conformance_check(provider: NullContextProvider) -> ContextPort:
+        return provider

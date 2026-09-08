@@ -12,7 +12,7 @@ les appels à un outil qui échoue répétitivement.
 import logging
 import threading
 import time
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger("thinktuning.agent.circuit_breaker")
 
@@ -89,7 +89,7 @@ class CircuitBreaker:
             self._state = CircuitState.CLOSED
 
     @property
-    def metrics(self) -> Dict[str, any]:
+    def metrics(self) -> Dict[str, Any]:
         with self._lock:
             return {
                 "state": self._state,

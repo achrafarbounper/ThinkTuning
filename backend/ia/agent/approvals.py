@@ -125,7 +125,7 @@ try:  # paquet « ia.tools » (imports racinés sur le projet / tests)
         safe_resolve as _sandbox_safe_resolve,
     )
 except ImportError:  # racine « agent » / « tools » (core/agent_cache.py ajoute ia/)
-    from tools.sandbox import (
+    from tools.sandbox import (  # type: ignore[no-redef]
         get_sandbox_root as _get_sandbox_root,
         safe_resolve as _sandbox_safe_resolve,
     )
@@ -215,7 +215,7 @@ def _config_approval(tool: str) -> Optional[Decision]:
     try:  # même convention duale que agent_core.py
         from ..tools.tool_registry import get_tool_meta
     except ImportError:
-        from tools.tool_registry import get_tool_meta
+        from tools.tool_registry import get_tool_meta  # type: ignore[no-redef]
     raw = str(get_tool_meta(tool).get("approval", "")).strip().lower()
     return _APPROVAL_OVERRIDE_MAP.get(raw)
 

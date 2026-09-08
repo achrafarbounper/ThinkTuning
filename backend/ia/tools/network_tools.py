@@ -8,6 +8,7 @@ Sécurité :
 """
 
 import requests
+from typing import Any
 
 from .sandbox import enforce_host_policy, truncate_output, url_scheme_allowed
 
@@ -59,7 +60,7 @@ def http_post(url: str, data: str | None = None, json_payload: dict | None = Non
     if json_payload is not None:
         if not isinstance(json_payload, dict):
             raise ValueError("'json_payload' doit être un objet JSON ({...}).")
-        kwargs = {"json": json_payload}
+        kwargs: dict[str, Any] = {"json": json_payload}
     else:
         kwargs = {"data": str(data) if data is not None else None}
 

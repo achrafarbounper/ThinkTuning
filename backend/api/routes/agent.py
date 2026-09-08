@@ -652,7 +652,7 @@ def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     try:
         from core.agent_cache import get_agent_runner
 
-        llm = get_agent_runner().core.llm
+        llm = get_agent_runner().agent.llm
     except Exception:
         raise HTTPException(status_code=503, detail="LLM indisponible pour la complétion") from None
     return {"completion": complete_text(llm, request.messages, request.draft)}
@@ -900,7 +900,9 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     # injoignable, resume_request_id invalide) reste une vraie erreur HTTP.
     first_kind, first_payload = events.get()
     if first_kind == "http_error":
-        raise first_payload  # noqa: TRY201 - re-lever l'HTTPException d'origine
+        if isinstance(first_payload, BaseException):
+            raise first_payload  # noqa: TRY201 - re-lever l'HTTPException d'origine
+        raise HTTPException(status_code=502, detail=str(first_payload))
     if first_kind == "error":
         raise HTTPException(status_code=502, detail=str(first_payload))
 
@@ -914,7 +916,14 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                 if kind == "done":
                     break
                 if kind in ("http_error", "error"):
-                    detail = payload.detail if kind == "http_error" else str(payload)
+                    if kind == "http_error":
+                        detail = (
+                            str(payload.detail)
+                            if isinstance(payload, HTTPException)
+                            else str(payload)
+                        )
+                    else:
+                        detail = str(payload)
                     yield _sse({"error": detail})
                     break
                 field = _CORE_STREAM_FIELDS.get(kind, kind)

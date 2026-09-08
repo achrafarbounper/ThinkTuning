@@ -159,16 +159,16 @@ ToolFunc = Callable[..., Any]
 try:  # paquet « ia.tools » (imports racinés sur le projet / tests)
     from ..tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: F401
 except ImportError:  # racine « agent » / « tools » (core/agent_cache.py)
-    from tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: F401
+    from tools.tool_registry import REQUIRED_ARGS, TOOLS  # type: ignore[no-redef]  # noqa: F401
 
 try:  # Phase B : analytique d'usage des outils (best-effort, jamais bloquant)
     from ..tools.tool_analytics import record_usage
 except ImportError:
-    from tools.tool_analytics import record_usage
+    from tools.tool_analytics import record_usage  # type: ignore[no-redef]
 
 # .approvals est un module frère du paquet « ia.agent » : l'import relatif
 # fonctionne dans les deux contextes (« ia.agent » tests ET « agent » runtime).
-from .approvals import ApprovalDecision, classify_approval  # noqa: E402
+from .approvals import ApprovalDecision, PolicyDecision, classify_approval  # noqa: E402
 
 
 def register_tool(name: str, func: ToolFunc, required_args: List[str]) -> None:
@@ -283,6 +283,10 @@ class AgentCore:
         exploite en plus le champ natif « message.thinking » d'Ollama.
         """
         self.llm = llm_client
+        # Intention GLOBALE stampée par l'orchestrateur multi-agents
+        # (observabilité, lecture seule — cf. build_role_agent).
+        self.intent: Optional[str] = None
+        self.intent_confidence: Optional[float] = None
         # Registres d'outils. En mode multi-agents, un sous-ensemble est
         # injecté par rôle (isolation stricte) ; sans injection, on retombe
         # sur le registre global historique (comportement inchangé).
@@ -314,9 +318,9 @@ class AgentCore:
         self._approval_store = approval_store
 
         # État du derning run : renseigné par le gate de décision.
-        self.last_approval = None          # PolicyDecision du dernier appel
-        self.awaiting_request_id = None    # id si une action attend validation
-        self.rejected_request_id = None    # id si une action a été bloquée
+        self.last_approval: Optional[PolicyDecision] = None          # PolicyDecision du dernier appel
+        self.awaiting_request_id: Optional[str] = None    # id si une action attend validation
+        self.rejected_request_id: Optional[str] = None    # id si une action a été bloquée
         self._run_prompt = ""              # prompt du dernier run (traçabilité)
 
     # ---------------------------------------------------------
@@ -535,6 +539,7 @@ class AgentCore:
             # (approve) ou bloquée (reject) ; on stop le tour sans exécuter.
             gate_id = self._gate(tool, args)
             if gate_id is not None:
+                assert self.last_approval is not None  # gate posé ⇒ décision enregistrée
                 logger.info(
                     "tool_gate tool=%s decision=%s request_id=%s",
                     tool,
