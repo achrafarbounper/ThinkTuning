@@ -358,8 +358,13 @@ def test_real_manifest_tool_count_consistent(real_manifest: dict) -> None:
 @pytest.mark.parametrize(
     "name",
     [
-        # Sélection v0.1.0 (tâche 6) classée READ/NETWORK par la policy legacy :
-        # ces tools DOIVENT ressortir read-only du manifeste compilé.
+        # Sélection v0.1.0 (tâche 6) : les 13 tools nommés par la checklist
+        # (le label « 12 » de la roadmap arrondissait la sélection). Ils
+        # DOIVENT ressortir read-only du manifeste compilé : add/calc via la
+        # déclaration `safety` standard v1 (tâche 6), les autres via la
+        # classification READ/NETWORK de la policy legacy.
+        "add",
+        "calc",
         "web_search",
         "web_fetch",
         "web_read",
@@ -382,20 +387,26 @@ def test_real_manifest_v010_read_only_selection(real_manifest: dict, name: str) 
 
 
 @pytest.mark.parametrize("name", ["add", "calc"])
-def test_real_manifest_unclassified_selection_tools_are_flagged(
+def test_real_manifest_v010_declared_safe_selection_tools(
     real_manifest: dict, name: str
 ) -> None:
-    """``add``/``calc`` : absents du classifieur legacy → fail-closed + warning.
+    """``add``/``calc`` : absents du classifieur legacy → posture DÉCLARÉE (tâche 6).
 
-    Gap documenté que la tâche 6 lèvera (déclaration ``safety`` standard v1 dans
-    tools_config.json, ou annotations explicites au wiring) — le manifeste ne
-    doit JAMAIS deviner une posture de lecture.
+    Le gap documenté au livrable de la tâche 4 (fail-closed mutation + admin)
+    est levé par la déclaration ``safety`` standard v1 dans tools_config.json :
+    la posture read-only vient de la DÉCLARATION (source « declared »), jamais
+    d'une devinette du manifeste (règle : ne jamais deviner une posture de
+    lecture).
     """
     by_name = {entry["name"]: entry for entry in real_manifest["tools"]}
-    assert by_name[name]["safety"]["source"] == "default"
-    assert any(
-        name in warning and "safety" in warning for warning in real_manifest["warnings"]
-    )
+    entry = by_name[name]
+    assert entry["safety"] == {
+        "level": "safe",
+        "requires_approval": False,
+        "source": "declared",
+    }
+    assert entry["annotations"] == READ_ONLY_ANNOTATIONS
+    assert entry["requiredScope"] == "read_only"
 
 
 @pytest.mark.parametrize(

@@ -86,10 +86,28 @@
 > `tests/test_mcp_policy_adapter.py`.
 
 ### Tâche 6 : 12 Tools Read-Only
-- [ ] Sélectionner : `add`, `calc`, `web_search`, `web_fetch`, `web_read`, `http_get`
-- [ ] `read_file`, `list_dir`, `find_file`, `file_info`, `file_checksum`, `head_file`, `count_lines`
-- [ ] Tous passent par `check_command_allowed` + `safe_resolve` + `enforce_host_policy`
-- [ ] Annotations : `readOnlyHint: true`, `idempotentHint: true`
+- [x] Sélectionner : `add`, `calc`, `web_search`, `web_fetch`, `web_read`, `http_get`
+- [x] `read_file`, `list_dir`, `find_file`, `file_info`, `file_checksum`, `head_file`, `count_lines`
+- [x] Tous passent par `check_command_allowed` + `safe_resolve` + `enforce_host_policy`
+- [x] Annotations : `readOnlyHint: true`, `idempotentHint: true`
+
+> **Livré (S2)** : ``app/infrastructure/mcp/legacy_tool_provider.py`` — projection
+> de la sélection read-only ``V010_READ_ONLY_TOOLS`` (les 13 tools nommés par la
+> checklist ; le label « 12 » de la roadmap arrondissait le compte) du registre
+> legacy ``ia/tools/tool_registry.py`` sur le port ``MCPToolRegistryPort``
+> (tâche 3). REUSE total : ``compile_tool`` → ``entry_to_mcp_tool`` → handlers
+> délégués aux implémentations legacy (``TOOLS[name](**args)``). Garanties de
+> sécurité portées PAR DÉLÉGATION (zéro règle dupliquée) : ``safe_resolve``
+> (fichiers), ``url_scheme_allowed`` + ``enforce_host_policy`` (réseau, anti-SSRF),
+> AST whitelisté (``calc``) ; ``check_command_allowed`` n'a pas d'objet ici
+> (``run_command``/``run_python`` sont ABSENTS de la sélection read-only).
+> Fail-closed : posture mutation / nom inconnu / implémentation absente → tool
+> EXCLU à la construction (warning tracé) ; à l'appel, args manquants ou
+> exceptions legacy → ``ToolError`` (MCP ``isError``). ``add``/``calc`` :
+> posture DÉCLARÉE ``safety: safe`` dans ``tools_config.json`` (lève le gap
+> tâche 4). ``build_mcp_server()`` expose par défaut bootstrap S1 (2) + la
+> sélection (13) = 15 tools. Test : ``tests/test_legacy_tool_provider.py``
+> (40 tests) ; suite MCP complète : 289 passed.
 
 ---
 

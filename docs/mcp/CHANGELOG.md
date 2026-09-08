@@ -129,3 +129,44 @@
 - écart préexistant hors périmètre : certaines descriptions de
   `tools_config.json` sont en double-encodage UTF-8/Windows-1252 — le
   générateur compile la source fidèlement (nettoyage = chantier dédié).
+
+### Ajouts — Legacy Tool Provider (tâche 6, S2 — v0.1.0 Tools)
+- **Provider** : `app/infrastructure/mcp/legacy_tool_provider.py` — projection de
+  la sélection read-only v0.1.0 (`V010_READ_ONLY_TOOLS`, 13 tools nommés par la
+  checklist — le label « 12 » de la roadmap arrondissait le compte) du registre
+  legacy `ia/tools/tool_registry.py` sur le port `MCPToolRegistryPort` (tâche 3) :
+  - **REUSE total** : `compile_tool` (inputSchema + annotations) →
+    `entry_to_mcp_tool` → handlers câblés par DÉLÉGATION aux implémentations
+    legacy (`TOOLS[name](**args)`) ;
+  - **sécurité par délégation** (zéro règle dupliquée) : `safe_resolve`
+    (fichiers — aucune évasion), `url_scheme_allowed` + `enforce_host_policy`
+    (réseau — anti-SSRF), AST whitelisté (`calc` — aucun exec/eval) ;
+  - **fail-closed à la construction** : posture mutation / nom inconnu /
+    implémentation absente → tool EXCLU (warning) ; à l'appel : args requis
+    manquants et exceptions legacy → `ToolError` (MCP `isError`, jamais un crash).
+- **Fabrique** : `build_mcp_server()` expose par défaut bootstrap S1 (2) +
+  sélection v0.1.0 (13) = 15 tools ; `tool_provider=...` remplace entièrement
+  le registre (régression `UnboundLocalError` sur l'injection explicite corrigée).
+- **Déclaration** : `add`/`calc` ont reçu une `safety` standard v1 (`safe`) dans
+  `ia/tools/tools_config.json` — lève le gap fail-closed documenté à la tâche 4
+  (tools non classés → posture DÉCLARÉE read-only, jamais devinée).
+
+### Tests (tâche 6)
+- `tests/test_legacy_tool_provider.py` (40 tests) : sélection exacte (13, ordre
+  alphabétique), contrat du port, annotations read-only/idempotent + scope
+  READ_ONLY, alignement bit-à-bit manifeste compilé (anti-divergence), exécution
+  réelle par délégation (sandbox tmp isolée : fichiers ; calculs purs ; validation
+  réseau synchrone SANS I/O externe), erreurs métier (dont translucidité des
+  `ToolError` legacy), fail-closed à la construction (exclusions tracées),
+  intégration serveur end-to-end (`tools/call` add, count_lines).
+- Suite MCP complète : **289 passed** (`test_mcp_version` + `test_mcp_server_basic`
+  + `test_mcp_ports_contract` + `test_mcp_manifest` + `test_mcp_policy_adapter`
+  + `test_legacy_registry_adapter` + `test_legacy_tool_provider`).
+
+### Notes de migration (tâche 6)
+- Aucun breaking change : surface REST v1 et registre legacy inchangés ; la couche
+  MCP ajoute une projection read-only (les tools mutatifs legacy restent hors
+  périmètre v0.1.0 — S3 étendra la lecture seule).
+- Garde-fou structurel : la surface read-only ne peut JAMAIS exposer un tool
+  classé mutation, même demandé explicitement en `selection` — la posture ne se
+  devine pas, elle se compile depuis `tools_config.json` (source unique).

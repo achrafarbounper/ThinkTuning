@@ -17,11 +17,22 @@
   ``readOnlyHint``/``destructiveHint``/``idempotentHint``, filtre de scope
   (``visible_tools``) et providers sécurisés (``ScopeFilteredToolProvider``,
   ``PolicyGateToolProvider`` : MCP n'est pas un bypass de la security interne).
+- ``legacy_tool_provider`` (tâche 6) : projection de la SÉLECTION read-only
+  v0.1.0 (``V010_READ_ONLY_TOOLS``) du registre legacy ``ia/tools`` sur le port
+  ``MCPToolRegistryPort`` — compilation REUSE (``compile_tool`` →
+  ``entry_to_mcp_tool``), handlers délégués aux implémentations legacy
+  (garde-fous sandbox/SSRF portés par délégation), erreurs → ``ToolError``,
+  fail-closed à la construction (jamais de tool mutation exposé).
 """
 
 from __future__ import annotations
 
 from app.domain.entities.mcp import DEFAULT_MCP_VERSION, MCPVersion
+from app.infrastructure.mcp.legacy_tool_provider import (
+    V010_READ_ONLY_TOOLS,
+    LegacyRegistryToolProvider,
+    build_v010_read_only_provider,
+)
 from app.infrastructure.mcp.mcp_server import (
     InMemoryToolProvider,
     MCPServer,
@@ -57,6 +68,7 @@ __all__ = [
     "DEFAULT_MCP_VERSION",
     "ErrorCode",
     "InMemoryToolProvider",
+    "LegacyRegistryToolProvider",
     "MCPMethod",
     "MCP_PROTOCOL_VERSION",
     "MCPTool",
@@ -69,7 +81,9 @@ __all__ = [
     "ScopeFilteredToolProvider",
     "ToolError",
     "ToolProvider",
+    "V010_READ_ONLY_TOOLS",
     "build_mcp_server",
+    "build_v010_read_only_provider",
     "decide",
     "decide_action",
     "decision_to_annotations",
