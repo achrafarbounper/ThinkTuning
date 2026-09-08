@@ -16,6 +16,10 @@
           "required": true,
           "type": "number"
         }
+      },
+      "safety": {
+        "level": "safe",
+        "requires_approval": false
       }
     },
     "append_file": {
@@ -47,6 +51,10 @@
           "required": true,
           "type": "string"
         }
+      },
+      "safety": {
+        "level": "safe",
+        "requires_approval": false
       }
     },
     "call_api": {

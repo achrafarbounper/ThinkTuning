@@ -9,9 +9,9 @@
 | Serveur | `thinktuning-mcp` |
 | Version surface | 0.1.0 |
 | Protocole MCP | 2025-06-18 |
-| Tools | **57** (read-only : **26** · mutation : **31**) |
-| Généré le | 2026-09-08T14:12:36.486Z |
-| Avertissements | 14 |
+| Tools | **57** (read-only : **28** · mutation : **29**) |
+| Généré le | 2026-09-08T15:40:25.218Z |
+| Avertissements | 12 |
 
 ## Catalogue
 
@@ -23,9 +23,9 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 
 | Tool | Scope requis | readOnly | destructive | idempotent | Catégorie | Description |
 |---|---|:-:|:-:|:-:|---|---|
-| `add` | admin | — | ✅ | — | builtin | — |
+| `add` | read_only | ✅ | — | ✅ | builtin | — |
 | `append_file` | contributor | — | ✅ | — | builtin | Ajoute `content` Ã la fin d'un fichier DANS la sandbox (crÃ©e le fichier et ses parents si nÃ©cessaire â€” co… |
-| `calc` | admin | — | ✅ | — | builtin | Ã‰value une expression arithmÃ©tique pure et renvoie {expression, result} |
+| `calc` | read_only | ✅ | — | ✅ | builtin | Ã‰value une expression arithmÃ©tique pure et renvoie {expression, result} |
 | `call_api` | contributor | — | ✅ | — | builtin | Appel HTTP générique GET/POST vers une API externe (schéma http/https, sortie tronquée). GET sans corps ; POS… |
 | `cancel_training` | admin | — | ✅ | — | builtin | Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au procha… |
 | `copy_path` | contributor | — | ✅ | — | builtin | Copie fichier ou arborescence dans la sandbox |
@@ -1353,8 +1353,6 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 ## Avertissements de compilation
 
 - add: « description » manquante ou vide
-- add: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
-- calc: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - cancel_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - dataset_stats: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - find_duplicates: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
