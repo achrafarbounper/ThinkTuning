@@ -49,6 +49,11 @@ dev = [
     "mypy>=1.10.0",
 ]
 
+# Console scripts — entry points MCP (S1, tâche 2 : docs/mcp/IMPLEMENTATION_PLAN.md).
+# ``thinktuning-mcp`` : serveur MCP transport stdio (JSON-RPC 2.0 ligne à ligne).
+[project.scripts]
+thinktuning-mcp = "app.infrastructure.mcp.mcp_server_stdio:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
