@@ -2,8 +2,9 @@
 """Ports du domaine (imports publics)."""
 
 from .mcp_ports import (  # noqa: F401
-    MCPPromptRegistryPort,
     MCPResourceRegistryPort,
+    MCPPromptRegistryPort,
+    MCPSecurityScope,
     MCPToolRegistryPort,
     SamplingPort,
 )
@@ -65,4 +66,5 @@ __all__ = [
     "TrainingJobsPort",
     "TrainingRunnerPort",
     "TrainingSchedulesPort",
+    "MCPSecurityScope",
 ]
