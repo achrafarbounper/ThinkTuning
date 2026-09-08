@@ -184,13 +184,31 @@
 > 5 resources). Suite MCP complète : 340 passed.
 
 ### Tâche 9 : 2 Prompts MCP
-- [ ] `app/infrastructure/mcp/prompts/prompt_provider.py` :
+- [x] `app/infrastructure/mcp/prompts/prompt_provider.py` :
   - `analyze-sentiment` → template : "Analyse le sentiment de ce texte: {text}"
   - `plan-training` → template : "Planifie un entraînement pour: {dataset}"
-- [ ] `MCPPrompt` entity : `name`, `description`, `arguments`
-- [ ] `ListPrompts` → retourne les 2 prompts
-- [ ] `GetPrompt(name, arguments)` → résout le template → retourne les messages
-- [ ] Test : `test_mcp_prompts.py` — `ListPrompts` + `GetPrompt`
+- [x] `MCPPrompt` entity : `name`, `description`, `arguments`
+- [x] `ListPrompts` → retourne les 2 prompts
+- [x] `GetPrompt(name, arguments)` → résout le template → retourne les messages
+- [x] Test : `test_mcp_prompts.py` — `ListPrompts` + `GetPrompt`
+
+> **Livré (S3)** : ``PromptProvider`` (port ``MCPPromptRegistryPort``,
+> tâche 3) dans ``app/infrastructure/mcp/prompts/prompt_provider.py`` —
+> 2 prompts résolus LOCALEMENT (aucune I/O, aucun tool, aucun LLM) :
+> ``analyze-sentiment`` (argument ``text``) et ``plan-training`` (argument
+> ``dataset``), requis. Entités du domaine réutilisées telles quelles
+> (``MCPPromptTemplate`` / ``MCPPromptArgument`` / ``MCPPromptMessage``,
+> tâche 3). Sécurité fail-closed : nom inconnu → ``NotFoundError``,
+> argument requis manquant / valeur non-string → ``ValidationError`` ;
+> templates possédés par le SERVEUR (les arguments du client ne sont que
+> des VALEURS substituées — pas d'accès attribut, pas de ré-interpolation),
+> arguments surnuméraires ignorés. Serveur : ``prompts/get`` ajouté au
+> protocole et au dispatch ({description?, messages: [{role, content:
+> {type: text, text}}]}), ``NotFoundError``/``ValidationError`` →
+> ``Invalid params`` (-32602, jamais un crash), capability ``prompts``
+> annoncée à l'``initialize`` ; ``build_mcp_server()`` branche le registre
+> par défaut (``prompt_provider=...`` le remplace entièrement).
+> Suite MCP complète : 356 passed.
 
 ---
 

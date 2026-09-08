@@ -22,6 +22,11 @@ Tâche 8 (S3) : ``build_mcp_server()`` branche aussi le registre des RESOURCES
 {job_id}, models, datasets/{path}/stats, config) ; ``resource_provider=...``
 le remplace entièrement (tests, déploiements restreints).
 
+Tâche 9 (S3) : ``build_mcp_server()`` branche aussi le registre des PROMPTS
+(``PromptProvider`` — 2 prompts : analyze-sentiment, plan-training) ;
+``prompt_provider=...`` le remplace entièrement (tests, déploiements
+restreints).
+
 Le registre par défaut est donc l'UNION (bootstrap + sélection read-only) ;
 ``build_mcp_server(tool_provider=...)`` le remplace entièrement (tests,
 déploiements restreints). Le scope (rôle) est fixé à la construction :
@@ -37,13 +42,17 @@ from __future__ import annotations
 import logging
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
-from app.domain.ports.mcp_ports import MCPResourceRegistryPort
+from app.domain.ports.mcp_ports import (
+    MCPPromptRegistryPort,
+    MCPResourceRegistryPort,
+)
 from app.infrastructure.mcp.legacy_tool_provider import build_v100_read_only_provider
 from app.infrastructure.mcp.mcp_server import (
     InMemoryToolProvider,
     MCPServer,
     ToolProvider,
 )
+from app.infrastructure.mcp.prompts.prompt_provider import build_prompt_provider
 from app.infrastructure.mcp.protocol import MCP_SERVER_NAME, empty_input_schema
 from app.infrastructure.mcp.resources.resource_provider import (
     build_legacy_resource_provider,
@@ -92,6 +101,7 @@ def build_mcp_server(
     version: MCPVersion | None = None,
     tool_provider: ToolProvider | None = None,
     resource_provider: MCPResourceRegistryPort | None = None,
+    prompt_provider: MCPPromptRegistryPort | None = None,
 ) -> MCPServer:
     """Construit un ``MCPServer`` prêt à l'emploi pour un transport.
 
@@ -107,6 +117,11 @@ def build_mcp_server(
             ``None`` → registre par défaut (``LegacyResourceProvider``, tâche 8 :
             5 resources). Passer un provider VIDE (``list_resources()`` nulle)
             pour une surface supportant MCP resources sans en lister aucune.
+        prompt_provider: source des prompts MCP ; ``None`` → registre par
+            défaut (``PromptProvider``, tâche 9 : 2 prompts —
+            analyze-sentiment, plan-training). Passer un provider VIDE
+            (``list_prompts()`` nulle) pour une surface supportant MCP
+            prompts sans en lister aucun.
 
     Returns:
         Un ``MCPServer`` configuré (dispatch JSON-RPC, prêt pour SSE/stdio).
@@ -125,20 +140,25 @@ def build_mcp_server(
         # Tâche 8 : les 5 resources thinktuning:// — construction SANS I/O ni
         # import lourd (tools internes résolus paresseusement à la lecture).
         resource_provider = build_legacy_resource_provider()
+    if prompt_provider is None:
+        # Tâche 9 : les 2 prompts ThinkTuning — catalogue statique, sans I/O.
+        prompt_provider = build_prompt_provider()
     server = MCPServer(
         name=MCP_SERVER_NAME,
         version=resolved_version,
         scope=scope,
         tool_provider=provider,
         resource_provider=resource_provider,
+        prompt_provider=prompt_provider,
     )
     logger.info(
-        "Serveur MCP construit : %s@%s (scope=%s, tools=%d, resources=%d)",
+        "Serveur MCP construit : %s@%s (scope=%s, tools=%d, resources=%d, prompts=%d)",
         server.name,
         resolved_version,
         scope.value,
         len(provider.list_tools()),
         len(resource_provider.list_resources()),
+        len(prompt_provider.list_prompts()),
     )
     return server
 

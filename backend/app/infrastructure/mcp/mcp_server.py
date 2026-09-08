@@ -24,8 +24,12 @@ from collections.abc import Iterable
 from typing import Any
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
-from app.domain.errors import NotFoundError
-from app.domain.ports.mcp_ports import MCPResourceRegistryPort, MCPToolRegistryPort
+from app.domain.errors import NotFoundError, ValidationError
+from app.domain.ports.mcp_ports import (
+    MCPPromptRegistryPort,
+    MCPResourceRegistryPort,
+    MCPToolRegistryPort,
+)
 from app.infrastructure.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
     MCP_SERVER_NAME,
@@ -70,7 +74,10 @@ class MCPServer:
             rétrocompatible ``ToolProvider``) ;
         resource_provider: source des resources (port ``MCPResourceRegistryPort``,
             tâche 8 : 5 resources ``thinktuning://``) — ``None`` → surface
-            sans resources (comportement v0.1.0 des constructions sur mesure).
+            sans resources (comportement v0.1.0 des constructions sur mesure) ;
+        prompt_provider: source des prompts (port ``MCPPromptRegistryPort``,
+            tâche 9 : 2 prompts ThinkTuning) — ``None`` → surface sans
+            prompts (comportement v0.1.0 des constructions sur mesure).
     """
 
     def __init__(
@@ -81,12 +88,14 @@ class MCPServer:
         scope: MCPScopeRole,
         tool_provider: MCPToolRegistryPort,
         resource_provider: MCPResourceRegistryPort | None = None,
+        prompt_provider: MCPPromptRegistryPort | None = None,
     ) -> None:
         self.name = name
         self.version = version
         self.scope = scope
         self.tool_provider = tool_provider
         self.resource_provider = resource_provider
+        self.prompt_provider = prompt_provider
 
     # --- Surface publique --------------------------------------------------------
 
@@ -152,8 +161,9 @@ class MCPServer:
         if method == MCPMethod.RESOURCES_READ:
             return self._handle_resources_read(request_id, params)
         if method == MCPMethod.PROMPTS_LIST:
-            # v0.1.0 (feuille de route) : aucun prompt exposé.
-            return success_result(request_id, {"prompts": []})
+            return self._handle_prompts_list(request_id)
+        if method == MCPMethod.PROMPTS_GET:
+            return self._handle_prompts_get(request_id, params)
         raise ProtocolError(ErrorCode.METHOD_NOT_FOUND, f"Method not found: {method}")
 
     def _handle_notification(self, method: str) -> None:
@@ -171,6 +181,9 @@ class MCPServer:
         if self.resource_provider is not None:
             # Tâche 8 : la surface expose des resources → capability annoncée.
             capabilities["resources"] = {"subscribe": False, "listChanged": False}
+        if self.prompt_provider is not None:
+            # Tâche 9 : la surface expose des prompts → capability annoncée.
+            capabilities["prompts"] = {"listChanged": False}
         return {
             "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": capabilities,
@@ -293,6 +306,90 @@ class MCPServer:
         if mime:
             content["mimeType"] = mime
         return content
+
+    # --- prompts/list & prompts/get (tâche 9) ------------------------------------------
+
+    def _handle_prompts_list(self, request_id: Any) -> dict[str, Any]:
+        """``prompts/list`` : catalogue des prompts exposés (métadonnées pures).
+
+        La liste est rendue par le port (vérité non filtrée) ; le filtrage par
+        scope s'ajoutera avec le client store (S4, ``visible_prompts``) — les
+        2 prompts v1.0.0 sont des templates statiques (visibles de tout rôle).
+        """
+        if self.prompt_provider is None:
+            # Aucun registre branché (constructions sur mesure) : surface vide.
+            return success_result(request_id, {"prompts": []})
+        return success_result(
+            request_id,
+            {
+                "prompts": [
+                    prompt.to_dict() for prompt in self.prompt_provider.list_prompts()
+                ]
+            },
+        )
+
+    def _handle_prompts_get(
+        self, request_id: Any, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """``prompts/get`` : résolution d'un template nommé → messages.
+
+        Validation de forme des paramètres puis délégation au port :
+        ``NotFoundError`` (prompt inconnu) et ``ValidationError`` (argument
+        requis manquant, valeur non-string) sont des erreurs CLIENT-RÉPARABLES
+        → ``Invalid params`` (-32602, message actionable préservé, jamais un
+        crash) ; tout le reste est un défaut serveur → ``Internal error``
+        (fail-closed, aucune fuite d'exception protocole).
+        """
+        if self.prompt_provider is None:
+            # Symétrique de « unknown tool » : une surface sans prompts est
+            # indiscernable d'un prompt inconnu (aucun oracle d'implémentation).
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: no prompt registry wired on this server",
+            )
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'name' (str) is required",
+            )
+        arguments = params.get("arguments")
+        if arguments is not None and not isinstance(arguments, dict):
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'arguments' must be an object",
+            )
+        try:
+            messages = self.prompt_provider.get_prompt(name, dict(arguments or {}))
+        except (NotFoundError, ValidationError) as exc:
+            # Prompt inconnu / arguments client-réparables → -32602 (MCP) ;
+            # le message du domaine est préservé (actionnable).
+            logger.info("MCP prompts/get rejeté : %s", exc)
+            return error_result(request_id, ErrorCode.INVALID_PARAMS, str(exc))
+        except Exception:  # fail-closed : aucune fuite d'exception protocole
+            logger.exception("MCP prompts/get a échoué (erreur interne)")
+            return error_result(
+                request_id, ErrorCode.INTERNAL_ERROR, "Internal prompt error"
+            )
+        description = next(
+            (
+                prompt.description
+                for prompt in self.prompt_provider.list_prompts()
+                if prompt.name == name
+            ),
+            None,
+        )
+        result: dict[str, Any] = {
+            "messages": [message.to_dict() for message in messages]
+        }
+        if description:
+            # ``description`` est optionnel dans GetPromptResult (spec MCP) :
+            # repris de la métadonnée listée pour la complétude du client.
+            result["description"] = description
+        return success_result(request_id, result)
 
     # --- Helpers -----------------------------------------------------------------------
 
