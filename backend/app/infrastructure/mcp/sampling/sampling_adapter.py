@@ -25,7 +25,6 @@ Delegation stricte (zero regle dupliquée, cf. legacy_tool_provider) :
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from app.domain.entities.mcp import SamplingRequest, SamplingResponse
 from app.domain.errors import LLMClientError
