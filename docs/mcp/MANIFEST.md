@@ -9,9 +9,9 @@
 | Serveur | `thinktuning-mcp` |
 | Version surface | 0.1.0 |
 | Protocole MCP | 2025-06-18 |
-| Tools | **57** (read-only : **28** · mutation : **29**) |
-| Généré le | 2026-09-08T15:40:25.218Z |
-| Avertissements | 12 |
+| Tools | **57** (read-only : **33** · mutation : **24**) |
+| Généré le | 2026-09-08T17:11:14.953Z |
+| Avertissements | 7 |
 
 ## Catalogue
 
@@ -30,7 +30,7 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `cancel_training` | admin | — | ✅ | — | builtin | Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au procha… |
 | `copy_path` | contributor | — | ✅ | — | builtin | Copie fichier ou arborescence dans la sandbox |
 | `count_lines` | read_only | ✅ | — | ✅ | builtin | DÃ©compte lignes, mots, caractÃ¨res et octets (Ã©quivalent `wc`) |
-| `dataset_stats` | admin | — | ✅ | — | builtin | Profil rapide d'un dataset CSV/TSV/JSONL sous la sandbox : lignes, colonnes, valeurs manquantes, distribution… |
+| `dataset_stats` | read_only | ✅ | — | ✅ | builtin | Profil rapide d'un dataset CSV/TSV/JSONL sous la sandbox : lignes, colonnes, valeurs manquantes, distribution… |
 | `dedupe_lines` | contributor | — | ✅ | — | builtin | Supprime les lignes dupliquÃ©es d'un fichier (dans la sandbox) |
 | `disk_usage` | read_only | ✅ | — | ✅ | builtin | Espace disque libre + taille des enfants directs d'un dossier sandbox (les entraÃ®nements meurent silencieuse… |
 | `docker_exec` | operator | — | ✅ | — | builtin | ExÃ©cute `command` (chaÃ®ne, via `sh -c`) dans le conteneur |
@@ -50,15 +50,15 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `head_file` | read_only | ✅ | — | ✅ | builtin | PremiÃ¨res lignes d'un fichier texte (pendant symÃ©trique de tail_file) |
 | `http_get` | read_only | ✅ | — | ✅ | builtin | GET HTTP : renvoie {status, reason, url, content_type, body tronquÃ©} |
 | `http_post` | contributor | — | ✅ | — | builtin | POST HTTP : corps brut (`data`) ou JSON (`json_payload`), mutuellement exclusifs |
-| `job_get` | admin | — | ✅ | — | builtin | Charge le payload COMPLET d'un job (hyperparamÃ¨tres, erreur, chemin modÃ¨le) |
-| `job_list` | admin | — | ✅ | — | builtin | Liste les jobs d'entraÃ®nement les plus rÃ©cents (lecture seule) |
+| `job_get` | read_only | ✅ | — | ✅ | builtin | Charge le payload COMPLET d'un job (hyperparamÃ¨tres, erreur, chemin modÃ¨le) |
+| `job_list` | read_only | ✅ | — | ✅ | builtin | Liste les jobs d'entraÃ®nement les plus rÃ©cents (lecture seule) |
 | `list_dir` | read_only | ✅ | — | ✅ | builtin | Liste un rÃ©pertoire (dossiers d'abord, puis fichiers, ordre alphabÃ©tique) |
 | `make_dir` | contributor | — | ✅ | — | builtin | CrÃ©e un rÃ©pertoire (parents inclus, sans erreur s'il existe dÃ©jÃ ) |
-| `model_versions` | admin | — | ✅ | — | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que core/model_versio… |
+| `model_versions` | read_only | ✅ | — | ✅ | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que core/model_versio… |
 | `move_path` | contributor | — | ✅ | — | builtin | DÃ©place/renomme fichier ou rÃ©pertoire dans la sandbox |
 | `now` | read_only | ✅ | — | ✅ | builtin | Horodatage courant ISO lisible ('2026-08-25 14:03:27+00:00') |
 | `postgres_query` | read_only | ✅ | — | ✅ | builtin | ExÃ©cute une requÃªte SQL sur PostgreSQL |
-| `predict_sentiment` | admin | — | ✅ | — | builtin | PrÃ©dit le sentiment (positive/neutral/negative) d'une liste de textes FR/EN avec le modÃ¨le courant |
+| `predict_sentiment` | read_only | ✅ | — | ✅ | builtin | PrÃ©dit le sentiment (positive/neutral/negative) d'une liste de textes FR/EN avec le modÃ¨le courant |
 | `read_file` | read_only | ✅ | — | ✅ | builtin | Lit un fichier texte (UTF-8) ; tronque au-delÃ de max_bytes |
 | `read_json` | read_only | ✅ | — | ✅ | builtin | Lit et parse un fichier JSON ; message d'erreur prÃ©cis si invalide |
 | `remove_path` | contributor | — | ✅ | — | builtin | Supprime fichier ou rÃ©pertoire |
@@ -1354,12 +1354,7 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 
 - add: « description » manquante ou vide
 - cancel_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
-- dataset_stats: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - find_duplicates: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
-- job_get: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
-- job_list: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
-- model_versions: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
-- predict_sentiment: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - run_shell: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - start_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - stop_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté

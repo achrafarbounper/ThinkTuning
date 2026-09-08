@@ -170,3 +170,59 @@
 - Garde-fou structurel : la surface read-only ne peut JAMAIS exposer un tool
   classé mutation, même demandé explicitement en `selection` — la posture ne se
   devine pas, elle se compile depuis `tools_config.json` (source unique).
+
+---
+
+## v1.0.0 — 2026-09-08 (S3 — Public Beta, en cours)
+
+### Ajouts — 25 Tools (extension read-only, tâche 7)
+- **Sélection v1.0.0** : `app/infrastructure/mcp/legacy_tool_provider.py` —
+  `V100_READ_ONLY_TOOLS` (25 tools uniques) = union des deux checklists
+  (v0.1.0 : 13 noms ; tâche 7 : 13 noms → 24 uniques, `file_info`/
+  `count_lines` en commun) + 2 lectures pures déjà classées READ
+  (`read_json`, `search_in_files`) pour tenir le compte produit « 25 »
+  (roadmap v1.0.0 Public Beta) :
+  - métier ThinkTuning (lecture) : `job_list`, `job_get`, `model_versions`,
+    `dataset_stats`, `predict_sentiment` ;
+  - système/diagnostic (lecture) : `env_info`, `disk_usage`, `gpu_info`, `now` ;
+  - fichiers (lecture pure) : `tail_file`, `read_json`, `search_in_files`.
+- **Exclusion structurelle** : `touch` (checklist tâche 7) est une ÉCRITURE
+  (WRITE dur, `sandbox_policy.classify_tool`) — la surface read-only ne
+  l'expose JAMAIS ; elle rejoindra la surface write/exec (tâche 17).
+- **Déclaration** : les 5 tools métier (auparavant non classés → fail-closed
+  mutation + admin) ont reçu la `safety` standard v1 (`safe`) dans
+  `ia/tools/tools_config.json` → posture read-only DÉCLARÉE dans le
+  manifeste compilé (`MANIFEST.md` régénéré : 33 read-only / 24 mutation,
+  avertissements 12 → 7).
+- **Policy runtime** : `sandbox_policy.classify_tool` classe désormais
+  `add`/`calc` en READ (calcul pur, aucune I/O) — alignement du verdict
+  runtime (`decide_action()` → `AUTO_APPROVE`) sur la posture design-time
+  déclarée ; les 25 tools sont auto-approuvés.
+- **Fabrique** : `build_mcp_server()` expose par défaut bootstrap S1 (2) +
+  sélection v1.0.0 (25) = 27 tools ; `build_v010_read_only_provider()`
+  reste disponible (13 tools — déploiements restreints / tests v0.1.0).
+- **Exports** : `V100_READ_ONLY_TOOLS` et `build_v100_read_only_provider`
+  ré-exportés par `app.infrastructure.mcp` (parité avec v0.1.0).
+
+### Tests (tâche 7)
+- `tests/test_mcp_tools_25.py` (nouveau, 5 tests) : sélection exacte (25),
+  serveur par défaut (27 = 2 bootstrap + 25), annotations cohérentes
+  (`readOnlyHint`/`destructiveHint`/`idempotentHint` + scope READ_ONLY),
+  `decide_action()` → `AUTO_APPROVE` pour chaque tool, visibilité scope
+  `read_only` complète.
+- `tests/test_legacy_tool_provider.py` étendu (40 → 48 tests) : checklist
+  v1.0.0 (25 exact), provider v100 (ordre déterministe, annotations/scope),
+  déclaration `safety: safe` des 5 tools métier, serveur par défaut 27
+  tools ; le fournisseur v0.1.0 reste testé explicitement.
+- Suite MCP complète : **307 passed**.
+
+### Notes de migration (tâche 7)
+- Breaking-behavior maîtrisé : `tools/list` par défaut passe de 15 à 27
+  tools (extension additive read-only) — les clients MCP découvrent le
+  catalogue dynamiquement (aucun code client à changer) ; la surface
+  REST v1 et le registre legacy restent inchangés.
+- Version de surface MCP inchangée (`[tool.mcp] version = 0.1.0`) : le
+  bump 1.0.0 suivra le jalon Public Beta complet (resources + prompts,
+  tâches 8/9 — cible roadmap 2026-09-30).
+- Garde-fou inchangé : tout tool dont la posture compilée n'est pas
+  read-only est EXCLU de la surface, même présent dans la sélection.

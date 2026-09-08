@@ -84,6 +84,11 @@ def classify_tool(tool: str) -> ActionCategory:
 
     Cache local : le classement est déterministe, l'appel est fréquent."""
     by_tool: dict[str, ActionCategory] = {
+        # calcul pur (aucune I/O — déclarés « safety: safe » dans
+        # tools_config.json, tâches 6/7) : lecture au sens policy
+        # (exécution immédiate, sans validation humaine)
+        "add": ActionCategory.READ,
+        "calc": ActionCategory.READ,
         # lecture
         "read_file": ActionCategory.READ,
         "head_file": ActionCategory.READ,
@@ -99,6 +104,12 @@ def classify_tool(tool: str) -> ActionCategory:
         "gpu_info": ActionCategory.READ,
         "disk_usage": ActionCategory.READ,
         "env_info": ActionCategory.READ,
+        # métier ThinkTuning — lecture seule (tâche 7 : surface MCP v1.0.0)
+        "job_list": ActionCategory.READ,
+        "job_get": ActionCategory.READ,
+        "model_versions": ActionCategory.READ,
+        "dataset_stats": ActionCategory.READ,
+        "predict_sentiment": ActionCategory.READ,
         "git_status": ActionCategory.READ,
         "git_log": ActionCategory.READ,
         "git_diff": ActionCategory.READ,
