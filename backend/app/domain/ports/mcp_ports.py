@@ -30,7 +30,6 @@ from app.domain.entities.mcp import (
     MCPPromptMessage,
     MCPPromptTemplate,
     MCPResource,
-    MCPResourceTemplate,
     MCPTool,
 )
 from app.domain.ports.ports import Message
