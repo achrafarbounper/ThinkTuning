@@ -39,6 +39,12 @@
   Sécurité : fail-closed (nom inconnu → ``NotFoundError``, argument requis
   manquant / valeur non-string → ``ValidationError``), templates possédés
   par le serveur. ``build_mcp_server()`` branche ce registre par défaut.
+- ``security/`` (tâche 11) : enforceur de sécurité MCP — ``scope_enforcer.py``
+  (``check_scope`` / ``check_quota`` / ``check_rate_limit``, 4 catalogues par
+  rôle read_only 12 < contributor 25 < operator 35 < admin 40) et
+  ``rate_limit_bucket.py`` (primitive ``TokenBucket`` PARTAGÉE avec le
+  middleware REST ``api/middlewares/rate_limit.py`` — zéro duplication).
+  Le paquet security n'importe JAMAIS ``api`` (suite MCP légère).
 """
 
 from __future__ import annotations
