@@ -1,10 +1,17 @@
-import math
 import os
 import threading
 import time
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
+# La primitive TokenBucket est PARTAGÉE avec l'enforceur de sécurité MCP
+# (tâche 11 — app/infrastructure/mcp/security/rate_limit_bucket.py) : une seule
+# implémentation pour deux consommateurs — REST (clé IP + RATE_LIMIT_PER_MINUTE
+# global) et MCP (clé client_id + rate_limit_per_minute du scope client). Le
+# middleware importe le paquet MCP ; l'enforceur n'importe JAMAIS `api` (import
+# lourd : le package api charge le stack HTTP + ML — la suite MCP reste légère).
+from app.infrastructure.mcp.security.rate_limit_bucket import TokenBucket
 
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 # Derrière un reverse proxy de confiance (nginx en prod), l'IP client arrive
@@ -21,29 +28,6 @@ _RATE_LIMIT_LOCK = threading.Lock()
 # _MAX_BUCKETS clients, on évacue les buckets inactifs.
 _MAX_BUCKETS = 1024
 _IDLE_SECONDS = 600.0
-
-
-class TokenBucket:
-    __slots__ = ("capacity", "refill_rate", "tokens", "last_update")
-
-    def __init__(self, rate_per_minute: int):
-        self.capacity = max(1, rate_per_minute)
-        self.refill_rate = self.capacity / 60.0
-        self.tokens = float(self.capacity)
-        self.last_update = time.monotonic()
-
-    def consume(self, amount: float = 1.0) -> tuple[bool, int]:
-        now = time.monotonic()
-        elapsed = now - self.last_update
-        self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
-        self.last_update = now
-
-        if self.tokens >= amount:
-            self.tokens -= amount
-            return True, 0
-
-        wait_seconds = (amount - self.tokens) / self.refill_rate if self.refill_rate > 0 else 0.0
-        return False, max(1, int(math.ceil(wait_seconds)))
 
 
 _RATE_LIMIT_BUCKETS: dict[str, TokenBucket] = {}

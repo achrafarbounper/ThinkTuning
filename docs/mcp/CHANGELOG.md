@@ -360,3 +360,45 @@
   chaînes pure (aucune I/O, aucun appel tool/LLM, aucune écriture) ; la
   version de surface MCP reste `[tool.mcp] version = 0.1.0` (le bump 1.0.0
   suivra le jalon Public Beta complet).
+---
+
+## Unreleased — S4 (Security) — Scopes + Quotas + Rate Limiting (tâche 11)
+
+### Ajouts
+- **Enforceur** : `app/infrastructure/mcp/security/scope_enforcer.py` —
+  `MCPScopeEnforcer` (scope/quota/rate limit composés, thread-safe, état en
+  mémoire borné) + fonctions module `check_scope` / `check_quota` /
+  `check_rate_limit` / `enforce`. Fail-closed : client inconnu, révoqué, rôle
+  inconnu, tool hors whitelist/catalogue → `MCPAccessDeniedError` ; quota
+  « manual approval » / heure (fenêtre glissante) →
+  `MCPQuotaExceededError` ; débit per-client (`rate_limit_per_minute`) →
+  `MCPRateLimitExceededError` (+ `retry_after`).
+- **4 catalogues par rôle** (roadmap docs/mcp/MCP_SECURITY.md) : `read_only`
+  (12 = V010 − `file_checksum`), `contributor` (25 = V100), `operator`
+  (35 = +10 write/exec, tâche 17), `admin` (40 = +5 gestion mutante, tâche 19).
+- **Intégration rate limit** : la primitive `TokenBucket` est déplacée dans
+  `app/infrastructure/mcp/security/rate_limit_bucket.py` et ré-exportée par
+  `api/middlewares/rate_limit.py` — une seule implémentation, deux
+  consommateurs (REST : clé IP + limite globale ; MCP : clé client_id + limite
+  du scope). L'enforceur n'importe JAMAIS `api` (la suite MCP reste légère).
+- **Résolution paresseuse** : le `MCPClientStore` (`core/mcp_client_store`) est
+  résolu via `default_scope_resolver` au moment de l'appel — aucun import
+  lourd, aucune base créée au module import.
+
+### Tests
+- `tests/test_mcp_scope_enforcer.py` (nouveau, 29 tests) : tailles des
+  catalogues (12/25/35/40) + ordre de privilège, chaque rôle (catalogue
+  complet vu / frontières refusées), whitelist `visible_tools` vs catalogue,
+  client inconnu / révoqué / rôle inconnu (fail-closed), quota (dépassement,
+  fenêtre glissante, isolation par client, quota 0, tools de lecture jamais
+  comptés), rate limit (burst, isolation, refill), portail `enforce`,
+  partage de la primitive `TokenBucket` avec le middleware REST.
+- Suite MCP/legacy : 424 passed (dont 29 nouveaux).
+
+### Notes de migration
+- Aucun breaking change : la surface REST v1, les tools/resources/prompts MCP
+  et le registre legacy restent inchangés ; le middleware `rate_limit.py`
+  expose la même primitive `TokenBucket` (refactor interne, comportement
+  identique — tests API v1 predict : 18 passed).
+- Le câblage du portail `enforce` au transport MCP (SSE/stdio) et l'audit
+  `ACT_MCP_TOOL_CALL` arrivent avec la tâche 12.

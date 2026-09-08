@@ -227,13 +227,31 @@
 - [x] Test : `test_mcp_client_store.py` — CRUD + révocation
 
 ### Tâche 11 : Scopes + Quotas + Rate Limiting
-- [ ] `app/infrastructure/mcp/security/scope_enforcer.py` :
+- [x] `app/infrastructure/mcp/security/scope_enforcer.py` :
   - `check_scope(client_id, tool_name)` → vérifie `visible_tools`
   - `check_quota(client_id, tool_name)` → vérifie `destructive_quota`
   - `check_rate_limit(client_id)` → vérifie `rate_limit_per_minute`
-- [ ] Intégrer avec `api/middlewares/rate_limit.py` existant
-- [ ] 4 rôles : `read_only` (12 tools), `contributor` (25 tools), `operator` (35 tools), `admin` (40 tools)
-- [ ] Test : `test_mcp_scope_enforcer.py` — chaque rôle + cas de dépassement
+- [x] Intégrer avec `api/middlewares/rate_limit.py` existant
+- [x] 4 rôles : `read_only` (12 tools), `contributor` (25 tools), `operator` (35 tools), `admin` (40 tools)
+- [x] Test : `test_mcp_scope_enforcer.py` — chaque rôle + cas de dépassement
+
+> **Livré (S4)** : `app/infrastructure/mcp/security/scope_enforcer.py` —
+> `MCPScopeEnforcer` (scope/quota/rate limit composés, thread-safe, état en
+> mémoire borné) + fonctions module `check_scope` / `check_quota` /
+> `check_rate_limit` / `enforce`. Fail-closed : client inconnu, révoqué, rôle
+> inconnu, tool hors whitelist/catalogue → `MCPAccessDeniedError` ; quota
+> « manual approval » / heure (fenêtre glissante) → `MCPQuotaExceededError` ;
+> débit per-client → `MCPRateLimitExceededError` (+ `retry_after`). 4 catalogues
+> roadmap : read_only 12 (= V010 − file_checksum, label roadmap), contributor 25
+> (= V100), operator 35 (= +10 write/exec tâche 17), admin 40 (= +5 tâche 19).
+> **Intégration rate limit** : la primitive `TokenBucket` est déplacée dans
+> `security/rate_limit_bucket.py` et ré-exportée par `api/middlewares/rate_limit.py`
+> (même classe REST + MCP, zéro duplication ; l'enforceur n'importe jamais `api`).
+> Résolution paresseuse du `MCPClientStore` (`default_scope_resolver`) : aucun
+> import lourd, aucune base créée au module import. Test :
+> `tests/test_mcp_scope_enforcer.py` — 29 tests (chaque rôle, whitelist vs
+> catalogue, révoqué/inconnu/rôle inconnu, quota fenêtre + isolation + quota 0,
+> rate limit burst + isolation + refill, partage de la primitive).
 
 ### Tâche 12 : Audit Trail MCP
 - [ ] `core/audit_store.py` → ajouter les events :
