@@ -24,7 +24,10 @@ Règles d'or :
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.entities.mcp import (
     MCPPromptMessage,
@@ -37,6 +40,7 @@ from app.domain.ports.ports import Message
 __all__ = [
     "MCPResourceRegistryPort",
     "MCPPromptRegistryPort",
+    "MCPSecurityScope",
     "MCPToolRegistryPort",
     "SamplingPort",
 ]
@@ -174,3 +178,134 @@ class SamplingPort(Protocol):
         serveur MCP traduit en ``error`` JSON-RPC (code -32603).
         """
         ...
+
+
+# ============================================================
+# MCP SECURITY SCOPE  (S4 — Tâche 10)
+# ============================================================
+# Modèle de domaine PUR (Pydantic v2, frozen, extra="forbid") :
+# définit le périmètre d'autorisation d'un client MCP (client_id,
+# tenant, rôle, listes de visibilité, quotas, révocation).
+#
+# Ce modèle est la SOURCE DE VÉRITÉ du scope : il est produit par
+# ``MCPClientStore.register`` et consommé par l'infrastructure
+# (``scope_enforcer.py``) pour filtrer tools / resources / prompts
+# et appliquer les quotas. Le domaine ne connaît pas le transport
+# ni le framework — juste la définition du scope.
+
+
+class MCPSecurityScope(BaseModel):
+    """Périmètre de sécurité d'un client MCP (docs/mcp/MCP_SECURITY.md).
+
+    Chaque client MCP est **toujours** associé à un scope. Le scope limite
+    ce que le client peut voir (tools, resources, prompts) et faire
+    (sampling, quotas destructifs, limite de débit).
+
+    Attributs :
+        client_id : identifiant unique du client MCP (ex. ``"claude-desktop-prod"``).
+        tenant_id : tenant / environnement (``"default"``, ``"staging"``, ``"production"``).
+        role : rôle de sécurité (``MCPScopeRole``) — ordonné du plus restrictif
+            au plus permissif : ``read_only`` < ``contributor`` < ``operator`` < ``admin``.
+        visible_tools : whitelist des noms de tools visibles (vide = tous les tools
+            dont le ``required_scope`` ≤ rôle du client, filtré à l'infrastructure).
+        visible_resources : whitelist des URI patterns ou noms de resources visibles.
+        visible_prompts : whitelist des noms de prompts visibles.
+        sampling_enabled : autorise le MCP ``sampling/create`` (``False`` par défaut).
+        rate_limit_per_minute : débit maximal (appels/min) — 60 par défaut, 600 admin,
+            1200 CI.
+        destructive_quota : nombre maximal d'outils "manual approval" / heure
+            (5 par défaut) — les tools marqués ``destructiveHint`` passent par
+            cette quota.
+        revoked : le client a été révoqué (accès immédiatement refusé, HTTP 401).
+        revoked_at : horodatage UTC de la révocation (``None`` si non révoqué).
+        revoked_reason : motif de la révocation (ex. ``"compromised_token"``).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    client_id: str = Field(
+        ...,
+        min_length=1,
+        description="Identifiant unique du client MCP (ex. 'claude-desktop-prod').",
+    )
+    tenant_id: str = Field(
+        default="default",
+        min_length=1,
+        description="Tenant / environnement ('default', 'staging', 'production').",
+    )
+    role: str = Field(
+        ...,
+        description="Rôle de sécurité ('read_only', 'contributor', 'operator', 'admin').",
+    )
+    visible_tools: list[str] = Field(
+        default_factory=list,
+        description="Whitelist des tools visibles (vide = tous autorisés par rôle).",
+    )
+    visible_resources: list[str] = Field(
+        default_factory=list,
+        description="Whitelist des URI patterns / noms de resources visibles.",
+    )
+    visible_prompts: list[str] = Field(
+        default_factory=list,
+        description="Whitelist des noms de prompts visibles.",
+    )
+    sampling_enabled: bool = Field(
+        default=False,
+        description="Autorise MCP sampling/create (False par défaut, True pour operator+).",
+    )
+    rate_limit_per_minute: int = Field(
+        default=60,
+        ge=1,
+        le=10000,
+        description="Débit maximal (appels/min) : 60 default, 600 admin, 1200 CI.",
+    )
+    destructive_quota: int = Field(
+        default=5,
+        ge=0,
+        le=1000,
+        description="Quota max d'outils 'manual approval' / heure (5 default).",
+    )
+    revoked: bool = Field(
+        default=False,
+        description="Le client est révoqué (accès immédiatement refusé, HTTP 401).",
+    )
+    revoked_at: datetime | None = Field(
+        default=None,
+        description="Horodatage UTC de la révocation (None si non révoqué).",
+    )
+    revoked_reason: str = Field(
+        default="",
+        description="Motif de la révocation (ex. 'compromised_token').",
+    )
+
+    # --- Helpers de domaine ---------------------------------------------------
+
+    @property
+    def is_active(self) -> bool:
+        """Le scope est-il actif (non révoqué) ?"""
+        return not self.revoked
+
+    def revoke(self, reason: str, *, at: datetime | None = None) -> MCPSecurityScope:
+        """Retourne UNE NOUVELLE instance de scope révoqué (immuable).
+
+        Le scope étant ``frozen``, la révocation produit une copie avec
+        ``revoked=True``, ``revoked_at`` et ``revoked_reason`` renseignés.
+        Les métadonnées de révocation sont validées (raison non vide).
+        """
+        if not reason or not reason.strip():
+            raise ValueError("Le motif de révocation ne peut pas être vide.")
+        now = at or datetime.now(UTC)
+        return self.model_copy(
+            update={
+                "revoked": True,
+                "revoked_at": now,
+                "revoked_reason": reason.strip(),
+            }
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Représentation sérialisable (ISO 8601 pour ``revoked_at``)."""
+        d = self.model_dump()
+        if d.get("revoked_at") is not None:
+            d["revoked_at"] = d["revoked_at"].isoformat()
+        return d

@@ -4,6 +4,7 @@
 from .mcp_ports import (  # noqa: F401
     MCPPromptRegistryPort,
     MCPResourceRegistryPort,
+    MCPSecurityScope,
     MCPToolRegistryPort,
     SamplingPort,
 )
@@ -65,4 +66,5 @@ __all__ = [
     "TrainingJobsPort",
     "TrainingRunnerPort",
     "TrainingSchedulesPort",
+    "MCPSecurityScope",
 ]

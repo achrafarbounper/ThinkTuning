@@ -215,16 +215,16 @@
 ## 🧩 Tâches par Semaine (S4 — Security)
 
 ### Tâche 10 : MCPSecurityScope + Client Store
-- [ ] `app/domain/ports/mcp_ports.py` → `MCPSecurityScope` (14 champs) :
+- [x] `app/domain/ports/mcp_ports.py` → `MCPSecurityScope` (14 champs) :
   - `client_id`, `tenant_id`, `role`, `visible_tools`, `visible_resources`
   - `visible_prompts`, `sampling_enabled`, `rate_limit_per_minute`
   - `destructive_quota`, `revoked`, `revoked_at`, `revoked_reason`
-- [ ] `core/mcp_client_store.py` → `MCPClientStore` :
+- [x] `core/mcp_client_store.py` → `MCPClientStore` :
   - `register(client_id, secret, scope)` → crée un client
   - `revoke(client_id, reason)` → révoque un client
   - `list()` → liste les clients
   - `metrics(client_id)` → call_count, error_rate, scope_usage
-- [ ] Test : `test_mcp_client_store.py` — CRUD + révocation
+- [x] Test : `test_mcp_client_store.py` — CRUD + révocation
 
 ### Tâche 11 : Scopes + Quotas + Rate Limiting
 - [ ] `app/infrastructure/mcp/security/scope_enforcer.py` :
