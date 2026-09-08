@@ -46,11 +46,22 @@
 ## 🧩 Tâches par Semaine (S2 — v0.1.0 Tools)
 
 ### Tâche 4 : Manifest Generator
-- [ ] `app/infrastructure/mcp/manifest_generator.py` :
+- [x] `app/infrastructure/mcp/manifest_generator.py` :
   - Compile `tools_config.json` → MCP manifest
   - Mappe `thinktuning.tool/v1 safety` → MCP `annotations`
   - `to_json_schema()` déjà existant → reuse
-- [ ] `docs/mcp/MANIFEST.md` — catalogue produit généré
+- [x] `docs/mcp/MANIFEST.md` — catalogue produit généré
+- [x] Test : `tests/test_mcp_manifest.py` (87 tests)
+
+> **Livré (S2)** : compilation déterministe (57 tools, 26 read-only) —
+> `from_meta_format` (standard v1) → `to_json_schema` (REUSE exact →
+> `inputSchema`) → posture résolue `safety` déclarée > `classify_tool()`
+> (Rec. 7/11) > fail-closed. Exceptions NETWORK (`http_post`, `call_api`) en
+> posture mutation. `entry_to_mcp_tool` = couture vers `MCPTool` (tâche 6).
+> Mode `strict` (gating CI) + warnings actionnables (tools non classés :
+> `add`, `calc`, tools ML…). Anti-divergence : `MANIFEST.md` régénéré et
+> commité, vérifié par `test_committed_catalog_is_in_sync`.
+
 
 ### Tâche 5 : Policy Adapter
 - [ ] `app/infrastructure/mcp/policy_adapter.py` :

@@ -1,5 +1,5 @@
 # project/app/infrastructure/mcp/__init__.py
-"""Adapters MCP (S1 — Bootstrap, cf. docs/mcp/IMPLEMENTATION_PLAN.md).
+"""Adapters MCP (S1 — Bootstrap + S2 — Tools, cf. docs/mcp/IMPLEMENTATION_PLAN.md).
 
 - ``load_mcp_version`` : lecture de ``[tool.mcp] version`` dans
   ``pyproject.toml`` avec fallback tolérant sur ``DEFAULT_MCP_VERSION``
@@ -7,7 +7,10 @@
 - ``build_mcp_server`` : fabrique du serveur MCP (scope de sécurité, registre
   de tools bootstrap) et transports :
   - ``mcp_server_sse.py``   → ``POST /mcp/sse`` (flux SSE, tâche 2) ;
-  - ``mcp_server_stdio.py`` → entry point ``thinktuning-mcp`` (tâche 2).
+  - ``mcp_server_stdio.py`` → entry point ``thinktuning-mcp`` (tâche 2) ;
+- ``manifest_generator`` (tâche 4) : compile ``ia/tools/tools_config.json``
+  (standard ``thinktuning.tool/v1``) → manifeste MCP (``inputSchema`` réutilisant
+  ``to_json_schema``, ``safety`` → annotations) + catalogue ``docs/mcp/MANIFEST.md``.
 """
 
 from __future__ import annotations
@@ -31,15 +34,19 @@ from app.infrastructure.mcp.protocol import (
 )
 from app.infrastructure.mcp.version_loader import load_mcp_version
 
+# NOTE : ``manifest_generator`` n'est PAS ré-exporté ici (comme ``mcp_server_stdio``)
+# : ``python -m app.infrastructure.mcp.manifest_generator`` importerait le module
+# DEUX FOIS (via ce paquet, puis comme __main__) → RuntimeWarning + instance double.
+
 __all__ = [
     "DEFAULT_MCP_VERSION",
     "ErrorCode",
     "InMemoryToolProvider",
-    "MCPServer",
     "MCPMethod",
     "MCP_PROTOCOL_VERSION",
     "MCPTool",
     "MCPVersion",
+    "MCPServer",
     "MCP_SERVER_NAME",
     "ProtocolError",
     "ToolError",
