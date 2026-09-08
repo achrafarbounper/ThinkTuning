@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 
 from app.domain.entities.mcp import (
+    MCPResource,
     MCPResourceTemplate,
     MCPPromptArgument,
     MCPPromptMessage,
@@ -305,18 +306,15 @@ def test_fake_prompt_registry_unknown_prompt() -> None:
 
 @dataclass(frozen=True)
 class _FakeResourceRegistry:
-    """Fake d'MCPResourceRegistryPort pour le contrat S1 (port non encore en infra)."""
+    """Fake d'MCPResourceRegistryPort — contrat S3 (tâche 8 : resources listées)."""
 
-    def list_resources(self) -> list[MCPResourceTemplate]:
+    def list_resources(self) -> list[MCPResource]:
         return [
-            MCPResourceTemplate(
-                uri_template="thinktuning://job/{job_id}",
+            MCPResource(
+                uri="thinktuning://job/{job_id}",
                 name="Job",
                 description="Détails d'un job d'entraînement",
                 mime_type="application/json",
-                arguments=(
-                    MCPPromptArgument(name="job_id", description="ID du job", required=True),
-                ),
             ),
         ]
 
@@ -335,8 +333,8 @@ def test_fake_resource_registry_implements_port() -> None:
 
     resources = fake.list_resources()
     assert len(resources) == 1
-    assert isinstance(resources[0], MCPResourceTemplate)
-    assert resources[0].uri_template == "thinktuning://job/{job_id}"
+    assert isinstance(resources[0], MCPResource)
+    assert resources[0].uri == "thinktuning://job/{job_id}"
 
     content = fake.read_resource("thinktuning://job/abc-123")
     data = json.loads(content)

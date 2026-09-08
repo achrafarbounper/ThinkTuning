@@ -24,7 +24,8 @@ from collections.abc import Iterable
 from typing import Any
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
-from app.domain.ports.mcp_ports import MCPToolRegistryPort
+from app.domain.errors import NotFoundError
+from app.domain.ports.mcp_ports import MCPResourceRegistryPort, MCPToolRegistryPort
 from app.infrastructure.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
     MCP_SERVER_NAME,
@@ -66,7 +67,10 @@ class MCPServer:
         version:        version de la surface MCP (``serverInfo.version``) ;
         scope:          rôle du client (filtre la visibilité des tools) ;
         tool_provider:  source des tools (port ``MCPToolRegistryPort``, alias
-            rétrocompatible ``ToolProvider``).
+            rétrocompatible ``ToolProvider``) ;
+        resource_provider: source des resources (port ``MCPResourceRegistryPort``,
+            tâche 8 : 5 resources ``thinktuning://``) — ``None`` → surface
+            sans resources (comportement v0.1.0 des constructions sur mesure).
     """
 
     def __init__(
@@ -76,11 +80,13 @@ class MCPServer:
         version: MCPVersion,
         scope: MCPScopeRole,
         tool_provider: MCPToolRegistryPort,
+        resource_provider: MCPResourceRegistryPort | None = None,
     ) -> None:
         self.name = name
         self.version = version
         self.scope = scope
         self.tool_provider = tool_provider
+        self.resource_provider = resource_provider
 
     # --- Surface publique --------------------------------------------------------
 
@@ -142,8 +148,9 @@ class MCPServer:
         if method == MCPMethod.TOOLS_CALL:
             return self._handle_tools_call(request_id, params)
         if method == MCPMethod.RESOURCES_LIST:
-            # v0.1.0 (feuille de route) : aucune ressource exposée.
-            return success_result(request_id, {"resources": []})
+            return self._handle_resources_list(request_id)
+        if method == MCPMethod.RESOURCES_READ:
+            return self._handle_resources_read(request_id, params)
         if method == MCPMethod.PROMPTS_LIST:
             # v0.1.0 (feuille de route) : aucun prompt exposé.
             return success_result(request_id, {"prompts": []})
@@ -160,9 +167,13 @@ class MCPServer:
 
     def _initialize_result(self) -> dict[str, Any]:
         """Résultat de l'handshake : protocole, capabilities, serverInfo."""
+        capabilities: dict[str, Any] = {"tools": {"listChanged": False}}
+        if self.resource_provider is not None:
+            # Tâche 8 : la surface expose des resources → capability annoncée.
+            capabilities["resources"] = {"subscribe": False, "listChanged": False}
         return {
             "protocolVersion": MCP_PROTOCOL_VERSION,
-            "capabilities": {"tools": {"listChanged": False}},
+            "capabilities": capabilities,
             "serverInfo": {"name": self.name, "version": str(self.version)},
         }
 
@@ -206,6 +217,82 @@ class MCPServer:
             logger.exception("MCP tool a échoué (erreur interne)")
             return self._tool_result(request_id, "Internal tool error", is_error=True)
         return self._tool_result(request_id, text, is_error=False)
+
+    # --- resources/list & resources/read (tâche 8) -------------------------------------
+
+    def _handle_resources_list(self, request_id: Any) -> dict[str, Any]:
+        """``resources/list`` : catalogue des resources exposées (métadonnées).
+
+        La liste est rendue par le port (vérité non filtrée) ; le filtrage par
+        scope s'ajoutera avec le client store (S4, tâche 11) — toutes les
+        resources v1.0.0 sont read-only (visibles de tout rôle).
+        """
+        if self.resource_provider is None:
+            # Aucun registre branché (constructions sur mesure) : surface vide.
+            return success_result(request_id, {"resources": []})
+        return success_result(
+            request_id,
+            {
+                "resources": [
+                    resource.to_dict()
+                    for resource in self.resource_provider.list_resources()
+                ]
+            },
+        )
+
+    def _handle_resources_read(
+        self, request_id: Any, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """``resources/read`` : résolution d'une URI → contenu du tool interne."""
+        if self.resource_provider is None:
+            # Symétrique de « unknown tool » : une surface sans resources est
+            # indiscernable d'une URI inconnue (aucun oracle d'implémentation).
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: no resource registry wired on this server",
+            )
+        uri = params.get("uri")
+        if not isinstance(uri, str) or not uri:
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'uri' (str) is required",
+            )
+        try:
+            text = self.resource_provider.read_resource(uri)
+        except NotFoundError as exc:
+            # URI inconnue / cible introuvable → erreur de requête (MCP -32602),
+            # message actionable préservé (fail-closed, jamais un crash).
+            logger.info("MCP resources/read 404 : %s", exc)
+            return error_result(request_id, ErrorCode.INVALID_PARAMS, str(exc))
+        except Exception:  # fail-closed : aucune fuite d'exception protocole
+            logger.exception("MCP resources/read a échoué (erreur interne)")
+            return error_result(request_id, ErrorCode.INTERNAL_ERROR, "Internal resource error")
+        return success_result(request_id, {"contents": [self._resource_content(uri, text)]})
+
+    def _resource_content(self, uri: str, text: str) -> dict[str, Any]:
+        """Contenu MCP ``resources/read`` (``{uri, mimeType?, text}``).
+
+        ``mimeType`` est repris de la métadonnée listée quand l'URI correspond
+        exactement (resources statiques) ; les URIs paramétrées n'exposent pas
+        de mimeType au bootstrap (champ optionnel de la spec MCP).
+        """
+        content: dict[str, Any] = {"uri": uri, "text": text}
+        provider = self.resource_provider
+        if provider is None:  # pragma: no cover - gardé par l'appelant
+            return content
+        mime = next(
+            (
+                resource.mime_type
+                for resource in provider.list_resources()
+                if resource.uri == uri and resource.mime_type
+            ),
+            None,
+        )
+        if mime:
+            content["mimeType"] = mime
+        return content
 
     # --- Helpers -----------------------------------------------------------------------
 

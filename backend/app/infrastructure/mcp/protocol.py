@@ -39,6 +39,7 @@ class MCPMethod:
     TOOLS_LIST = "tools/list"
     TOOLS_CALL = "tools/call"
     RESOURCES_LIST = "resources/list"
+    RESOURCES_READ = "resources/read"
     PROMPTS_LIST = "prompts/list"
     NOTIFICATIONS_INITIALIZED = "notifications/initialized"
 

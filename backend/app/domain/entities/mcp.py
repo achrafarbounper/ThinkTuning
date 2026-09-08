@@ -234,6 +234,44 @@ class MCPTool:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class MCPResource:
+    """Ressource MCP exposée via ``resources/list`` (tâche 8).
+
+    Value object immuable — le domaine ne connaît ni transport, ni tool, ni
+    sandbox. La projection MCP (``to_dict``) est pure : l'infrastructure
+    appelle ``to_dict`` pour construire la réponse ``resources/list``.
+
+    Aligné sur la spec MCP ``resources/list`` (uri + name obligatoires,
+    description et mimeType optionnels).
+
+    Attributs :
+        uri :         URI canonique de la resource (schéma ``thinktuning://``) ;
+                      pour les resources PARAMÉTRÉES, l'URI listée est le
+                      gabarit (ex. ``thinktuning://jobs/{job_id}``) — la
+                      résolution d'une URI concrète est déléguée au registre
+                      (``MCPResourceRegistryPort.read_resource``) ;
+        name :        identifiant lisible (ex. ``jobs``, ``config``) ;
+        description : description humaine (listée dans resources/list) ;
+        mime_type :   type MIME du contenu lu (``application/json`` pour les
+                      5 resources ThinkTuning v1.0.0).
+    """
+
+    uri: str
+    name: str
+    description: str = ""
+    mime_type: str = "application/json"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Projection MCP de la resource (``resources/list``)."""
+        result: dict[str, Any] = {"uri": self.uri, "name": self.name}
+        if self.description:
+            result["description"] = self.description
+        if self.mime_type:
+            result["mimeType"] = self.mime_type
+        return result
+
+
 @dataclass(frozen=True)
 class MCPPromptArgument:
     """Argument d'un prompt-resource template (MCP ``prompts/arguments``).

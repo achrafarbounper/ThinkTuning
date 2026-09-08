@@ -26,6 +26,13 @@
   erreurs → ``ToolError``, fail-closed à la construction (jamais de tool
   mutation exposé). ``build_mcp_server()`` expose la sélection v1.0.0 par
   défaut ; ``build_v010_read_only_provider()`` reste disponible.
+- ``resources/`` (tâche 8) : ``LegacyResourceProvider`` (port
+  ``MCPResourceRegistryPort``) — 5 resources ``thinktuning://`` (jobs,
+  jobs/{job_id}, models, datasets/{path}/stats, config) résolues par
+  délégation aux tools internes read-only ; sécurité : parsing strict des
+  URI (anti-traversée, anti double-encodage), ``safe_resolve`` porté par
+  délégation, SQLite ``mode=ro`` + ``query_only``, clés API masquées.
+  ``build_mcp_server()`` branche ce registre par défaut.
 """
 
 from __future__ import annotations
@@ -63,6 +70,10 @@ from app.infrastructure.mcp.protocol import (
     MCPMethod,
     ProtocolError,
 )
+from app.infrastructure.mcp.resources.resource_provider import (
+    LegacyResourceProvider,
+    build_legacy_resource_provider,
+)
 from app.infrastructure.mcp.version_loader import load_mcp_version
 
 # NOTE : ``manifest_generator`` n'est PAS ré-exporté ici (comme ``mcp_server_stdio``)
@@ -74,6 +85,7 @@ __all__ = [
     "ErrorCode",
     "InMemoryToolProvider",
     "LegacyRegistryToolProvider",
+    "LegacyResourceProvider",
     "MCPMethod",
     "MCP_PROTOCOL_VERSION",
     "MCPTool",
@@ -88,6 +100,7 @@ __all__ = [
     "ToolProvider",
     "V010_READ_ONLY_TOOLS",
     "V100_READ_ONLY_TOOLS",
+    "build_legacy_resource_provider",
     "build_mcp_server",
     "build_v010_read_only_provider",
     "build_v100_read_only_provider",

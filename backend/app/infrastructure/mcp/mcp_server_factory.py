@@ -17,6 +17,11 @@ restent exposés à côté :
     - ``mcp_version``  : version de la surface MCP (read-only) ;
     - ``server_info``  : identité du serveur MCP (read-only).
 
+Tâche 8 (S3) : ``build_mcp_server()`` branche aussi le registre des RESOURCES
+``thinktuning://`` (``LegacyResourceProvider`` — 5 resources : jobs, jobs/
+{job_id}, models, datasets/{path}/stats, config) ; ``resource_provider=...``
+le remplace entièrement (tests, déploiements restreints).
+
 Le registre par défaut est donc l'UNION (bootstrap + sélection read-only) ;
 ``build_mcp_server(tool_provider=...)`` le remplace entièrement (tests,
 déploiements restreints). Le scope (rôle) est fixé à la construction :
@@ -32,6 +37,7 @@ from __future__ import annotations
 import logging
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
+from app.domain.ports.mcp_ports import MCPResourceRegistryPort
 from app.infrastructure.mcp.legacy_tool_provider import build_v100_read_only_provider
 from app.infrastructure.mcp.mcp_server import (
     InMemoryToolProvider,
@@ -39,6 +45,9 @@ from app.infrastructure.mcp.mcp_server import (
     ToolProvider,
 )
 from app.infrastructure.mcp.protocol import MCP_SERVER_NAME, empty_input_schema
+from app.infrastructure.mcp.resources.resource_provider import (
+    build_legacy_resource_provider,
+)
 from app.infrastructure.mcp.version_loader import load_mcp_version
 
 logger = logging.getLogger("thinktuning.mcp.factory")
@@ -82,6 +91,7 @@ def build_mcp_server(
     *,
     version: MCPVersion | None = None,
     tool_provider: ToolProvider | None = None,
+    resource_provider: MCPResourceRegistryPort | None = None,
 ) -> MCPServer:
     """Construit un ``MCPServer`` prêt à l'emploi pour un transport.
 
@@ -93,6 +103,10 @@ def build_mcp_server(
         tool_provider:  source de vérité des tools ; ``None`` → registre par
             défaut (bootstrap S1 ``mcp_version``/``server_info`` + sélection
             read-only v1.0.0 du registre legacy (25 tools, tâche  7).
+        resource_provider: source des resources ``thinktuning://`` ;
+            ``None`` → registre par défaut (``LegacyResourceProvider``, tâche 8 :
+            5 resources). Passer un provider VIDE (``list_resources()`` nulle)
+            pour une surface supportant MCP resources sans en lister aucune.
 
     Returns:
         Un ``MCPServer`` configuré (dispatch JSON-RPC, prêt pour SSE/stdio).
@@ -107,18 +121,24 @@ def build_mcp_server(
         )
     else:
         provider = tool_provider
+    if resource_provider is None:
+        # Tâche 8 : les 5 resources thinktuning:// — construction SANS I/O ni
+        # import lourd (tools internes résolus paresseusement à la lecture).
+        resource_provider = build_legacy_resource_provider()
     server = MCPServer(
         name=MCP_SERVER_NAME,
         version=resolved_version,
         scope=scope,
         tool_provider=provider,
+        resource_provider=resource_provider,
     )
     logger.info(
-        "Serveur MCP construit : %s@%s (scope=%s, tools=%d)",
+        "Serveur MCP construit : %s@%s (scope=%s, tools=%d, resources=%d)",
         server.name,
         resolved_version,
         scope.value,
         len(provider.list_tools()),
+        len(resource_provider.list_resources()),
     )
     return server
 
