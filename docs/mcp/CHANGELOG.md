@@ -80,3 +80,52 @@
   depuis `app.infrastructure.mcp.mcp_server` (alias / ré-export domaine) ;
 - les futures implémentations (adaptateur legacy `ToolRegistry` en S2,
   sampling en S6) se branchent sur les ports sans toucher au transport.
+
+### Ajouts — Manifest Generator (tâche 4, S2 — v0.1.0 Tools)
+- **Générateur** : `app/infrastructure/mcp/manifest_generator.py` — compile
+  `ia/tools/tools_config.json` (57 entrées legacy TOOL_META) → manifeste MCP :
+  - `from_meta_format` (normalisation standard `thinktuning.tool/v1`) ;
+  - `to_json_schema` **réutilisé tel quel** — seul le bloc `parameters` devient
+    l'`inputSchema` MCP (Rec. 3 du mapping : aucun schéma réinventé) ;
+  - `safety_to_annotations` : mapping déterministe `safety` → annotations MCP
+    (`readOnlyHint` / `destructiveHint` / `idempotentHint`) ;
+  - `resolve_posture` : ordre documenté — `safety` déclarée >
+    classification statique legacy `classify_tool()` (Rec. 7/11) >
+    fail-closed (mutation + admin) ; exceptions NETWORK (`http_post`,
+    `call_api` : mutation du serveur distant, cf. `sandbox_policy.decide` et
+    TOOL_STANDARD §1) ;
+  - `requiredScope` (hint design-time aligné `MCPScopeRole`) : lecture →
+    read_only, write/delete → contributor, exec → operator, unknown → admin ;
+  - mode tolérant (warnings collectés) vs `strict=True` (gating CI, lève
+    `ManifestError`) — même convention que `version_loader` (tâche 1) ;
+  - `entry_to_mcp_tool` : couture manifeste → entité domaine `MCPTool`
+    (wiring des handlers en tâche 6, sans duplication de métadonnées).
+- **Catalogue produit** : `docs/mcp/MANIFEST.md` — GÉNÉRÉ (ne pas éditer) :
+  tableau des 57 tools (scope, annotations, description) + `inputSchema`
+  détaillés + avertissements de compilation ; CLI de régénération
+  `python -m app.infrastructure.mcp.manifest_generator` (depuis `backend/`).
+- **Séparation** : manifeste = design-time (statique, sans arguments) ; la
+  décision runtime par appel (chemins sensibles, anti-SSRF, SQL mutant) reste
+  portée par `policy_adapter` (tâche 5).
+
+### Tests (tâche 4)
+- `tests/test_mcp_manifest.py` (87 tests) : mapping `safety` → annotations,
+  ordre de résolution de posture, REUSE de `to_json_schema`, document
+  manifeste (tri stable, compteurs, strict), contrat du catalogue réel
+  (57 tools, sélection v0.1.0 read-only, tools mutatifs), projection
+  `MCPTool` + port `MCPToolRegistryPort`, rendu Markdown déterministe,
+  I/O tolérante/stricte, anti-divergence `MANIFEST.md` commité.
+- Suite MCP complète : 168 passed
+  (`test_mcp_version` + `test_mcp_server_basic` + `test_mcp_ports_contract`
+  + `test_mcp_manifest` + `test_legacy_registry_adapter`).
+
+### Notes de migration (tâche 4)
+- Aucun breaking change : module additive, aucun ré-export dans
+  `app.infrastructure.mcp.__init__` (même convention que `mcp_server_stdio`
+  : évite la double-importation via `python -m`) ;
+- les tools non classés par la policy legacy (`add`, `calc`, tools ML…)
+  ressortent fail-closed (mutation + admin) avec un warning actionnable —
+  la tâche 6 lèvera l'ambiguïté (déclarations `safety` standard v1) ;
+- écart préexistant hors périmètre : certaines descriptions de
+  `tools_config.json` sont en double-encodage UTF-8/Windows-1252 — le
+  générateur compile la source fidèlement (nettoyage = chantier dédié).
