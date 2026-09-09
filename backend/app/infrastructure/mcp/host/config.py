@@ -45,7 +45,8 @@ def load_server_configs(path: str | Path | None = None) -> list[MCPServerConfig]
             logger.warning("Skipping MCP server %s: command not configured", name)
             continue
         configs.append(MCPServerConfig(
-            name=name, command=command, env={str(k): str(v) for k, v in (raw.get("env") or {}).items()},
+            name=name, command=command, env={str(k):
+                                             str(v) for k, v in (raw.get("env") or {}).items()},
             token_env=raw.get("token_env"), timeout=float(raw.get("timeout_seconds", 10)),
             max_restarts=int(raw.get("max_restarts", 2)), enabled=bool(raw.get("enabled", True)),
         ))

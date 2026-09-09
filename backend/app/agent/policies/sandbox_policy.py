@@ -141,8 +141,21 @@ def classify_tool(tool: str) -> ActionCategory:
         "run_command": ActionCategory.EXEC,
         "run_python": ActionCategory.EXEC,
         "docker_exec": ActionCategory.EXEC,
+        # pilotage d'entraînement (tâche 17 : surface MCP write/exec) — ces
+        # tools mutent l'état des jobs d'entraînement (démarrage / arrêt) :
+        # verdict APPROVE (validation humaine), scope OPERATOR (exec filtré).
+        "start_training": ActionCategory.EXEC,
+        "cancel_training": ActionCategory.EXEC,
+        "stop_training": ActionCategory.EXEC,
         # système
         "docker_stats": ActionCategory.SYSTEM,
+        # introspection / orchestration MCP (bootstrap S1 + tâche 16) —
+        # classés SYSTEM pour que le transport MCP (PolicyGateToolProvider,
+        # tâche 17) les laisse passer (AUTO_APPROVE) : leur sécurité est
+        # portée par leurs couches propres, aucun effet de bord ici.
+        "mcp_version": ActionCategory.SYSTEM,
+        "server_info": ActionCategory.SYSTEM,
+        "orchestrate": ActionCategory.SYSTEM,
     }
     return by_tool.get(tool, ActionCategory.UNKNOWN)
 

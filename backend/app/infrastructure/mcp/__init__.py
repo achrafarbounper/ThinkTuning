@@ -53,6 +53,14 @@
   des tools bruts, exposé sur la surface v2.0.0+ par ``build_mcp_server`` ;
   chaque action du run passe par ``sandbox_policy.decide_action()``
   (mutation → validation humaine, jamais un bypass de la policy).
+- ``write_exec_tool_provider`` (tâche 17) : projection de la surface
+  write/exec FILTRÉE (``V210_WRITE_EXEC_TOOLS``, 10 tools — checklist
+  tâche 17) du registre legacy sur le port ``MCPToolRegistryPort`` —
+  fail-closed INVERSÉ (un tool résolu en posture lecture est exclu : la
+  surface n'expose que de la mutation), scope ``OPERATOR`` forcé,
+  annotations mutantes, et gating par ``build_mcp_server`` : extension
+  v2.1.0+ enveloppée d'un ``PolicyGateToolProvider`` (write/exec →
+  validation humaine, cibles sensibles → rejet).
 """
 
 from __future__ import annotations
@@ -108,6 +116,11 @@ from app.infrastructure.mcp.tools.orchestrate_tool import (
     orchestrate,
 )
 from app.infrastructure.mcp.version_loader import load_mcp_version
+from app.infrastructure.mcp.write_exec_tool_provider import (
+    V210_WRITE_EXEC_TOOLS,
+    WriteExecToolProvider,
+    build_v210_write_exec_provider,
+)
 
 # NOTE : ``manifest_generator`` n'est PAS ré-exporté ici (comme ``mcp_server_stdio``)
 # : ``python -m app.infrastructure.mcp.manifest_generator`` importerait le module
@@ -136,6 +149,8 @@ __all__ = [
     "ToolProvider",
     "V010_READ_ONLY_TOOLS",
     "V100_READ_ONLY_TOOLS",
+    "V210_WRITE_EXEC_TOOLS",
+    "WriteExecToolProvider",
     "build_legacy_resource_provider",
     "build_mcp_server",
     "build_orchestrate_tool",
@@ -143,6 +158,7 @@ __all__ = [
     "build_sampling_adapter",
     "build_v010_read_only_provider",
     "build_v100_read_only_provider",
+    "build_v210_write_exec_provider",
     "decide",
     "decide_action",
     "decision_to_annotations",
