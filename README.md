@@ -426,9 +426,11 @@ est séparée de la réponse finale et affichée dans une bulle repliable du cha
   elle s'affiche donc progressivement dans la bulle repliable du chat. Sans
   réflexion, aucun événement `thinking_delta` : contrat inchangé.
 - **MCP** : `POST /mcp/sse` renvoie la trace dans le champ `thinking` du résultat
-  JSON de `tools/call orchestrate`. Le transport MCP reste un aller-retour
-  JSON-RPC ; la trace MCP est donc affichée à réception, tandis que les routes
-  de chat streaming conservent l'affichage fragment par fragment.
+  JSON de `tools/call orchestrate` et, avec `stream: true`, la diffuse aussi
+  progressivement dans des événements `orchestrate.thinking` portant
+  `thinking_delta`. Les événements d'outils portent également le payload
+  canonique `core_tool`, comme `/api/agent/ask/core/stream`. Le transport MCP
+  conserve sa réponse finale JSON-RPC.
 - **API Python** : `AgentCore.run_detailed(prompt, on_thinking=None) ->
   AgentResult(answer, thinking)` et `core.agent_cache.ask_agent_detailed(prompt,
   model, enable_thinking) -> {"answer", "thinking"}` exposent la trace ;

@@ -119,7 +119,12 @@ def _is_streaming_orchestrate(payload: object) -> bool:
 async def _stream_orchestrate(
     payload: dict[str, Any], *, client_id: str
 ) -> AsyncIterator[str]:
-    """Relaye la réflexion et la progression du tool MCP en temps réel."""
+    """Relaye la réflexion et la progression du tool MCP en temps réel.
+
+    Les événements de progression reprennent les payloads du flux core
+    (`thinking_delta` et `core_tool`). Les noms `orchestrate.*` restent
+    conservés pour la compatibilité avec les clients MCP existants.
+    """
     request_id = payload.get("id")
     params = payload.get("params") or {}
     arguments = dict(params.get("arguments") or {})
@@ -181,7 +186,9 @@ async def _stream_orchestrate(
             yield "data: [DONE]\n\n"
             return
         kind, data = item
-        if kind in {"orchestrate.done", "orchestrate.error"}:
+        if kind == "orchestrate.tool":
+            yield _sse_event(kind, {"core_tool": data, **data})
+        elif kind in {"orchestrate.done", "orchestrate.error"}:
             yield _sse_event(kind, data)
         else:
             yield _sse_event(kind, data)
