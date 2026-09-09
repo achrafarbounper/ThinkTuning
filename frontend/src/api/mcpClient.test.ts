@@ -143,6 +143,7 @@ describe("orchestrateViaMcp", () => {
   it("décode le JSON du content.text d'un tools/call orchestrate", async () => {
     const orchestrateText = JSON.stringify({
       answer: "Résultat de l'orchestration",
+      thinking: "Analyse en cours.",
       status: "completed",
       actions: [{ tool: "read_file", status: "completed" }],
       rounds_used: 2,
@@ -167,6 +168,7 @@ describe("orchestrateViaMcp", () => {
       { baseUrl: "http://api" }
     );
     expect(result.answer).toBe("Résultat de l'orchestration");
+    expect(result.thinking).toBe("Analyse en cours.");
     expect(result.status).toBe("completed");
     expect(result.actions?.[0]?.tool).toBe("read_file");
 
@@ -177,6 +179,38 @@ describe("orchestrateViaMcp", () => {
     expect(sent.method).toBe("tools/call");
     expect(sent.params.name).toBe("orchestrate");
     expect(sent.params.arguments.prompt).toBe("Analyse ce répertoire");
+  });
+
+  it("transmet le réglage du mode Réflexion au tool orchestrate", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                answer: "Réponse",
+                thinking: "Trace",
+                status: "completed",
+              }),
+            }],
+            isError: false,
+          },
+        })
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await orchestrateViaMcp(
+      { prompt: "Réfléchis", enable_thinking: true },
+      { baseUrl: "http://api" }
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    const sent = JSON.parse(init.body as string);
+    expect(sent.params.arguments.enable_thinking).toBe(true);
   });
 
   it("lève une erreur lisible quand le tool répond isError: true", async () => {

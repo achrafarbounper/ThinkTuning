@@ -334,6 +334,7 @@ export interface OrchestrateMcpAction {
  */
 export interface OrchestrateMcpResult {
   answer: string;
+  thinking?: string;
   status: string;
   actions?: OrchestrateMcpAction[];
   rounds_used?: number;
@@ -349,6 +350,7 @@ export interface OrchestrateMcpArgs {
   prompt: string;
   session_id?: string;
   scope?: string;
+  enable_thinking?: boolean;
 }
 
 /**

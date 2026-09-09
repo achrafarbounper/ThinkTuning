@@ -28,6 +28,7 @@ sans toucher au reste de l'API.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -119,7 +120,14 @@ async def mcp_sse(
     raw = (await request.body()).decode("utf-8", errors="replace")
     session_id = mcp_session_id or f"tt-{uuid.uuid4().hex[:16]}"
     client_id = (x_client_id or session_id).strip() or "anonymous"
-    response_payload = _server.handle_text(raw, client_id=client_id)
+    # MCP tools may execute synchronous LLM/tool work for several seconds.
+    # Keep that work off FastAPI's event loop so independent requests remain
+    # responsive while a run is in progress.
+    response_payload = await asyncio.to_thread(
+        _server.handle_text,
+        raw,
+        client_id=client_id,
+    )
     headers = {
         "Mcp-Session-Id": session_id,
         "Cache-Control": "no-cache",
