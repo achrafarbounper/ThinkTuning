@@ -549,3 +549,64 @@
 - `docs/mcp/MANIFEST.md` inchangé : le catalogue design-time reflète
   `ia/tools/tools_config.json`, qui n'a pas bougé — la surface MCP est une
   projection filtrée du même manifeste compilé (`compile_tool`).
+
+## v2.2.0 — 2026-09-09 (S7 — 40 Tools full catalogue, tâche 19)
+
+### Ajouts — 5 Tools admin (40 tools au total, catalogue complet)
+- **Provider** : `app/infrastructure/mcp/admin_tool_provider.py` —
+  `AdminToolProvider` (hérite de `LegacyRegistryToolProvider`) projette la
+  surface **admin filtrée** du registre legacy avec le fail-closed INVERSÉ du
+  write/exec : un tool résolu en posture LECTURE (`safety: safe`…) est EXCLU à
+  la construction — la surface admin n'expose que de la mutation.
+- **Sélection v2.2.0** : `V220_ADMIN_TOOLS` (5 tools, checklist exacte de la
+  tâche 19) — fichiers : `move_path`, `remove_path`, `split_file`,
+  `dedupe_lines` ; archives : `unzip_file`. Union read-only (25, tâche 7) +
+  write/exec (10, tâche 17) + admin (5) = **40 tools** — catalogue complet
+  (compte roadmap v3.0.0 « MCP-First », docs/mcp/MCP_ROADMAP.md), disjointe
+  par construction.
+- **Scope** : les 5 tools sont exposés en `MCPScopeRole.ADMIN`
+  (`ADMIN_TOOLS_SCOPE`) — aligné sur le catalogue par rôle
+  (`scope_enforcer.ADMIN_ROLE_TOOLS` = 40 tools, déjà référencé par la tâche
+  11) et sur l'échelle de privilège (docs/mcp/MCP_SECURITY.md) : `remove_path`
+  (DELETE) et l'extraction d'archives ne sont JAMAIS visibles d'un rôle
+  < admin (filtre fail-closed du serveur, `MCPScopeRole.granted`).
+- **Annotations** : les 5 tools compilent en posture mutante
+  (`destructiveHint: true` / `idempotentHint: false` / `readOnlyHint: false`)
+  — `sandbox_policy.classify_tool` : WRITE (`move_path`, `split_file`,
+  `dedupe_lines`, `unzip_file`), DELETE (`remove_path`).
+- **Policy runtime** : chaque appel admin passe par `sandbox_policy.decide_action()`
+  → `APPROVE` = validation humaine obligatoire (gate `PolicyGateToolProvider`,
+  actif dès la v2.1.0) ; les règles dures restent inchangées (cibles
+  sensibles `.git`/`.env`/`id_rsa`… → `REJECT`, jamais exécuté, audité).
+  `MCPSecurityScope` (S4) : la portée effective d'un client `admin`
+  (`effective_tools`, whitelist vide = catalogue) couvre les 40 tools ; la
+  whitelist explicite `visible_tools` reste soustractive.
+- **Fabrique** : `build_mcp_server()` ajoute l'extension à partir de la
+  version 2.2.0 de la surface (`resolved_version >= MCPVersion(2, 2, 0)`) —
+  43 tools visibles en v2.2.0 ADMIN (40 legacy + 2 bootstrap + orchestrate).
+  En dessous de v2.2.0, la surface reste inchangée (38 tools max en v2.1.0).
+
+### Tests (tâche 19)
+- `tests/test_mcp_tools_40.py` (nouveau, 30 tests) : sélection exacte (5),
+  provider (posture mutante + scope ADMIN), `decide_action()` → `APPROVE`
+  pour chaque tool, `REJECT` des cibles sensibles (7 cas paramétrés),
+  unions disjointes 25+10+5 = 40 et égalité avec `ADMIN_ROLE_TOOLS`,
+  fail-closed inversé (posture lecture et nom inconnu exclus), délégation
+  legacy injectée, `MCPSecurityScope` (portée effective admin/operator,
+  whitelist soustractive, projection par rôle), gating version/scope
+  (v2.1.0 / `read_only` / `contributor` / `operator` → invisible ; v2.2.0
+  ADMIN → 43), gate serveur (AUTO_APPROVE → exécution, APPROVE → « Manual
+  approval required », REJECT → « Policy rejected »).
+- Suite MCP ciblée : **279 passed** (manifeste, scopes, policy, serveur,
+  tools 25/35/40, version) — zéro régression.
+
+### Notes de migration
+- Breaking-behavior maîtrisé : `tools/list` en v2.2.0 ADMIN passe de 38 à
+  43 tools (extension additive filtrée) ; les clients `operator` et
+  inférieurs ainsi que les surfaces < v2.2.0 ne voient AUCUN changement.
+- Aucune suppression/déplacement n'est exécutable sans approbation : la
+  policy bloque AVANT tout handler (`APPROVE` → « Manual approval required »,
+  `REJECT` → refus ; cibles sensibles jamais exécutées).
+- `docs/mcp/MANIFEST.md` inchangé : le catalogue design-time reflète
+  `ia/tools/tools_config.json`, qui n'a pas bougé — la surface admin est une
+  projection filtrée du même manifeste compilé (`compile_tool`).

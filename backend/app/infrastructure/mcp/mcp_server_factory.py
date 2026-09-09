@@ -55,6 +55,16 @@ enveloppé par ``PolicyGateToolProvider`` : chaque ``tools/call`` passe par
 ``sandbox_policy.decide_action()`` — APPROVE (mutation) → validation humaine
 exigée, REJECT → refus, AUTO_APPROVE (lecture et introspection) → exécution.
 MCP n'est PAS un bypass de la security interne (docs/mcp/MCP_SECURITY.md).
+
+Tâche 19 (S7, v2.2.0 roadmap — compte v3.0.0 « 40 tools ») : l'extension admin
+(``AdminToolProvider`` — 5 tools mutatifs : move_path, remove_path, split_file,
+dedupe_lines, unzip_file) rejoint le registre par défaut à partir de la v2.2.0
+→ **40 tools legacy** (25 read-only + 10 write/exec + 5 admin = catalogue
+complet), en scope ``MCPScopeRole.ADMIN`` (aligné sur
+``scope_enforcer.ADMIN_ROLE_TOOLS`` = 40). La surface reste enveloppée par le
+``PolicyGateToolProvider`` : les 5 nouveaux tools passent par
+``decide_action()`` (APPROVE → validation humaine ; cibles sensibles → REJECT)
+et restent invisibles pour tout rôle < admin.
 """
 
 from __future__ import annotations
@@ -70,6 +80,7 @@ from app.domain.ports.mcp_ports import (
     MCPToolRegistryPort,
     SamplingPort,
 )
+from app.infrastructure.mcp.admin_tool_provider import build_v220_admin_provider
 from app.infrastructure.mcp.legacy_tool_provider import build_v100_read_only_provider
 from app.infrastructure.mcp.mcp_server import (
     InMemoryToolProvider,
@@ -187,6 +198,15 @@ def build_mcp_server(
             # par défaut — 35 tools (25 read-only + 10 write/exec).
             write_exec = build_v210_write_exec_provider()
             tools.extend(write_exec.list_tools())
+        if resolved_version >= MCPVersion(major=2, minor=2, patch=0):
+            # Tâche 19 (S7, v2.2.0 → compte roadmap v3.0.0 « 40 tools ») : les
+            # 5 tools admin (move_path, remove_path, split_file, dedupe_lines,
+            # unzip_file) rejoignent la surface par défaut — 40 tools legacy
+            # (25 read-only + 10 write/exec + 5 admin), catalogue COMPLET.
+            # Scope ADMIN : `remove_path` (DELETE) et l'extraction d'archives
+            # ne sont JAMAIS exposés à un rôle inférieur (fail-closed serveur).
+            admin = build_v220_admin_provider()
+            tools.extend(admin.list_tools())
         if resolved_version >= MCPVersion(major=2, minor=0, patch=0):
             # Tâche 16 (S6, v2.0.0) : le tool ``orchestrate`` (orchestration
             # agentique, wrap d'AgentCore.run) est ajouté comme tool MCP
