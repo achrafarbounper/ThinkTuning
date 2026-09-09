@@ -53,6 +53,7 @@ __all__ = [
     "ORCHESTRATE_TOOL_NAME",
     "build_orchestrate_tool",
     "orchestrate",
+    "orchestrate_stream",
 ]
 
 # Identifiant MCP du tool — tranche AUSSI l'action d'audit dans
@@ -83,6 +84,8 @@ def orchestrate(
     *,
     enable_thinking: bool = False,
     core_factory: Callable[[], AgentCore] | None = None,
+    on_thinking: Callable[[str], None] | None = None,
+    on_tool_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> AgentRunResult:
     """Exécute un run agentique complet en wrappant ``AgentCore.run()``.
 
@@ -108,17 +111,49 @@ def orchestrate(
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("orchestrate : 'prompt' requis (non vide).")
-    core = (
-        core_factory()
-        if core_factory is not None
-        else _default_agent_core(enable_thinking=enable_thinking)
-    )
+    if core_factory is not None:
+        core = core_factory()
+    else:
+        from app.agent.factory import build_agent_core
+
+        core = build_agent_core(
+            enable_thinking=enable_thinking,
+            on_thinking=on_thinking,
+            on_tool_event=on_tool_event,
+        )
     return core.run(
         Intent(
             prompt=prompt,
             session_id=session_id or _DEFAULT_SESSION_ID,
             role=scope or _DEFAULT_SCOPE,
         )
+    )
+
+
+def orchestrate_stream(
+    prompt: str,
+    session_id: str = _DEFAULT_SESSION_ID,
+    scope: str = _DEFAULT_SCOPE,
+    *,
+    enable_thinking: bool = False,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
+) -> AgentRunResult:
+    """Exécute ``orchestrate`` en exposant les événements de progression.
+
+        Le run reste synchrone côté noyau, mais ses callbacks sont relayés au
+        transport SSE. Le résultat final conserve exactement le contrat MCP
+        existant, ce qui permet au client de basculer progressivement.
+    """
+    emit = on_event or (lambda _kind, _payload: None)
+    return orchestrate(
+        prompt,
+        session_id=session_id,
+        scope=scope,
+        enable_thinking=enable_thinking,
+        on_thinking=lambda chunk: emit(
+            "orchestrate.thinking", {"thinking_delta": chunk}
+        ),
+        on_tool_event=lambda event: emit("orchestrate.tool", dict(event)),
     )
 
 
