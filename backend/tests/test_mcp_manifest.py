@@ -7,7 +7,7 @@ Couverture :
        exceptions NETWORK (http_post / call_api) ;
     3. ``compile_tool``            : REUSE de ``to_json_schema`` (inputSchema), warnings ;
     4. ``build_manifest``          : tri stable, compteurs, mode strict, déterminisme ;
-    5. contrat du catalogue RÉEL   : les 57 tools de ``tools_config.json``, postures
+    5. contrat du catalogue RÉEL   : les 63 tools de ``tools_config.json``, postures
        attendues (lecture vs mutation), anti-divergence avec ``TOOL_META`` legacy ;
     6. ``entry_to_mcp_tool``       : projection vers l'entité domaine ``MCPTool`` ;
     7. rendu Markdown + I/O        : catalogue déterministe, fallbacks tolérants/stricts ;
@@ -330,7 +330,7 @@ def test_build_manifest_warns_on_unclassified_tools() -> None:
     )
 
 
-# --- 5. Contrat du catalogue RÉEL (tools_config.json, 57 tools) ----------------
+# --- 5. Contrat du catalogue RÉEL (tools_config.json, 63 tools) ----------------
 
 
 @pytest.fixture(scope="module")
@@ -344,7 +344,7 @@ def test_real_manifest_covers_all_declared_tools(real_manifest: dict) -> None:
 
     names = {entry["name"] for entry in real_manifest["tools"]}
     assert names == set(TOOL_META)
-    assert real_manifest["toolCount"] == len(TOOL_META) == 57
+    assert real_manifest["toolCount"] == len(TOOL_META) == 63
 
 
 def test_real_manifest_tool_count_consistent(real_manifest: dict) -> None:
@@ -551,7 +551,7 @@ def test_load_default_discovery_reads_legacy_manifest() -> None:
     tools = load_tools_config()
     assert "read_file" in tools
     assert "web_search" in tools
-    assert len(tools) == 57
+    assert len(tools) == 63
 
 
 def test_load_explicit_str_path(tmp_path: Path) -> None:
@@ -629,7 +629,6 @@ def test_committed_catalog_is_in_sync(real_manifest: dict) -> None:
     assert f"# Manifeste MCP ThinkTuning — v{real_manifest['manifestVersion']}" in content
     assert f"**{real_manifest['toolCount']}**" in content
     assert f"**{real_manifest['readOnlyCount']}**" in content
-
 
 
 

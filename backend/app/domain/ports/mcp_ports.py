@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
+from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,7 +49,47 @@ __all__ = [
     "SamplingRequest",
     "SamplingResponse",
     "_sampling_create_text",
+    "MCPHostPort",
+    "MCPHostTool",
+    "MCPRemoteCall",
 ]
+
+
+@dataclass(frozen=True)
+class MCPRemoteCall:
+    """Validated outbound MCP request."""
+
+    server: str
+    method: str
+    params: dict[str, Any]
+    timeout: float = 10.0
+
+
+@dataclass(frozen=True)
+class MCPHostTool:
+    """Stable local tool projection for an MCP host backend."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    read_only: bool = True
+
+
+@runtime_checkable
+class MCPHostPort(Protocol):
+    """Domain contract for an outbound MCP host."""
+
+    def list_tools(self, server: str | None = None) -> list[MCPHostTool]:
+        ...
+
+    def call(self, request: MCPRemoteCall) -> dict[str, Any]:
+        ...
+
+    def health(self) -> dict[str, Any]:
+        ...
+
+    def stop(self) -> None:
+        ...
 
 
 @runtime_checkable

@@ -1,0 +1,27 @@
+# Optional outbound MCP host. Disabled by default; no implicit npx/uvx launch.
+enabled: true
+protocol_version: "2025-06-18"
+servers:
+  git:
+    enabled: false
+    command: []
+    args: []
+    env: {}
+    token_env: null
+    timeout_seconds: 10
+    max_restarts: 2
+  github:
+    enabled: false
+    command: []
+    args: []
+    env: {}
+    token_env: GITHUB_TOKEN
+    timeout_seconds: 10
+    max_restarts: 2
+tools:
+  git_branch: {server: git, remote: branch, read_only: true}
+  git_commit: {server: git, remote: commit, read_only: false}
+  github_list_issues: {server: github, remote: list_issues, read_only: true}
+  github_get_pr: {server: github, remote: get_pr, read_only: true}
+  github_list_prs: {server: github, remote: list_prs, read_only: true}
+  github_get_workflow_run: {server: github, remote: get_workflow_run, read_only: true}

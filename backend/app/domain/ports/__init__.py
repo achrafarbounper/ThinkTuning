@@ -6,6 +6,9 @@ from .mcp_ports import (  # noqa: F401
     MCPResourceRegistryPort,
     MCPSecurityScope,
     MCPToolRegistryPort,
+    MCPHostPort,
+    MCPHostTool,
+    MCPRemoteCall,
     SamplingPort,
 )
 from .model_versioning_ports import (  # noqa: F401
@@ -53,6 +56,9 @@ __all__ = [
     "MCPResourceRegistryPort",
     "MCPPromptRegistryPort",
     "MCPToolRegistryPort",
+    "MCPHostPort",
+    "MCPHostTool",
+    "MCPRemoteCall",
     "Message",
     "ModelRepositoryPort",
     "ModelVersioningPort",
