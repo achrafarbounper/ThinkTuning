@@ -274,9 +274,12 @@ export interface PendingApprovalData {
    *  - 'multi' → REPRISE NATIVE : l'action approuvée est rejouée dans le
    *    MÊME worker via POST /multi/ask/stream + resume_request_id (l'action
    *    n'est JAMAIS exécutée dans le noyau mono-agent) ;
-   *  - 'core' → noyau v2 mono-agent (fallback documenté).
+   *  - 'core' → noyau v2 mono-agent (fallback documenté) ;
+   *  - 'mcp' → tool MCP `orchestrate` (S7) : l'approbation passe par le
+   *    canal HTTP whitelisté (non bloqué par MCP_FIRST) ; le run reprend
+   *    côté serveur, la bulle droite affiche une confirmation.
    */
-  origin?: 'core' | 'multi';
+  origin?: 'core' | 'multi' | 'mcp';
   /** task_id du worker bloqué (reprise native multi : re-dispatch ciblé). */
   taskId?: string;
 }

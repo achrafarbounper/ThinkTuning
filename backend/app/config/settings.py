@@ -142,6 +142,26 @@ class Settings(BaseSettings):
     # planner + API d'enregistrement humain). ACTIVÉ par défaut depuis la
     # mise en production du registre custom.
     flag_custom_tools: bool = True
+    # SCRUM-99 : tools personnalisés dynamiques (registre + propositions du
+    # planner + API d'enregistrement humain). ACTIVÉ par défaut depuis la
+    # mise en production du registre custom.
+    flag_custom_tools: bool = True
+
+    # --- MCP-first (S7, tâche 20 : docs/mcp/IMPLEMENTATION_PLAN.md) ----------
+    # Bascule « MCP-First » : quand elle est active, la surface HTTP legacy de
+    # l'agent (``api/routes/agent.py`` — module marqué @deprecated) passe en
+    # mode LECTURE SEULE : tout endpoint mutant (POST/PUT/DELETE) répond 405
+    # avec le code ``mcp_first_read_only`` et renvoie vers la surface MCP
+    # (``POST /mcp/sse``). L'approbation humaine (approve / reject) reste
+    # disponible : c'est le canal qui débloque les runs MCP en attente
+    # (policy APPROVE → validation humaine, cf. docs/mcp/MCP_SECURITY.md).
+    # Rollback : ``MCP_FIRST=false`` (défaut) restaure l'HTTP pleinement
+    # écrivable ; le serveur MCP a son propre interrupteur ``MCP_SERVER_ENABLED``.
+    mcp_first: bool = Field(
+        default=False,
+        description="MCP-First : surface HTTP legacy de l'agent en read-only.",
+    )
+
 
     @model_validator(mode="before")
     @classmethod

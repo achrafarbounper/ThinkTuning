@@ -448,19 +448,32 @@
 ## 🧩 Tâches par Semaine (S7 — v3.0.0 MCP-First)
 
 ### Tâche 19 : 40 Tools (full catalogue)
-- [ ] Ajouter 5 tools supplémentaires :
+- [x] Ajouter 5 tools supplémentaires :
   - `move_path`, `remove_path`, `split_file`, `dedupe_lines`, `unzip_file`
-- [ ] 40 tools totaux — catalogue complet
-- [ ] Tous les tools passent par `decide_action()` + `MCPSecurityScope`
-- [ ] Test : `test_mcp_tools_40.py` — 40 tools + scopes
+- [x] 40 tools totaux — catalogue complet
+- [x] Tous les tools passent par `decide_action()` + `MCPSecurityScope`
+- [x] Test : `test_mcp_tools_40.py` — 40 tools + scopes
+
+> **Livré (S7)** : provider `AdminToolProvider`
+> (`app/infrastructure/mcp/admin_tool_provider.py`) — fail-closed inversé
+> (posture MUTATION exigée, lecture exclue à la construction), sélection
+> `V220_ADMIN_TOOLS` (5 tools), scope `MCPScopeRole.ADMIN` (catalogue par
+> rôle = 40 tools, aligné `scope_enforcer.ADMIN_ROLE_TOOLS`). Union read-only
+> (25) + write/exec (10) + admin (5) = **40 tools**, disjointes par
+> construction. `build_mcp_server` : extension gated par version (>= 2.2.0)
+> et par scope (ADMIN) ; chaque appel passe par `decide_action()` via le
+> `PolicyGateToolProvider` (APPROVE → validation humaine, REJECT → refus ;
+> cibles sensibles jamais exécutées) et la portée client est vérifiée via
+> `MCPSecurityScope` (`effective_tools`, whitelist soustractive — tâche 11).
+> `MANIFEST.md` inchangé (`tools_config.json` n'a pas bougé). Suite MCP
+> verte (30 tests nouveaux).
 
 ### Tâche 20 : HTTP API Legacy + MCP-First
-- [ ] `api/routes/agent.py` → marquer `@deprecated` (HTTP API)
-- [ ] Feature flag `MCP_FIRST=true` → HTTP API en mode read-only
-- [x] Dashboard migre vers MCP-over-SSE (`POST /mcp/sse`) pour le mode
-      d’orchestration de l’Assistant IA
-- [ ] `ARCHITECTURE.md` → mettre à jour le diagramme (MCP = surface)
-- [ ] Test : `test_mcp_first.py` — HTTP API legacy + MCP actif
+- [x] `api/routes/agent.py` → marquer `@deprecated` (HTTP API)
+- [x] Feature flag `MCP_FIRST=true` → HTTP API en mode read-only
+- [x] Dashboard migre vers MCP-over-SSE (`POST /mcp/sse`)
+- [x] `ARCHITECTURE.md` → mettre à jour le diagramme (MCP = surface)
+- [x] Test : `test_mcp_first.py` — HTTP API legacy + MCP actif
 
 ### Tâche 21 : CI/CD MCP + Production Readiness
 - [ ] `.github/workflows/ci.yml` → ajouter `test_mcp_*.py` dans la pipeline
