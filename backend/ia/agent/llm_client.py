@@ -45,7 +45,7 @@ import requests
 
 # Extraction des balises <think> inline : repli quand le serveur Ollama ne
 # sépare pas lui-même la réflexion dans le champ « message.thinking ».
-from .thinking import extract_thinking
+from .thinking import ThinkingStreamSplitter, extract_thinking
 # Réparation conservatrice des doubles-encodages UTF-8 → Latin-1 → UTF-8
 # (voir ia/agent/encoding.py). Appliquée en dernier recours sur le contenu
 # final quand un provider renvoie du texte déjà relu en Latin-1.
@@ -366,6 +366,7 @@ class LLMClient:
         # _parse_chunk retire déjà le préfixe « data: » et ignore [DONE].
         content_parts: list[str] = []
         thinking_parts: list[str] = []
+        inline_splitter = ThinkingStreamSplitter()
         try:
             # `iter_lines()` (SANS decode_unicode) renvoie les octets bruts du
             # flux. On conserve la normalisation UTF-8 MAÎTRISÉE dans
@@ -405,9 +406,15 @@ class LLMClient:
                     )
                     delta = delta or oa_delta.get("content") or ""
                 if delta:
-                    content_parts.append(delta)
-                    if on_content is not None:
-                        on_content(delta)
+                    clean_delta, inline_delta = inline_splitter.feed(delta)
+                    if clean_delta:
+                        content_parts.append(clean_delta)
+                        if on_content is not None:
+                            on_content(clean_delta)
+                    if inline_delta:
+                        thinking_parts.append(inline_delta)
+                        if on_thinking is not None:
+                            on_thinking(inline_delta)
                 if think:
                     thinking_parts.append(think)
                     if on_thinking is not None:
@@ -416,6 +423,16 @@ class LLMClient:
                     break
         finally:
             resp.close()
+
+        trailing_content, trailing_thinking = inline_splitter.finish()
+        if trailing_content:
+            content_parts.append(trailing_content)
+            if on_content is not None:
+                on_content(trailing_content)
+        if trailing_thinking:
+            thinking_parts.append(trailing_thinking)
+            if on_thinking is not None:
+                on_thinking(trailing_thinking)
 
         content = repair_utf8_mojibake("".join(content_parts))
         thinking = repair_utf8_mojibake("".join(thinking_parts).strip())

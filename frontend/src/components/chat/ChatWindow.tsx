@@ -1308,7 +1308,7 @@ const base = resolveBaseUrl();
           createdAt: nowIso(),
           streaming: true,
           thinking: '',
-          thinkingStreaming: false,
+          thinkingStreaming: enableThinking,
         },
       ]);
       setStickToBottom(true);
@@ -1779,4 +1779,3 @@ function McpIcon() {
     </svg>
   );
 }
-
