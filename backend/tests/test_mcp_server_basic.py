@@ -212,6 +212,18 @@ def test_sse_call_tool(client):
     assert '"2.0.0"' in response.text
 
 
+def test_sse_lists_orchestrate_for_assistant_scope(client):
+    """Le transport SSE expose l'entrée d'orchestration de l'Assistant IA."""
+    response = client.post(
+        "/mcp/sse",
+        content=json.dumps({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {},
+        }),
+    )
+    assert response.status_code == 200
+    assert '"orchestrate"' in response.text
+
+
 def test_sse_disabled_returns_503(monkeypatch):
     """Interrupteur de rollback MCP_SERVER_ENABLED=false → 503."""
     monkeypatch.setattr(mcp_server_sse, "mcp_server_enabled", lambda: False)
