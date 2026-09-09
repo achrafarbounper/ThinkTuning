@@ -42,6 +42,7 @@ import type {
 } from './types';
 import './chat.css';
 import { DEFAULT_BASE_URL } from "../../api/clientCore";
+import { orchestrateViaMcp } from "../../api/mcpClient";
 
 /** Endpoint du backend, préfixé de la base URL configurée (Paramètres / VITE_API_URL). */
 const AI_ENDPOINT = '/api/v1/chat/ai';
@@ -105,6 +106,14 @@ const MULTI_MODE_STORAGE_KEY = 'thinktuning.multiAgentMode';
  * Mutuellement exclusif avec le mode Multi-agents.
  */
 const CORE_MODE_STORAGE_KEY = 'thinktuning.coreMode';
+
+/**
+ * Clé de persistance du mode « MCP » (S7 — tâche 20) : les tours d'assistant
+ * partent vers la surface MCP (POST /mcp/sse, tool `orchestrate`) au lieu de
+ * l'API HTTP legacy — lue seule quand le flag backend MCP_FIRST est actif.
+ * Mutuellement exclusif avec les modes Multi-agents et Agent (v2).
+ */
+const MCP_MODE_STORAGE_KEY = 'thinktuning.mcpMode';
 
 /** Nombre maximal de caractères d'arguments affichés sur la carte d'approbation. */
 const APPROVAL_ARGS_PREVIEW_LIMIT = 400;
@@ -193,6 +202,15 @@ function loadStoredMultiMode(): boolean {
 function loadStoredCoreMode(): boolean {
   try {
     return window.localStorage.getItem(CORE_MODE_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** Relit l'état persisté du mode « MCP » (désactivé par défaut). */
+function loadStoredMcpMode(): boolean {
+  try {
+    return window.localStorage.getItem(MCP_MODE_STORAGE_KEY) === 'true';
   } catch {
     return false;
   }
@@ -314,6 +332,10 @@ export function ChatWindow() {
   // (boucle Intent -> Plan -> Policy -> Budget -> Action ; le noyau est actif
   // par défaut côté backend, une réponse 503 signale un repli legacy volontaire).
   const [coreMode, setCoreMode] = useState<boolean>(loadStoredCoreMode);
+  // Mode « MCP » (S7 — tâche 20) : les tours partent vers la surface MCP
+  // (POST /mcp/sse, tool `orchestrate`) au lieu de l'API HTTP legacy —
+  // le canal à privilégier quand MCP_FIRST=true gèle l'HTTP en lecture seule.
+  const [mcpMode, setMcpMode] = useState<boolean>(loadStoredMcpMode);
   // Demande en attente de décision humaine (approve / reject), le cas échéant.
   const [pendingApproval, setPendingApproval] = useState<PendingApprovalData | null>(null);
 
@@ -540,6 +562,12 @@ export function ChatWindow() {
       } catch {
         /* idem */
       }
+      setMcpMode(false);
+      try {
+        window.localStorage.setItem(MCP_MODE_STORAGE_KEY, 'false');
+      } catch {
+        /* idem */
+      }
     }
   }, [multiMode]);
 
@@ -563,6 +591,44 @@ export function ChatWindow() {
     setMultiMode(false);
     try {
       window.localStorage.setItem(MULTI_MODE_STORAGE_KEY, 'false');
+    } catch {
+      /* idem */
+    }
+    setMcpMode(false);
+    try {
+      window.localStorage.setItem(MCP_MODE_STORAGE_KEY, 'false');
+    } catch {
+      /* idem */
+    }
+  }, []);
+
+  /**
+   * Bascule le mode « MCP » (S7 — tâche 20) : les tours d'assistant partent
+   * vers la surface MCP (transport POST /mcp/sse, tool `orchestrate`) — le
+   * canal privilégié quand MCP_FIRST=true gèle l'API HTTP legacy. Désactive
+   * les modes Multi-agents et Agent (v2) : les trois routages de messages
+   * restent mutuellement exclusifs.
+   */
+  const handleMcpToggle = useCallback(() => {
+    setMcpMode((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(MCP_MODE_STORAGE_KEY, String(next));
+      } catch {
+        /* stockage indisponible : le choix reste valable pour la session */
+      }
+      return next;
+    });
+    setPendingApproval(null);
+    setMultiMode(false);
+    try {
+      window.localStorage.setItem(MULTI_MODE_STORAGE_KEY, 'false');
+    } catch {
+      /* idem */
+    }
+    setCoreMode(false);
+    try {
+      window.localStorage.setItem(CORE_MODE_STORAGE_KEY, 'false');
     } catch {
       /* idem */
     }
@@ -1171,6 +1237,49 @@ const base = resolveBaseUrl();
     },
     [appendDelta, appendThinkingDelta, appendToolCall, completeToolCall, enableThinking, sessionId],
   );
+/**
+   * Tour de chat via la surface MCP (S7 — tâche 20) : POST /mcp/sse puis
+   * `tools/call orchestrate` — l'agent run complet s'exécute côté serveur et le
+   * tool renvoie `{answer, status, actions, awaiting_approval}` en un bloc
+   * (pas de streaming progressif : MCP-over-SSE est un aller-retour JSON-RPC).
+   * Canal privilégié quand MCP_FIRST=true gèle l'API HTTP legacy en lecture
+   * seule ; l'approbation humaine reste le canal HTTP whitelisté.
+   */
+  const askMcpTurn = useCallback(
+    async (
+      assistantId: string,
+      prompt: string,
+      controller: AbortController,
+    ): Promise<void> => {
+      const result = await orchestrateViaMcp(
+        { prompt, session_id: sessionId || undefined },
+        {
+          baseUrl: resolveBaseUrl(),
+          apiKey: resolveApiKey(),
+          signal: controller.signal,
+        },
+      );
+
+      // Run en attente d'une décision humaine (policy APPROVE, cf. MCP_SECURITY) :
+      // la carte de validation s'affiche — l'approbation passe par le canal HTTP
+      // whitelisté (/api/v1/agent/approvals → approve) qui n'est PAS bloqué par
+      // MCP_FIRST (c'est lui qui débloque les runs MCP en pending_approval).
+      if (result.awaiting_approval && result.request_id) {
+        setPendingApproval({
+          requestId: result.request_id,
+          prompt,
+          tool: result.approval?.tool ?? 'outil inconnu',
+          reason: result.approval?.reason ?? 'validation humaine requise',
+          args: result.approval?.args as Record<string, unknown> | undefined,
+          origin: 'mcp',
+        });
+        return;
+      }
+      // completed / rejected / error : le run porte la réponse finale.
+      appendDelta(assistantId, result.answer || '');
+    },
+    [appendDelta, sessionId],
+  );
 
   /** Envoie le message de l'utilisateur puis diffuse la réponse de l'IA en streaming. */
   const sendMessage = useCallback(
@@ -1204,6 +1313,12 @@ const base = resolveBaseUrl();
       abortRef.current = controller;
 
       try {
+        // Mode MCP (S7) : surface MCP-over-SSE (POST /mcp/sse, tool orchestrate)
+        // — le canal privilégié quand MCP_FIRST=true gèle l'API HTTP legacy.
+        if (mcpMode) {
+          await askMcpTurn(assistantId, trimmed, controller);
+          return;
+        }
         // Mode Multi-agents : orchestration superviseur / workers (SSE nommé).
         if (multiMode) {
           await askMcpOrchestrateTurn(assistantId, trimmed, controller);
@@ -1284,7 +1399,7 @@ const base = resolveBaseUrl();
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, appendThinkingDelta, flushStreamBuffer, patchMessage, selectedModel, enableThinking, multiMode, coreMode, askMcpOrchestrateTurn, askCoreTurn, sessionId],
+    [isLoading, appendDelta, appendThinkingDelta, flushStreamBuffer, patchMessage, selectedModel, enableThinking, multiMode, coreMode, mcpMode, askMultiAgentTurn, askCoreTurn, askMcpTurn, sessionId],
   );
 
   /**
@@ -1322,6 +1437,9 @@ const base = resolveBaseUrl();
       //   finale intègre l'ensemble des résultats.
       // - origin 'core' (fallback documenté) → noyau v2 mono-agent : la
       //   gateway n'accorde que l'action dont l'empreinte correspond.
+      // - origin 'mcp' (S7 — tâche 20) → le run MCP (tool `orchestrate`) n'a
+      //   pas de resume_request_id : l'approbation HTTP whitelistée débloque
+      //   le run côté serveur, une confirmation suffit côté dashboard.
       setMessages((previous) => [
         ...previous,
         {
@@ -1334,6 +1452,11 @@ const base = resolveBaseUrl();
       ]);
       if (pendingApproval.origin === 'multi') {
         await askMultiAgentTurn(assistantId, prompt, controller, requestId);
+      } else if (pendingApproval.origin === 'mcp') {
+        patchMessage(assistantId, {
+          content: `[Action approuvée] « ${pendingApproval.tool} » a été autorisée : le run MCP reprend côté serveur (le résultat complet est disponible dans l'historique des runs).`,
+          streaming: false,
+        });
       } else {
         await askCoreTurn(assistantId, prompt, controller, requestId);
       }
@@ -1410,6 +1533,17 @@ const base = resolveBaseUrl();
         onSelect={selectSession}
         isLoading={isLoading}
       />
+      <button
+        type="button"
+        className="copilot-chat__think-toggle"
+        data-active={mcpMode || undefined}
+        onClick={handleMcpToggle}
+        aria-pressed={mcpMode}
+        title="Mode MCP (S7) : les tours partent vers la surface MCP (POST /mcp/sse, tool orchestrate) au lieu de l'API HTTP legacy. À privilégier quand MCP_FIRST=true gèle l'HTTP en lecture seule."
+      >
+        <McpIcon />
+        <span className="copilot-chat__think-label">MCP</span>
+      </button>
       <button
         type="button"
         className="copilot-chat__think-toggle"
@@ -1620,3 +1754,25 @@ function BotIcon() {
     </svg>
   );
 }
+
+/** Icône « MCP » du bouton Mode MCP (transport POST /mcp/sse — câble/prise). */
+function McpIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="10" width="18" height="10" rx="2" />
+      <rect x="3" y="2" width="18" height="4" rx="1" />
+      <path d="M5 4h14" />
+      <path d="M7 14h3M14 14h3M7 17h3M14 17h3" />
+    </svg>
+  );
+}
+
+
