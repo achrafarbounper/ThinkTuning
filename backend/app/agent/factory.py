@@ -45,7 +45,7 @@ def llm_endpoint(settings):
     return url, api_key
 
 
-def build_legacy_llm_client():
+def build_legacy_llm_client(*, think: bool = False):
     """Construit le client LLM legacy avec les réglages centralisés.
 
     Retourne l'instance ``ia.agent.llm_client.LLMClient``. L'import passe par
@@ -64,6 +64,7 @@ def build_legacy_llm_client():
         context_length=settings.agent_context_length,
         provider=settings.agent_provider.value,
         api_key=api_key,
+        think=think,
     )
 
 
@@ -85,7 +86,7 @@ def llm_v2_enabled() -> bool:
         return True
 
 
-def build_llm_client():
+def build_llm_client(*, think: bool = False):
     """Seam du client LLM : choisit l'implémentation selon ``AGENT_LLM_V2``.
 
     - défaut (flag absent ou ``1``) → ``HttpLLMClient`` (implémentation propre
@@ -104,8 +105,9 @@ def build_llm_client():
             api_key=api_key,
             timeout=settings.agent_timeout_seconds,
             context_length=settings.agent_context_length,
+            think=think,
         )
-    return build_legacy_llm_client()
+    return build_legacy_llm_client(think=think)
 
 
 def build_agent_core(approval_gateway=None, on_tool_event=None,
@@ -132,7 +134,9 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
     """
     settings = get_settings()
     registry = LegacyToolRegistryAdapter()
-    llm = build_llm_client()
+    # Le mode de réflexion est une option du run MCP/core : il doit aussi être
+    # transmis au provider pour obtenir les tokens de raisonnement en streaming.
+    llm = build_llm_client(think=enable_thinking)
     logger.info(
         "Noyau agentique assemblé : provider=%s model=%s outils=%d flags=%s",
         settings.agent_provider.value, settings.agent_model_name,

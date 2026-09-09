@@ -78,9 +78,10 @@ def test_build_llm_client_routes_by_flag(monkeypatch):
         mock_settings.return_value.agent_provider = AgentProvider.OLLAMA
         mock_settings.return_value.agent_timeout_seconds = 30
         mock_settings.return_value.agent_context_length = 2048
-        client = build_llm_client()
+        client = build_llm_client(think=True)
 
     assert isinstance(client, HttpLLMClient)
+    assert client.think is True
 
     # v2 désactivé → délègue à l'implémentation legacy (repli intact).
     sentinel = object()
