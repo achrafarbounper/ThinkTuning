@@ -1259,6 +1259,9 @@ const base = resolveBaseUrl();
         (event) => {
           if (event.thinking_delta) {
             appendThinkingDelta(assistantId, event.thinking_delta);
+            // MCP can deliver several SSE frames in the same browser task.
+            // Flush the reasoning before the final answer is appended.
+            flushStreamBuffer();
           }
           const toolName = typeof event.tool?.tool === 'string' ? event.tool.tool : undefined;
           if (toolName) {
@@ -1312,7 +1315,9 @@ const base = resolveBaseUrl();
         return;
       }
       // completed / rejected / error : le run porte la réponse finale.
+      flushStreamBuffer();
       appendDelta(assistantId, result.answer || '');
+      flushStreamBuffer();
       patchMessage(assistantId, { thinkingStreaming: false });
     },
     [
@@ -1321,6 +1326,7 @@ const base = resolveBaseUrl();
       appendToolCall,
       completeToolCall,
       enableThinking,
+      flushStreamBuffer,
       patchMessage,
       sessionId,
     ],

@@ -112,7 +112,7 @@ def _is_streaming_orchestrate(payload: object) -> bool:
         isinstance(params, dict)
         and params.get("name") == "orchestrate"
         and isinstance(arguments, dict)
-        and bool(arguments.get("stream"))
+        and bool(arguments.get("stream") or arguments.get("enable_thinking"))
     )
 
 
@@ -123,7 +123,9 @@ async def _stream_orchestrate(
 
     Les événements de progression reprennent les payloads du flux core
     (`thinking_delta` et `core_tool`). Les noms `orchestrate.*` restent
-    conservés pour la compatibilité avec les clients MCP existants.
+    conservés pour la compatibilité avec les clients MCP existants. Un appel
+    qui active explicitement `enable_thinking` est automatiquement streamé,
+    même si `stream` n'est pas fourni.
     """
     request_id = payload.get("id")
     params = payload.get("params") or {}

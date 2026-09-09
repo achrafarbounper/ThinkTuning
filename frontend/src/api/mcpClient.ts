@@ -493,6 +493,12 @@ export async function orchestrateViaMcpStream(
       finalRpc = payload as unknown as JsonRpcResponse;
       onEvent({ rpc: finalRpc });
     }
+
+    // Let the chat paint each reasoning/tool frame before the next buffered
+    // network frame (and especially before the final JSON-RPC response).
+    if (event.event === 'orchestrate.thinking' || event.event === 'orchestrate.tool') {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    }
   }
 
   const text =
