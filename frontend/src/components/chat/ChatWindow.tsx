@@ -707,12 +707,22 @@ export function ChatWindow() {
   /** Ajoute un fragment de réflexion au message en cours de streaming. */
   const appendThinkingDelta = useCallback(
     (id: string, delta: string) => {
-      const entry = streamBufferRef.current.get(id) ?? { content: '', thinking: '' };
-      entry.thinking += delta;
-      streamBufferRef.current.set(id, entry);
-      scheduleFlush();
+      if (!delta) return;
+      // La réflexion est une surface UX temps réel : elle ne doit pas attendre
+      // le buffer rAF du texte final, sinon elle n'apparaît qu'à la fin du run.
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.id === id
+            ? {
+                ...message,
+                thinking: (message.thinking ?? '') + delta,
+                thinkingStreaming: true,
+              }
+            : message,
+        ),
+      );
     },
-    [scheduleFlush],
+    [],
   );
 
   /** Modifie certains champs d'un message (fin de streaming, erreur…). */
@@ -1259,9 +1269,6 @@ const base = resolveBaseUrl();
         (event) => {
           if (event.thinking_delta) {
             appendThinkingDelta(assistantId, event.thinking_delta);
-            // MCP can deliver several SSE frames in the same browser task.
-            // Flush the reasoning before the final answer is appended.
-            flushStreamBuffer();
           }
           const toolName = typeof event.tool?.tool === 'string' ? event.tool.tool : undefined;
           if (toolName) {
