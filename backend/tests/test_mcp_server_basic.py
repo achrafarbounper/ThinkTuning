@@ -209,7 +209,7 @@ def test_sse_call_tool(client):
     )
     assert response.status_code == 200
     assert '"text"' in response.text
-    assert '"0.1.0"' in response.text
+    assert '"2.0.0"' in response.text
 
 
 def test_sse_disabled_returns_503(monkeypatch):

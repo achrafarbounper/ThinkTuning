@@ -166,7 +166,8 @@ def test_sampling_create_is_audited_even_when_rejected():
     """sampling/create → ACT_MCP_SAMPLING : l'appel fail-closed reste tracé."""
     server = _server_with_audit()
     reply = _call(server, "sampling/create", {"messages": []})
-    assert reply["error"]["code"] == ErrorCode.INVALID_PARAMS
+    # v2.0.0 : sans SamplingPort, le rejet est INTERNAL_ERROR (-32603)
+    assert reply["error"]["code"] == ErrorCode.INTERNAL_ERROR
 
     rows = _audit_rows()
     assert len(rows) == 1
