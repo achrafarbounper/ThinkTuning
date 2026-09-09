@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.domain.ports.mcp_ports import MCPHostTool, MCPRemoteCall
+
 from .stdio_session import StdioSession, StdioSessionError
 
 logger = logging.getLogger("thinktuning.mcp.host")
@@ -37,7 +38,8 @@ class ConnectionManager:
             logger.warning("Skipping MCP server %s: missing command", config.name)
             return False
         if config.token_env and not os.getenv(config.token_env):
-            logger.warning("Skipping MCP server %s: missing token %s", config.name, config.token_env)
+            logger.warning("Skipping MCP server %s: " \
+            "missing token %s", config.name, config.token_env)
             return False
         return True
 

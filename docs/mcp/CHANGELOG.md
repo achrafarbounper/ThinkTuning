@@ -402,3 +402,63 @@
   identique — tests API v1 predict : 18 passed).
 - Le câblage du portail `enforce` au transport MCP (SSE/stdio) et l'audit
   `ACT_MCP_TOOL_CALL` arrivent avec la tâche 12.
+
+---
+
+## v2.1.0 — 2026-09-09 (S6 — Extension write/exec, tâche 17)
+
+### Ajouts — 10 Tools write/exec (35 tools au total)
+- **Provider** : `app/infrastructure/mcp/write_exec_tool_provider.py` —
+  `WriteExecToolProvider` (hérite de `LegacyRegistryToolProvider`) projette la
+  surface **write/exec filtrée** du registre legacy avec un fail-closed
+  INVERSÉ : un tool résolu en posture LECTURE (déclaration `safety: safe`…)
+  est EXCLU à la construction — la surface write/exec n'expose que de la
+  mutation (miroir exact du provider read-only, tâches 6/7).
+- **Sélection v2.1.0** : `V210_WRITE_EXEC_TOOLS` (10 tools, checklist exacte
+  de la tâche 17) — écriture sandbox : `write_file`, `write_json`,
+  `append_file`, `make_dir`, `copy_path` ; exécution : `run_command`,
+  `run_python` ; pilotage ML : `start_training`, `cancel_training`,
+  `stop_training`. Union avec la sélection read-only (25, tâche 7) = **35
+  tools** (compte roadmap v2.1.0 « Orchestrate »), disjointe par construction.
+- **Scope** : les 10 tools sont exposés en `MCPScopeRole.OPERATOR`
+  (`WRITE_EXEC_TOOLS_SCOPE`) — aligné sur le catalogue par rôle
+  (`scope_enforcer.OPERATOR_ROLE_TOOLS` = 35 tools) et sur l'échelle de
+  privilège (docs/mcp/MCP_SECURITY.md) ; un client `read_only` ne les voit
+  JAMAIS (filtre fail-closed du serveur).
+- **Annotations** : les 10 tools compilent en posture mutante
+  (`destructiveHint: true` / `idempotentHint: false` / `readOnlyHint: false`)
+  — le client MCP peut avertir l'utilisateur avant l'appel.
+- **Policy runtime** : `sandbox_policy.classify_tool` classe désormais
+  `start_training`/`cancel_training`/`stop_training` en EXEC et
+  `mcp_version`/`server_info`/`orchestrate` en SYSTEM : chaque appel
+  write/exec passe par `decide_action()` → `APPROVE` = validation humaine
+  obligatoire ; les règles dures (cibles sensibles `.git`/`.env`… → REJECT,
+  jamais exécuté, audité) restent inchangées.
+- **Fabrique** : `build_mcp_server()` ajoute l'extension à partir de la
+  version 2.1.0 de la surface (`resolved_version >= MCPVersion(2, 1, 0)`) et
+  enveloppe le registre d'un `PolicyGateToolProvider` (tâche 5) — un
+  `tools/call` mutant ne peut JAMAIS atteindre l'implémentation legacy sans
+  approbation (AUTO_APPROVE lecture/introspection → exécution directe). En
+  dessous de v2.1.0, la surface reste inchangée (27 tools, sans gate).
+
+### Tests (tâche 17)
+- `tests/test_mcp_tools_35.py` (nouveau, 23 tests) : sélection exacte (10),
+  provider (posture mutante + scope OPERATOR pour les 10), `decide_action()`
+  → `APPROVE` pour chaque tool, `REJECT` des cibles sensibles (7 cas
+  paramétrés), union 35 disjointe, fail-closed inversé (posture lecture et
+  nom inconnu exclus à la construction), délégation legacy injectée, gating
+  version/scope (v1.0.0 / v2.0.0 / `read_only` → invisible ; v2.1.0
+  OPERATOR → 38 = 35 + 2 bootstrap + orchestrate), gate serveur
+  (AUTO_APPROVE → exécution, APPROVE → « Manual approval required », REJECT
+  → « Policy rejected »).
+- Suite MCP/legacy complète : **578 passed** (dont 23 nouveaux).
+
+### Notes de migration
+- Breaking-behavior maîtrisé : `tools/list` en v2.1.0 OPERATOR passe de 28 à
+  38 tools (extension additive filtrée) ; les clients `read_only` et les
+  surfaces < v2.1.0 ne voient AUCUN changement (aucun code client à changer).
+- Aucune écriture n'est exécutable sans approbation : la policy bloque AVANT
+  tout handler (`APPROVE` → « Manual approval required », `REJECT` → refus).
+- `docs/mcp/MANIFEST.md` inchangé : le catalogue design-time reflète
+  `ia/tools/tools_config.json`, qui n'a pas bougé — la surface MCP est une
+  projection filtrée du même manifeste compilé (`compile_tool`).

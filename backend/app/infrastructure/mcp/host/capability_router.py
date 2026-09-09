@@ -7,9 +7,10 @@ from typing import Any
 
 from app.domain.entities.plan import ActionCategory
 from app.domain.ports.mcp_ports import MCPHostPort, MCPHostTool, MCPRemoteCall
-from app.infrastructure.mcp.policy_adapter import decide
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
+from app.infrastructure.mcp.policy_adapter import decide
 from core.audit_store import ACT_MCP_CLIENT_TOOL_CALL
+
 from .config import load_capability_routes
 
 logger = logging.getLogger("thinktuning.mcp.host.router")

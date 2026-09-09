@@ -2,13 +2,13 @@
 """Ports du domaine (imports publics)."""
 
 from .mcp_ports import (  # noqa: F401
+    MCPHostPort,
+    MCPHostTool,
     MCPPromptRegistryPort,
+    MCPRemoteCall,
     MCPResourceRegistryPort,
     MCPSecurityScope,
     MCPToolRegistryPort,
-    MCPHostPort,
-    MCPHostTool,
-    MCPRemoteCall,
     SamplingPort,
 )
 from .model_versioning_ports import (  # noqa: F401

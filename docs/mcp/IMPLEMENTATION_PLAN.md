@@ -408,12 +408,12 @@
 > `test_mcp_orchestrate.py`.
 
 ### Tâche 17 : 35 Tools (extension avec write/exec)
-- [ ] Ajouter 10 tools avec `APPROVE` (write/exec filtré) :
+- [x] Ajouter 10 tools avec `APPROVE` (write/exec filtré) :
   - `write_file`, `write_json`, `append_file`, `make_dir`, `copy_path`
   - `run_command`, `run_python`, `start_training`, `cancel_training`, `stop_training`
-- [ ] Chaque tool passe par `decide_action()` → `APPROVE` → validation humaine
-- [ ] Annotations : `destructiveHint: true`, `idempotentHint: false`
-- [ ] Test : `test_mcp_tools_35.py` — 35 tools + policy APPROVE
+- [x] Chaque tool passe par `decide_action()` → `APPROVE` → validation humaine
+- [x] Annotations : `destructiveHint: true`, `idempotentHint: false`
+- [x] Test : `test_mcp_tools_35.py` — 35 tools + policy APPROVE
 
 ### Tâche 18 : v2.0.0 Breaking Change + Migration
 - [ ] `docs/mcp/migration/v1-to-v2.md` — guide de migration clients

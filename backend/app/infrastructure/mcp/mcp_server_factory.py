@@ -46,6 +46,15 @@ wrap d'``AgentCore.run`` via ``build_agent_core``) est ajouté au registre par
 défaut comme tool MCP DISTINCT des tools bruts, à partir de la version 2.0.0
 de la surface (``version >= MCPVersion(2, 0, 0)``) ; ``orchestrate_tool=...``
 le remplace entièrement (tests, déploiements restreints).
+
+Tâche 17 (S6, v2.1.0 roadmap) : l'extension write/exec (``WriteExecToolProvider``
+— 10 tools mutatifs : écrire/copier dans la sandbox, exécuter, piloter les
+entraînements) rejoint le registre par défaut à partir de la v2.1.0 →
+35 tools (25 read-only + 10 write/exec). Sur cette surface, le registre est
+enveloppé par ``PolicyGateToolProvider`` : chaque ``tools/call`` passe par
+``sandbox_policy.decide_action()`` — APPROVE (mutation) → validation humaine
+exigée, REJECT → refus, AUTO_APPROVE (lecture et introspection) → exécution.
+MCP n'est PAS un bypass de la security interne (docs/mcp/MCP_SECURITY.md).
 """
 
 from __future__ import annotations
@@ -66,6 +75,7 @@ from app.infrastructure.mcp.mcp_server import (
     MCPServer,
     ToolProvider,
 )
+from app.infrastructure.mcp.policy_adapter import PolicyGateToolProvider
 from app.infrastructure.mcp.prompts.prompt_provider import build_prompt_provider
 from app.infrastructure.mcp.protocol import MCP_SERVER_NAME, empty_input_schema
 from app.infrastructure.mcp.resources.resource_provider import (
@@ -73,6 +83,7 @@ from app.infrastructure.mcp.resources.resource_provider import (
 )
 from app.infrastructure.mcp.tools.orchestrate_tool import build_orchestrate_tool
 from app.infrastructure.mcp.version_loader import load_mcp_version
+from app.infrastructure.mcp.write_exec_tool_provider import build_v210_write_exec_provider
 
 logger = logging.getLogger("thinktuning.mcp.factory")
 
@@ -158,10 +169,16 @@ def build_mcp_server(
     resolved_version = version or load_mcp_version()
     provider: MCPToolRegistryPort
     if tool_provider is None:
-        # Surface v1.0.0 (tâche  7) : bootstrap S1 + sélection read-only projetée
-        # du registre legacy (compilation manifeste à la construction).
+        # Surface v2.1.0 (tâche 17) : bootstrap S1 + sélection read-only v1.0.0
+        # + extension write/exec (10 tools) + orchestrate (tâche 16).
         legacy = build_v100_read_only_provider()
         tools = [*_bootstrap_tools(resolved_version), *legacy.list_tools()]
+        if resolved_version >= MCPVersion(major=2, minor=1, patch=0):
+            # Tâche 17 (S6, v2.1.0 roadmap) : les 10 tools write/exec (écriture
+            # sandbox, exécution, pilotage d'entraînement) rejoignent la surface
+            # par défaut — 35 tools (25 read-only + 10 write/exec).
+            write_exec = build_v210_write_exec_provider()
+            tools.extend(write_exec.list_tools())
         if resolved_version >= MCPVersion(major=2, minor=0, patch=0):
             # Tâche 16 (S6, v2.0.0) : le tool ``orchestrate`` (orchestration
             # agentique, wrap d'AgentCore.run) est ajouté comme tool MCP
@@ -171,7 +188,17 @@ def build_mcp_server(
             # l'appel du tool), le serveur démarre sans LLM ni registre réels.
             tool = orchestrate_tool if orchestrate_tool is not None else build_orchestrate_tool()
             tools.append(tool)
-        provider = InMemoryToolProvider(tools)
+        base_provider = InMemoryToolProvider(tools)
+        if resolved_version >= MCPVersion(major=2, minor=1, patch=0):
+            # Gate de policy actif dès que la surface expose des mutations
+            # (tâche 17) : chaque tools/call passe par decide_action() —
+            # AUTO_APPROVE → exécution ; APPROVE (write/exec) → validation
+            # humaine exigée ; REJECT (règle dure : chemin sensible…) → refus.
+            # Les tools bootstrap/orchestrate sont classés SYSTEM (AUTO_APPROVE)
+            # : leur sécurité est portée par leurs couches propres.
+            provider = PolicyGateToolProvider(base_provider)
+        else:
+            provider = base_provider
     else:
         provider = tool_provider
     if resource_provider is None:
