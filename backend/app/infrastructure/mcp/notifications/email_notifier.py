@@ -110,7 +110,7 @@ def build_email_notifier() -> EmailNotifier | None:
     try:
         smtp_port = int(smtp_port_str)
     except ValueError:
-        logger.warning("MCP_NOTIFICATION_SMCP_PORT invalide — repli sur 587")
+        logger.warning("MCP_NOTIFICATION_SMTP_PORT invalide — repli sur 587")
         smtp_port = 587
 
     return EmailNotifier(
