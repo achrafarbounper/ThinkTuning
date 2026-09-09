@@ -224,6 +224,46 @@ def test_sse_lists_orchestrate_for_assistant_scope(client):
     assert '"orchestrate"' in response.text
 
 
+def test_sse_calls_orchestrate_with_contributor_scope(client, monkeypatch):
+    """Le scope du transport laisse passer le tool MCP d'orchestration."""
+    from app.infrastructure.mcp import mcp_server_sse
+    from app.infrastructure.mcp.mcp_server import MCPTool
+    tool = MCPTool(
+        name="orchestrate",
+        description="test",
+        input_schema={"type": "object"},
+        annotations={"readOnlyHint": False},
+        required_scope=MCPScopeRole.CONTRIBUTOR,
+        handler=lambda arguments: '{"answer":"ok","status":"completed"}',
+    )
+    monkeypatch.setattr(
+        mcp_server_sse,
+        "_server",
+        build_mcp_server(
+            scope=MCPScopeRole.CONTRIBUTOR,
+            version=MCPVersion(major=2, minor=0, patch=0),
+            orchestrate_tool=tool,
+        ),
+    )
+    response = client.post(
+        "/mcp/sse",
+        content=json.dumps({
+            "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": {
+                "name": "orchestrate",
+                "arguments": {
+                    "prompt": "hello",
+                    "session_id": "d93b2d11810b",
+                    "scope": "default",
+                },
+            },
+        }),
+    )
+    assert response.status_code == 200
+    assert '"isError": false' in response.text
+    assert '\\"answer\\":\\"ok\\"' in response.text
+
+
 def test_sse_disabled_returns_503(monkeypatch):
     """Interrupteur de rollback MCP_SERVER_ENABLED=false → 503."""
     monkeypatch.setattr(mcp_server_sse, "mcp_server_enabled", lambda: False)
