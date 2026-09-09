@@ -159,7 +159,7 @@ def test_build_orchestrate_tool_declares_distinct_mcp_tool() -> None:
     assert tool.annotations == dict(MUTATING_ANNOTATIONS)
     assert tool.input_schema["required"] == ["prompt"]
     properties = tool.input_schema["properties"]
-    assert set(properties) == {"prompt", "session_id", "scope"}
+    assert set(properties) == {"prompt", "session_id", "scope", "enable_thinking"}
 
 
 def test_tool_handler_returns_answer_and_traces_json() -> None:
@@ -181,6 +181,25 @@ def test_tool_handler_returns_answer_and_traces_json() -> None:
     assert payload["actions"][0]["status"] == "done"
     assert payload["awaiting_approval"] is False
     assert payload["rounds_used"] == 2
+
+
+def test_tool_handler_returns_thinking_when_enabled() -> None:
+    """Le mode Réflexion MCP expose la trace dans le JSON du tool."""
+    class ThinkingCore:
+        def run(self, intent: Intent) -> AgentRunResult:
+            return AgentRunResult(
+                answer="Réponse finale.",
+                thinking="Étape de réflexion.",
+                status=RunStatus.COMPLETED,
+            )
+
+    tool = build_orchestrate_tool(core_factory=ThinkingCore)
+    payload = json.loads(tool.handler({
+        "prompt": "analyse ce dataset",
+        "enable_thinking": True,
+    }))
+    assert payload["answer"] == "Réponse finale."
+    assert payload["thinking"] == "Étape de réflexion."
 
 
 def test_tool_handler_surfaces_pending_approval() -> None:

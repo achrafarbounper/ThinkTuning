@@ -407,8 +407,8 @@ L'agent peut raisonner explicitement avant de répondre : la trace de raisonneme
 est séparée de la réponse finale et affichée dans une bulle repliable du chat.
 
 - **Activation** : toggle « Réflexion » de l'en-tête du chat (choix persisté en
-  localStorage), ou champ `"enable_thinking": true` dans `POST /api/ai`
-  (désactivé par défaut).
+  localStorage), ou champ `"enable_thinking": true` dans `POST /api/ai` ou dans
+  les arguments du tool MCP `orchestrate` (désactivé par défaut).
 - **Deux mécanismes complémentaires** :
   - *induit par le prompt* : la section `THINKING_PROMPT_SECTION`
     (`ia/agent/system_prompt.py`) demande au modèle d'encadrer son raisonnement
@@ -425,6 +425,10 @@ est séparée de la réponse finale et affichée dans une bulle repliable du cha
   `{"thinking_delta": "…"}` pendant la génération (avant la réponse finale),
   elle s'affiche donc progressivement dans la bulle repliable du chat. Sans
   réflexion, aucun événement `thinking_delta` : contrat inchangé.
+- **MCP** : `POST /mcp/sse` renvoie la trace dans le champ `thinking` du résultat
+  JSON de `tools/call orchestrate`. Le transport MCP reste un aller-retour
+  JSON-RPC ; la trace MCP est donc affichée à réception, tandis que les routes
+  de chat streaming conservent l'affichage fragment par fragment.
 - **API Python** : `AgentCore.run_detailed(prompt, on_thinking=None) ->
   AgentResult(answer, thinking)` et `core.agent_cache.ask_agent_detailed(prompt,
   model, enable_thinking) -> {"answer", "thinking"}` exposent la trace ;

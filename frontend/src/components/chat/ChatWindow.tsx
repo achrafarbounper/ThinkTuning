@@ -1252,7 +1252,11 @@ const base = resolveBaseUrl();
       controller: AbortController,
     ): Promise<void> => {
       const result = await orchestrateViaMcp(
-        { prompt, session_id: sessionId || undefined },
+        {
+          prompt,
+          session_id: sessionId || undefined,
+          enable_thinking: enableThinking,
+        },
         {
           baseUrl: resolveBaseUrl(),
           apiKey: resolveApiKey(),
@@ -1276,9 +1280,10 @@ const base = resolveBaseUrl();
         return;
       }
       // completed / rejected / error : le run porte la réponse finale.
+      if (result.thinking) appendThinkingDelta(assistantId, result.thinking);
       appendDelta(assistantId, result.answer || '');
     },
-    [appendDelta, sessionId],
+    [appendDelta, appendThinkingDelta, enableThinking, sessionId],
   );
 
   /** Envoie le message de l'utilisateur puis diffuse la réponse de l'IA en streaming. */
@@ -1774,5 +1779,4 @@ function McpIcon() {
     </svg>
   );
 }
-
 

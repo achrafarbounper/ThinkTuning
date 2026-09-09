@@ -64,7 +64,7 @@ _DEFAULT_SESSION_ID = "default"
 _DEFAULT_SCOPE = "default"
 
 
-def _default_agent_core() -> AgentCore:
+def _default_agent_core(*, enable_thinking: bool = False) -> AgentCore:
     """Fabrique RÉELLE du noyau agentique (import paresseux, socle MCP léger).
 
     ``app.agent.factory.build_agent_core`` assemble le ``AgentCore`` complet
@@ -73,7 +73,7 @@ def _default_agent_core() -> AgentCore:
     """
     from app.agent.factory import build_agent_core
 
-    return build_agent_core()
+    return build_agent_core(enable_thinking=enable_thinking)
 
 
 def orchestrate(
@@ -81,6 +81,7 @@ def orchestrate(
     session_id: str = _DEFAULT_SESSION_ID,
     scope: str = _DEFAULT_SCOPE,
     *,
+    enable_thinking: bool = False,
     core_factory: Callable[[], AgentCore] | None = None,
 ) -> AgentRunResult:
     """Exécute un run agentique complet en wrappant ``AgentCore.run()``.
@@ -94,6 +95,7 @@ def orchestrate(
                      ni avec ``MCPSecurityScope``) ;
         core_factory: fabrique du noyau — ``None`` → ``build_agent_core()``
                      (LLM + registre réels). Injection dédiée aux tests.
+        enable_thinking: active la collecte de la trace de réflexion du noyau.
 
     Returns:
         ``AgentRunResult`` — ``answer`` + ``actions`` (traces d'exécution) +
@@ -106,8 +108,11 @@ def orchestrate(
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("orchestrate : 'prompt' requis (non vide).")
-    factory = core_factory if core_factory is not None else _default_agent_core
-    core = factory()
+    core = (
+        core_factory()
+        if core_factory is not None
+        else _default_agent_core(enable_thinking=enable_thinking)
+    )
     return core.run(
         Intent(
             prompt=prompt,
@@ -134,6 +139,8 @@ def _result_to_text(result: AgentRunResult) -> str:
     }
     if result.awaiting_action is not None:
         payload["awaiting_action"] = result.awaiting_action.model_dump(mode="json")
+    if result.thinking:
+        payload["thinking"] = result.thinking
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -169,6 +176,7 @@ def build_orchestrate_tool(
                 str(args["prompt"]),
                 session_id=str(args.get("session_id") or _DEFAULT_SESSION_ID),
                 scope=str(args.get("scope") or _DEFAULT_SCOPE),
+                enable_thinking=bool(args.get("enable_thinking")),
                 core_factory=core_factory,
             )
         except Exception as exc:  # échec de fabrication/validation → erreur métier
@@ -207,6 +215,11 @@ def build_orchestrate_tool(
                 "scope": {
                     "type": "string",
                     "description": "Rôle agent sollicité (Intent.role).",
+                },
+                "enable_thinking": {
+                    "type": "boolean",
+                    "description": "Active la trace de réflexion avant la réponse.",
+                    "default": False,
                 },
             },
             "required": ["prompt"],
