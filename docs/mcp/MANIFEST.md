@@ -9,9 +9,9 @@
 | Serveur | `thinktuning-mcp` |
 | Version surface | 0.1.0 |
 | Protocole MCP | 2025-06-18 |
-| Tools | **57** (read-only : **33** · mutation : **24**) |
-| Généré le | 2026-09-08T17:11:14.953Z |
-| Avertissements | 7 |
+| Tools | **63** (read-only : **38** · mutation : **25**) |
+| Généré le | 2026-09-09T12:15:27.178Z |
+| Avertissements | 8 |
 
 ## Catalogue
 
@@ -43,9 +43,15 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `file_info` | read_only | ✅ | — | ✅ | builtin | MÃ©tadonnÃ©es d'un fichier ou dossier (type, taille, dates, encodage, lignes) |
 | `find_duplicates` | admin | — | ✅ | — | builtin | DÃ©tecte les fichiers au contenu identique (par empreinte) sous `path` |
 | `find_file` | read_only | ✅ | — | ✅ | builtin | Cherche rÃ©cursivement les fichiers/dossiers dont le chemin relatif ou le nom correspond Ã `pattern` (regex P… |
+| `git_branch` | read_only | ✅ | — | ✅ | builtin | Gestion des branches via le backend Git MCP optionnel. |
+| `git_commit` | admin | — | ✅ | — | builtin | Crée un commit via le backend Git MCP optionnel, après approbation. |
 | `git_diff` | read_only | ✅ | — | ✅ | builtin | `git diff` (index <-> travail), optionnellement `--cached` et restreint Ã un chemin de la sandbox |
 | `git_log` | read_only | ✅ | — | ✅ | builtin | `git log --oneline` des N derniers commits (limit plafonnÃ© Ã 100) |
 | `git_status` | read_only | ✅ | — | ✅ | builtin | `git status --short --branch` sur le dÃ©pÃ´t de la racine sandbox |
+| `github_get_pr` | read_only | ✅ | — | ✅ | builtin | Récupère une pull request via le backend GitHub MCP optionnel. |
+| `github_get_workflow_run` | read_only | ✅ | — | ✅ | builtin | Récupère une exécution GitHub Actions via le backend GitHub MCP optionnel. |
+| `github_list_issues` | read_only | ✅ | — | ✅ | builtin | Liste les issues via le backend GitHub MCP optionnel. |
+| `github_list_prs` | read_only | ✅ | — | ✅ | builtin | Liste les pull requests via le backend GitHub MCP optionnel. |
 | `gpu_info` | read_only | ✅ | — | ✅ | builtin | Ã‰tat GPU complet : disponibilitÃ© CUDA, VRAM, utilisation |
 | `head_file` | read_only | ✅ | — | ✅ | builtin | PremiÃ¨res lignes d'un fichier texte (pendant symÃ©trique de tail_file) |
 | `http_get` | read_only | ✅ | — | ✅ | builtin | GET HTTP : renvoie {status, reason, url, content_type, body tronquÃ©} |
@@ -501,6 +507,46 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 }
 ```
 
+### `git_branch`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": ""
+    },
+    "name": {
+      "type": "string",
+      "description": ""
+    }
+  },
+  "required": []
+}
+```
+
+### `git_commit`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": ""
+    },
+    "files": {
+      "type": "array",
+      "description": ""
+    }
+  },
+  "required": [
+    "message"
+  ]
+}
+```
+
 ### `git_diff`
 
 ```json
@@ -542,6 +588,120 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
   "type": "object",
   "properties": {},
   "required": []
+}
+```
+
+### `github_get_pr`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": ""
+    },
+    "repo": {
+      "type": "string",
+      "description": ""
+    },
+    "number": {
+      "type": "integer",
+      "description": ""
+    }
+  },
+  "required": [
+    "owner",
+    "repo",
+    "number"
+  ]
+}
+```
+
+### `github_get_workflow_run`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": ""
+    },
+    "repo": {
+      "type": "string",
+      "description": ""
+    },
+    "run_id": {
+      "type": "integer",
+      "description": ""
+    }
+  },
+  "required": [
+    "owner",
+    "repo",
+    "run_id"
+  ]
+}
+```
+
+### `github_list_issues`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": ""
+    },
+    "repo": {
+      "type": "string",
+      "description": ""
+    },
+    "state": {
+      "type": "string",
+      "description": ""
+    },
+    "limit": {
+      "type": "integer",
+      "description": ""
+    }
+  },
+  "required": [
+    "owner",
+    "repo"
+  ]
+}
+```
+
+### `github_list_prs`
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": ""
+    },
+    "repo": {
+      "type": "string",
+      "description": ""
+    },
+    "state": {
+      "type": "string",
+      "description": ""
+    },
+    "limit": {
+      "type": "integer",
+      "description": ""
+    }
+  },
+  "required": [
+    "owner",
+    "repo"
+  ]
 }
 ```
 
@@ -1359,3 +1519,4 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 - start_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - stop_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - train_model: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
+- git_commit: safety.level=« dangerous » — tool bloqué par la policy (scope admin, jamais exécuté quelle que soit la validation)

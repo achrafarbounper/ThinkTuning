@@ -84,6 +84,14 @@ from .ops_tools import (
 )
 from .ops_tools import docker_stats
 from .custom_tools import call_api, run_shell  # SCRUM-99 (tools d'exemple)
+from .mcp_host_tools import (
+    git_branch,
+    git_commit,
+    github_get_pr,
+    github_get_workflow_run,
+    github_list_issues,
+    github_list_prs,
+)
 
 TOOLS: dict[str, Callable[..., Any]] = {
     # math
@@ -144,6 +152,12 @@ TOOLS: dict[str, Callable[..., Any]] = {
     "git_status": git_status,
     "git_log": git_log,
     "git_diff": git_diff,
+    "git_branch": git_branch,
+    "git_commit": git_commit,
+    "github_list_issues": github_list_issues,
+    "github_get_pr": github_get_pr,
+    "github_list_prs": github_list_prs,
+    "github_get_workflow_run": github_get_workflow_run,
     # bases de données
     "sqlite_query": sqlite_query,
     "postgres_query": postgres_query,

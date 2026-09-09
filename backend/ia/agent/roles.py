@@ -38,6 +38,8 @@ _OPS = [
     "env_info", "disk_usage", "gpu_info",
     "zip_path", "unzip_file",
     "git_status", "git_log", "git_diff", "download_file",
+    "git_branch", "git_commit", "github_list_issues", "github_get_pr",
+    "github_list_prs", "github_get_workflow_run",
 ]
 _SHELL = ["run_command", "run_python"]
 # SCRUM-99 : outils personnalisés d'exemple (shell allowlisté + HTTP générique).

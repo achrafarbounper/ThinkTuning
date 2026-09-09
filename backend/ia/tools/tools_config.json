@@ -388,6 +388,72 @@
         }
       }
     },
+    "git_branch": {
+      "name": "git_branch",
+      "description": "Gestion des branches via le backend Git MCP optionnel.",
+      "required_args": [],
+      "parameters": {
+        "action": {"required": false, "type": "string", "default": "list"},
+        "name": {"required": false, "type": "string", "default": null}
+      },
+      "safety": {"level": "safe", "requires_approval": false}
+    },
+    "git_commit": {
+      "name": "git_commit",
+      "description": "Crée un commit via le backend Git MCP optionnel, après approbation.",
+      "required_args": ["message"],
+      "parameters": {
+        "message": {"required": true, "type": "string"},
+        "files": {"required": false, "type": "array", "default": []}
+      },
+      "safety": {"level": "dangerous", "requires_approval": true}
+    },
+    "github_get_pr": {
+      "name": "github_get_pr",
+      "description": "Récupère une pull request via le backend GitHub MCP optionnel.",
+      "required_args": ["owner", "repo", "number"],
+      "parameters": {
+        "owner": {"required": true, "type": "string"},
+        "repo": {"required": true, "type": "string"},
+        "number": {"required": true, "type": "integer"}
+      },
+      "safety": {"level": "safe", "requires_approval": false}
+    },
+    "github_get_workflow_run": {
+      "name": "github_get_workflow_run",
+      "description": "Récupère une exécution GitHub Actions via le backend GitHub MCP optionnel.",
+      "required_args": ["owner", "repo", "run_id"],
+      "parameters": {
+        "owner": {"required": true, "type": "string"},
+        "repo": {"required": true, "type": "string"},
+        "run_id": {"required": true, "type": "integer"}
+      },
+      "safety": {"level": "safe", "requires_approval": false}
+    },
+    "github_list_issues": {
+      "name": "github_list_issues",
+      "description": "Liste les issues via le backend GitHub MCP optionnel.",
+      "required_args": ["owner", "repo"],
+      "parameters": {
+        "owner": {"required": true, "type": "string"},
+        "repo": {"required": true, "type": "string"},
+        "state": {"required": false, "type": "string", "default": "open"},
+        "limit": {"required": false, "type": "integer", "default": 20}
+      },
+      "safety": {"level": "safe", "requires_approval": false}
+    },
+    "github_list_prs": {
+      "name": "github_list_prs",
+      "description": "Liste les pull requests via le backend GitHub MCP optionnel.",
+      "required_args": ["owner", "repo"],
+      "parameters": {
+        "owner": {"required": true, "type": "string"},
+        "repo": {"required": true, "type": "string"},
+        "state": {"required": false, "type": "string", "default": "open"},
+        "limit": {"required": false, "type": "integer", "default": 20}
+      },
+      "safety": {"level": "safe", "requires_approval": false}
+    },
     "git_log": {
       "name": "git_log",
       "description": "`git log --oneline` des N derniers commits (limit plafonnÃ© Ã  100)",

@@ -50,6 +50,7 @@ ACT_MCP_RESOURCE_READ = "mcp_resource_read"  # resources/read
 ACT_MCP_PROMPT_GET = "mcp_prompt_get"      # prompts/get
 ACT_MCP_SAMPLING = "mcp_sampling"          # sampling/create
 ACT_MCP_ORCHESTRATE = "mcp_orchestrate"    # tools/call sur le tool ``orchestrate``
+ACT_MCP_CLIENT_TOOL_CALL = "mcp_client_tool_call"  # outbound host call
 
 # Regroupement des actions MCP — ordre stable pour l'agrégation (mcp_metrics)
 # et le tri du dashboard interne.
