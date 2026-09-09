@@ -480,7 +480,11 @@ export async function orchestrateViaMcpStream(
           typeof payload.thinking_delta === 'string' ? payload.thinking_delta : '',
       });
     } else if (event.event === 'orchestrate.tool') {
-      onEvent({ tool: payload });
+      const coreTool =
+        payload.core_tool && typeof payload.core_tool === 'object'
+          ? (payload.core_tool as Record<string, unknown>)
+          : payload;
+      onEvent({ tool: coreTool });
     } else if (
       event.event === 'orchestrate.done' ||
       event.event === 'orchestrate.error' ||

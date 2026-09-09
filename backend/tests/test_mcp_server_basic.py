@@ -32,6 +32,7 @@ from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.mcp_server_sse import router as mcp_sse_router
 from app.infrastructure.mcp.mcp_server_stdio import serve_stdio
 from app.infrastructure.mcp.protocol import ErrorCode, empty_input_schema
+from app.agent.core import AgentRunResult, RunStatus
 
 
 def _sse_app() -> FastAPI:
@@ -262,6 +263,49 @@ def test_sse_calls_orchestrate_with_contributor_scope(client, monkeypatch):
     assert response.status_code == 200
     assert '"isError": false' in response.text
     assert '\\"answer\\":\\"ok\\"' in response.text
+
+
+def test_sse_orchestrate_streams_core_reflection_payload(client, monkeypatch):
+    """Le mode stream diffuse la réflexion opt-in avec le contrat core."""
+    from app.infrastructure.mcp import mcp_server_sse
+
+    def fake_orchestrate_stream(prompt, **kwargs):
+        assert kwargs["enable_thinking"] is True
+        kwargs["on_event"](
+            "orchestrate.thinking", {"thinking_delta": "J'analyse la demande."}
+        )
+        kwargs["on_event"](
+            "orchestrate.tool",
+            {"event": "tool_start", "tool": "now", "args": {}},
+        )
+        return AgentRunResult(
+            answer="Réponse finale.",
+            thinking="J'analyse la demande.",
+            status=RunStatus.COMPLETED,
+        )
+
+    monkeypatch.setattr(mcp_server_sse, "orchestrate_stream", fake_orchestrate_stream)
+    response = client.post(
+        "/mcp/sse",
+        content=json.dumps({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "orchestrate",
+                "arguments": {
+                    "prompt": "Analyse",
+                    "stream": True,
+                    "enable_thinking": True,
+                },
+            },
+        }),
+    )
+
+    assert response.status_code == 200
+    assert '"thinking_delta": "J\'analyse la demande."' in response.text
+    assert '"core_tool"' in response.text
+    assert '"isError": false' in response.text
 
 
 def test_sse_disabled_returns_503(monkeypatch):
