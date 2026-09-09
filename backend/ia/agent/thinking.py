@@ -21,6 +21,49 @@ _THINK_OPEN = re.compile(r"<\s*think\s*>", re.IGNORECASE)
 _THINK_CLOSE = re.compile(r"<\s*/\s*think\s*>", re.IGNORECASE)
 
 
+class ThinkingStreamSplitter:
+    """Sépare les balises ``<think>`` inline sans attendre la fin du flux."""
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._in_thinking = False
+
+    def feed(self, fragment: str) -> Tuple[str, str]:
+        self._buffer += fragment
+        content: list[str] = []
+        thinking: list[str] = []
+        while self._buffer:
+            pattern = _THINK_CLOSE if self._in_thinking else _THINK_OPEN
+            match = pattern.search(self._buffer)
+            if match is not None:
+                target = thinking if self._in_thinking else content
+                target.append(self._buffer[:match.start()])
+                self._buffer = self._buffer[match.end():]
+                self._in_thinking = not self._in_thinking
+                continue
+
+            # Retenir uniquement le suffixe susceptible d'être une balise
+            # fragmentée entre deux tokens réseau.
+            marker = "</think>" if self._in_thinking else "<think>"
+            keep = 0
+            for size in range(1, min(len(marker), len(self._buffer)) + 1):
+                if marker[:size].lower() == self._buffer[-size:].lower():
+                    keep = size
+            target = thinking if self._in_thinking else content
+            if len(self._buffer) > keep:
+                target.append(self._buffer[:-keep] if keep else self._buffer)
+                self._buffer = self._buffer[-keep:] if keep else ""
+            break
+        return "".join(content), "".join(thinking)
+
+    def finish(self) -> Tuple[str, str]:
+        target = self._buffer
+        self._buffer = ""
+        if self._in_thinking:
+            return "", target
+        return target, ""
+
+
 def extract_thinking(text: str) -> Tuple[str, str]:
     """Sépare la réflexion du reste de la réponse.
 
