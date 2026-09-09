@@ -457,7 +457,8 @@
 ### Tâche 20 : HTTP API Legacy + MCP-First
 - [ ] `api/routes/agent.py` → marquer `@deprecated` (HTTP API)
 - [ ] Feature flag `MCP_FIRST=true` → HTTP API en mode read-only
-- [ ] Dashboard migre vers MCP-over-SSE (`POST /mcp/sse`)
+- [x] Dashboard migre vers MCP-over-SSE (`POST /mcp/sse`) pour le mode
+      d’orchestration de l’Assistant IA
 - [ ] `ARCHITECTURE.md` → mettre à jour le diagramme (MCP = surface)
 - [ ] Test : `test_mcp_first.py` — HTTP API legacy + MCP actif
 

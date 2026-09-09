@@ -38,6 +38,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response
 
+from app.domain.entities.mcp import MCPScopeRole
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 
@@ -54,11 +55,15 @@ _MCP_SERVER_ENABLED = os.getenv("MCP_SERVER_ENABLED", "true").strip().lower() no
     "off",
 }
 
-# Instance partagée du serveur (stateless, thread-safe) — scope par défaut
-# read_only ; la politique CLIENT complète arrive avec le client store (S4).
+# Instance partagée du serveur (stateless, thread-safe). Le transport de
+# l'Assistant IA utilise contributor afin de voir `orchestrate`; les mutations
+# restent protégées par la policy du noyau et l'approbation humaine.
 # Tâche 12 : le hook d'audit journalise chaque appel d'action MCP dans
 # ``agent_audit`` (subject = client_id de l'en-tête ``X-Client-Id``).
-_server = build_mcp_server(audit=audit_mcp_call)
+# The Assistant IA uses the MCP orchestrator as its controlled entry point.
+# CONTRIBUTOR is required to see `orchestrate`; mutations remain gated by the
+# AgentCore sandbox policy and human approval.
+_server = build_mcp_server(scope=MCPScopeRole.CONTRIBUTOR, audit=audit_mcp_call)
 
 
 def mcp_server_enabled() -> bool:

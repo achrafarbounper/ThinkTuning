@@ -8,8 +8,8 @@
  *     · Agent (v2)    : noyau agentique POST /api/v1/agent/ask/core — boucle
  *       Intent -> Plan -> Policy -> Budget -> Action, appels d'outils
  *       streamés (core_tool) et carte de validation humaine,
- *     · Multi-agents  : orchestration superviseur / workers
- *       POST /api/v1/agent/multi/ask/stream,
+ *     · Multi-agents  : orchestration via le tool MCP `orchestrate`
+ *       POST /mcp/sse,
  * - l'authentification via l'en-tête X-API-Key (config dashboard ou VITE_API_KEY),
  * - le chargement (spinner + curseur clignotant),
  * - le défilement automatique vers le bas (avec respect du scroll manuel),
@@ -52,6 +52,7 @@ const AI_ENDPOINT = '/api/v1/chat/ai';
  * synthetise. Evenements SSE nommes agent.plan / agent.worker.* / agent.done.
  */
 const MULTI_ASK_STREAM_ENDPOINT = '/api/v1/agent/multi/ask/stream';
+const MCP_SSE_ENDPOINT = '/mcp/sse';
 
 /** Mode SSE demande : les evenements d observabilite (worker.tool) sont filtres. */
 const MULTI_SSE_MODE = 'compact';
@@ -773,11 +774,8 @@ export function ChatWindow() {
    *   - rejected          : motif du blocage policy affiché au mot pour mot.
    */
   /**
-   * Tour multi-agents : POST /api/agent/multi/ask/stream (SSE avec evenements
-   * nommes). La trace (plan + workers) est rendue en temps reel par
-   * MultiAgentTrace ; la reponse finale (agent.done -> final_answer) remplit
-   * la bulle. Une erreur globale (plan invalide, LLM inaccessible) est affichee
-   * comme une erreur de message.
+   * Compatibilité de reprise pour les anciennes demandes multi-agents :
+   * l'entrée normale passe par `askMcpOrchestrateTurn` ci-dessous.
    */
   const askMultiAgentTurn = useCallback(
     async (
@@ -847,6 +845,7 @@ export function ChatWindow() {
             { message: data.final_answer ?? data.message },
             'awaiting_approval',
           );
+
           setPendingApproval({
             requestId: blockedTask.request_id,
             prompt: subtask ?? prompt,
@@ -971,6 +970,71 @@ export function ChatWindow() {
       setPendingApproval,
       startMultiWorker,
     ],
+  );
+
+  /**
+   * Entrée MCP de l'orchestration : le backend retourne une réponse JSON-RPC
+   * dans une trame SSE unique, dont le contenu est le JSON stable du tool
+   * `orchestrate`.
+   */
+  const askMcpOrchestrateTurn = useCallback(
+    async (
+      assistantId: string,
+      prompt: string,
+      controller: AbortController,
+    ): Promise<void> => {
+      const session = sessionId || `assistant-${createId()}`;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Mcp-Session-Id': session,
+        'X-Client-Id': 'assistant-ia',
+      };
+      const body = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name: 'orchestrate',
+          arguments: { prompt, session_id: session, scope: 'default' },
+        },
+      };
+      const response = await fetch(`${resolveBaseUrl()}${MCP_SSE_ENDPOINT}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response));
+      }
+      if (!response.body) {
+        throw new Error('Le transport MCP n’a retourné aucun flux.');
+      }
+
+      let payloadText = '';
+      for await (const payload of readSseEvents(response.body)) {
+        if (payload !== '[DONE]') payloadText = payload;
+      }
+      if (!payloadText) throw new Error('Réponse MCP vide.');
+
+      const rpc = JSON.parse(payloadText) as {
+        error?: { message?: string };
+        result?: { content?: Array<{ text?: string }>; isError?: boolean };
+      };
+      if (rpc.error) {
+        throw new Error(rpc.error.message || 'Échec de l’appel MCP orchestrate.');
+      }
+      const text = rpc.result?.content?.[0]?.text;
+      if (!text || rpc.result?.isError) {
+        throw new Error(text || 'Le tool MCP orchestrate a échoué.');
+      }
+      const result = JSON.parse(text) as { answer?: string; status?: string };
+      if (result.status === 'error') {
+        throw new Error(result.answer || 'Échec de l’orchestration MCP.');
+      }
+      appendDelta(assistantId, result.answer ?? '');
+    },
+    [appendDelta, sessionId],
   );
 
   /**
@@ -1142,7 +1206,7 @@ const base = resolveBaseUrl();
       try {
         // Mode Multi-agents : orchestration superviseur / workers (SSE nommé).
         if (multiMode) {
-          await askMultiAgentTurn(assistantId, trimmed, controller);
+          await askMcpOrchestrateTurn(assistantId, trimmed, controller);
           return;
         }
         // Mode Agent (v2) : noyau agentique — boucle
@@ -1220,7 +1284,7 @@ const base = resolveBaseUrl();
         abortRef.current = null;
       }
     },
-    [isLoading, appendDelta, appendThinkingDelta, flushStreamBuffer, patchMessage, selectedModel, enableThinking, multiMode, coreMode, askMultiAgentTurn, askCoreTurn, sessionId],
+    [isLoading, appendDelta, appendThinkingDelta, flushStreamBuffer, patchMessage, selectedModel, enableThinking, multiMode, coreMode, askMcpOrchestrateTurn, askCoreTurn, sessionId],
   );
 
   /**
@@ -1556,5 +1620,3 @@ function BotIcon() {
     </svg>
   );
 }
-
-
