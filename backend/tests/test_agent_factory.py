@@ -47,6 +47,17 @@ def test_build_agent_core_wires_default_v2_llm(monkeypatch) -> None:
     assert core._llm.model == get_settings().agent_model_name
 
 
+def test_build_agent_core_forwards_thinking_to_llm(monkeypatch) -> None:
+    """Le mode de réflexion du run active aussi le streaming natif du provider."""
+    monkeypatch.setenv("AGENT_PROVIDER", "ollama")
+    monkeypatch.delenv("AGENT_LLM_V2", raising=False)
+
+    core = factory.build_agent_core(enable_thinking=True)
+
+    assert core._enable_thinking is True
+    assert core._llm.think is True
+
+
 def test_build_agent_core_legacy_opt_out(monkeypatch) -> None:
     """``AGENT_LLM_V2=0`` conserve le client legacy (repli tant que v1 vit)."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
