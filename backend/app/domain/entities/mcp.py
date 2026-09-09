@@ -134,7 +134,7 @@ class MCPVersion(BaseModel):
 
 # Version livrée par le bootstrap S1 (docs/mcp/IMPLEMENTATION_PLAN.md) —
 # fallback du loader quand pyproject.toml est absent ou inexploitable.
-DEFAULT_MCP_VERSION = MCPVersion(major=0, minor=1, patch=0)
+DEFAULT_MCP_VERSION = MCPVersion(major=2, minor=0, patch=0)
 
 
 class MCPScopeRole(StrEnum):

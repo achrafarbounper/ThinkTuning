@@ -23,12 +23,18 @@ import logging
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
-from app.domain.errors import NotFoundError, ValidationError
+from app.domain.entities.mcp import (
+    MCPScopeRole,
+    MCPTool,
+    MCPVersion,
+    SamplingRequest,
+)
+from app.domain.errors import LLMClientError, NotFoundError, ValidationError
 from app.domain.ports.mcp_ports import (
     MCPPromptRegistryPort,
     MCPResourceRegistryPort,
     MCPToolRegistryPort,
+    SamplingPort,
 )
 from app.infrastructure.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
@@ -98,9 +104,12 @@ class MCPServer:
         resource_provider: source des resources (port ``MCPResourceRegistryPort``,
             tâche 8 : 5 resources ``thinktuning://``) — ``None`` → surface
             sans resources (comportement v0.1.0 des constructions sur mesure) ;
-        prompt_provider: source des prompts (port ``MCPPromptRegistryPort``,
+                prompt_provider: source des prompts (port ``MCPPromptRegistryPort``,
             tâche 9 : 2 prompts ThinkTuning) — ``None`` → surface sans
             prompts (comportement v0.1.0 des constructions sur mesure) ;
+        sampling_port: port ``SamplingPort`` (tâche 15, S6 v2.0.0) — reverse
+            LLM inference (``sampling/create``) — ``None`` → surface sans
+            capacité sampling (comportement < v2.0.0, fail-closed) ;
         audit: hook d'audit ``(action, *, subject, detail, run_id)`` invoqué
             pour chaque appel MCP d'action (tâche 12) — ``None`` → aucune
             écriture (les transports branchent ``mcp_audit.audit_mcp_call``).
@@ -115,6 +124,7 @@ class MCPServer:
         tool_provider: MCPToolRegistryPort,
         resource_provider: MCPResourceRegistryPort | None = None,
         prompt_provider: MCPPromptRegistryPort | None = None,
+        sampling_port: SamplingPort | None = None,
         audit: Callable[..., Any] | None = None,
     ) -> None:
         self.name = name
@@ -123,6 +133,10 @@ class MCPServer:
         self.tool_provider = tool_provider
         self.resource_provider = resource_provider
         self.prompt_provider = prompt_provider
+        # Port de sampling (S6, v2.0.0) : ``None`` → sampling/create rejeté
+        # (comportement rétrocompatible < v2.0.0). Le transport SSE branche
+        # ``build_sampling_adapter()`` via la fabrique.
+        self.sampling_port = sampling_port
         # Hook d'audit injecté (S4, tâche 12) : ``None`` → aucune écriture (les
         # transports SSE/stdio branchent ``app.infrastructure.mcp.mcp_audit``).
         self.audit = audit
@@ -221,15 +235,7 @@ class MCPServer:
         if method == MCPMethod.PROMPTS_GET:
             return self._handle_prompts_get(request_id, params)
         if method == MCPMethod.SAMPLING_CREATE:
-            # L'audit (ACT_MCP_SAMPLING) est produit par ``_audit_method`` AVANT
-            # le rejet : l'appel non disponible est tout de même tracé
-            # (fail-closed — aucune capacité sampling exposée avant la v2.0.0).
-            logger.info("MCP sampling/create demandé mais indisponible (v2.0.0)")
-            return error_result(
-                request_id,
-                ErrorCode.INVALID_PARAMS,
-                "sampling/create not available yet (roadmap v2.0.0)",
-            )
+            return self._handle_sampling_create(request_id, params)
         raise ProtocolError(ErrorCode.METHOD_NOT_FOUND, f"Method not found: {method}")
 
     def _handle_notification(self, method: str) -> None:
@@ -354,11 +360,112 @@ class MCPServer:
         if self.prompt_provider is not None:
             # Tâche 9 : la surface expose des prompts → capability annoncée.
             capabilities["prompts"] = {"listChanged": False}
+        if self.sampling_port is not None:
+            # Tâche 15 (v2.0.0) : capacité sampling annoncée → clients doivent
+            # mettre à jour pour gérer ``sampling/create`` (breaking change).
+            capabilities["sampling"] = {}
         return {
             "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": capabilities,
             "serverInfo": {"name": self.name, "version": str(self.version)},
         }
+
+    # --- sampling/create (tâche 15, S6 v2.0.0) ----------------------------------------
+
+    def _handle_sampling_create(
+        self, request_id: Any, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """``sampling/create`` : reverse LLM inference via ``SamplingPort``.
+
+        Le serveur MCP agit comme CLIENT de son propre LLM : le client MCP
+        fournit les messages (``params.messages``) et les préférences
+        (``params.maxTokens``, ``params.temperature``, ``params.systemPrompt``).
+
+        Fail-closed : sans ``sampling_port`` (``None``), la méthode est
+        rejetée — le serveur ne publie JAMAIS la capacité ``sampling`` tant
+        que le port n'est pas injecté.
+        """
+        if self.sampling_port is None:
+            logger.info("MCP sampling/create demandé mais indisponible (v2.0.0)")
+            return error_result(
+                request_id,
+                ErrorCode.INTERNAL_ERROR,
+                "sampling/create not available (no SamplingPort wired)",
+            )
+        # --- Validation des paramètres (spec MCP: createMessageRequest) ----------
+        if not isinstance(params, dict) or "messages" not in params:
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'messages' (array) is required",
+            )
+        raw_messages = params.get("messages")
+        if not isinstance(raw_messages, list) or not raw_messages:
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'messages' must be a non-empty array",
+            )
+        max_tokens = params.get("maxTokens")
+        if max_tokens is not None and (not isinstance(max_tokens, int) or max_tokens < 1):
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'maxTokens' must be a positive integer",
+            )
+        temperature = params.get("temperature")
+        if temperature is not None and not isinstance(temperature, (int, float)):
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'temperature' must be a number",
+            )
+        system_prompt = params.get("systemPrompt")
+        if system_prompt is not None and not isinstance(system_prompt, str):
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'systemPrompt' must be a string",
+            )
+        # --- Construction de la requête de domaine (validation Pydantic) ----------
+        try:
+            request = SamplingRequest(
+                messages=[dict(m) for m in raw_messages],
+                max_tokens=max_tokens,
+                system_prompt=system_prompt,
+                temperature=temperature,
+            )
+        except ValidationError as exc:
+            logger.info("MCP sampling/create params invalides : %s", exc)
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                f"Invalid params: {exc}",
+            )
+        # --- Délégation au port (reverse LLM) -------------------------------------
+        try:
+            response = self.sampling_port.create_message(request)
+        except LLMClientError as exc:
+            logger.warning("MCP sampling LLM error : %s", exc)
+            return error_result(
+                request_id,
+                ErrorCode.INTERNAL_ERROR,
+                f"Sampling LLM error: {exc.message}",
+            )
+        except Exception:  # fail-closed : aucune fuite d'exception protocole
+            logger.exception("MCP sampling/create a échoué (erreur interne)")
+            return error_result(
+                request_id,
+                ErrorCode.INTERNAL_ERROR,
+                "Internal sampling error",
+            )
+        result = response.to_dict()
+        logger.info(
+            "MCP sampling/create OK (model=%s, %d chars)",
+            result.get("model", ""),
+            len(result.get("content", {}).get("text", "")),
+        )
+        return success_result(request_id, result)
 
     # --- tools/list & tools/call ------------------------------------------------------
 

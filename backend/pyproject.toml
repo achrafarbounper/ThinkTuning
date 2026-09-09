@@ -67,7 +67,7 @@ include = ["app*"]
 # MCP (S1 bootstrap = 0.1.0 → S7 = 3.0.0). Lue par
 # app/infrastructure/mcp/version_loader.py via MCPVersion.from_toml_source.
 [tool.mcp]
-version = "0.1.0"
+version = "2.0.0"
 
 [tool.ruff]
 line-length = 100

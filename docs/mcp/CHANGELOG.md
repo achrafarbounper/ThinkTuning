@@ -6,6 +6,68 @@
 
 ---
 
+## v2.0.0 — 2026-09-09 (S6 — SamplingPort + Orchestrate, tâche 18)
+
+> **⚠️ BREAKING CHANGE** — Cette version introduit `SamplingPort` et le tool
+> `orchestrate`. Les clients MCP doivent mettre à jour leur gestion des
+> capacités (voir `docs/mcp/migration/v1-to-v2.md`).
+
+### Ajouts — SamplingPort (tâche 15, S6 v2.0.0)
+- **Port domaine** : `SamplingPort` (`app/domain/ports/mcp_ports.py`) —
+  reverse LLM inference (``sampling/create``) : le serveur MCP agit comme
+  CLIENT de son propre LLM sur demande d'un client MCP. Deux niveaux :
+  ``create_message(request)`` (canonique, ``SamplingRequest`` →
+  ``SamplingResponse``) et ``create_text(...)`` (commodité, ``str`` direct).
+- **Adaptateur** : `SamplingAdapter` (`app/infrastructure/mcp/sampling/`)
+  — implémente `SamplingPort` via le `LLMClientPort` existant
+  (``llm.call(messages)``), ``SamplingRequest``/``SamplingResponse``
+  (entités ``app/domain/entities/mcp.py``).
+- **Serveur** : `MCPServer._handle_sampling_create()` — dispatch JSON-RPC
+  ``sampling/create`` (validation des paramètres, délégation au port,
+  erreurs LLM → ``-32603 INTERNAL_ERROR``) ; capacité ``sampling`` annoncée
+  à ``initialize`` quand le port est branché (fail-closed : sans port, la
+  méthode est rejetée).
+- **Fabrique** : `build_mcp_server(sampling_port=...)` — ``None`` →
+  ``build_sampling_adapter()`` pour v2.0.0+ (sampling activé par défaut),
+  ``None`` pour < v2.0.0 (pas de capacité sampling).
+
+### Ajouts — Tool `orchestrate` (tâche 16, S6 v2.0.0)
+- **Tool** : `orchestrate` (``app/infrastructure/mcp/tools/orchestrate_tool.py``)
+  — orchestration agentique complète (``AgentCore.run`` via
+  ``build_agent_core``), tool MCP DISTINCT des tools bruts, exposé sur la
+  surface v2.0.0+ par ``build_mcp_server()``.
+
+### Breaking Changes
+- **`SamplingPort` ajouté** : nouvelle capacité ``sampling/create`` — les
+  clients doivent gérer la nouvelle méthode JSON-RPC (ou l'ignorer).
+- **Capacité `sampling` annoncée** : `initialize` retourne
+  ``capabilities.sampling: {}`` — les clients qui valident strictement les
+  capacités doivent accepter cette clé.
+- **Version bump** : `0.1.0` → `2.0.0` (SemVer : breaking changes → major
+  bump) ; `DEFAULT_MCP_VERSION` = `2.0.0` (fallback si `pyproject.toml`
+  absent).
+
+### Tests (tâche 18)
+- `tests/test_mcp_v2_conformance.py` (nouveau, 15 tests) : conformité v2.0.0
+  (``initialize`` annonce ``sampling``, ``sampling/create`` via port branché,
+  ``sampling/create`` rejeté sans port, validation des paramètres, erreurs
+  LLM, tool ``orchestrate`` visible, version `2.0.0`).
+- `tests/test_mcp_version.py` mis à jour : assertions `0.1.0` → `2.0.0`
+  (wiring `pyproject.toml`, `DEFAULT_MCP_VERSION`, loader).
+- Suite MCP/legacy complète : **593+ passed** (dont 15 nouveaux).
+
+### Notes de migration
+- **Breaking** : les clients MCP doivent mettre à jour leur gestion des
+  capacités pour accepter ``sampling`` et la version ``2.0.0`` — voir le
+  guide de migration ``docs/mcp/migration/v1-to-v2.md``.
+- Les clients v1.x **continuent de fonctionner** (compatibilité ascendante) :
+  les méthodes existantes restent inchangées, la capacité ``sampling`` est
+  ignorée si le client ne la gère pas.
+- ``docs/mcp/MANIFEST.md`` inchangé : le catalogue design-time reflète
+  ``ia/tools/tools_config.json``, qui n'a pas bougé.
+
+---
+
 ## v0.1.0 — 2026-09-08 (S1 — Bootstrap)
 
 ### Ajouts — MCP Server Layer (tâche 2)

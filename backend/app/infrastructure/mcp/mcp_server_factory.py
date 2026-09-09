@@ -68,6 +68,7 @@ from app.domain.ports.mcp_ports import (
     MCPPromptRegistryPort,
     MCPResourceRegistryPort,
     MCPToolRegistryPort,
+    SamplingPort,
 )
 from app.infrastructure.mcp.legacy_tool_provider import build_v100_read_only_provider
 from app.infrastructure.mcp.mcp_server import (
@@ -81,6 +82,7 @@ from app.infrastructure.mcp.protocol import MCP_SERVER_NAME, empty_input_schema
 from app.infrastructure.mcp.resources.resource_provider import (
     build_legacy_resource_provider,
 )
+from app.infrastructure.mcp.sampling.sampling_adapter import build_sampling_adapter
 from app.infrastructure.mcp.tools.orchestrate_tool import build_orchestrate_tool
 from app.infrastructure.mcp.version_loader import load_mcp_version
 from app.infrastructure.mcp.write_exec_tool_provider import build_v210_write_exec_provider
@@ -128,6 +130,7 @@ def build_mcp_server(
     tool_provider: ToolProvider | None = None,
     resource_provider: MCPResourceRegistryPort | None = None,
     prompt_provider: MCPPromptRegistryPort | None = None,
+    sampling_port: SamplingPort | None = None,
     audit: Callable[..., Any] | None = None,
     orchestrate_tool: MCPTool | None = None,
 ) -> MCPServer:
@@ -162,6 +165,11 @@ def build_mcp_server(
             ``version < 2.0.0`` (jalon de la feuille de route : le tool n'est
             pas annoncé avant la v2.0.0) ou si ``tool_provider`` est fourni
             (le provider remplace entièrement le registre par défaut).
+        sampling_port: port ``SamplingPort`` (S6, tâche 15) — reverse LLM
+            inference (``sampling/create``) ; ``None`` →
+            ``build_sampling_adapter()`` pour v2.0.0+ (sampling activé par
+            défaut), ``None`` pour < v2.0.0 (pas de sampling). Passer un
+            port explicite pour injecter un LLM custom (tests, déploiements).
 
     Returns:
         Un ``MCPServer`` configuré (dispatch JSON-RPC, prêt pour SSE/stdio).
@@ -209,6 +217,12 @@ def build_mcp_server(
     if prompt_provider is None:
         # Tâches 9 + 14 : les 5 prompts ThinkTuning — catalogue statique, sans I/O.
         prompt_provider = build_prompt_provider()
+    if sampling_port is None:
+        # Tâche 15 (S6, v2.0.0) : reverse LLM inference — le port est résolu
+        # automatiquement pour v2.0.0+ (sampling activé par défaut) et reste
+        # ``None`` pour < v2.0.0 (pas de capacité sampling, fail-closed).
+        if resolved_version >= MCPVersion(major=2, minor=0, patch=0):
+            sampling_port = build_sampling_adapter()
     server = MCPServer(
         name=MCP_SERVER_NAME,
         version=resolved_version,
@@ -216,6 +230,7 @@ def build_mcp_server(
         tool_provider=provider,
         resource_provider=resource_provider,
         prompt_provider=prompt_provider,
+        sampling_port=sampling_port,
         audit=audit,
     )
     logger.info(
