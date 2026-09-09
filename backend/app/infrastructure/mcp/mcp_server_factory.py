@@ -40,6 +40,12 @@ via ``MCPScopeRole.granted``).
 
 La version MCP est résolue par ``load_mcp_version`` (tâche 1) — le serveur
 démarre même si ``pyproject.toml`` est absent (fallback ``DEFAULT_MCP_VERSION``).
+
+Tâche 16 (S6, v2.0.0) : le tool ``orchestrate`` (orchestration agentique —
+wrap d'``AgentCore.run`` via ``build_agent_core``) est ajouté au registre par
+défaut comme tool MCP DISTINCT des tools bruts, à partir de la version 2.0.0
+de la surface (``version >= MCPVersion(2, 0, 0)``) ; ``orchestrate_tool=...``
+le remplace entièrement (tests, déploiements restreints).
 """
 
 from __future__ import annotations
@@ -52,6 +58,7 @@ from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
 from app.domain.ports.mcp_ports import (
     MCPPromptRegistryPort,
     MCPResourceRegistryPort,
+    MCPToolRegistryPort,
 )
 from app.infrastructure.mcp.legacy_tool_provider import build_v100_read_only_provider
 from app.infrastructure.mcp.mcp_server import (
@@ -64,6 +71,7 @@ from app.infrastructure.mcp.protocol import MCP_SERVER_NAME, empty_input_schema
 from app.infrastructure.mcp.resources.resource_provider import (
     build_legacy_resource_provider,
 )
+from app.infrastructure.mcp.tools.orchestrate_tool import build_orchestrate_tool
 from app.infrastructure.mcp.version_loader import load_mcp_version
 
 logger = logging.getLogger("thinktuning.mcp.factory")
@@ -110,6 +118,7 @@ def build_mcp_server(
     resource_provider: MCPResourceRegistryPort | None = None,
     prompt_provider: MCPPromptRegistryPort | None = None,
     audit: Callable[..., Any] | None = None,
+    orchestrate_tool: MCPTool | None = None,
 ) -> MCPServer:
     """Construit un ``MCPServer`` prêt à l'emploi pour un transport.
 
@@ -136,18 +145,33 @@ def build_mcp_server(
             écriture. Les transports passent ``mcp_audit.audit_mcp_call`` —
             chaque tools/call, resources/read, prompts/get et sampling/create
             est alors journalisé dans ``agent_audit`` (subject=client_id).
+        orchestrate_tool: tool ``orchestrate`` (S6, tâche 16) à exposer sur la
+            surface v2.0.0+ ; ``None`` → ``build_orchestrate_tool()`` (noyau
+            agentique réel, construit paresseusement à l'appel). Ignoré si
+            ``version < 2.0.0`` (jalon de la feuille de route : le tool n'est
+            pas annoncé avant la v2.0.0) ou si ``tool_provider`` est fourni
+            (le provider remplace entièrement le registre par défaut).
 
     Returns:
         Un ``MCPServer`` configuré (dispatch JSON-RPC, prêt pour SSE/stdio).
     """
     resolved_version = version or load_mcp_version()
+    provider: MCPToolRegistryPort
     if tool_provider is None:
         # Surface v1.0.0 (tâche  7) : bootstrap S1 + sélection read-only projetée
         # du registre legacy (compilation manifeste à la construction).
         legacy = build_v100_read_only_provider()
-        provider = InMemoryToolProvider(
-            [*_bootstrap_tools(resolved_version), *legacy.list_tools()]
-        )
+        tools = [*_bootstrap_tools(resolved_version), *legacy.list_tools()]
+        if resolved_version >= MCPVersion(major=2, minor=0, patch=0):
+            # Tâche 16 (S6, v2.0.0) : le tool ``orchestrate`` (orchestration
+            # agentique, wrap d'AgentCore.run) est ajouté comme tool MCP
+            # DISTINCT des tools bruts — visible dès la v2.0.0 de la surface.
+            # ``orchestrate_tool=...`` permet d'injecter une variante (tests,
+            # déploiements) ; la construction du noyau reste paresseuse (à
+            # l'appel du tool), le serveur démarre sans LLM ni registre réels.
+            tool = orchestrate_tool if orchestrate_tool is not None else build_orchestrate_tool()
+            tools.append(tool)
+        provider = InMemoryToolProvider(tools)
     else:
         provider = tool_provider
     if resource_provider is None:
