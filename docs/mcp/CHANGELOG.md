@@ -37,6 +37,23 @@
   ``build_agent_core``), tool MCP DISTINCT des tools bruts, exposé sur la
   surface v2.0.0+ par ``build_mcp_server()``.
 
+### Ajouts — Notifications email/Slack aux clients (tâche 18, S6 v2.0.0)
+- **Service** : `NotificationService`
+  (``app/infrastructure/mcp/notifications/notification_service.py``) —
+  orchestrateur de diffusion des breaking changes aux clients MCP inscrits
+  (``MCPClientStore.list()``) : compose le message (texte brut + HTML +
+  blocks Slack) et l'envoie via les canaux configurés. Envoi **non bloquant**
+  (échec loggé, jamais propagé) ; provider de clients injectable pour les
+  tests, fallback singleton ``core.mcp_client_store.get_mcp_client_store()``.
+- **Canaux** : `EmailNotifier` (SMTP — env
+  ``MCP_NOTIFICATION_SMTP_HOST/PORT/USER/PASSWORD``, ``MCP_NOTIFICATION_FROM``)
+  ciblant chaque client dont le ``client_id`` est une adresse email ;
+  `SlackNotifier` (webhook — env ``MCP_NOTIFICATION_SLACK_WEBHOOK``), un seul
+  message par diffusion. Canaux non configurés = désactivés (log info).
+- **CLI** : ``scripts/notify_mcp_v2_breaking_change.py`` — déclenche la
+  notification v2.0.0 (sujet, breaking changes, guide de migration) ;
+  ``--dry-run`` prévisualise les clients ciblés et le message sans envoi.
+
 ### Breaking Changes
 - **`SamplingPort` ajouté** : nouvelle capacité ``sampling/create`` — les
   clients doivent gérer la nouvelle méthode JSON-RPC (ou l'ignorer).
@@ -48,13 +65,18 @@
   absent).
 
 ### Tests (tâche 18)
-- `tests/test_mcp_v2_conformance.py` (nouveau, 15 tests) : conformité v2.0.0
-  (``initialize`` annonce ``sampling``, ``sampling/create`` via port branché,
-  ``sampling/create`` rejeté sans port, validation des paramètres, erreurs
-  LLM, tool ``orchestrate`` visible, version `2.0.0`).
+- `tests/test_mcp_v2_conformance.py` + `..._part2.py` (nouveaux, 18 tests) :
+  conformité v2.0.0 (``initialize`` annonce ``sampling``, ``sampling/create``
+  via port branché, ``sampling/create`` rejeté sans port, validation des
+  paramètres, erreurs LLM, tool ``orchestrate`` visible, version `2.0.0`,
+  transport SSE).
+- `tests/test_mcp_notifications.py` (nouveau, 20 tests) : notificateurs
+  email/Slack (succès, échec non bloquant, payload), builders env,
+  ``NotificationService`` (ciblage, compteurs, canaux désactivés, provider
+  injecté vs registre défaut), singleton ``get_mcp_client_store()``.
 - `tests/test_mcp_version.py` mis à jour : assertions `0.1.0` → `2.0.0`
   (wiring `pyproject.toml`, `DEFAULT_MCP_VERSION`, loader).
-- Suite MCP/legacy complète : **593+ passed** (dont 15 nouveaux).
+- Suite MCP/legacy complète : **593+ passed** (dont 38 nouveaux).
 
 ### Notes de migration
 - **Breaking** : les clients MCP doivent mettre à jour leur gestion des
@@ -63,8 +85,11 @@
 - Les clients v1.x **continuent de fonctionner** (compatibilité ascendante) :
   les méthodes existantes restent inchangées, la capacité ``sampling`` est
   ignorée si le client ne la gère pas.
-- ``docs/mcp/MANIFEST.md`` inchangé : le catalogue design-time reflète
-  ``ia/tools/tools_config.json``, qui n'a pas bougé.
+- ``docs/mcp/MANIFEST.md`` régénéré (tâche 18) : header ``v0.1.0`` → ``v2.0.0``
+  (compteurs inchangés — 63 tools, 38 read-only — ``ia/tools/tools_config.json``
+  n'a pas bougé) ; ``test_mcp_manifest.py`` dérive désormais l'attendu de la
+  source de vérité (``load_mcp_version`` / manifeste compilé) pour survivre
+  aux futurs bumps SemVer.
 
 ---
 

@@ -42,6 +42,7 @@ from app.infrastructure.mcp.manifest_generator import (
     write_markdown_catalog,
 )
 from app.infrastructure.mcp.mcp_server import InMemoryToolProvider
+from app.infrastructure.mcp.version_loader import load_mcp_version
 from ia.tools.tool_schema import to_json_schema
 
 _LOADER_LOGGER = "thinktuning.mcp.manifest"
@@ -270,8 +271,15 @@ def test_build_manifest_deterministic_output() -> None:
 
 
 def test_build_manifest_defaults_version_from_pyproject() -> None:
+    """Sans ``version`` explicite, le manifeste reprend la version MCP de
+    ``pyproject.toml``.
+
+    L'attendu est résolu par le MÊME loader (``load_mcp_version``) — le test
+    valide le câblage (build_manifest → version_loader → ``[tool.mcp]``) sans
+    hardcoder la version (un bump SemVer ne casse plus ce test).
+    """
     manifest = build_manifest(_mini_manifest(), generated_at=_FIXED_TS)
-    assert manifest["manifestVersion"] == "0.1.0"
+    assert manifest["manifestVersion"] == str(load_mcp_version())
 
 
 def test_build_manifest_dangerous_adds_warning() -> None:
@@ -501,7 +509,11 @@ def test_manifest_entries_feed_in_memory_provider(real_manifest: dict) -> None:
 
 def test_markdown_header_contains_product_metadata(real_manifest: dict) -> None:
     doc = manifest_to_markdown(real_manifest)
-    assert doc.startswith("# Manifeste MCP ThinkTuning — v0.1.0")
+    # La version du header est dérivée du manifeste compilé (source de vérité)
+    # — le test porte sur la PRÉSENCE des métadonnées, pas sur une version.
+    assert doc.startswith(
+        f"# Manifeste MCP ThinkTuning — v{real_manifest['manifestVersion']}"
+    )
     assert "FICHIER GÉNÉRÉ" in doc
     assert f"**{real_manifest['toolCount']}**" in doc
     assert f"**{real_manifest['readOnlyCount']}**" in doc

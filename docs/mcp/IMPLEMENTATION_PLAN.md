@@ -416,11 +416,32 @@
 - [x] Test : `test_mcp_tools_35.py` — 35 tools + policy APPROVE
 
 ### Tâche 18 : v2.0.0 Breaking Change + Migration
-- [ ] `docs/mcp/migration/v1-to-v2.md` — guide de migration clients
-- [ ] Breaking change : `SamplingPort` ajouté → clients doivent mettre à jour
-- [ ] Changelog : `v2.0.0` — "Added SamplingPort + orchestrate tool"
-- [ ] Notification : email/Slack aux clients enregistrés
-- [ ] Test : `test_mcp_v2_conformance.py` — conformité v2
+- [x] `docs/mcp/migration/v1-to-v2.md` — guide de migration clients
+- [x] Breaking change : `SamplingPort` ajouté → clients doivent mettre à jour
+- [x] Changelog : `v2.0.0` — "Added SamplingPort + orchestrate tool"
+- [x] Notification : email/Slack aux clients enregistrés
+- [x] Test : `test_mcp_v2_conformance.py` — conformité v2
+
+> **Livré (S6)** : guide de migration complet (`docs/mcp/migration/v1-to-v2.md`
+> — résumé des changements, `sampling/create` avec options A/B, capacité
+> `sampling` à `initialize`, checklist, compatibilité ascendante). Changelog
+> `v2.0.0` publié (breaking changes + orchestrate + migration). Notifications
+> email/Slack : `EmailNotifier` (SMTP, env `MCP_NOTIFICATION_SMTP_*`),
+> `SlackNotifier` (webhook `MCP_NOTIFICATION_SLACK_WEBHOOK`),
+> `NotificationService` (provider de clients injectable, ciblage
+> client_id = adresse email, envoi non bloquant) —
+> `app/infrastructure/mcp/notifications/` + singleton
+> `get_mcp_client_store()` (core) + CLI `scripts/notify_mcp_v2_breaking_change.py`
+> (`--dry-run` pour prévisualiser). Tests : `test_mcp_v2_conformance.py`
+> (+ part2, 18 tests) + `test_mcp_notifications.py` (20 tests).
+>
+> **Fix suite manifeste (post-livraison)** : les 3 échecs pré-existants de
+> `test_mcp_manifest.py` (`defaults_version_from_pyproject`,
+> `markdown_header_contains_product_metadata`, `committed_catalog_is_in_sync`)
+> résolus — attendus dérivés de la source de vérité (``load_mcp_version`` /
+> manifeste compilé) et ``docs/mcp/MANIFEST.md`` régénéré (header ``v2.0.0``
+> + reclassification task 17 : `cancel/start/stop_training` admin → operator,
+> warnings 8 → 5). Suite ``test_mcp_*.py`` verte (89 tests manifeste).
 
 ---
 

@@ -1,4 +1,4 @@
-# Manifeste MCP ThinkTuning — v0.1.0
+# Manifeste MCP ThinkTuning — v2.0.0
 
 > ⚠️ **FICHIER GÉNÉRÉ** — ne pas éditer à la main.
 > Source : `ia/tools/tools_config.json` (standard `thinktuning.tool/v1`) ;
@@ -7,11 +7,11 @@
 | Attribut | Valeur |
 |---|---|
 | Serveur | `thinktuning-mcp` |
-| Version surface | 0.1.0 |
+| Version surface | 2.0.0 |
 | Protocole MCP | 2025-06-18 |
 | Tools | **63** (read-only : **38** · mutation : **25**) |
-| Généré le | 2026-09-09T12:15:27.178Z |
-| Avertissements | 8 |
+| Généré le | 2026-09-09T14:38:26.701Z |
+| Avertissements | 5 |
 
 ## Catalogue
 
@@ -27,7 +27,7 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `append_file` | contributor | — | ✅ | — | builtin | Ajoute `content` Ã la fin d'un fichier DANS la sandbox (crÃ©e le fichier et ses parents si nÃ©cessaire â€” co… |
 | `calc` | read_only | ✅ | — | ✅ | builtin | Ã‰value une expression arithmÃ©tique pure et renvoie {expression, result} |
 | `call_api` | contributor | — | ✅ | — | builtin | Appel HTTP générique GET/POST vers une API externe (schéma http/https, sortie tronquée). GET sans corps ; POS… |
-| `cancel_training` | admin | — | ✅ | — | builtin | Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au procha… |
+| `cancel_training` | operator | — | ✅ | — | builtin | Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au procha… |
 | `copy_path` | contributor | — | ✅ | — | builtin | Copie fichier ou arborescence dans la sandbox |
 | `count_lines` | read_only | ✅ | — | ✅ | builtin | DÃ©compte lignes, mots, caractÃ¨res et octets (Ã©quivalent `wc`) |
 | `dataset_stats` | read_only | ✅ | — | ✅ | builtin | Profil rapide d'un dataset CSV/TSV/JSONL sous la sandbox : lignes, colonnes, valeurs manquantes, distribution… |
@@ -74,8 +74,8 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `search_in_files` | read_only | ✅ | — | ✅ | builtin | Cherche `pattern` (regex Python, insensible Ã la casse) dans le contenu des fichiers sous `path` |
 | `split_file` | contributor | — | ✅ | — | builtin | DÃ©coupe un gros fichier en morceaux numÃ©rotÃ©s (max_lines lignes chacun) |
 | `sqlite_query` | read_only | ✅ | — | ✅ | builtin | ExÃ©cute une requÃªte SQL sur une base SQLite situÃ©e dans la sandbox |
-| `start_training` | admin | — | ✅ | — | builtin | Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_… |
-| `stop_training` | admin | — | ✅ | — | builtin | Alias de cancel_training : demande l'arrÃªt propre d'un entraÃ®nement en cours (pending/running) via son job_… |
+| `start_training` | operator | — | ✅ | — | builtin | Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_… |
+| `stop_training` | operator | — | ✅ | — | builtin | Alias de cancel_training : demande l'arrÃªt propre d'un entraÃ®nement en cours (pending/running) via son job_… |
 | `tail_file` | read_only | ✅ | — | ✅ | builtin | DerniÃ¨res `lines` lignes d'un fichier texte (lecture arriÃ¨re bornÃ©e Ã 256 Ko : adaptÃ© aux logs qui grossi… |
 | `touch` | contributor | — | ✅ | — | builtin | CrÃ©e un fichier vide ou rafraÃ®chit sa date de modification (sans Ã©craser) |
 | `train_model` | admin | — | ✅ | — | builtin | Lance un entraÃ®nement et ATTEND sa fin (bloquant, timeout en secondes) ; retourne le statut final, le chemin… |
@@ -1513,10 +1513,7 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 ## Avertissements de compilation
 
 - add: « description » manquante ou vide
-- cancel_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - find_duplicates: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - run_shell: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
-- start_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
-- stop_training: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - train_model: tool non classé par la policy legacy — posture fail-closed (mutation + admin) ; déclarer « safety » (standard thinktuning.tool/v1) dans tools_config.json pour lever l'ambiguïté
 - git_commit: safety.level=« dangerous » — tool bloqué par la policy (scope admin, jamais exécuté quelle que soit la validation)

@@ -15,6 +15,7 @@ L'envoi est non bloquant (échec loggé, jamais propagé).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from app.infrastructure.mcp.notifications.email_notifier import (
@@ -37,9 +38,20 @@ class NotificationService:
         *,
         email_notifier: EmailNotifier | None = None,
         slack_notifier: SlackNotifier | None = None,
+        clients_provider: Callable[[], list[dict]] | None = None,
     ) -> None:
+        """Construit le service de notification.
+
+        Args:
+            email_notifier: notificateur email (``None`` = canal désactivé) ;
+            slack_notifier: notificateur Slack (``None`` = canal désactivé) ;
+            clients_provider: fournisseur des clients enregistrés (injection
+                pour les tests) — ``None`` = registre SQLite par défaut
+                (``core.mcp_client_store.get_mcp_client_store().list()``).
+        """
         self.email_notifier = email_notifier
         self.slack_notifier = slack_notifier
+        self.clients_provider = clients_provider
 
     def notify_all_clients(
         self,
@@ -63,15 +75,19 @@ class NotificationService:
         """
         results = {"email": 0, "slack": 0}
 
-        # Récupérer les clients enregistrés (import paresseux — pas de base
-        # créée au chargement du module).
-        try:
-            from core.mcp_client_store import get_mcp_client_store
+        # Récupérer les clients enregistrés — provider injecté (tests) sinon
+        # registre SQLite par défaut (import paresseux — pas de base créée
+        # au chargement du module).
+        if self.clients_provider is not None:
+            clients = self.clients_provider()
+        else:
+            try:
+                from core.mcp_client_store import get_mcp_client_store
 
-            clients = get_mcp_client_store().list()
-        except Exception:  # pragma: no cover — store non disponible
-            logger.exception("Impossible de récupérer les clients MCP")
-            clients = []
+                clients = get_mcp_client_store().list()
+            except Exception:  # pragma: no cover — store non disponible
+                logger.exception("Impossible de récupérer les clients MCP")
+                clients = []
 
         if not clients:
             logger.info("Aucun client MCP enregistré — notification ignorée")
