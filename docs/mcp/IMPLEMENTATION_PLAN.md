@@ -469,11 +469,11 @@
 > verte (30 tests nouveaux).
 
 ### Tâche 20 : HTTP API Legacy + MCP-First
-- [ ] `api/routes/agent.py` → marquer `@deprecated` (HTTP API)
-- [ ] Feature flag `MCP_FIRST=true` → HTTP API en mode read-only
-- [ ] Dashboard migre vers MCP-over-SSE (`POST /mcp/sse`)
-- [ ] `ARCHITECTURE.md` → mettre à jour le diagramme (MCP = surface)
-- [ ] Test : `test_mcp_first.py` — HTTP API legacy + MCP actif
+- [x] `api/routes/agent.py` → marquer `@deprecated` (HTTP API)
+- [x] Feature flag `MCP_FIRST=true` → HTTP API en mode read-only
+- [x] Dashboard migre vers MCP-over-SSE (`POST /mcp/sse`)
+- [x] `ARCHITECTURE.md` → mettre à jour le diagramme (MCP = surface)
+- [x] Test : `test_mcp_first.py` — HTTP API legacy + MCP actif
 
 ### Tâche 21 : CI/CD MCP + Production Readiness
 - [ ] `.github/workflows/ci.yml` → ajouter `test_mcp_*.py` dans la pipeline

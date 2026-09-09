@@ -38,6 +38,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response
 
+from app.domain.entities.mcp import MCPScopeRole
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 
@@ -54,11 +55,45 @@ _MCP_SERVER_ENABLED = os.getenv("MCP_SERVER_ENABLED", "true").strip().lower() no
     "off",
 }
 
-# Instance partagée du serveur (stateless, thread-safe) — scope par défaut
-# read_only ; la politique CLIENT complète arrive avec le client store (S4).
-# Tâche 12 : le hook d'audit journalise chaque appel d'action MCP dans
-# ``agent_audit`` (subject = client_id de l'en-tête ``X-Client-Id``).
-_server = build_mcp_server(audit=audit_mcp_call)
+# Scope client du transport SSE (fail-closed) : ``MCP_CLIENT_SCOPE`` permet
+# d'élever le rôle au-delà de ``read_only`` — requis pour les tools mutatifs
+# (ex. ``orchestrate`` exige ``contributor``, tâche 16 / S6). Valeurs valides :
+# ``read_only`` | ``contributor`` | ``operator`` | ``admin`` (case-insensitive).
+# Toute valeur inconnue retombe sur ``read_only`` + warning (jamais d'escalade
+# silencieuse) ; la politique CLIENT complète arrive avec le client store (S4).
+_MCP_CLIENT_SCOPE_ENV = "MCP_CLIENT_SCOPE"
+
+
+def _resolve_client_scope() -> MCPScopeRole:
+    """Résout le rôle du client SSE depuis l'environnement (fail-closed).
+
+    Returns:
+        Le rôle parsé, ou ``READ_ONLY`` si la variable est absente/vide.
+    Raises:
+        ValueError : jamais propagée — une valeur invalide est loggée en
+        warning et retombe sur ``READ_ONLY`` (le serveur doit démarrer).
+    """
+    raw = os.getenv(_MCP_CLIENT_SCOPE_ENV, "").strip()
+    if not raw:
+        return MCPScopeRole.READ_ONLY
+    try:
+        return MCPScopeRole(raw.lower())
+    except ValueError:
+        logger.warning(
+            "MCP_CLIENT_SCOPE invalide : '%s' (valeurs : %s) — "
+            "retombe sur read_only (fail-closed).",
+            raw,
+            ", ".join(role.value for role in MCPScopeRole),
+        )
+        return MCPScopeRole.READ_ONLY
+
+
+# Instance partagée du serveur (stateless, thread-safe) — scope résolu depuis
+# ``MCP_CLIENT_SCOPE`` (défaut read_only : le tool ``orchestrate``/contributor
+# n'est visible qu'après élévation explicite du rôle). Tâche 12 : le hook
+# d'audit journalise chaque appel d'action MCP dans ``agent_audit``
+# (subject = client_id de l'en-tête ``X-Client-Id``).
+_server = build_mcp_server(scope=_resolve_client_scope(), audit=audit_mcp_call)
 
 
 def mcp_server_enabled() -> bool:
