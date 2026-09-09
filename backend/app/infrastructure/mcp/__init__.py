@@ -48,6 +48,11 @@
 - ``sampling/`` (tâche 15) : ``SamplingAdapter`` (port ``SamplingPort``) —
   reverse LLM via ``LLMClientPort`` existant (``llm.call(messages)``),
   ``SamplingRequest``/``SamplingResponse`` (entités ``app/domain/entities``).
+- ``tools/`` (tâche 16) : tool ``orchestrate`` — orchestration agentique
+  complète (``AgentCore.run`` via ``build_agent_core``), tool MCP DISTINCT
+  des tools bruts, exposé sur la surface v2.0.0+ par ``build_mcp_server`` ;
+  chaque action du run passe par ``sandbox_policy.decide_action()``
+  (mutation → validation humaine, jamais un bypass de la policy).
 """
 
 from __future__ import annotations
@@ -97,6 +102,11 @@ from app.infrastructure.mcp.sampling.sampling_adapter import (
     SamplingAdapter,
     build_sampling_adapter,
 )
+from app.infrastructure.mcp.tools.orchestrate_tool import (
+    ORCHESTRATE_TOOL_NAME,
+    build_orchestrate_tool,
+    orchestrate,
+)
 from app.infrastructure.mcp.version_loader import load_mcp_version
 
 # NOTE : ``manifest_generator`` n'est PAS ré-exporté ici (comme ``mcp_server_stdio``)
@@ -115,6 +125,7 @@ __all__ = [
     "MCPVersion",
     "MCPServer",
     "MCP_SERVER_NAME",
+    "ORCHESTRATE_TOOL_NAME",
     "PolicyGateToolProvider",
     "PolicyVerdict",
     "PromptProvider",
@@ -127,6 +138,7 @@ __all__ = [
     "V100_READ_ONLY_TOOLS",
     "build_legacy_resource_provider",
     "build_mcp_server",
+    "build_orchestrate_tool",
     "build_prompt_provider",
     "build_sampling_adapter",
     "build_v010_read_only_provider",
@@ -136,5 +148,6 @@ __all__ = [
     "decision_to_annotations",
     "load_mcp_version",
     "mcp_sse_router",
+    "orchestrate",
     "visible_tools",
 ]

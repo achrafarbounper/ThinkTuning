@@ -388,13 +388,24 @@
 ## 🧩 Tâches par Semaine (S6 — v2.0.0 Sampling + Orchestrate)
 
 ### Tâche 16 : Tool MCP `orchestrate`
-- [ ] `app/infrastructure/mcp/tools/orchestrate_tool.py` :
+- [x] `app/infrastructure/mcp/tools/orchestrate_tool.py` :
   - `orchestrate(prompt, session_id, scope)` → wrap `AgentCore.run()`
   - Appelle `build_agent_core()` → `core.run(Intent(prompt=prompt))`
   - Retourne `AgentRunResult.answer` + traces
-- [ ] Sécurité : passe par `decide_action()` → `APPROVE` (mutation → validation humaine)
-- [ ] `orchestrate` est un tool MCP **distinct** des tools bruts
-- [ ] Test : `test_mcp_orchestrate.py` — `orchestrate("analyse ce dataset")` → réponse
+- [x] Sécurité : passe par `decide_action()` → `APPROVE` (mutation → validation humaine)
+- [x] `orchestrate` est un tool MCP **distinct** des tools bruts
+- [x] Test : `test_mcp_orchestrate.py` — `orchestrate("analyse ce dataset")` → réponse
+
+> **Livré (S6)** : `orchestrate_tool.py` expose `orchestrate()` (wrap
+> d'`AgentCore.run` via `build_agent_core`, `core_factory` injectable pour les
+> tests) et `build_orchestrate_tool()` → `MCPTool` DISTINCT (annotations
+> mutation, `required_scope=contributor`+), branché par `build_mcp_server`
+> sur la surface **v2.0.0+** (`orchestrate_tool=` pour injection). Sécurité :
+> chaque action du run passe par `sandbox_policy.decide_action()` —
+> `APPROVE` (mutation) → run `pending_approval` surface par
+> `awaiting_approval` (validation humaine), `REJECT` jamais exécuté.
+> Audit : `tools/call orchestrate` → `ACT_MCP_ORCHESTRATE`. 13 tests :
+> `test_mcp_orchestrate.py`.
 
 ### Tâche 17 : 35 Tools (extension avec write/exec)
 - [ ] Ajouter 10 tools avec `APPROVE` (write/exec filtré) :
