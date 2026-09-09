@@ -2,6 +2,26 @@
 
 """Endpoints de l'agent IA intégrés au package api.
 
+.. deprecated:: v3.0.0 (MCP-First, S7 — tâche 20 : docs/mcp/IMPLEMENTATION_PLAN.md)
+
+    La surface d'entrée privilégiée est désormais **MCP** :
+    ``POST /mcp/sse`` (transport streamable HTTP) et ``thinktuning-mcp``
+    (transport stdio) — serveur ``app/infrastructure/mcp/``. Ce module reste
+    monté UNIQUEMENT comme adaptateur strangler : les délégations v1
+    (``api/routes/v1/agent.py``) appellent encore ces handlers (source unique
+    jusqu'à migration complète).
+
+    Dépréciation active (verrouillée par ``tests/test_mcp_first.py``) :
+
+    - un :class:`DeprecationWarning` est émis à l'import du module ;
+    - chaque réponse HTTP du router porte les en-têtes ``Deprecation: true``,
+      ``Sunset`` (RFC 8594) et ``Warning: 299`` ;
+    - feature flag **``MCP_FIRST=true``** : la surface passe en mode
+      LECTURE SEULE — tout endpoint mutant (POST/PUT/DELETE) répond 405 avec
+      le code ``mcp_first_read_only`` et renvoie vers MCP. Exception
+      documentée : l'approbation humaine (approve/reject) reste disponible,
+      c'est le canal qui débloque les runs MCP ``pending_approval``.
+
 Exposent l'agent du paquet `ia/` sous le préfixe `/api/agent`, avec les
 conventions du package api (router, dépendance `require_api_key`,
 middlewares CORS / rate limit / métriques partagés) :
@@ -16,18 +36,22 @@ threadpool, donc l'appel bloquant vers Ollama ne gèle pas l'event loop.
 """
 
 import asyncio
+import functools
 import json
 import queue
 import threading
 import time
-from collections.abc import AsyncIterator
-from typing import Any
+import warnings
+from collections.abc import AsyncIterator, Callable
+from typing import Any, TypeVar, cast
 
 import requests
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Request,
+    Response,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -142,7 +166,87 @@ from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytiqu
 from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
 from ia.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard v1)
 
-router = APIRouter(prefix="/api/agent", tags=["Agent IA"])
+# --- Dépréciation de la surface HTTP legacy (S7 — MCP-First, tâche 20) -------
+
+#: Date cible de retrait de la surface legacy (en-tête ``Sunset``, RFC 8594).
+DEPRECATION_SUNSET = "Sat, 31 Dec 2026 23:59:59 GMT"
+
+#: Notice courte injectée dans l'en-tête ``Warning: 299`` des réponses.
+DEPRECATION_WARNING = (
+    "Surface HTTP /api/agent deprecated : mutations via MCP (POST /mcp/sse)"
+)
+
+#: Notice complète émise en :class:`DeprecationWarning` à l'import du module.
+DEPRECATION_NOTICE = (
+    "api/routes/agent.py est la surface HTTP legacy de l'agent IA (v3.0.0 "
+    "MCP-First). La surface d'entrée privilégiée est MCP (POST /mcp/sse, "
+    "transport stdio `thinktuning-mcp`) ; ce module n'est conservé que comme "
+    "adaptateur strangler des délégations v1. Activez MCP_FIRST=true pour "
+    "geler la surface en lecture seule."
+)
+
+# Marquage @deprecated (tâche 20) : un avertissement à l'import — visible avec
+# ``python -W`` / ``-W error::DeprecationWarning`` en CI, et vérifié par
+# ``tests/test_mcp_first.py``.
+warnings.warn(DEPRECATION_NOTICE, DeprecationWarning, stacklevel=2)
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+async def _deprecated_surface_headers(request: Request, response: Response) -> None:
+    """Injecte les en-têtes de dépréciation sur chaque réponse HTTP du router.
+
+    Dépendance router-level : les clients HTTP directs découvrent la
+    dépréciation sans lire la documentation (RFC 8594 ``Deprecation`` +
+    ``Sunset`` + ``Warning: 299``). Le canal WebSocket (``/ws``) est
+    court-circuité : aucun en-tête à poser, et dans ce contexte Starlette
+    remplit ``response`` avec ``None``.
+    """
+    if request.scope.get("type") != "http":
+        return  # canal WebSocket : rien à déprécier côté HTTP
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = DEPRECATION_SUNSET
+    response.headers["Warning"] = f'299 - "{DEPRECATION_WARNING}"'
+
+
+def writable_endpoint(func: _F) -> _F:
+    """Garde « lecture seule » du mode MCP-First (tâche 20).
+
+    Décore les endpoints MUTANTS de la surface legacy : quand le feature flag
+    ``MCP_FIRST=true`` est actif (``app/config/settings.py``), l'appel est
+    refusé AVANT toute exécution — 405 avec le code ``mcp_first_read_only`` et
+    un renvoi vers la surface MCP (``POST /mcp/sse``). Les délégations v1
+    héritent du garde par appel direct des handlers (strangler, source unique).
+
+    Exception documentée : l'approbation humaine (``/approvals/{id}/approve``,
+    ``/reject``) n'est PAS décorée — c'est le canal qui débloque les runs MCP
+    en ``pending_approval`` (policy APPROVE) ; le bloquer interdirait tout
+    run MCP à risque de se terminer.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        if get_settings().mcp_first:
+            raise HTTPException(
+                status_code=405,
+                detail={
+                    "code": "mcp_first_read_only",
+                    "message": (
+                        "API HTTP legacy en lecture seule (MCP_FIRST=true) : "
+                        "les mutations passent par MCP (POST /mcp/sse)."
+                    ),
+                },
+            )
+        return func(*args, **kwargs)
+
+    return cast(_F, wrapper)
+
+
+router = APIRouter(
+    prefix="/api/agent",
+    tags=["Agent IA"],
+    dependencies=[Depends(_deprecated_surface_headers)],
+)
 
 # Timeout (secondes) des sondes de connectivité du bouton « Tester ».
 CONNECTIVITY_TIMEOUT_SECONDS = 8.0
@@ -376,6 +480,7 @@ def list_tools(_: bool = Depends(require_api_key)):
 
 
 @router.post("/tools/run")
+@writable_endpoint
 def run_tool(request: ToolRunRequest, _: bool = Depends(require_api_key)):
     """Exécute directement un outil (utile pour tester sans dépendre du LLM)."""
     tool = request.tool
@@ -450,6 +555,7 @@ def list_custom_tools(_: bool = Depends(require_api_key)):
 
 
 @router.post("/tools/custom", status_code=201)
+@writable_endpoint
 def create_custom_tool(
     request: CustomToolCreateRequest, _: bool = Depends(require_api_key),
 ):
@@ -549,6 +655,7 @@ def create_custom_tool(
 
 
 @router.delete("/tools/custom/{name}")
+@writable_endpoint
 def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
     """Retire un tool DYNAMIQUE (les tools natifs ne sont jamais retirables)."""
     if not _flag("custom_tools"):
@@ -611,6 +718,7 @@ class SuggestFeedbackRequest(BaseModel):
 
 
 @router.post("/suggest")
+@writable_endpoint
 def suggest(request: SuggestRequest, _: bool = Depends(require_api_key)):
     """Suggestions d'outils + squelette d'arguments pour le contexte courant.
 
@@ -629,6 +737,7 @@ def suggest(request: SuggestRequest, _: bool = Depends(require_api_key)):
 
 
 @router.post("/suggest/feedback")
+@writable_endpoint
 def suggest_feedback(request: SuggestFeedbackRequest, _: bool = Depends(require_api_key)):
     """Enregistre l'issue d'une suggestion (acceptée / refusée)."""
     if not _flag("copilot"):
@@ -643,6 +752,7 @@ def suggest_feedback(request: SuggestFeedbackRequest, _: bool = Depends(require_
 
 
 @router.post("/complete")
+@writable_endpoint
 def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     """Complétion en ligne (suite probable du brouillon, via le LLM)."""
     if not _flag("copilot"):
@@ -670,6 +780,7 @@ def _core_tool_events(result) -> list[dict]:
 
 
 @router.post("/ask/core", response_model=AskResponse)
+@writable_endpoint
 def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
     """Prompt libre via le nouveau noyau agentique (flag ``AGENT_NEW_CORE``).
 
@@ -708,6 +819,7 @@ def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
 
 
 @router.post("/ask/core/stream")
+@writable_endpoint
 def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key)):
     """Nouveau noyau agentique en streaming SSE (flag ``AGENT_NEW_CORE``).
 
@@ -1153,6 +1265,7 @@ def read_agent_settings(_: bool = Depends(require_api_key)):
 
 
 @router.put("/settings")
+@writable_endpoint
 def update_agent_settings(
     update: AgentSettingsUpdate, _: bool = Depends(require_api_key)
 ):
@@ -1209,6 +1322,7 @@ def _settings_payload_from(effective, port):
 
 
 @router.post("/settings/test")
+@writable_endpoint
 def test_agent_connectivity(
     request: ConnectivityTestRequest, _: bool = Depends(require_api_key)
 ):
@@ -1559,6 +1673,7 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
 
 
 @router.post("/multi/ask")
+@writable_endpoint
 def multi_ask(
     request: MultiAskRequest, _: bool = Depends(require_api_key)
 ):
@@ -1583,6 +1698,7 @@ def multi_ask(
 
 
 @router.post("/multi/ask/stream")
+@writable_endpoint
 def multi_ask_stream(
     request: MultiAskRequest, _: bool = Depends(require_api_key)
 ):
@@ -1780,6 +1896,7 @@ def get_flow_session(flow_id: str, _: bool = Depends(require_api_key)):
 
 
 @router.delete("/flow/{flow_id}")
+@writable_endpoint
 def delete_flow_session(flow_id: str, _: bool = Depends(require_api_key)):
     """Supprime une session enregistrée (nettoyage du journal Flow Map)."""
     if not get_flow_store().delete(flow_id):

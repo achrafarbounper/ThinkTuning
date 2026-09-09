@@ -13,8 +13,13 @@ pour toute évolution.
 ## 1. Vue d'ensemble
 
 ```
-                 ┌────────────────────────────────────────────┐
-  HTTP/WS/SSE ─▶ │  api/  (FastAPI) — adapters d'entrée       │
+                                          MCP (S7) = SURFACE D'ENTRÉE
+                                          POST /mcp/sse (JSON-RPC 2.0 ⇄ SSE)
+                                          + stdio `thinktuning-mcp`
+                                                     │ tools/call orchestrate
+                                                     ▼
+  HTTP/WS/SSE ─▶ │  api/  (FastAPI) — adapters d'entrée (déprécié → MCP,
+                 │   read-only sous MCP_FIRST=true, sauf approbations)
                  └──────────────┬─────────────────────────────┘
                                 │ Depends / use-cases
                  ┌──────────────▼─────────────────────────────┐
@@ -42,11 +47,23 @@ pour toute évolution.
 - `app/infrastructure/**` implémente les ports en déléguant au legacy.
 - `api/**` assemble et expose ; aucune logique métier.
 
+### Surface d'entrée (S7 — MCP-First)
+
+- **MCP est la surface privilégiée** : `POST /mcp/sse` (transport streamable
+  HTTP, JSON-RPC 2.0 ⇄ SSE) et `thinktuning-mcp` (stdio). Le serveur vit dans
+  `app/infrastructure/mcp/` (bootstrap en lecture pour tout scope + tool
+  `orchestrate` S6 — la boucle agentique complète).
+- L'**HTTP legacy** (`api/routes/agent.py`) est marqué `@deprecated` (tâche 20)
+  et conservé uniquement comme adaptateur strangler des délégations v1 ; sous
+  `MCP_FIRST=true` il répond 405 (`mcp_first_read_only`) sur toute mutation,
+  sauf l'approbation humaine (`/approvals/*/approve|reject`) qui reste le
+  canal whitelisté débloquant les runs MCP `pending_approval`.
+
 ---
 
 ## 2. La couche agentique
 
-### Flux d'un run (`POST /api/agent/ask/core`)
+### Flux d'un run (`POST /api/agent/ask/core` — idem via `POST /mcp/sse`, tools/call `orchestrate`)
 
 1. **Intent** — validé à l'entrée (`app/domain/entities/plan.py`) : prompt,
    session, rôle, budget max_rounds.
@@ -102,6 +119,9 @@ app/
     └── legacy_approval_store.py  # core/approval_store → ApprovalStorePort
 
 api/routes/agent.py               # POST /ask/core (flag AGENT_NEW_CORE)
+                                  # @deprecated (tâche 20) : read-only MCP_FIRST
+app/infrastructure/mcp/           # SURFACE MCP (S7) : serveur SSE (POST /mcp/sse),
+                                  # tools/ (bootstrap, orchestrate), manifest, security
 core/ ia/ src/                    # legacy — migré progressivement
 ```
 
@@ -146,6 +166,10 @@ aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
   `AGENT_NEW_CORE=0` force le repli legacy (`/ask/core` répond alors 503).
 - Bascule du client LLM : **`HttpLLMClient` activé par défaut** ;
   `AGENT_LLM_V2=0` force le repli legacy (ia/agent/llm_client.py).
+- Surface MCP (S7) : **`MCP_FIRST=true`** gèle l'API HTTP legacy de l'agent en
+  lecture seule (405 `mcp_first_read_only` ; approbations whitelistées) ;
+  `MCP_SERVER_ENABLED` (défaut `true`) active/désactive le serveur MCP
+  (`POST /mcp/sse` + stdio `thinktuning-mcp`).
 - Pour les tests : `get_settings.cache_clear()` après modification de l'env.
 
 ---
@@ -222,6 +246,14 @@ permettent au runner de distinguer retry / recovery / rejet.
    multi-agents (`MultiAgentCoordinator`) — tous construits sur
    `ia/agent/agent_core.py` + `ia/agent/llm_client.py` ; leur migration vers le
    client/noyau v2 conditionne la suppression de `ia/agent/llm_client.py`.
+9. **MCP-First (S7 — tâche 20) FAIT** : surface MCP (`POST /mcp/sse`, JSON-RPC
+   2.0 ⇄ SSE, serveur `app/infrastructure/mcp/mcp_server_sse.py`) ; module
+   legacy `api/routes/agent.py` marqué `@deprecated` (DeprecationWarning à
+   l'import + en-têtes `Deprecation`/`Sunset`/`Warning: 299` sur chaque
+   réponse) ; feature flag **`MCP_FIRST=true`** → HTTP legacy read-only (405
+   `mcp_first_read_only`, approbations humaines whitelistées) ; dashboard
+   migré vers MCP-over-SSE (mode « MCP » du chat, `mcpClient.ts`) ;
+   verrouillage par `tests/test_mcp_first.py` (HTTP + MCP actifs ensemble).
 
 ### Avancée Phase 3 (client LLM v2 + contexte)
 
