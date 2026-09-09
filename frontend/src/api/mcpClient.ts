@@ -25,6 +25,8 @@
  *     encore — durcissement auth prévu en S4/S5) ; sans effet si absente.
  */
 
+import { readNamedSseEvents } from '../components/chat/streamSse';
+
 // Chemin du transport MCP (NON versionné : surface MCP à discovery propre).
 export const MCP_SSE_PATH = '/mcp/sse';
 
@@ -249,6 +251,53 @@ export class McpSseClient {
     return this.call<McpToolCallResult>('tools/call', { name, arguments: args });
   }
 
+  /** Ouvre un appel tool en conservant le corps SSE lisible par le caller. */
+  async streamTool(
+    name: string,
+    args: Record<string, unknown> = {},
+  ): Promise<Response> {
+    const id = this.nextId++;
+    const controller = new AbortController();
+    const externalSignal = this.signal;
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort();
+      else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+    const timer = window.setTimeout(() => controller.abort(), this.timeoutMs);
+    const url = `${this.baseUrl}${MCP_SSE_PATH}`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          method: 'tools/call',
+          params: { name, arguments: args },
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw await mcpHttpError(response);
+      if (!response.body) {
+        throw new McpTransportError('Le transport MCP n’a retourné aucun flux.', response.status);
+      }
+      return response;
+    } catch (error) {
+      if (error instanceof McpTransportError) throw error;
+      if (controller.signal.aborted) {
+        throw new McpTransportError(`La requête MCP (${name}) a dépassé le délai autorisé.`, 0);
+      }
+      throw new McpTransportError(
+        `Impossible de joindre le serveur MCP à ${url} (${describeNetworkError(error)}).`,
+        0,
+      );
+    } finally {
+      externalSignal?.removeEventListener('abort', onExternalAbort);
+      window.clearTimeout(timer);
+    }
+  }
+
   /** En-têtes du transport : JSON-RPC + SSE + identité client/session MCP. */
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {
@@ -353,6 +402,13 @@ export interface OrchestrateMcpArgs {
   enable_thinking?: boolean;
 }
 
+export interface OrchestrateMcpStreamEvent {
+  thinking_delta?: string;
+  delta?: string;
+  tool?: Record<string, unknown>;
+  rpc?: JsonRpcResponse;
+}
+
 /**
  * Tour d'assistant via MCP : `tools/call orchestrate` (transport POST /mcp/sse).
  *
@@ -374,6 +430,7 @@ export async function orchestrateViaMcp(
       200,
     );
   }
+
   try {
     return JSON.parse(text) as OrchestrateMcpResult;
   } catch {
@@ -381,6 +438,79 @@ export async function orchestrateViaMcp(
     throw new McpTransportError(
       `Réponse d'orchestration non JSON : ${text.slice(0, 200)}`,
       200,
+    );
+  }
+}
+
+/**
+ * Variante progressive de `orchestrateViaMcp`.
+ *
+ * Le serveur récent émet des événements `orchestrate.*`; un serveur ancien
+ * peut encore répondre par l'unique événement MCP `message`, qui est décodé
+ * comme fallback sans perdre la compatibilité.
+ */
+export async function orchestrateViaMcpStream(
+  args: OrchestrateMcpArgs,
+  onEvent: (event: OrchestrateMcpStreamEvent) => void,
+  config?: McpClientConfig,
+): Promise<OrchestrateMcpResult> {
+  const client = new McpSseClient(config);
+  const streamArgs = { ...args, stream: true };
+  const response = await client.streamTool('orchestrate', streamArgs);
+  if (!response.body) {
+    throw new McpTransportError('Le transport MCP n’a retourné aucun flux.', response.status);
+  }
+  let finalRpc: JsonRpcResponse | undefined;
+
+  for await (const event of readNamedSseEvents(response.body)) {
+    if (event.data === '[DONE]') break;
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(event.data) as Record<string, unknown>;
+    } catch {
+      throw new McpTransportError(
+        `Événement MCP non JSON : ${event.data.slice(0, 200)}`,
+        response.status,
+      );
+    }
+
+    if (event.event === 'orchestrate.thinking') {
+      onEvent({
+        thinking_delta:
+          typeof payload.thinking_delta === 'string' ? payload.thinking_delta : '',
+      });
+    } else if (event.event === 'orchestrate.tool') {
+      onEvent({ tool: payload });
+    } else if (
+      event.event === 'orchestrate.done' ||
+      event.event === 'orchestrate.error' ||
+      event.event === 'message'
+    ) {
+      finalRpc = payload as unknown as JsonRpcResponse;
+      onEvent({ rpc: finalRpc });
+    }
+  }
+
+  const text =
+    finalRpc?.result && typeof finalRpc.result === 'object'
+      ? ((finalRpc.result as McpToolCallResult).content?.find((block) => block.type === 'text')?.text ?? '')
+      : '';
+  if (finalRpc?.error) {
+    throw new McpTransportError(
+      `MCP orchestrate a échoué : ${finalRpc.error.message}`,
+      response.status,
+      finalRpc.error.code,
+    );
+  }
+  if (finalRpc?.result && (finalRpc.result as McpToolCallResult).isError) {
+    throw new McpTransportError(`L'agent MCP a échoué : ${text || 'erreur inconnue'}`, response.status);
+  }
+  try {
+    return JSON.parse(text) as OrchestrateMcpResult;
+  } catch {
+    throw new McpTransportError(
+      `Réponse d'orchestration non JSON : ${text.slice(0, 200)}`,
+      response.status,
     );
   }
 }
