@@ -242,6 +242,9 @@ _store_lock = threading.Lock()
 
 def get_approval_store() -> ApprovalStore:
     """Store partagé de l'application (instance unique paresseuse)."""
+    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoApprovalStore
+        return MongoApprovalStore()  # type: ignore[return-value]
     global _store
     with _store_lock:
         if _store is None:

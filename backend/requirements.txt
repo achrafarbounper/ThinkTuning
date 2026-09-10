@@ -42,3 +42,4 @@ pydantic-settings>=2.0.0
 # nécessaire ici — et aucune version >= 0.12.0 n'existe sur PyPI (max : 0.7.x).
 onnx>=1.14.0
 onnxruntime>=1.17.0
+pymongo>=4.8.0

@@ -64,6 +64,11 @@ class Settings(BaseSettings):
         extra="ignore",  # tolère les variables hors périmètre (.env utilisateur)
     )
 
+    # Persistence remains SQLite by default; Atlas is enabled explicitly.
+    persistence_backend: Literal["sqlite", "mongodb"] = "sqlite"
+    mongodb_uri: str | None = None
+    mongodb_database: str = "thinktuning"
+
     # --- API / sécurité -----------------------------------------------------
     api_key: str = Field(default="change-me", description="Clé API des endpoints protégés")
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(

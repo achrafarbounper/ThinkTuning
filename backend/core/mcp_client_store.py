@@ -670,6 +670,9 @@ _client_store_singleton_lock = threading.Lock()
 
 
 def get_mcp_client_store() -> MCPClientStore:
+    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoMCPClientStore
+        return MongoMCPClientStore()  # type: ignore[return-value]
     """Instance unique paresseuse du registre des clients MCP.
 
     Le path est résolu à la première instanciation (``MCP_CLIENT_STORE_PATH``

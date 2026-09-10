@@ -31,6 +31,10 @@ def _client_store():
     du module : résoudre le chemin ici permet l'isolation des tests via
     ``MCP_CLIENT_STORE_PATH`` sans recharger le module.
     """
+    from core.mcp_client_store import get_mcp_client_store
+
+    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        return get_mcp_client_store()
     from core.mcp_client_store import MCP_CLIENT_STORE_PATH, MCPClientStore
 
     return MCPClientStore(path=os.getenv("MCP_CLIENT_STORE_PATH") or MCP_CLIENT_STORE_PATH)

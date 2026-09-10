@@ -283,6 +283,9 @@ _store_lock = threading.Lock()
 
 def get_flow_store() -> FlowStore:
     """Store partagé de l'application (instance unique paresseuse)."""
+    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoFlowStore
+        return MongoFlowStore()  # type: ignore[return-value]
     global _store
     with _store_lock:
         if _store is None:
