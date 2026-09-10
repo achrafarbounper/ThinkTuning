@@ -206,8 +206,19 @@ async def _stream_orchestrate(
             events.put(None)
 
     threading.Thread(target=worker, daemon=True).start()
+    # Prélude immédiat (fix déployé Render) : sans premier byte rapide, le
+    # proxy Render coupe le flux avant que le LLM (lent/injoignable) ne
+    # produise son premier event. Le prélude part dès l'ouverture du flux,
+    # suivi de heartbeats tant que le worker ne produit rien.
+    yield _sse_event("orchestrate.started", {"status": "started"})
     while True:
-        item = await asyncio.to_thread(events.get)
+        try:
+            item = await asyncio.wait_for(
+                asyncio.to_thread(events.get), timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            yield ": heartbeat\n\n"
+            continue
         if item is None:
             yield "data: [DONE]\n\n"
             return

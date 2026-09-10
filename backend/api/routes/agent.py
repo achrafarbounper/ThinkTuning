@@ -38,6 +38,7 @@ threadpool, donc l'appel bloquant vers Ollama ne gèle pas l'event loop.
 import asyncio
 import functools
 import json
+import os
 import queue
 import threading
 import time
@@ -1029,23 +1030,50 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
 
     threading.Thread(target=worker, daemon=True).start()
 
-    # Réception SYNCHRONE du premier événement : une panne précoce (LLM
-    # injoignable, resume_request_id invalide) reste une vraie erreur HTTP.
-    first_kind, first_payload = events.get()
-    if first_kind == "http_error":
+    # Premier événement avec TIMEOUT (fix déployé Render) : le handler est
+    # SYNCHRONE (threadpool) et le worker peut mettre 30-120s avant le premier
+    # event si le LLM est lent/injoignable. Sans timeout, le proxy Render
+    # coupe la connexion avant le premier byte SSE → « KO » côté dashboard
+    # alors que /multi/ask/stream (qui émet agent.plan en premier) survit.
+    # On attend le premier événement au plus FIRST_EVENT_TIMEOUT_S puis on
+    # démarre le flux SSE QUOI QU'IL ARRIVE (prélude immédiat + heartbeats),
+    # l'erreur éventuelle voyageant DANS le flux (event error) au lieu d'un
+    # 502 tardif qui ne part jamais.
+    FIRST_EVENT_TIMEOUT_S = float(os.getenv("AGENT_SSE_FIRST_EVENT_TIMEOUT", "25"))
+    HEARTBEAT_INTERVAL_S = float(os.getenv("AGENT_SSE_HEARTBEAT", "10"))
+    try:
+        first_kind, first_payload = events.get(timeout=FIRST_EVENT_TIMEOUT_S)
+        first_ready = True
+    except queue.Empty:
+        first_kind, first_payload, first_ready = "pending", None, False
+    if first_ready and first_kind == "http_error":
         if isinstance(first_payload, BaseException):
             raise first_payload  # noqa: TRY201 - re-lever l'HTTPException d'origine
         raise HTTPException(status_code=502, detail=str(first_payload))
-    if first_kind == "error":
+    if first_ready and first_kind == "error":
         raise HTTPException(status_code=502, detail=str(first_payload))
 
     async def _sse_stream() -> AsyncIterator[str]:
         try:
-            if first_kind != "done":
+            # Prélude immédiat : le premier byte part dès l'ouverture du flux,
+            # les proxies intermédiaires (Render, nginx) voient une réponse
+            # vivante même si le LLM rame.
+            yield _sse({"status": "started", "model": effective_model})
+            if first_ready and first_kind != "done":
                 field = _CORE_STREAM_FIELDS.get(first_kind, first_kind)
                 yield _sse({field: first_payload})
+            elif not first_ready:
+                yield _sse({"status": "waiting_for_model"})
             while True:
-                kind, payload = await asyncio.to_thread(events.get)
+                try:
+                    kind, payload = await asyncio.wait_for(
+                        asyncio.to_thread(events.get), timeout=HEARTBEAT_INTERVAL_S
+                    )
+                except asyncio.TimeoutError:
+                    # Heartbeat : garde la connexion SSE vivante derrière les
+                    # proxies qui coupent les flux silencieux (>30s sans byte).
+                    yield ": heartbeat\n\n"
+                    continue
                 if kind == "done":
                     break
                 if kind in ("http_error", "error"):
