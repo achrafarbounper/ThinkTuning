@@ -96,14 +96,14 @@ def test_flag_disabled_allows_unauthenticated(client, monkeypatch):
     assert response.status_code == 200
 
 
-def test_flag_read_from_settings(monkeypatch):
-    """Sans env, le défaut vient de ``Settings.mcp_auth_required``."""
+def test_flag_read_from_agent_config(monkeypatch):
+    """Sans env, le défaut vient de ``AgentConfig.mcp_auth_required`` (IHM)."""
     monkeypatch.delenv("MCP_AUTH_REQUIRED", raising=False)
 
-    class _Settings:
+    class _Config:
         mcp_auth_required = False
 
-    monkeypatch.setattr(mcp_server_sse, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(mcp_server_sse, "get_agent_config", lambda: _Config())
     test_app = FastAPI()
     test_app.include_router(mcp_sse_router)
     client = TestClient(test_app)

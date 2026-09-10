@@ -112,36 +112,30 @@ def test_new_core_env_takes_priority(monkeypatch: pytest.MonkeyPatch) -> None:
     assert new_core_enabled() is True
 
 
-def test_new_core_settings_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sans variable d'environnement, le repli Settings s'applique
-    (y compris la valeur lue depuis le fichier .env par pydantic-settings)."""
+def test_new_core_config_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sans variable d'environnement, le repli de la config IHM s'applique
+    (flag persisté en base, défaut du module, ou valeur du fichier .env)."""
     from app.agent.factory import new_core_enabled
-    from app.config.settings import get_settings
 
     monkeypatch.delenv("AGENT_NEW_CORE", raising=False)
-    get_settings.cache_clear()
-    # Défaut : noyau v2 ACTIVÉ (bascule en production) — y compris si les
-    # Settings ne sont pas chargeables (repli fail-open de new_core_enabled).
+    # Défaut : noyau v2 ACTIVÉ (bascule en production) — y compris si la
+    # configuration n'est pas chargeable (repli fail-open de new_core_enabled).
     assert new_core_enabled() is True
     os.environ["AGENT_NEW_CORE"] = "0"
-    get_settings.cache_clear()
     try:
         assert new_core_enabled() is False
     finally:
         os.environ.pop("AGENT_NEW_CORE", None)
-        get_settings.cache_clear()
 
 
-def test_settings_expose_new_core_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_agent_config_exposes_new_core_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     """Le snapshot des flags inclut la bascule du noyau (observabilité)."""
-    from app.config.settings import get_settings
+    from app.agent.settings import get_agent_config
 
     monkeypatch.setenv("AGENT_NEW_CORE", "1")
-    get_settings.cache_clear()
     try:
-        settings = get_settings()
+        config = get_agent_config()
     except Exception:
-        pytest.skip("Settings non chargeables dans cet environnement (.env incomplet)")
-    assert settings.flag_new_core is True
-    assert settings.active_flags()["new_core"] is True
-    get_settings.cache_clear()
+        pytest.skip("Config IHM non chargeable dans cet environnement (.env incomplet)")
+    assert config.flag_new_core is True
+    assert config.active_flags()["new_core"] is True

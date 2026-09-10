@@ -137,6 +137,24 @@ button:focus-visible {
   font-style: italic;
 }
 
+/* Case à cocher des sections MCP / fonctionnalités (Settings). */
+.tt-assistant-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--tt-text, #e7eaee);
+  padding: 0.25rem 0;
+}
+
+.tt-assistant-checkbox input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--tt-accent, #5b8def);
+  cursor: pointer;
+}
+
 
 /* --- Page Annotation (SCRUM-55) ------------------------------------------ */
 

@@ -46,19 +46,24 @@ def default_llm_client(llm_v2: bool = True, **overrides: object) -> LLMClientPor
 
 
 def _build_http_client(**overrides: object) -> HttpLLMClient:
-    """Construit ``HttpLLMClient`` depuis les Settings centralisés."""
-    from app.agent.factory import llm_endpoint
-    from app.config.settings import get_settings
+    """Construit ``HttpLLMClient`` depuis la configuration effective de l'agent.
 
-    settings = get_settings()
-    url, api_key = llm_endpoint(settings)
+    La configuration vient du module de configuration de l'IHM (store
+    persistant MongoDB via ``app.agent.settings.get_agent_config``) — plus
+    aucune valeur d'agent dans ``app/config/settings.py`` (SCRUM-138).
+    """
+    from app.agent.factory import llm_endpoint
+    from app.agent.settings import get_agent_config
+
+    config = get_agent_config()
+    url, api_key = llm_endpoint(config)
     kwargs = {
         "url": url,
-        "model": settings.agent_model_name,
-        "provider": settings.agent_provider.value,
+        "model": config.model_name,
+        "provider": str(config.provider),
         "api_key": api_key,
-        "timeout": settings.agent_timeout_seconds,
-        "context_length": settings.agent_context_length,
+        "timeout": config.timeout_seconds,
+        "context_length": config.context_length,
     }
     kwargs.update({k: v for k, v in overrides.items() if v is not None})
     return HttpLLMClient(**kwargs)  # type: ignore[arg-type]

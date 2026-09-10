@@ -458,7 +458,11 @@ Le même agent peut consommer :
 - **Hugging Face Inference Providers** (compatible OpenAI, jeton HF requis) ;
 - un serveur **LM Studio** local (compatible OpenAI, aucune clé requise).
 
-La bascule est **globale côté serveur**, par variable d'environnement :
+La bascule est **globale côté serveur**, stockée dans la base du module de
+configuration de l'IHM (collection MongoDB `agent_settings` en mode
+`PERSISTENCE_BACKEND=mongodb`, modifiable à chaud depuis la page Paramètres
+du dashboard via `PUT /api/agent/settings`) ; les variables d'environnement
+ci-dessous restent lues en repli (CI / déploiements) :
 
 | Variable | Rôle |
 |---|---|

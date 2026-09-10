@@ -11,7 +11,6 @@ from __future__ import annotations
 import inspect
 
 from app.agent.factory import (
-    AgentProvider,
     build_llm_client,
     llm_v2_enabled,
 )
@@ -70,14 +69,16 @@ def test_build_llm_client_routes_by_flag(monkeypatch):
     """Le seam renvoie le client v2 (HttpLLMClient) ou le client legacy selon le flag."""
     from unittest.mock import patch
 
-    # v2 activé → HttpLLMClient (patche Settings+endpoint : pas de `.env`).
+    from app.agent.settings import AgentConfig
+
+    # v2 activé → HttpLLMClient (patche la config effective : pas de `.env`).
     monkeypatch.setenv("AGENT_LLM_V2", "1")
-    with patch("app.agent.factory.get_settings") as mock_settings, \
-         patch("app.agent.factory.llm_endpoint", return_value=("http://x", None)):
-        mock_settings.return_value.agent_model_name = "m"
-        mock_settings.return_value.agent_provider = AgentProvider.OLLAMA
-        mock_settings.return_value.agent_timeout_seconds = 30
-        mock_settings.return_value.agent_context_length = 2048
+    with patch(
+        "app.agent.factory.get_agent_config",
+        return_value=AgentConfig(
+            provider="ollama", model_name="m", timeout_seconds=30, context_length=2048
+        ),
+    ):
         client = build_llm_client(think=True)
 
     assert isinstance(client, HttpLLMClient)
@@ -94,13 +95,15 @@ def test_build_llm_client_defaults_to_v2(monkeypatch):
     """Sans ``AGENT_LLM_V2`` (défaut de production), le seam renvoie le v2."""
     from unittest.mock import patch
 
+    from app.agent.settings import AgentConfig
+
     monkeypatch.delenv("AGENT_LLM_V2", raising=False)
-    with patch("app.agent.factory.get_settings") as mock_settings, \
-         patch("app.agent.factory.llm_endpoint", return_value=("http://x", None)):
-        mock_settings.return_value.agent_model_name = "m"
-        mock_settings.return_value.agent_provider = AgentProvider.OLLAMA
-        mock_settings.return_value.agent_timeout_seconds = 30
-        mock_settings.return_value.agent_context_length = 2048
+    with patch(
+        "app.agent.factory.get_agent_config",
+        return_value=AgentConfig(
+            provider="ollama", model_name="m", timeout_seconds=30, context_length=2048
+        ),
+    ):
         client = build_llm_client()
 
     assert isinstance(client, HttpLLMClient)

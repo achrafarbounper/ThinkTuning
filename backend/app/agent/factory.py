@@ -1,10 +1,13 @@
 """Factory du noyau agentique : câblage des implémentations réelles.
 
 Composition root légère : assemble ``AgentCore`` avec le client LLM choisi par
-``AGENT_LLM_V2`` (``HttpLLMClient`` par défaut depuis la bascule v2 en
+le flag ``AGENT_LLM_V2`` (``HttpLLMClient`` par défaut depuis la bascule v2 en
 production ; client legacy ``ia/agent/llm_client.py`` en repli via
-``AGENT_LLM_V2=0``) et l'adaptateur du registre d'outils, en lisant les
-réglages depuis ``app/config/settings.py``.
+``AGENT_LLM_V2=0``) et l'adaptateur du registre d'outils. La configuration
+effective (provider, modèle, URLs, clés API, timeout/contexte, budgets, flags)
+vient du module de configuration de l'IHM (``app.agent.settings.get_agent_config``
+— store persistant MongoDB, cf. SCRUM-138) : ``app/config/settings.py`` ne porte
+plus AUCUNE configuration d'agent.
 
 Bascule par feature flag : ``AGENT_NEW_CORE=1`` active le nouveau noyau.
 Tant que le flag est absent, le comportement historique d'
@@ -18,38 +21,30 @@ import logging
 import os
 
 from app.agent.core import AgentCore
-from app.config.settings import AgentProvider, get_settings
+from app.agent.settings import AgentConfig, get_agent_config
 from app.infrastructure.legacy_registry import LegacyToolRegistryAdapter
 
 logger = logging.getLogger("thinktuning.agent.factory")
 
 
-def llm_endpoint(settings):
-    """Résout (url, api_key) selon le provider et les Settings centralisés.
+def llm_endpoint(config: AgentConfig | None = None):
+    """Résout (url, api_key) selon le provider de la configuration effective.
+
+    ``config`` : ``AgentConfig`` injectable (tests) ; absent, la configuration
+    est chargée depuis le module de configuration de l'IHM (base MongoDB).
 
     Extrait du code du client legacy pour être réutilisé par le client v2
     (``app/infrastructure/llm``) : source unique de la sélection d'endpoint.
     """
-    url = {
-        AgentProvider.OLLAMA: settings.agent_ollama_url,
-        AgentProvider.OPENROUTER: settings.agent_openrouter_url,
-        AgentProvider.HF: settings.agent_hf_url,
-        AgentProvider.LM_STUDIO: settings.agent_lm_studio_url,
-    }[settings.agent_provider]
-
-    api_key = None
-    if settings.agent_provider is AgentProvider.OPENROUTER:
-        api_key = settings.openrouter_api_key
-    elif settings.agent_provider is AgentProvider.HF:
-        api_key = settings.effective_hf_key
-    return url, api_key
+    return (config or get_agent_config()).endpoint()
 
 
 def build_legacy_llm_client(model: str | None = None, *, think: bool = False):
-    """Construit le client LLM legacy avec les réglages centralisés.
+    """Construit le client LLM legacy avec la configuration de l'IHM.
 
     ``model`` : surcharge ponctuelle du modèle demandé par le client
-    (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
+    (sélecteur du chat) ; absent/vide : modèle de la configuration effective
+    (base MongoDB du module IHM).
     ``think`` : active la réflexion native du provider (Ollama ``think`` —
     sans effet sur les autres providers).
 
@@ -57,17 +52,17 @@ def build_legacy_llm_client(model: str | None = None, *, think: bool = False):
     l'identité de PAQUET réel (``ia.agent``) — jamais par l'identité nue
     ``agent`` qui n'existe que via un hack ``sys.path``
     (cf. tests/test_sys_path_guard.py)."""
-    settings = get_settings()
+    config = get_agent_config()
     from ia.agent import llm_client as _llm_mod
 
-    url, api_key = llm_endpoint(settings)
+    url, api_key = config.endpoint()
 
     return _llm_mod.LLMClient(
         url=url,
-        model=model or settings.agent_model_name,
-        timeout=settings.agent_timeout_seconds,
-        context_length=settings.agent_context_length,
-        provider=settings.agent_provider.value,
+        model=model or config.model_name,
+        timeout=config.timeout_seconds,
+        context_length=config.context_length,
+        provider=str(config.provider),
         api_key=api_key,
         think=think,
     )
@@ -77,8 +72,9 @@ def llm_v2_enabled() -> bool:
     """Vrai si le client LLM v2 est actif (AGENT_LLM_V2 — activé par défaut).
 
     Même convention que ``new_core_enabled()`` : l'environnement (comptabilité
-    ``monkeypatch.setenv``) est lu en priorité, puis ``Settings.flag_llm_v2``.
-    Repli ``True`` si les Settings ne sont pas chargeables : depuis la bascule
+    ``monkeypatch.setenv``) est lu en priorité, puis le flag persisté du module
+    de configuration de l'IHM (``AgentConfig.flag_llm_v2``, base MongoDB).
+    Repli ``True`` si la configuration n'est pas chargeable : depuis la bascule
     en production, v2 est le comportement par défaut (``AGENT_LLM_V2=0`` pour
     forcer le repli legacy).
     """
@@ -86,7 +82,7 @@ def llm_v2_enabled() -> bool:
     if env is not None:
         return env.strip().lower() in {"1", "true", "yes", "on"}
     try:
-        return get_settings().flag_llm_v2
+        return get_agent_config().flag_llm_v2
     except Exception:
         return True
 
@@ -99,22 +95,23 @@ def build_llm_client(model: str | None = None, *, think: bool = False):
     - ``AGENT_LLM_V2=0`` → client legacy (repli, tant que le chemin v1 vit).
 
     ``model`` : surcharge ponctuelle du modèle demandé par le client
-    (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
+    (sélecteur du chat) ; absent/vide : modèle de la configuration effective
+    du module IHM (base MongoDB).
     ``think`` : active la réflexion native du provider (Ollama ``think`` —
     sans effet sur les autres providers).
     """
     if llm_v2_enabled():
         from app.infrastructure.llm.http_client import HttpLLMClient
 
-        settings = get_settings()
-        url, api_key = llm_endpoint(settings)
+        config = get_agent_config()
+        url, api_key = config.endpoint()
         return HttpLLMClient(
             url=url,
-            model=model or settings.agent_model_name,
-            provider=settings.agent_provider.value,
+            model=model or config.model_name,
+            provider=str(config.provider),
             api_key=api_key,
-            timeout=settings.agent_timeout_seconds,
-            context_length=settings.agent_context_length,
+            timeout=config.timeout_seconds,
+            context_length=config.context_length,
             think=think,
         )
     return build_legacy_llm_client(model=model, think=think)
@@ -149,15 +146,15 @@ def build_agent_core(
     ``model`` : surcharge ponctuelle du modèle LLM demandé par le client
     (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
     """
-    settings = get_settings()
+    config = get_agent_config()
     registry = LegacyToolRegistryAdapter()
     llm = build_llm_client(model=model, think=enable_thinking)
     logger.info(
         "Noyau agentique assemblé : provider=%s model=%s outils=%d flags=%s",
-        settings.agent_provider.value,
-        model or settings.agent_model_name,
+        str(config.provider),
+        model or config.model_name,
         len(registry.tool_names()),
-        settings.active_flags(),
+        config.active_flags(),
     )
     return AgentCore(
         llm,
@@ -167,8 +164,8 @@ def build_agent_core(
         enable_thinking=enable_thinking,
         on_thinking=on_thinking,
         event_bus=event_bus,
-        max_rounds=settings.agent_max_llm_rounds,
-        max_tool_calls=settings.agent_max_tool_calls,
+        max_rounds=config.max_llm_rounds,
+        max_tool_calls=config.max_tool_calls,
         intent_classifier=intent_classifier,
     )
 
@@ -176,12 +173,11 @@ def build_agent_core(
 def new_core_enabled() -> bool:
     """Vrai si le noyau agentique v2 est actif (AGENT_NEW_CORE — défaut : activé).
 
-    Source de vérité : ``Settings.flag_new_core`` (convention des autres
-    flags), alimentée par ``AGENT_NEW_CORE`` — y compris via le fichier
-    ``.env`` que ``os.getenv`` ne voit pas. L'environnement est lu en
-    priorité pour rester compatible avec ``monkeypatch.setenv`` sans
-    ``get_settings.cache_clear()`` (convention des tests existants).
-    Repli ``True`` si les Settings ne sont pas chargeables : depuis la
+    Source de vérité : le flag persisté du module de configuration de l'IHM
+    (``AgentConfig.flag_new_core``, base MongoDB) ; l'environnement
+    ``AGENT_NEW_CORE`` est lu en priorité pour rester compatible avec
+    ``monkeypatch.setenv`` (convention des tests existants).
+    Repli ``True`` si la configuration n'est pas chargeable : depuis la
     bascule en production, le noyau v2 est le comportement par défaut
     (``AGENT_NEW_CORE=0`` pour forcer le repli sur les routes v1 restantes).
     """
@@ -189,6 +185,6 @@ def new_core_enabled() -> bool:
     if env is not None:
         return env.strip().lower() in {"1", "true", "yes", "on"}
     try:
-        return get_settings().flag_new_core
+        return get_agent_config().flag_new_core
     except Exception:
         return True

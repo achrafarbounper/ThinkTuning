@@ -4,7 +4,9 @@ Vérifient :
     - ``get_effective_settings`` fusionne base > env > défauts ;
     - ``validate_settings`` rejette les valeurs hors bornes et les clés vides ;
     - ``update_settings`` persiste uniquement les clés connues ;
-    - le port est mocké (aucune I/O SQLite).
+    - le port est mocké (aucune I/O SQLite/MongoDB) ;
+    - les réglages déplacés de ``app/config/settings.py`` (SCRUM-138) sont des
+      clés du module IHM à part entière.
 """
 
 from __future__ import annotations
@@ -33,25 +35,46 @@ class FakeSettingsPort:
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache():
-    """Réinitialise le cache de get_settings() avant chaque test."""
-    from app.config.settings import get_settings
-    get_settings.cache_clear()
+def _clean_agent_env(monkeypatch):
+    """Environnement agent / MCP nettoyé (le use case n'utilise plus Settings).
+
+    SCRUM-138 : la couche env + défauts vient de ``core.agent_settings`` (la
+    base reste prioritaire) ; on retire les variables qui pollueraient les
+    défauts attendus (un ``.env`` machine ne doit pas faire flakker les tests).
+    """
+    for key in (
+        "AGENT_PROVIDER",
+        "AGENT_MODEL_NAME",
+        "AGENT_OLLAMA_URL",
+        "AGENT_OPENROUTER_URL",
+        "AGENT_HF_URL",
+        "AGENT_LM_STUDIO_URL",
+        "AGENT_TIMEOUT_SECONDS",
+        "AGENT_CONTEXT_LENGTH",
+        "AGENT_MAX_LLM_ROUNDS",
+        "AGENT_MAX_TOOL_CALLS",
+        "AGENT_LOG_LEVEL",
+        "OPENROUTER_API_KEY",
+        "HF_API_KEY",
+        "HF_TOKEN",
+        "MCP_FIRST",
+        "MCP_AUTH_REQUIRED",
+    ):
+        monkeypatch.delenv(key, raising=False)
     yield
-    get_settings.cache_clear()
 
 
 # --- get_effective_settings ------------------------------------------------
 
 
 def test_defaults_when_empty_port_and_no_env():
-    """Sans base ni env : renvoie les défauts (Settings)."""
+    """Sans base ni env : renvoie les défauts du module IHM."""
     port = FakeSettingsPort()
     result = uc.get_effective_settings(port)
     assert result["provider"] == "ollama"
-    # Settings a "openrouter/free" comme défaut pour agent_model_name.
+    # Défaut du module IHM (historique de app/config/settings.py).
     assert result["model"] == "openrouter/free"
-    assert result["timeout_seconds"] == 600  # Settings default
+    assert result["timeout_seconds"] == 600
 
 
 def test_persisted_overrides_default():
@@ -163,3 +186,100 @@ def test_update_returns_effective_config():
     assert written == ["provider"]
     assert effective["provider"] == "ollama"
     assert effective["model"] == "qwen2.5"  # valeur persistée préservée
+
+
+# --- Paramètres déplacés de app/config/settings.py (SCRUM-138) ---------------
+
+
+def test_defaults_include_agent_guards_and_flags():
+    """Les réglages déplacés de Settings sont des défauts du module IHM."""
+    port = FakeSettingsPort()
+    result = uc.get_effective_settings(port)
+    assert result["max_llm_rounds"] == 6
+    assert result["max_tool_calls"] == 20
+    assert result["log_level"] == "INFO"
+    assert result["mcp_first"] is False
+    assert result["mcp_auth_required"] is True
+    assert result["flag_new_core"] is True
+    assert result["flag_llm_v2"] is True
+
+
+def test_env_overrides_agent_guards(monkeypatch):
+    """L'env reste un repli de compatibilité pour les réglages déplacés."""
+    monkeypatch.setenv("AGENT_MAX_LLM_ROUNDS", "4")
+    monkeypatch.setenv("AGENT_MAX_TOOL_CALLS", "9")
+    monkeypatch.setenv("AGENT_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("MCP_AUTH_REQUIRED", "0")
+    result = uc.get_effective_settings(FakeSettingsPort())
+    assert result["max_llm_rounds"] == 4
+    assert result["max_tool_calls"] == 9
+    assert result["log_level"] == "DEBUG"
+    assert result["mcp_auth_required"] is False
+
+
+def test_persisted_agent_guards_override_env(monkeypatch):
+    """La base (MongoDB) reste prioritaire pour les réglages déplacés."""
+    monkeypatch.setenv("AGENT_MAX_LLM_ROUNDS", "4")
+    port = FakeSettingsPort({"max_llm_rounds": 8, "flag_context": False})
+    result = uc.get_effective_settings(port)
+    assert result["max_llm_rounds"] == 8
+    assert result["flag_context"] is False
+
+
+def test_validate_rejects_moved_settings_out_of_bounds():
+    """Validation métier des réglages déplacés (bornes + énumérations)."""
+    errors = uc.validate_settings(
+        {
+            "max_llm_rounds": 0,
+            "max_tool_calls": 500,
+            "log_level": "LOUD",
+            "flag_new_core": "maybe",
+        }
+    )
+    assert any("max_llm_rounds" in e for e in errors)
+    assert any("max_tool_calls" in e for e in errors)
+    assert any("log_level" in e for e in errors)
+    assert any("flag_new_core" in e for e in errors)
+
+
+def test_validate_coerces_moved_settings():
+    """Les valeurs valides sont coercées (entiers, niveau, booléens)."""
+    values = {
+        "max_llm_rounds": "4",
+        "max_tool_calls": "9",
+        "log_level": "debug",
+        "mcp_first": "true",
+        "flag_context": 0,
+    }
+    errors = uc.validate_settings(values)
+    assert errors == []
+    assert values["max_llm_rounds"] == 4
+    assert values["max_tool_calls"] == 9
+    assert values["log_level"] == "DEBUG"
+    assert values["mcp_first"] is True
+    assert values["flag_context"] is False
+
+
+def test_update_persists_moved_settings():
+    """Les réglages déplacés sont persistés comme les autres (store IHM)."""
+    port = FakeSettingsPort()
+    effective, errors, written = uc.update_settings(
+        port,
+        {
+            "max_llm_rounds": 4,
+            "max_tool_calls": 9,
+            "log_level": "ERROR",
+            "mcp_first": True,
+            "flag_multi_agent": False,
+        },
+    )
+    assert errors == []
+    assert set(written) == {
+        "max_llm_rounds",
+        "max_tool_calls",
+        "log_level",
+        "mcp_first",
+        "flag_multi_agent",
+    }
+    assert port._persisted["mcp_first"] is True
+    assert effective["flag_multi_agent"] is False

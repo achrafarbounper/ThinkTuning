@@ -33,7 +33,7 @@ from starlette.testclient import TestClient  # noqa: E402
 
 import api.routes.agent as agent_routes  # noqa: E402
 from api.routes.v1 import agent as v1_agent_routes  # noqa: E402
-from app.config.settings import get_settings  # noqa: E402
+from app.agent.settings import get_agent_config  # noqa: E402
 from app.infrastructure.mcp.mcp_server_sse import router as mcp_sse_router  # noqa: E402
 
 API_KEY = "test-mcp-first-key"
@@ -45,21 +45,21 @@ HEADERS = {"X-API-Key": API_KEY}
 
 @pytest.fixture(autouse=True)
 def _api_key_env(monkeypatch):
-    """Pose API_KEY et réinitialise le cache Settings autour de chaque test."""
+    """Pose API_KEY pour la durée du test (rollback garanti)."""
     monkeypatch.setenv("API_KEY", API_KEY)
-    get_settings.cache_clear()
     yield
-    get_settings.cache_clear()
 
 
 @pytest.fixture()
 def mcp_first(monkeypatch):
-    """Active le flag MCP_FIRST pour la durée du test (rollback garanti)."""
+    """Active le réglage MCP_FIRST pour la durée du test (rollback garanti).
+
+    SCRUM-138 : le réglage vit dans le module de configuration IHM (base > env
+    > défauts, lecture à l'appel sans cache) — ``monkeypatch.setenv`` suffit.
+    """
     monkeypatch.setenv("MCP_FIRST", "true")
-    get_settings.cache_clear()
     yield
     monkeypatch.delenv("MCP_FIRST", raising=False)
-    get_settings.cache_clear()
 
 
 @pytest.fixture()
@@ -104,8 +104,7 @@ def test_legacy_surface_sends_deprecation_headers(legacy_client):
 def test_mcp_first_disabled_by_default(monkeypatch):
     """Sans MCP_FIRST, la surface HTTP reste pleinement écrivable."""
     monkeypatch.delenv("MCP_FIRST", raising=False)
-    get_settings.cache_clear()
-    assert get_settings().mcp_first is False
+    assert get_agent_config().mcp_first is False
 
 
 def test_mutating_endpoint_stays_writable_without_flag(legacy_client):

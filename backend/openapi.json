@@ -3812,11 +3812,185 @@
               }
             ],
             "title": "Temperature"
+          },
+          "max_llm_rounds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Llm Rounds",
+            "description": "Rounds LLM max par run."
+          },
+          "max_tool_calls": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 200.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tool Calls",
+            "description": "Appels d'outils max par run."
+          },
+          "log_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log Level",
+            "description": "« DEBUG », « INFO », « WARNING » ou « ERROR »."
+          },
+          "mcp_first": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mcp First",
+            "description": "MCP-First : surface HTTP legacy de l'agent en read-only."
+          },
+          "mcp_auth_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mcp Auth Required",
+            "description": "Auth X-API-Key obligatoire sur POST /mcp/sse."
+          },
+          "flag_reliability": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Reliability"
+          },
+          "flag_audit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Audit"
+          },
+          "flag_tool_analytics": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Tool Analytics"
+          },
+          "flag_context": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Context"
+          },
+          "flag_copilot": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Copilot"
+          },
+          "flag_websocket": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Websocket"
+          },
+          "flag_multi_agent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Multi Agent"
+          },
+          "flag_custom_tools": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Custom Tools"
+          },
+          "flag_new_core": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag New Core"
+          },
+          "flag_llm_v2": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Llm V2"
           }
         },
         "type": "object",
         "title": "AgentSettingsUpdate",
-        "description": "Mise à jour partielle des paramètres de l'agent IA.\n\nChamp absent ou ``null`` : inchangé. Chaîne vide pour les champs texte :\nretour à la valeur par défaut du serveur."
+        "description": "Mise à jour partielle des paramètres de l'agent IA.\n\nChamp absent ou ``null`` : inchangé. Chaîne vide pour les champs texte :\nretour à la valeur par défaut du serveur.\n\nSCRUM-138 : les réglages déplacés de ``app/config/settings.py`` (budgets,\nniveau de log, surface MCP, feature flags) sont désormais des clés de ce\nmodule de configuration IHM — stockées dans la base MongoDB et chargées\nà chaque lecture."
       },
       "AnnotateListResponse": {
         "properties": {

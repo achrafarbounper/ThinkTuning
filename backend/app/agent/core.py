@@ -372,8 +372,8 @@ class AgentCore:
     Args:
         llm:       client LLM (port) ;
         registry:  registre d'outils (port) ;
-        max_rounds:      plafond de rounds LLM (défaut Settings.agent_max_llm_rounds) ;
-        max_tool_calls:  plafond d'appels d'outils (défaut Settings.agent_max_tool_calls) ;
+        max_rounds:      plafond de rounds LLM (défaut AgentConfig.max_llm_rounds) ;
+        max_tool_calls:  plafond d'appels d'outils (défaut AgentConfig.max_tool_calls) ;
         approval_gateway: callback optionnel ``(Action) -> bool``. Absent =>
                            toute action APPROVE met le run en pending_approval.
     """
