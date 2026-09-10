@@ -124,6 +124,9 @@ _store: AgentSettingsStore | None = None
 
 def _get_store() -> AgentSettingsStore:
     global _store
+    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoAgentSettingsStore
+        return MongoAgentSettingsStore()  # type: ignore[return-value]
     if _store is None:
         _store = AgentSettingsStore()
     return _store

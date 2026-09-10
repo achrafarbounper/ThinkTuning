@@ -238,9 +238,9 @@ def _default_client_store() -> Any:
     global _client_store_instance
     with _client_store_lock:
         if _client_store_instance is None:
-            from core.mcp_client_store import MCPClientStore
+            from core.mcp_client_store import get_mcp_client_store
 
-            _client_store_instance = MCPClientStore()
+            _client_store_instance = get_mcp_client_store()
         return _client_store_instance
 
 

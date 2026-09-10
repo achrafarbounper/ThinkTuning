@@ -150,6 +150,9 @@ from app.domain.ports import (  # noqa: E402
 
 def default_session_store() -> SessionStorePort:
     """Store de session par défaut (singleton legacy, même base)."""
+    if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoSessionStore
+        return MongoSessionStore()
     from core.session_store import get_session_store
 
     return get_session_store()
@@ -163,12 +166,18 @@ def default_audit_store() -> AuditStorePort:
     (renvoie l'enveloppe ``items/total/limit/offset`` au lieu de la liste) —
     le ``cast`` documente cette dette sans changer le comportement.
     """
+    if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoAuditStore
+        return MongoAuditStore()
     from core.audit_store import get_audit_store
 
     return cast(AuditStorePort, get_audit_store())
 
 
 def default_run_store() -> RunStorePort:
+    if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoRunStore
+        return MongoRunStore()
     from core.run_store import get_run_store
 
     return get_run_store()
@@ -183,6 +192,9 @@ def default_approval_store() -> ApprovalStorePort:
     cette dette ; la façade typée de référence est
     ``app/infrastructure/legacy_approval_store``.
     """
+    if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoApprovalStore
+        return MongoApprovalStore()
     from core.approval_store import get_approval_store
 
     return cast(ApprovalStorePort, get_approval_store())
@@ -190,6 +202,9 @@ def default_approval_store() -> ApprovalStorePort:
 
 def default_flow_store() -> FlowStorePort:
     """Store de sessions multi-agents par défaut (singleton legacy, même base)."""
+    if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoFlowStore
+        return MongoFlowStore()
     from core.flow_store import get_flow_store
 
     return get_flow_store()

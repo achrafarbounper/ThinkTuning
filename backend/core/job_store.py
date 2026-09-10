@@ -358,10 +358,16 @@ class PersistentJobStore(dict):
         return {"deleted": 0 if dry_run else len(job_ids), "job_ids": job_ids}
 
 
-_store = PersistentJobStore()
+_store: PersistentJobStore | None = None
 
 
 def get_job_store() -> PersistentJobStore:
+    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoJobStore
+        return MongoJobStore()  # type: ignore[return-value]
+    global _store
+    if _store is None:
+        _store = PersistentJobStore()
     return _store
 
 
@@ -395,4 +401,3 @@ def cleanup_old_jobs(
     """
     store = PersistentJobStore(path=db_path) if db_path else get_job_store()
     return store.cleanup_old_jobs(max_age_days=max_age_days, dry_run=dry_run)
-

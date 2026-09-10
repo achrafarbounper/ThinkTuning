@@ -353,6 +353,9 @@ def _current_path() -> str:
 
 def get_audit_store() -> AuditStore:
     """Store partagé de l'application (instance unique paresseuse)."""
+    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
+        from app.infrastructure.persistence.mongodb import MongoAuditStore
+        return MongoAuditStore()  # type: ignore[return-value]
     global _store
     with _store_lock:
         if _store is None:
