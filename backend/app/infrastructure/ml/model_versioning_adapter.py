@@ -45,33 +45,25 @@ class ModuleModelVersioningAdapter:
         try:
             return models_module.activate_model_version(name)
         except HTTPException as exc:
-            raise convert_legacy_http_error(
-                exc, status_overrides=_STATUS_OVERRIDES
-            ) from exc
+            raise convert_legacy_http_error(exc, status_overrides=_STATUS_OVERRIDES) from exc
 
     def delete(self, name: str) -> dict:
         try:
             return models_module.delete_model_version(name)
         except HTTPException as exc:
-            raise convert_legacy_http_error(
-                exc, status_overrides=_STATUS_OVERRIDES
-            ) from exc
+            raise convert_legacy_http_error(exc, status_overrides=_STATUS_OVERRIDES) from exc
 
 
 class ModuleEvaluationAdapter:
     """Matrice de confusion sur l'échantillon de référence (handler legacy)."""
 
-    def run_confusion(
-        self, *, model: str | None, limit: int, max_mistakes: int
-    ) -> dict:
+    def run_confusion(self, *, model: str | None, limit: int, max_mistakes: int) -> dict:
         try:
             return evaluate_module.confusion_route(
                 model=model, limit=limit, max_mistakes=max_mistakes
             )
         except HTTPException as exc:
-            raise convert_legacy_http_error(
-                exc, status_overrides=_STATUS_OVERRIDES
-            ) from exc
+            raise convert_legacy_http_error(exc, status_overrides=_STATUS_OVERRIDES) from exc
 
 
 def build_default_model_versioning() -> ModelVersioningPort:

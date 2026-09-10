@@ -49,9 +49,7 @@ class SqliteRunStore(_LegacyRunStore):
     def append_tool_event(self, run_id: str, event: dict[str, Any]) -> None:
         return super().append_tool_event(run_id, event)
 
-    def start_run(
-        self, prompt: str, model: str = "", source: str = "api"
-    ) -> dict[str, Any]:
+    def start_run(self, prompt: str, model: str = "", source: str = "api") -> dict[str, Any]:
         return super().start_run(prompt, model=model, source=source)
 
     def finish_run(
@@ -61,9 +59,7 @@ class SqliteRunStore(_LegacyRunStore):
         answer_summary: str = "",
         error: str | None = None,
     ) -> dict[str, Any] | None:
-        return super().finish_run(
-            run_id, status, answer_summary=answer_summary, error=error
-        )
+        return super().finish_run(run_id, status, answer_summary=answer_summary, error=error)
 
     def list(
         self,
@@ -95,8 +91,14 @@ class SqliteApprovalStore(_LegacyApprovalStore):
         status: str = "pending",
     ) -> dict[str, Any]:
         request_id = super().create(
-            tool, args, category, decision, reason,
-            prompt=prompt, args_hash=args_hash, status=status,
+            tool,
+            args,
+            category,
+            decision,
+            reason,
+            prompt=prompt,
+            args_hash=args_hash,
+            status=status,
         )
         return self.get(request_id) or {"request_id": request_id, "id": request_id}
 
@@ -152,6 +154,7 @@ def default_session_store() -> SessionStorePort:
     """Store de session par défaut (singleton legacy, même base)."""
     if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
         from app.infrastructure.persistence.mongodb import MongoSessionStore
+
         return MongoSessionStore()
     from core.session_store import get_session_store
 
@@ -168,6 +171,7 @@ def default_audit_store() -> AuditStorePort:
     """
     if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
         from app.infrastructure.persistence.mongodb import MongoAuditStore
+
         return MongoAuditStore()
     from core.audit_store import get_audit_store
 
@@ -177,6 +181,7 @@ def default_audit_store() -> AuditStorePort:
 def default_run_store() -> RunStorePort:
     if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
         from app.infrastructure.persistence.mongodb import MongoRunStore
+
         return MongoRunStore()
     from core.run_store import get_run_store
 
@@ -194,6 +199,7 @@ def default_approval_store() -> ApprovalStorePort:
     """
     if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
         from app.infrastructure.persistence.mongodb import MongoApprovalStore
+
         return MongoApprovalStore()
     from core.approval_store import get_approval_store
 
@@ -204,6 +210,7 @@ def default_flow_store() -> FlowStorePort:
     """Store de sessions multi-agents par défaut (singleton legacy, même base)."""
     if __import__("os").getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
         from app.infrastructure.persistence.mongodb import MongoFlowStore
+
         return MongoFlowStore()
     from core.flow_store import get_flow_store
 

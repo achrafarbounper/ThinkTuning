@@ -64,8 +64,7 @@ class MCPVersion(BaseModel):
         """
         if not isinstance(raw, str):
             raise ValueError(
-                "Version MCP invalide : attendu 'X.Y.Z' (str), "
-                f"reçu {type(raw).__name__}"
+                f"Version MCP invalide : attendu 'X.Y.Z' (str), reçu {type(raw).__name__}"
             )
         match = _SEMVER_PATTERN.match(raw.strip())
         if match is None:
@@ -91,9 +90,7 @@ class MCPVersion(BaseModel):
             raise ValueError(f"pyproject.toml : TOML invalide ({exc})") from exc
         table = data.get("tool", {}).get("mcp")
         if not isinstance(table, dict) or "version" not in table:
-            raise ValueError(
-                "pyproject.toml : table [tool.mcp] absente ou clé 'version' manquante"
-            )
+            raise ValueError("pyproject.toml : table [tool.mcp] absente ou clé 'version' manquante")
         version = table["version"]
         if not isinstance(version, str):
             raise ValueError(
@@ -386,9 +383,7 @@ class SamplingRequest(BaseModel):
 
     @field_validator("messages")
     @classmethod
-    def _validate_messages(
-        cls, value: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _validate_messages(cls, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for index, message in enumerate(value):
             if not isinstance(message, dict):
                 raise ValueError(f"Message #{index} : objet attendu.")
@@ -403,12 +398,8 @@ class SamplingRequest(BaseModel):
                 if not content:
                     raise ValueError(f"Message #{index} : 'content' vide.")
                 for block in content:
-                    if not isinstance(block, dict) or not isinstance(
-                        block.get("text", ""), str
-                    ):
-                        raise ValueError(
-                            f"Message #{index} : bloc 'text' (str) requis."
-                        )
+                    if not isinstance(block, dict) or not isinstance(block.get("text", ""), str):
+                        raise ValueError(f"Message #{index} : bloc 'text' (str) requis.")
             else:
                 raise ValueError(f"Message #{index} : 'content' str|list requis.")
         return value

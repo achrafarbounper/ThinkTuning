@@ -104,6 +104,7 @@ def resolve_resume_hash(approval_store, resume_request_id: str | None) -> str | 
 def make_approval_gateway(resume_hash: str | None) -> Callable[[Any], bool]:
     """Gateway ``(Action) -> bool`` : n'accorde que l'action dont l'empreinte
     correspond au hash de reprise (aucune autre action ne passe)."""
+
     def _approval_gateway(action) -> bool:
         return bool(resume_hash and action.fingerprint() == resume_hash)
 
@@ -141,9 +142,12 @@ def core_tool_events(result: Any) -> list[dict]:
         if trace.status not in ("done", "error"):
             continue  # awaiting_approval / rejected : aucun outil exécuté
         events.append({"event": "tool_start", "tool": trace.tool, "args": trace.args})
-        events.append({
-            "event": "tool_result", "tool": trace.tool,
-            "status": "ok" if trace.status == "done" else "error",
-            "summary": trace.result_summary or trace.error,
-        })
+        events.append(
+            {
+                "event": "tool_result",
+                "tool": trace.tool,
+                "status": "ok" if trace.status == "done" else "error",
+                "summary": trace.result_summary or trace.error,
+            }
+        )
     return events

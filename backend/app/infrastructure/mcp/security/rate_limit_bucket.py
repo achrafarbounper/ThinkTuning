@@ -47,9 +47,7 @@ class TokenBucket:
             self.tokens -= amount
             return True, 0
 
-        wait_seconds = (
-            (amount - self.tokens) / self.refill_rate if self.refill_rate > 0 else 0.0
-        )
+        wait_seconds = (amount - self.tokens) / self.refill_rate if self.refill_rate > 0 else 0.0
         return False, max(1, int(math.ceil(wait_seconds)))
 
 

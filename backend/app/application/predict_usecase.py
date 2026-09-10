@@ -31,9 +31,7 @@ class PredictCommand:
     model_name: str | None = None
 
 
-def run_predict(
-    command: PredictCommand, *, predictor: PredictionPort
-) -> list[PredictionResult]:
+def run_predict(command: PredictCommand, *, predictor: PredictionPort) -> list[PredictionResult]:
     """Prédit le sentiment des phrases fournies (ordre préservé).
 
     La validation d'entrée (bornes anti-DoS, phrase non vide) reste dans le

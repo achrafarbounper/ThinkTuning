@@ -265,11 +265,7 @@ class MCPServer:
         """
         if method == MCPMethod.TOOLS_CALL:
             tool_name = params.get("name")
-            action = (
-                ACT_MCP_ORCHESTRATE
-                if tool_name == "orchestrate"
-                else ACT_MCP_TOOL_CALL
-            )
+            action = ACT_MCP_ORCHESTRATE if tool_name == "orchestrate" else ACT_MCP_TOOL_CALL
             self._audit_event(
                 action,
                 subject=client_id,
@@ -323,9 +319,7 @@ class MCPServer:
     @staticmethod
     def _response_is_error(response: dict[str, Any]) -> bool:
         """L'appel auditée a-t-il échoué ? (erreur JSON-RPC OU ``isError``)."""
-        return bool(response.get("error")) or bool(
-            response.get("result", {}).get("isError")
-        )
+        return bool(response.get("error")) or bool(response.get("result", {}).get("isError"))
 
     def _audit_event(
         self,
@@ -372,9 +366,7 @@ class MCPServer:
 
     # --- sampling/create (tâche 15, S6 v2.0.0) ----------------------------------------
 
-    def _handle_sampling_create(
-        self, request_id: Any, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _handle_sampling_create(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """``sampling/create`` : reverse LLM inference via ``SamplingPort``.
 
         Le serveur MCP agit comme CLIENT de son propre LLM : le client MCP
@@ -495,9 +487,7 @@ class MCPServer:
             )
         if name not in {tool.name for tool in self._visible_tools()}:
             # Indiscernable d'un tool absent : aucun oracle de visibilité (scope).
-            return error_result(
-                request_id, ErrorCode.INVALID_PARAMS, f"Unknown tool: {name}"
-            )
+            return error_result(request_id, ErrorCode.INVALID_PARAMS, f"Unknown tool: {name}")
         try:
             text = self.tool_provider.call_tool(name, dict(arguments or {}))
         except ToolError as exc:
@@ -524,15 +514,12 @@ class MCPServer:
             request_id,
             {
                 "resources": [
-                    resource.to_dict()
-                    for resource in self.resource_provider.list_resources()
+                    resource.to_dict() for resource in self.resource_provider.list_resources()
                 ]
             },
         )
 
-    def _handle_resources_read(
-        self, request_id: Any, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _handle_resources_read(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """``resources/read`` : résolution d'une URI → contenu du tool interne."""
         if self.resource_provider is None:
             # Symétrique de « unknown tool » : une surface sans resources est
@@ -598,16 +585,10 @@ class MCPServer:
             return success_result(request_id, {"prompts": []})
         return success_result(
             request_id,
-            {
-                "prompts": [
-                    prompt.to_dict() for prompt in self.prompt_provider.list_prompts()
-                ]
-            },
+            {"prompts": [prompt.to_dict() for prompt in self.prompt_provider.list_prompts()]},
         )
 
-    def _handle_prompts_get(
-        self, request_id: Any, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _handle_prompts_get(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """``prompts/get`` : résolution d'un template nommé → messages.
 
         Validation de forme des paramètres puis délégation au port :
@@ -648,9 +629,7 @@ class MCPServer:
             return error_result(request_id, ErrorCode.INVALID_PARAMS, str(exc))
         except Exception:  # fail-closed : aucune fuite d'exception protocole
             logger.exception("MCP prompts/get a échoué (erreur interne)")
-            return error_result(
-                request_id, ErrorCode.INTERNAL_ERROR, "Internal prompt error"
-            )
+            return error_result(request_id, ErrorCode.INTERNAL_ERROR, "Internal prompt error")
         description = next(
             (
                 prompt.description
@@ -659,9 +638,7 @@ class MCPServer:
             ),
             None,
         )
-        result: dict[str, Any] = {
-            "messages": [message.to_dict() for message in messages]
-        }
+        result: dict[str, Any] = {"messages": [message.to_dict() for message in messages]}
         if description:
             # ``description`` est optionnel dans GetPromptResult (spec MCP) :
             # repris de la métadonnée listée pour la complétude du client.

@@ -84,10 +84,12 @@ def load_session_history(
         budget = int(_os.getenv("AGENT_CONTEXT_BUDGET_TOKENS", "0")) or (
             DEFAULT_HISTORY_BUDGET_TOKENS
         )
+
         def summarize_fn(transcript: str) -> str:
             return summarize_conversation(
                 get_agent_runner().agent.llm, transcript
             )  # injection paresseuse, jamais appelée si pas de débordement
+
         optimized, _meta = optimize_history(kept, max_tokens=budget, summarize_fn=summarize_fn)
     except Exception:  # pragma: no cover - mémoire optionnelle, jamais bloquante
         optimized = kept

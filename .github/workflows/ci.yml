@@ -42,10 +42,14 @@ jobs:
           python -m nltk.downloader wordnet omw-1.4 punkt punkt_tab \
             || echo "::warning::NLTK corpora unavailable - EDA augmentation will run without synonyms"
 
-      - name: Lint (ruff — périmètre app/ ; étendu à mesure de la migration)
+      - name: Lint (ruff check — périmètre app/)
         run: |
-          pip install ruff
+          pip install "ruff==0.16.6"
           ruff check app/
+
+      - name: Format (ruff format --check — périmètre app/)
+        run: |
+          ruff format --check app/
 
       - name: Types (mypy — périmètre app/ uniquement, cf. pyproject.toml)
         run: |

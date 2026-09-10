@@ -82,9 +82,7 @@ _IDLE_BUCKET_SECONDS = 600.0
 # read_only : les 12 tools « lecture » du jalon v0.1.0. ``V010_READ_ONLY_TOOLS``
 # (tâche 6) nomme 13 noms ; la roadmap arrondissait le label à « 12 » — on retire
 # ``file_checksum`` (hachage), outil non essentiel au périmètre lecture.
-READ_ONLY_ROLE_TOOLS: frozenset[str] = frozenset(
-    V010_READ_ONLY_TOOLS - {"file_checksum"}
-)
+READ_ONLY_ROLE_TOOLS: frozenset[str] = frozenset(V010_READ_ONLY_TOOLS - {"file_checksum"})
 
 # contributor : surface publique v1.0.0 = les 25 tools read-only (tâche 7).
 CONTRIBUTOR_ROLE_TOOLS: frozenset[str] = frozenset(V100_READ_ONLY_TOOLS)
@@ -106,17 +104,13 @@ _OPERATOR_EXTENSION: frozenset[str] = frozenset(
         "stop_training",
     }
 )
-OPERATOR_ROLE_TOOLS: frozenset[str] = frozenset(
-    CONTRIBUTOR_ROLE_TOOLS | _OPERATOR_EXTENSION
-)
+OPERATOR_ROLE_TOOLS: frozenset[str] = frozenset(CONTRIBUTOR_ROLE_TOOLS | _OPERATOR_EXTENSION)
 
 # admin : +5 tools (tâche 19 — gestion mutante de fichiers/archives).
 _ADMIN_EXTENSION: frozenset[str] = frozenset(
     {"move_path", "remove_path", "split_file", "dedupe_lines", "unzip_file"}
 )
-ADMIN_ROLE_TOOLS: frozenset[str] = frozenset(
-    OPERATOR_ROLE_TOOLS | _ADMIN_EXTENSION
-)
+ADMIN_ROLE_TOOLS: frozenset[str] = frozenset(OPERATOR_ROLE_TOOLS | _ADMIN_EXTENSION)
 
 # Mapping rôle (str, valeur de ``MCPScopeRole``) → catalogue par défaut.
 ROLE_TOOLS: dict[str, frozenset[str]] = {
@@ -370,9 +364,7 @@ class MCPScopeEnforcer:
         if len(self._buckets) < _MAX_CLIENT_BUCKETS:
             return
         stale = [
-            key
-            for key, seen in self._buckets_seen.items()
-            if now - seen > _IDLE_BUCKET_SECONDS
+            key for key, seen in self._buckets_seen.items() if now - seen > _IDLE_BUCKET_SECONDS
         ]
         for key in stale:
             self._buckets.pop(key, None)

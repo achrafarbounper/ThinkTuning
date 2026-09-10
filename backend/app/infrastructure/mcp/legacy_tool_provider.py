@@ -227,16 +227,12 @@ class LegacyRegistryToolProvider(MCPToolRegistryPort):
                 continue
             func = self._tools.get(name)
             if func is None:
-                logger.warning(
-                    "MCP read-only : « %s » sans implémentation legacy — exclu", name
-                )
+                logger.warning("MCP read-only : « %s » sans implémentation legacy — exclu", name)
                 continue
             try:
                 entry, _warnings = compile_tool(name, meta)
             except Exception as exc:  # entrée illisible : jamais bloquante
-                logger.warning(
-                    "MCP read-only : « %s » non compilable (%s) — exclu", name, exc
-                )
+                logger.warning("MCP read-only : « %s » non compilable (%s) — exclu", name, exc)
                 continue
             if not entry["annotations"]["readOnlyHint"]:
                 # Garantie structurelle : la surface v0.1.0 est read-only.
@@ -248,13 +244,9 @@ class LegacyRegistryToolProvider(MCPToolRegistryPort):
                     name,
                 )
                 continue
-            self._tool_map[name] = entry_to_mcp_tool(
-                entry, self._wrap_handler(name, func)
-            )
+            self._tool_map[name] = entry_to_mcp_tool(entry, self._wrap_handler(name, func))
 
-    def _wrap_handler(
-        self, name: str, func: Callable[..., Any]
-    ) -> Callable[[dict[str, Any]], str]:
+    def _wrap_handler(self, name: str, func: Callable[..., Any]) -> Callable[[dict[str, Any]], str]:
         """Câble l'exécution legacy : validation args → appel → sérialisation."""
 
         def handler(arguments: dict[str, Any]) -> str:
@@ -263,8 +255,7 @@ class LegacyRegistryToolProvider(MCPToolRegistryPort):
             missing = [arg for arg in required if arg not in args]
             if missing:
                 raise ToolError(
-                    f"Argument(s) requis manquant(s) pour « {name} » : "
-                    f"{', '.join(missing)}"
+                    f"Argument(s) requis manquant(s) pour « {name} » : {', '.join(missing)}"
                 )
             try:
                 result = func(**args)

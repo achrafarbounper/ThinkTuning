@@ -145,9 +145,7 @@ def _posture_from_category(category: ActionCategory) -> ToolPosture:
             dict(READ_ONLY_ANNOTATIONS), MCPScopeRole.READ_ONLY, SAFETY_SOURCE_DERIVED
         )
     if category is ActionCategory.EXEC:
-        return ToolPosture(
-            dict(MUTATING_ANNOTATIONS), MCPScopeRole.OPERATOR, SAFETY_SOURCE_DERIVED
-        )
+        return ToolPosture(dict(MUTATING_ANNOTATIONS), MCPScopeRole.OPERATOR, SAFETY_SOURCE_DERIVED)
     if category in (ActionCategory.WRITE, ActionCategory.DELETE):
         return ToolPosture(
             dict(MUTATING_ANNOTATIONS), MCPScopeRole.CONTRIBUTOR, SAFETY_SOURCE_DERIVED
@@ -195,9 +193,7 @@ def resolve_posture(name: str, definition: Mapping[str, Any]) -> ToolPosture:
     return ToolPosture(safety_to_annotations(None), MCPScopeRole.ADMIN, SAFETY_SOURCE_DEFAULT)
 
 
-def compile_tool(
-    name: str, meta: Mapping[str, Any] | None
-) -> tuple[dict[str, Any], list[str]]:
+def compile_tool(name: str, meta: Mapping[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
     """Compile UNE entrée legacy en entrée de manifeste MCP.
 
     Pipeline (aucune réinvention) :
@@ -399,7 +395,7 @@ def load_tools_config(
     tools = document.get("tools") if isinstance(document, dict) else None
     if not isinstance(tools, dict):
         return _fallback_empty(
-            f"{manifest_path} : structure inattendue (objet {{\"tools\": {{...}}}} attendu)",
+            f'{manifest_path} : structure inattendue (objet {{"tools": {{...}}}} attendu)',
             strict,
         )
     return tools
@@ -565,8 +561,3 @@ __all__ = [
     "safety_to_annotations",
     "write_markdown_catalog",
 ]
-
-
-
-
-

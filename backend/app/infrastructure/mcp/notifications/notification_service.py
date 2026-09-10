@@ -247,7 +247,7 @@ def _compose_slack_blocks(
             "text": {
                 "type": "mrkdwn",
                 "text": f"<{migration_guide}|Guide de migration>\n\nAction requise :"
-                 + " mettez à jour votre client MCP.",
+                + " mettez à jour votre client MCP.",
             },
         },
         {
@@ -255,8 +255,8 @@ def _compose_slack_blocks(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "Compatibilité ascendante : " +
-                    "les clients v1.x continuent de fonctionner.",
+                    "text": "Compatibilité ascendante : "
+                    + "les clients v1.x continuent de fonctionner.",
                 }
             ],
         },

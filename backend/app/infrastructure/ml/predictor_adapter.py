@@ -55,9 +55,7 @@ def _to_model_not_available(exc: Exception) -> ModelNotAvailableError:
 class LegacyPredictorAdapter:
     """Implémentation de ``PredictionPort`` au-dessus du cache de prédicteurs."""
 
-    def predict(
-        self, texts: list[str], model_name: str | None = None
-    ) -> list[PredictionResult]:
+    def predict(self, texts: list[str], model_name: str | None = None) -> list[PredictionResult]:
         try:
             predictor = _legacy_cache.get_predictor(model_name)
         except (HTTPException, RuntimeError) as exc:

@@ -46,6 +46,4 @@ def run_confusion_evaluation(
     evaluation: EvaluationPort,
 ) -> dict:
     """Matrice de confusion + métriques sur l'échantillon de référence."""
-    return evaluation.run_confusion(
-        model=model, limit=limit, max_mistakes=max_mistakes
-    )
+    return evaluation.run_confusion(model=model, limit=limit, max_mistakes=max_mistakes)

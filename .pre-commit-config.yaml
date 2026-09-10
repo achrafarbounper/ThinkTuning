@@ -1,0 +1,15 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Aligné sur backend/venv (ruff 0.16.6) : évite les diffs de format
+    # entre versions.
+    rev: v0.16.6
+    hooks:
+      - id: ruff
+        name: ruff check (backend/app)
+        # Même périmètre que la CI : backend/app uniquement.
+        files: ^backend/app/
+        args: [--config, backend/pyproject.toml]
+      - id: ruff-format
+        name: ruff format (backend/app)
+        files: ^backend/app/
+        args: [--config, backend/pyproject.toml]

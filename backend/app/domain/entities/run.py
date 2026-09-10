@@ -30,11 +30,11 @@ class RunStatus(StrEnum):
     métier de cycle de vie, pas un détail de moteur.
     """
 
-    COMPLETED = "completed"                # réponse finale produite
+    COMPLETED = "completed"  # réponse finale produite
     PENDING_APPROVAL = "pending_approval"  # action en attente de validation
-    REJECTED_LOOP = "rejected_loop"        # le LLM reformule une action rejetée
+    REJECTED_LOOP = "rejected_loop"  # le LLM reformule une action rejetée
     BUDGET_EXHAUSTED = "budget_exhausted"  # budget épuisé sans réponse finale
-    FAILED = "failed"                      # erreur non récupérable
+    FAILED = "failed"  # erreur non récupérable
 
 
 # --- Statuts PERSISTÉS d'un run (alignés sur core/run_store.py) ------------------
@@ -45,9 +45,7 @@ AWAITING_APPROVAL = "awaiting_approval"
 REJECTED = "rejected"
 ERROR = "error"
 
-_PERSISTED_STATUSES = frozenset(
-    {RUNNING, COMPLETED, AWAITING_APPROVAL, REJECTED, ERROR}
-)
+_PERSISTED_STATUSES = frozenset({RUNNING, COMPLETED, AWAITING_APPROVAL, REJECTED, ERROR})
 
 # États terminaux : aucune transition sortante.
 _TERMINAL = frozenset({COMPLETED, REJECTED, ERROR})
@@ -64,9 +62,7 @@ class IllegalRunTransition(ValueError):
     def __init__(self, current: str, requested: str) -> None:
         self.current = current
         self.requested = requested
-        super().__init__(
-            f"Transition de run illégale : '{current}' -> '{requested}'"
-        )
+        super().__init__(f"Transition de run illégale : '{current}' -> '{requested}'")
 
 
 @dataclass(frozen=True)
@@ -92,9 +88,7 @@ class RunStateMachine:
 
     _TRANSITIONS: ClassVar[dict[str, frozenset[str]]] = {
         RUNNING: frozenset({COMPLETED, AWAITING_APPROVAL, REJECTED, ERROR}),
-        AWAITING_APPROVAL: frozenset(
-            {RUNNING, COMPLETED, REJECTED, ERROR}
-        ),
+        AWAITING_APPROVAL: frozenset({RUNNING, COMPLETED, REJECTED, ERROR}),
         COMPLETED: frozenset(),
         REJECTED: frozenset(),
         ERROR: frozenset(),

@@ -24,11 +24,7 @@ class LegacySystemStatusAdapter:
 
     def active_running_jobs(self) -> int:
         store = _legacy_jobs.get_job_store()
-        return sum(
-            1
-            for job in store.values()
-            if getattr(job, "status", None) == JobStatus.RUNNING
-        )
+        return sum(1 for job in store.values() if getattr(job, "status", None) == JobStatus.RUNNING)
 
     def maintenance_mode(self) -> bool:
         # Import paresseux VOLONTAIRE (voir docstring module) : le package api

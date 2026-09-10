@@ -64,7 +64,7 @@ class ActionTrace(BaseModel):
     tool: str
     args: dict[str, Any] = Field(default_factory=dict)
     decision: str
-    status: str                      # done / error / awaiting_approval / rejected
+    status: str  # done / error / awaiting_approval / rejected
     result_summary: str = ""
     error: str = ""
 
@@ -78,7 +78,7 @@ class AgentRunResult(BaseModel):
     status: RunStatus = RunStatus.COMPLETED
     thinking: str = ""
     actions: list[ActionTrace] = Field(default_factory=list)
-    awaiting_action: Action | None = None   # action pending_approval le cas échéant
+    awaiting_action: Action | None = None  # action pending_approval le cas échéant
     rounds_used: int = 0
     tool_calls_used: int = 0
 
@@ -101,14 +101,15 @@ def _sanitize_final_answer(response: str, traces: list[ActionTrace]) -> str:
     """
     text = _FINAL_PREFIX_RE.sub("", (response or "").strip()).strip()
     if not text or _FINAL_MARKER_RE.match(text):
-        done = [t for t in reversed(traces)
-                if t.status == "done" and t.result_summary]
+        done = [t for t in reversed(traces) if t.status == "done" and t.result_summary]
         if done:
             logger.warning("final_answer_marker_leak -> fallback tool result")
             return done[0].result_summary
         logger.warning("final_answer_marker_leak -> neutral message")
-        return ("Je n'ai pas pu produire de réponse à partir des informations "
-                "collectées. Peux-tu reformuler ta demande ?")
+        return (
+            "Je n'ai pas pu produire de réponse à partir des informations "
+            "collectées. Peux-tu reformuler ta demande ?"
+        )
     return text
 
 
@@ -244,8 +245,10 @@ def _steps_from(items: list[Any]) -> Plan | None:
         if not tool:
             return None
         steps.append(
-            PlanStep(task_id=str(item.get("task_id") or f"step-{index + 1}"),
-                     action=Action(tool=str(tool), args=dict(item.get("args") or {})))
+            PlanStep(
+                task_id=str(item.get("task_id") or f"step-{index + 1}"),
+                action=Action(tool=str(tool), args=dict(item.get("args") or {})),
+            )
         )
     try:
         return Plan(steps=steps)
@@ -267,16 +270,27 @@ _RESULT_SUMMARY_CHARS = 400
 # ============================================================
 
 _INTENT_MARKERS = (
-    "appell",     # appelle / appeler
-    "utiliser", "utilise",
-    "lanc",       # lance / lançons
-    "exécu", "execu",
+    "appell",  # appelle / appeler
+    "utiliser",
+    "utilise",
+    "lanc",  # lance / lançons
+    "exécu",
+    "execu",
     "vérifi",
     "recherch",
     "interrog",
-    "je vais", "il faut", "dois ",
-    "let me", "use ", "using", "call ", "calling",
-    "search ", "fetch ", "check ", "query ",
+    "je vais",
+    "il faut",
+    "dois ",
+    "let me",
+    "use ",
+    "using",
+    "call ",
+    "calling",
+    "search ",
+    "fetch ",
+    "check ",
+    "query ",
     "tool_call",  # balise [TOOL_CALL] / <tool_call> mal formée
 )
 _ANNOUNCE_WINDOW = 80
@@ -295,7 +309,7 @@ def _detect_announced_tool(text: str, tool_names) -> str:
         r"\b(?:" + "|".join(re.escape(name.lower()) for name in sorted(tool_names)) + r")\b"
     )
     for match in pattern.finditer(lowered):
-        window = lowered[max(0, match.start() - _ANNOUNCE_WINDOW): match.end() + _ANNOUNCE_WINDOW]
+        window = lowered[max(0, match.start() - _ANNOUNCE_WINDOW) : match.end() + _ANNOUNCE_WINDOW]
         if any(marker in window for marker in _INTENT_MARKERS):
             return match.group(0)
     return ""
@@ -446,8 +460,9 @@ class AgentCore:
                     response = self._llm.call(messages)
             except Exception as exc:
                 logger.error("Échec du client LLM : %s", exc)
-                return self._finalize(traces, budget, RunStatus.FAILED,
-                                      answer=f"Erreur LLM : {exc}")
+                return self._finalize(
+                    traces, budget, RunStatus.FAILED, answer=f"Erreur LLM : {exc}"
+                )
             plan = extract_plan(response)
 
             if plan is None:
@@ -460,29 +475,36 @@ class AgentCore:
                 if announced and not nudged:
                     nudged = True
                     logger.warning(
-                        "tool_intent_detected tool=%s", announced,
+                        "tool_intent_detected tool=%s",
+                        announced,
                     )
-                    messages = [*messages,
-                                {"role": "assistant", "content": response},
-                                {"role": "user", "content": _NUDGE_MESSAGE.format(tool=announced)}]
+                    messages = [
+                        *messages,
+                        {"role": "assistant", "content": response},
+                        {"role": "user", "content": _NUDGE_MESSAGE.format(tool=announced)},
+                    ]
                     continue
                 # Garde-fou : un outil a RÉUSSI mais le modèle CONTESTE le
                 # résultat (refus par confiance obsolète en sa mémoire) au lieu
                 # de conclure dessus — relance unique orientée fidélité.
-                done_tool = next(
-                    (t.tool for t in traces if t.status == "done"), None
-                )
+                done_tool = next((t.tool for t in traces if t.status == "done"), None)
                 if done_tool and not nudged and _detect_distrust(response):
                     nudged = True
                     logger.warning("tool_result_distrusted tool=%s", done_tool)
-                    messages = [*messages,
-                                {"role": "assistant", "content": response},
-                                {"role": "user",
-                                 "content": _TOOL_RESULT_NUDGE_MESSAGE.format(tool=done_tool)}]
+                    messages = [
+                        *messages,
+                        {"role": "assistant", "content": response},
+                        {
+                            "role": "user",
+                            "content": _TOOL_RESULT_NUDGE_MESSAGE.format(tool=done_tool),
+                        },
+                    ]
                     continue
                 # Réponse texte directe (légitime)
                 return self._finalize(
-                    traces, budget, RunStatus.COMPLETED,
+                    traces,
+                    budget,
+                    RunStatus.COMPLETED,
                     answer=_sanitize_final_answer(response, traces),
                 )
 
@@ -490,8 +512,11 @@ class AgentCore:
             if isinstance(outcome, AgentRunResult):
                 return outcome
             # Continuation : résultats d'outils renvoyés au LLM (auto-correction)
-            messages = [*messages, {"role": "assistant", "content": response},
-                        {"role": "user", "content": outcome}]
+            messages = [
+                *messages,
+                {"role": "assistant", "content": response},
+                {"role": "user", "content": outcome},
+            ]
 
         # --- Exécution d'un plan ----------------------------------------------------
 
@@ -517,14 +542,23 @@ class AgentCore:
 
             if decision is Decision.REJECT:
                 print_ = action.fingerprint()
-                traces.append(ActionTrace(
-                    tool=action.tool, args=action.args, decision=decision.value,
-                    status="rejected", error="cible sensible ou règle dure",
-                ))
+                traces.append(
+                    ActionTrace(
+                        tool=action.tool,
+                        args=action.args,
+                        decision=decision.value,
+                        status="rejected",
+                        error="cible sensible ou règle dure",
+                    )
+                )
                 if print_ in rejected_prints:
                     # Anti-boucle : même action rejetée deux fois → arrêt.
-                    return self._as_result(traces, budget, RunStatus.REJECTED_LOOP,
-                                           answer="Action refusée par la politique de sécurité.")
+                    return self._as_result(
+                        traces,
+                        budget,
+                        RunStatus.REJECTED_LOOP,
+                        answer="Action refusée par la politique de sécurité.",
+                    )
                 rejected_prints.add(print_)
                 results.append(
                     f"[{step.task_id}] REJETÉ ({action.tool}) : règle de sécurité. "
@@ -538,10 +572,15 @@ class AgentCore:
                     f"[{step.task_id}] ERREUR : outil inconnu '{action.tool}'. "
                     f"Outils valides : {', '.join(self._registry.tool_names())}."
                 )
-                traces.append(ActionTrace(
-                    tool=action.tool, args=action.args, decision=decision.value,
-                    status="error", error="outil inconnu",
-                ))
+                traces.append(
+                    ActionTrace(
+                        tool=action.tool,
+                        args=action.args,
+                        decision=decision.value,
+                        status="error",
+                        error="outil inconnu",
+                    )
+                )
                 continue
 
             try:
@@ -552,42 +591,68 @@ class AgentCore:
             if decision is Decision.APPROVE:
                 granted = self._approval_gateway(action) if self._approval_gateway else False
                 if not granted:
-                    traces.append(ActionTrace(
-                        tool=action.tool, args=action.args, decision=decision.value,
-                        status="awaiting_approval",
-                    ))
+                    traces.append(
+                        ActionTrace(
+                            tool=action.tool,
+                            args=action.args,
+                            decision=decision.value,
+                            status="awaiting_approval",
+                        )
+                    )
                     return self._as_result(
-                        traces, budget, RunStatus.PENDING_APPROVAL,
+                        traces,
+                        budget,
+                        RunStatus.PENDING_APPROVAL,
                         answer="En attente de validation humaine.",
                         awaiting_action=action,
                     )
 
             # Émission temps réel (SSE) : annonce de l'appel d'outil.
-            self._emit_tool_event({"event": "tool_start", "tool": action.tool,
-                                   "args": action.args})
+            self._emit_tool_event({"event": "tool_start", "tool": action.tool, "args": action.args})
             started = time.perf_counter()
             try:
                 value = func(**action.args)
                 duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 results.append(f"[{step.task_id}] {action.tool} -> {self._summarize(value)}")
-                traces.append(ActionTrace(
-                    tool=action.tool, args=action.args, decision=decision.value,
-                    status="done", result_summary=self._summarize(value),
-                ))
-                self._emit_tool_event({"event": "tool_result", "tool": action.tool,
-                                       "status": "ok",
-                                       "summary": self._summarize(value),
-                                       "duration_ms": duration_ms})
+                traces.append(
+                    ActionTrace(
+                        tool=action.tool,
+                        args=action.args,
+                        decision=decision.value,
+                        status="done",
+                        result_summary=self._summarize(value),
+                    )
+                )
+                self._emit_tool_event(
+                    {
+                        "event": "tool_result",
+                        "tool": action.tool,
+                        "status": "ok",
+                        "summary": self._summarize(value),
+                        "duration_ms": duration_ms,
+                    }
+                )
             except Exception as exc:  # auto-correction : l'erreur retourne au LLM
                 duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 results.append(f"[{step.task_id}] ERREUR d'exécution ({action.tool}) : {exc}")
-                traces.append(ActionTrace(
-                    tool=action.tool, args=action.args, decision=decision.value,
-                    status="error", error=str(exc),
-                ))
-                self._emit_tool_event({"event": "tool_result", "tool": action.tool,
-                                       "status": "error", "error": str(exc),
-                                       "duration_ms": duration_ms})
+                traces.append(
+                    ActionTrace(
+                        tool=action.tool,
+                        args=action.args,
+                        decision=decision.value,
+                        status="error",
+                        error=str(exc),
+                    )
+                )
+                self._emit_tool_event(
+                    {
+                        "event": "tool_result",
+                        "tool": action.tool,
+                        "status": "error",
+                        "error": str(exc),
+                        "duration_ms": duration_ms,
+                    }
+                )
         return "\n".join(results) if results else "Aucune action exécutée. Réponds à la question."
 
     def _capture_thinking(self, chunk: str) -> None:
@@ -631,14 +696,16 @@ class AgentCore:
         if self._event_bus is not None:
             kind = event.get("event")
             if kind == "tool_start":
-                self._safe_emit("agent.tool_start", tool=event.get("tool"),
-                                args=event.get("args"))
+                self._safe_emit("agent.tool_start", tool=event.get("tool"), args=event.get("args"))
             elif kind == "tool_result":
-                self._safe_emit("agent.tool_end", tool=event.get("tool"),
-                                status=event.get("status"),
-                                summary=event.get("summary") or "",
-                                error=event.get("error") or "",
-                                duration_ms=event.get("duration_ms"))
+                self._safe_emit(
+                    "agent.tool_end",
+                    tool=event.get("tool"),
+                    status=event.get("status"),
+                    summary=event.get("summary") or "",
+                    error=event.get("error") or "",
+                    duration_ms=event.get("duration_ms"),
+                )
 
         # --- Finalisation -------------------------------------------------------------
 
@@ -729,7 +796,10 @@ class AgentCore:
         status: RunStatus,
         answer: str = "",
     ) -> AgentRunResult:
-        logger.info("Run agent terminé : statut=%s rounds=%s outils=%s",
-                    status.value, budget.snapshot().llm_rounds_used,
-                    budget.snapshot().tool_calls_used)
+        logger.info(
+            "Run agent terminé : statut=%s rounds=%s outils=%s",
+            status.value,
+            budget.snapshot().llm_rounds_used,
+            budget.snapshot().tool_calls_used,
+        )
         return self._as_result(traces, budget, status, answer)
