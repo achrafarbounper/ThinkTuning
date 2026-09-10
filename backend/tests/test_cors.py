@@ -37,9 +37,23 @@ VERCEL_PREVIEW = "https://think-tuning-ai-abc123.vercel.app"
 VERCEL_PREVIEW_TEAM = "https://think-tuning-ai-abc123-snowy-two-23.vercel.app"
 VERCEL_REGEX = r"^https://think-tuning-ai-[a-z0-9-]+\.vercel\.app$"
 
+# En-têtes autorisés par le middleware CORS — MIROR EXACT de api/main.py
+# (jamais "*" : énumération stricte, P0 SEC F5). Outre la surface REST, le
+# transport MCP (POST /mcp/sse, mcpClient.ts) envoie X-Client-Id et
+# Mcp-Session-Id : sans eux le preflight répond 400 « Disallowed CORS
+# headers » et le navigateur bloque l'appel (net::ERR_FAILED).
+ALLOW_HEADERS = [
+    "Authorization",
+    "X-API-Key",
+    "Mcp-Session-Id",
+    "X-Client-Id",
+    "Content-Type",
+    "Accept",
+]
+
 
 def _make_client(origins: list[str], regex: str | None = None) -> TestClient:
-    """App synthétique câblée comme api/main.py : CORS = seul middleware."""
+    """App synthétique câblée comme api/main.py : CORS = seul middleware (P0)."""
     app = FastAPI()
 
     @app.get("/ping")
@@ -51,8 +65,8 @@ def _make_client(origins: list[str], regex: str | None = None) -> TestClient:
         allow_origins=origins,
         allow_origin_regex=regex,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=ALLOW_HEADERS,
     )
     return TestClient(app)
 
@@ -142,6 +156,48 @@ def test_preflight_origine_non_autorisee_rejete_400() -> None:
     )
     assert response.status_code == 400
     assert "Disallowed CORS origin" in response.text
+
+
+def test_preflight_mcp_headers_session_et_client_autorises() -> None:
+    """REPRODUCTION DU BUG : en-têtes MCP (X-Client-Id/Mcp-Session-Id) autorisés.
+
+    Le transport MCP (POST /mcp/sse, mcpClient.ts) envoie ces deux en-têtes en
+    plus de Content-Type/Accept/X-API-Key. Avant le fix, le preflight répondait
+    400 « Disallowed CORS headers » (net::ERR_FAILED côté navigateur).
+    """
+    client = _make_client(["http://localhost:5173"])
+    response = client.options(
+        "/ping",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": (
+                "content-type, accept, x-api-key, x-client-id, mcp-session-id"
+            ),
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    allow_headers = [
+        h.strip().lower() for h in response.headers["access-control-allow-headers"].split(",")
+    ]
+    assert "mcp-session-id" in allow_headers
+    assert "x-client-id" in allow_headers
+
+
+def test_preflight_header_hors_liste_rejete_400() -> None:
+    """Fail-closed P0 conservé : un en-tête hors liste → 400 « Disallowed CORS headers »."""
+    client = _make_client(["http://localhost:5173"])
+    response = client.options(
+        "/ping",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-client-id, x-spam",
+        },
+    )
+    assert response.status_code == 400
+    assert "Disallowed CORS headers" in response.text
 
 
 def test_regex_active_les_previews_vercel() -> None:

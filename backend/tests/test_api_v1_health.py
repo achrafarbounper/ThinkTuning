@@ -68,13 +68,18 @@ def test_v1_health_without_model(no_models):
 
 
 def test_v1_health_with_model(one_model):
-    """Une version valide : model_available=True et chemin de la version."""
+    """Une version valide : model_available=True et NOM de la version (P0 SEC F4).
+
+    Le chemin absolu serveur n'est JAMAIS exposé (anti-fingerprinting) :
+    seul le nom du dossier de version transite via l'API.
+    """
     response = client.get("/api/v1/health")
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["model_available"] is True
-    assert body["model_dir"] == str(one_model)
+    assert body["model_dir"] == one_model.name
+    assert "/" not in (body["model_dir"] or "") and "\\" not in (body["model_dir"] or "")
 
 
 def test_v1_health_counts_only_running_jobs(monkeypatch):

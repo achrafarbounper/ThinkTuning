@@ -25,6 +25,25 @@ export const AGENT_LM_STUDIO_URL_DEFAULT = "http://192.168.1.184:1234/v1";
 export const AGENT_TIMEOUT_SECONDS_DEFAULT = 600;
 export const AGENT_CONTEXT_LENGTH_DEFAULT = 1024;
 export const AGENT_TEMPERATURE_DEFAULT = 0.2;
+// SCRUM-138 : budgets, log, MCP et flags sont des réglages du module IHM,
+// stockés/chargés depuis MongoDB (déplacés hors de app/config/settings.py).
+export const AGENT_MAX_LLM_ROUNDS_DEFAULT = 6;
+export const AGENT_MAX_TOOL_CALLS_DEFAULT = 20;
+export const AGENT_LOG_LEVEL_DEFAULT = "INFO";
+export const AGENT_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"] as const;
+/** Feature flags (convention ``AGENT_<NOM>`` historique) — persistés en base. */
+export const AGENT_FLAGS = [
+  "reliability",
+  "audit",
+  "tool_analytics",
+  "context",
+  "copilot",
+  "websocket",
+  "multi_agent",
+  "custom_tools",
+  "new_core",
+  "llm_v2",
+] as const;
 export const AGENT_PROVIDERS = ["ollama", "openrouter", "hf", "lm_studio"] as const;
 export const AGENT_SETTINGS_STORAGE_KEY = "thinktuning.agentSettings";
 export const AGENT_LAST_MODEL_STORAGE_KEY = "thinktuning.agentLastModel";
@@ -49,6 +68,25 @@ export interface AgentSettings {
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
+  // --- Budgets & garde-fous (module IHM / MongoDB) --------------------------
+  maxLlmRounds: number | string;
+  maxToolCalls: number | string;
+  // --- Observabilité ---------------------------------------------------------
+  logLevel: string;
+  // --- Surface MCP -----------------------------------------------------------
+  mcpFirst: boolean;
+  mcpAuthRequired: boolean;
+  // --- Feature flags (AGENT_<NOM> historique) --------------------------------
+  flagReliability: boolean;
+  flagAudit: boolean;
+  flagToolAnalytics: boolean;
+  flagContext: boolean;
+  flagCopilot: boolean;
+  flagWebsocket: boolean;
+  flagMultiAgent: boolean;
+  flagCustomTools: boolean;
+  flagNewCore: boolean;
+  flagLlmV2: boolean;
 }
 
 /** Entrée partielle acceptée par agentSettingsPayload. */
@@ -56,6 +94,16 @@ export type AgentSettingsInput = Partial<AgentSettings>;
 
 /** Corps snake_case attendu par l'API. */
 export type AgentSettingsPayload = Record<string, unknown>;
+
+/**
+ * Convertit un nom de flag snake_case (`new_core`) en clé camelCase UI
+ * (`flagNewCore`) — convention `flag_<nom>` ↔ `flag<Nom>` (AGENT_<NOM>).
+ */
+export function agentFlagCamelCase(name: string): string {
+  const [head, ...rest] = name.split("_");
+  const capital = (part: string) => (part[0] || "").toUpperCase() + part.slice(1);
+  return "flag" + capital(head) + rest.map(capital).join("");
+}
 
 /**
  * Convertit des paramètres agent en camelCase (formulaire du dashboard) en
@@ -80,6 +128,19 @@ export function agentSettingsPayload(input?: AgentSettingsInput): AgentSettingsP
     out.context_length = src.contextLength;
   if (src.temperature !== undefined && src.temperature !== "")
     out.temperature = src.temperature;
+  // SCRUM-138 : budgets, log, MCP et flags — clés du module IHM (base MongoDB).
+  if (src.maxLlmRounds !== undefined && src.maxLlmRounds !== "")
+    out.max_llm_rounds = src.maxLlmRounds;
+  if (src.maxToolCalls !== undefined && src.maxToolCalls !== "")
+    out.max_tool_calls = src.maxToolCalls;
+  if (src.logLevel !== undefined && src.logLevel !== "") out.log_level = src.logLevel;
+  if (src.mcpFirst !== undefined) out.mcp_first = src.mcpFirst;
+  if (src.mcpAuthRequired !== undefined) out.mcp_auth_required = src.mcpAuthRequired;
+  for (const name of AGENT_FLAGS) {
+    const camel = agentFlagCamelCase(name);
+    if (src[camel as keyof AgentSettings] !== undefined)
+      out[`flag_${name}`] = src[camel as keyof AgentSettings];
+  }
   return out;
 }
 
@@ -91,6 +152,10 @@ export function agentSettingsPayload(input?: AgentSettingsInput): AgentSettingsP
  */
 export function normalizeAgentSettings(input?: Record<string, unknown>): AgentSettings {
   const src = input || {};
+  const flag = (camel: string, snake: string, fallback: boolean): boolean =>
+    (src[camel] !== undefined ? src[camel] : src[snake]) === undefined
+      ? fallback
+      : Boolean(src[camel] !== undefined ? src[camel] : src[snake]);
   return {
     provider: (src.provider as AgentProvider) || AGENT_PROVIDER_DEFAULT,
     model: (src.model as string) || AGENT_MODEL_DEFAULT,
@@ -116,6 +181,27 @@ export function normalizeAgentSettings(input?: Record<string, unknown>): AgentSe
       ((src.contextLength ?? src.context_length) as string | number | undefined) ??
       AGENT_CONTEXT_LENGTH_DEFAULT,
     temperature: (src.temperature as string | number | undefined) ?? AGENT_TEMPERATURE_DEFAULT,
+    // SCRUM-138 : budgets, log, MCP et flags du module IHM (base MongoDB).
+    maxLlmRounds:
+      ((src.maxLlmRounds ?? src.max_llm_rounds) as string | number | undefined) ??
+      AGENT_MAX_LLM_ROUNDS_DEFAULT,
+    maxToolCalls:
+      ((src.maxToolCalls ?? src.max_tool_calls) as string | number | undefined) ??
+      AGENT_MAX_TOOL_CALLS_DEFAULT,
+    logLevel:
+      ((src.logLevel ?? src.log_level) as string | undefined) || AGENT_LOG_LEVEL_DEFAULT,
+    mcpFirst: flag("mcpFirst", "mcp_first", false),
+    mcpAuthRequired: flag("mcpAuthRequired", "mcp_auth_required", true),
+    flagReliability: flag("flagReliability", "flag_reliability", true),
+    flagAudit: flag("flagAudit", "flag_audit", true),
+    flagToolAnalytics: flag("flagToolAnalytics", "flag_tool_analytics", true),
+    flagContext: flag("flagContext", "flag_context", true),
+    flagCopilot: flag("flagCopilot", "flag_copilot", true),
+    flagWebsocket: flag("flagWebsocket", "flag_websocket", true),
+    flagMultiAgent: flag("flagMultiAgent", "flag_multi_agent", true),
+    flagCustomTools: flag("flagCustomTools", "flag_custom_tools", true),
+    flagNewCore: flag("flagNewCore", "flag_new_core", true),
+    flagLlmV2: flag("flagLlmV2", "flag_llm_v2", true),
   };
 }
 // --- Persistance localStorage -------------------------------------------------
@@ -140,6 +226,21 @@ function loadAgentSettingsFromDefaults(): AgentSettings {
     timeoutSeconds: parseInt(url("VITE_AGENT_TIMEOUT_SECONDS"), 10) || AGENT_TIMEOUT_SECONDS_DEFAULT,
     contextLength: parseInt(url("VITE_AGENT_CONTEXT_LENGTH"), 10) || AGENT_CONTEXT_LENGTH_DEFAULT,
     temperature: parseFloat(url("VITE_AGENT_TEMPERATURE")) || AGENT_TEMPERATURE_DEFAULT,
+    maxLlmRounds: parseInt(url("VITE_AGENT_MAX_LLM_ROUNDS"), 10) || AGENT_MAX_LLM_ROUNDS_DEFAULT,
+    maxToolCalls: parseInt(url("VITE_AGENT_MAX_TOOL_CALLS"), 10) || AGENT_MAX_TOOL_CALLS_DEFAULT,
+    logLevel: url("VITE_AGENT_LOG_LEVEL") || AGENT_LOG_LEVEL_DEFAULT,
+    mcpFirst: false,
+    mcpAuthRequired: true,
+    flagReliability: true,
+    flagAudit: true,
+    flagToolAnalytics: true,
+    flagContext: true,
+    flagCopilot: true,
+    flagWebsocket: true,
+    flagMultiAgent: true,
+    flagCustomTools: true,
+    flagNewCore: true,
+    flagLlmV2: true,
   };
 }
 
@@ -162,6 +263,21 @@ function loadAgentSettingsFromStorage(): AgentSettings {
       timeoutSeconds: AGENT_TIMEOUT_SECONDS_DEFAULT,
       contextLength: AGENT_CONTEXT_LENGTH_DEFAULT,
       temperature: AGENT_TEMPERATURE_DEFAULT,
+      maxLlmRounds: AGENT_MAX_LLM_ROUNDS_DEFAULT,
+      maxToolCalls: AGENT_MAX_TOOL_CALLS_DEFAULT,
+      logLevel: AGENT_LOG_LEVEL_DEFAULT,
+      mcpFirst: false,
+      mcpAuthRequired: true,
+      flagReliability: true,
+      flagAudit: true,
+      flagToolAnalytics: true,
+      flagContext: true,
+      flagCopilot: true,
+      flagWebsocket: true,
+      flagMultiAgent: true,
+      flagCustomTools: true,
+      flagNewCore: true,
+      flagLlmV2: true,
       ...parsed,
     };
   } catch {

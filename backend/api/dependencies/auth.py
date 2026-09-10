@@ -1,16 +1,11 @@
 # project/api/dependencies/auth.py
 
-import logging
-import os
-
 from fastapi import Header, HTTPException
 
 from app.infrastructure.security.api_key import (
     effective_api_key,
     is_valid_api_key,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _get_api_key() -> str:
@@ -26,12 +21,15 @@ def _get_api_key() -> str:
 
 
 def warn_if_insecure_api_key() -> None:
-    """Avertit (une fois au démarrage) si la clé API de développement est active."""
-    if not os.getenv("API_KEY"):
-        logger.warning(
-            "API_KEY absente de l'environnement : la clé de développement par "
-            "défaut est active. Définissez API_KEY avant toute exposition réseau."
-        )
+    """Avertit (une fois au démarrage) si la clé API de développement est active.
+
+    P0 SEC (F1) : en production (ENV/APP_ENV/THINKTUNING_ENV=prod) une clé
+    absente ou faible fait ÉCHOUER le démarrage (fail-closed) au lieu d'un
+    simple warning — délégation à ``ensure_api_key_configured()``.
+    """
+    from app.infrastructure.security.api_key import ensure_api_key_configured
+
+    ensure_api_key_configured()
 
 
 def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> bool:

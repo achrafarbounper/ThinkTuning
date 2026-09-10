@@ -100,6 +100,10 @@ _ANOMALY_HTML = """
 def backend_auto(monkeypatch):
     """Mode auto (SearXNG primaire) avec une instance factice hors réseau."""
     monkeypatch.setenv("AGENT_SEARCH_BACKEND", "auto")
+    # P0 SEC (F8) : protection SSRF active par défaut — l'hôte SearXNG de test
+    # est exempté explicitement (même mécanisme que la prod compose).
+    monkeypatch.setenv("AGENT_BLOCK_PRIVATE_HOSTS", "1")
+    monkeypatch.setenv("AGENT_PRIVATE_HOST_ALLOWLIST", "192.168.1.50")
     monkeypatch.setenv("AGENT_SEARXNG_URL", "http://192.168.1.50:8888/search")
     return monkeypatch
 
@@ -108,6 +112,8 @@ def backend_auto(monkeypatch):
 def backend_ddg(backend_auto):
     """Backend DuckDuckGo seul (SearXNG ignorée)."""
     backend_auto.setenv("AGENT_SEARCH_BACKEND", "ddg")
+    # P0 SEC (F8) : SSRF ON par défaut — DDG (hôte public) passe sans allowlist.
+    backend_auto.delenv("AGENT_PRIVATE_HOST_ALLOWLIST", raising=False)
     return backend_auto
 
 
@@ -116,7 +122,7 @@ def backend_ddg(backend_auto):
 def test_searxng_results_mapped_and_dedup(backend_auto, monkeypatch):
     seen = {}
 
-    def fake_get(url, params=None, headers=None, timeout=None):
+    def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
         seen.update(url=url, params=params)
         return _FakeResponse(json_payload=_SEARXNG_JSON)
 
@@ -288,7 +294,7 @@ def test_invalid_backend_env_behaves_like_auto(backend_auto, monkeypatch):
 def test_ddg_parses_results(backend_ddg, monkeypatch):
     seen = {}
 
-    def fake_post(url, data=None, headers=None, timeout=None):
+    def fake_post(url, data=None, headers=None, timeout=None, **kwargs):
         seen.update(url=url, data=data)
         return _FakeHtmlResponse(_LITE_HTML, url="https://lite.duckduckgo.com/lite/")
 
@@ -419,6 +425,7 @@ def test_enforce_host_policy_allowlist_exemption(monkeypatch):
 # --- web_fetch / web_read (HTTP simulé) ---------------------------------------------------
 
 def test_web_read_extracts_readable_text(monkeypatch):
+    monkeypatch.setenv("AGENT_BLOCK_PRIVATE_HOSTS", "0")  # P0 : SSRF ON par défaut
     monkeypatch.setattr(
         web_tools.requests, "get", lambda *a, **k: _FakeHtmlResponse(_PAGE_HTML)
     )
@@ -432,9 +439,10 @@ def test_web_read_extracts_readable_text(monkeypatch):
 
 
 def test_web_fetch_returns_structured_page(monkeypatch):
+    monkeypatch.setenv("AGENT_BLOCK_PRIVATE_HOSTS", "0")  # P0 : SSRF ON par défaut
     seen = {}
 
-    def fake_get(url, headers=None, timeout=None):
+    def fake_get(url, headers=None, timeout=None, **kwargs):
         seen.update(headers=headers)
         return _FakeHtmlResponse(_PAGE_HTML)
 

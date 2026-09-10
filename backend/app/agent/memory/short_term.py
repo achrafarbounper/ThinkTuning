@@ -7,7 +7,7 @@ dans le store (les messages ne sont JAMAIS supprimés ici).
 
 Comportements clés :
     - la fenêtre est exprimée en NOMBRE DE MESSAGES (défaut : aligné sur
-      ``AGENT_CONTEXT_LENGTH``/ Settings.agent_context_length via le use-case) ;
+      ``AGENT_CONTEXT_LENGTH``/ AgentConfig.context_length via le use-case) ;
     - le premier message utilisateur est toujours conservé (porteur du titre
       et de l'intention initiale — cf. session_store.append_message) ;
     - tolérant aux erreurs du store : la mémoire est un comfort, pas une

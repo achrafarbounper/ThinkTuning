@@ -8,6 +8,7 @@ not connect until a store is instantiated.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import threading
 import time
@@ -526,12 +527,45 @@ class MongoAuditStore:
         }
 
 
+def _decode_settings_value(value: Any) -> Any:
+    """Décode une valeur de paramètre agent lue dans Mongo (SCRUM-137).
+
+    Parité avec le store SQLite (``core/agent_settings.AgentSettingsStore``),
+    qui persiste ses valeurs JSON-encodées (``json.dumps``) et les relit via
+    ``json.loads``. La migration ``scripts/migrate_sqlite_to_mongodb.py``
+    copie les documents SQLite TELS QUELS : une valeur arrivée par ce chemin
+    est donc une chaîne JSON (ex. ``'"openrouter"'`` avec guillemets) alors
+    que les écritures runtime les stockent natives. Ce décodage tolérant
+    normalise les TROIS états possibles :
+
+      - chaîne JSON         → valeur décodée (``'"openrouter"'`` → ``openrouter``) ;
+      - chaîne brute        → inchangée (``openrouter`` seul n'est pas du JSON valide) ;
+      - valeur typée        → inchangée (int/float/bool/None conservés tels quels).
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return value
+
+
 class MongoAgentSettingsStore:
+    """``AgentSettingsPort`` Mongo — symétrique du store SQLite.
+
+    ``save_many`` persiste les valeurs JSON-encodées (MÊME format que le
+    store SQLite) et ``get_all`` les décode via ``_decode_settings_value`` :
+    les deux adaptateurs produisent le même contrat runtime et la migration
+    SQLite→Mongo copie les documents sans divergence (SCRUM-137).
+    """
+
     def __init__(self, provider=None):
         self.c = (provider or get_mongo_provider()).collection("agent_settings")
 
     def get_all(self):
-        return {d["key"]: d.get("value") for d in self.c.find({}, {"_id": 0})}
+        return {
+            d["key"]: _decode_settings_value(d.get("value")) for d in self.c.find({}, {"_id": 0})
+        }
 
     def save_many(self, values):
         from core.agent_settings import SETTING_KEYS
@@ -540,7 +574,7 @@ class MongoAgentSettingsStore:
         for k, v in filtered.items():
             self.c.update_one(
                 {"_id": k},
-                {"$set": {"key": k, "value": v, "updated_at": time.time()}},
+                {"$set": {"key": k, "value": json.dumps(v), "updated_at": time.time()}},
                 upsert=True,
             )
         return filtered

@@ -5,76 +5,83 @@ Remplace ``core/agent_settings.py`` dans la couche API : la route v1
 directement le store legacy.
 
 Responsabilités :
-    - ``get_effective_settings()`` : fusion SQLite + env + défauts (la base est
-      prioritaire dès la première sauvegarde) ;
+    - ``get_effective_settings()`` : fusion base (MongoDB) + env + défauts (la
+      base est prioritaire dès la première sauvegarde) ;
     - ``update_settings(values)`` : validation métier + persistance + reload ;
     - ``test_connectivity(provider, ...)`` : sonde HTTP du provider LLM.
 
 La validation métier (``validate_settings``) vit ici, pas dans l'adaptateur :
 l'adaptateur ne fait que transmettre au store legacy.
+
+SCRUM-138 : ce use case est LE module de configuration IHM de l'agent — il ne
+dépend plus de ``app/config/settings.py`` (aucune configuration d'agent n'y
+reste) : la couche env + défauts vient de ``core.agent_settings.env_and_defaults``
+et les valeurs effectives sont ENTièrement stockées / chargées depuis la base
+de persistance (MongoDB via ``MongoAgentSettingsStore``).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.config.settings import get_settings
 from app.domain.ports import AgentSettingsPort
 
-# Clés acceptées en écriture (alignées sur core/agent_settings.py::SETTING_KEYS).
-SETTING_KEYS = (
-    "provider",
-    "model",
-    "ollama_url",
-    "openrouter_url",
-    "openrouter_api_key",
-    "hf_url",
-    "hf_api_key",
-    "lm_studio_url",
-    "timeout_seconds",
-    "context_length",
-    "temperature",
-)
+# Clés acceptées en écriture — SOURCE UNIQUE : ``core/agent_settings.py``
+# (le store MongoDB ``MongoAgentSettingsStore`` filtre sur le même tuple).
+from core.agent_settings import SETTING_KEYS  # noqa: F401  (ré-exporté)
 
-# Valeurs par défaut (alignées sur core/agent_settings.py::VALEURS_PAR_DEFAUT).
+# Défauts effectifs du module IHM = défauts historiques de
+# app/config/settings.py (déplacés ici) : ils ne servent qu'au démarrage à
+# froid, AVANT la première sauvegarde côté dashboard — ensuite la base est la
+# source de vérité (page Paramètres).
 DEFAULTS: dict[str, Any] = {
     "provider": "ollama",
-    "model": "",
-    "ollama_url": "",
-    "openrouter_url": "",
+    "model": "openrouter/free",
+    "ollama_url": "http://192.168.1.184:11434/api/chat",
+    "openrouter_url": "https://openrouter.ai/api/v1/chat/completions",
     "openrouter_api_key": "",
-    "hf_url": "",
+    "hf_url": "https://router.huggingface.co/v1/chat/completions",
     "hf_api_key": "",
-    "lm_studio_url": "",
-    "timeout_seconds": None,
-    "context_length": None,
+    "lm_studio_url": "http://192.168.1.184:1234/v1/chat/completions",
+    "timeout_seconds": 600,
+    "context_length": 2048,
     "temperature": None,
+    # Déplacés de app/config/settings.py (SCRUM-138) :
+    "max_llm_rounds": 6,
+    "max_tool_calls": 20,
+    "log_level": "INFO",
+    "mcp_first": False,
+    "mcp_auth_required": True,
+    "flag_reliability": True,
+    "flag_audit": True,
+    "flag_tool_analytics": True,
+    "flag_context": True,
+    "flag_copilot": True,
+    "flag_websocket": True,
+    "flag_multi_agent": True,
+    "flag_custom_tools": True,
+    "flag_new_core": True,
+    "flag_llm_v2": True,
 }
 
 
 def get_effective_settings(port: AgentSettingsPort) -> dict[str, Any]:
-    """Config effective : priorité base > env > défauts."""
-    settings = get_settings()
-    values = {**DEFAULTS}
+    """Config effective : priorité base > env > défauts.
 
-    env_values = {
-        "provider": settings.agent_provider.value,
-        "model": settings.agent_model_name,
-        "ollama_url": settings.agent_ollama_url,
-        "openrouter_url": settings.agent_openrouter_url,
-        "openrouter_api_key": settings.openrouter_api_key or "",
-        "hf_url": settings.agent_hf_url,
-        "hf_api_key": settings.effective_hf_key or "",
-        "lm_studio_url": settings.agent_lm_studio_url,
-        "timeout_seconds": settings.agent_timeout_seconds,
-        "context_length": settings.agent_context_length,
-    }
-    for key, value in env_values.items():
+    La couche env+défauts (store-free) vient de
+    ``core.agent_settings.env_and_defaults`` ; seules les valeurs réellement
+    issues de l'environnement remplacent les défauts du module (les ``""`` /
+    ``None`` legacy ne les écrasent pas), puis les valeurs persistées en base
+    s'appliquent par-dessus — une sauvegarde du dashboard est immédiatement
+    effective.
+    """
+    from core.agent_settings import env_and_defaults
+
+    values = {**DEFAULTS}
+    for key, value in env_and_defaults().items():
         if value is not None and value != "":
             values[key] = value
-
-    persisted = port.get_all()
-    values.update(persisted)
+    values.update(port.get_all())
     return values
 
 
@@ -126,6 +133,66 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
                 errors.append("temperature doit être entre 0 et 2.")
             else:
                 values["temperature"] = temp_f
+
+    # --- Déplacés de app/config/settings.py (SCRUM-138) : budgets, log,
+    # --- surface MCP et feature flags, désormais persistés via l'IHM.
+    for int_key, maximum in (
+        ("max_llm_rounds", 50),
+        ("max_tool_calls", 200),
+    ):
+        raw_budget = values.get(int_key)
+        if raw_budget is not None and raw_budget != "":
+            try:
+                budget_i = int(raw_budget)
+            except (TypeError, ValueError):
+                errors.append(f"{int_key} doit être un entier.")
+            else:
+                if not 1 <= budget_i <= maximum:
+                    errors.append(f"{int_key} doit être entre 1 et {maximum}.")
+                else:
+                    values[int_key] = budget_i
+
+    log_level = values.get("log_level")
+    if log_level is not None and log_level != "":
+        level = str(log_level).strip().upper()
+        if level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
+            errors.append("log_level doit valoir 'DEBUG', 'INFO', 'WARNING' ou 'ERROR'.")
+        else:
+            values["log_level"] = level
+
+    for bool_key in (
+        "mcp_first",
+        "mcp_auth_required",
+        *(
+            f"flag_{name}"
+            for name in (
+                "reliability",
+                "audit",
+                "tool_analytics",
+                "context",
+                "copilot",
+                "websocket",
+                "multi_agent",
+                "custom_tools",
+                "new_core",
+                "llm_v2",
+            )
+        ),
+    ):
+        raw_flag = values.get(bool_key)
+        if raw_flag is not None and not isinstance(raw_flag, bool):
+            if isinstance(raw_flag, str):
+                lowered = raw_flag.strip().lower()
+                if lowered in ("true", "1", "yes", "on"):
+                    values[bool_key] = True
+                elif lowered in ("false", "0", "no", "off", ""):
+                    values[bool_key] = lowered != ""
+                else:
+                    errors.append(f"{bool_key} doit être un booléen (true/false/1/0/yes/no).")
+            elif isinstance(raw_flag, (int, float)):
+                values[bool_key] = bool(raw_flag)
+            else:
+                errors.append(f"{bool_key} doit être un booléen.")
 
     api_key = values.get("openrouter_api_key")
     if (

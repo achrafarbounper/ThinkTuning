@@ -2,20 +2,28 @@
 
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
+
+from api.dependencies.auth import require_api_key
 
 router = APIRouter(tags=["Metrics"])
 
 
 @router.get("/metrics")
-def metrics():
+def metrics(_: bool = Depends(require_api_key)):
+    """Snapshot Prometheus (protégé P0 — fingerprinting + volume).
+
+    P0 SEC (F4) : l'exposition Prometheus (noms de routes, volumes) n'est
+    plus publique. Le dashboard MonitoringPage envoie X-API-Key (même
+    transport que /api/v1/metrics).
+    """
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @router.get("/metrics/json")
-def metrics_json():
+def metrics_json(_: bool = Depends(require_api_key)):
     """Snapshot des métriques Prometheus au format JSON.
 
     Endpoint de secours (« scraping via un proxy JSON ») pour le dashboard :

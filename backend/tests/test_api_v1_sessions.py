@@ -81,10 +81,16 @@ def _install_fake(monkeypatch) -> FakeSessionStore:
     return fake
 
 
-def test_list_sessions_is_public(monkeypatch):
+def test_list_sessions_requires_api_key(monkeypatch):
+    """P0 SEC (F4) : la liste des conversations exige X-API-Key (PII)."""
+    _install_fake(monkeypatch)
+    assert client.get("/api/v1/sessions").status_code == 401
+
+
+def test_list_sessions_with_key(monkeypatch):
     fake = _install_fake(monkeypatch)
     fake.create_session(title="Première")
-    response = client.get("/api/v1/sessions")
+    response = client.get("/api/v1/sessions", headers=AUTH)
     assert response.status_code == 200
     body = response.json()
     assert body["sessions"][0]["title"] == "Première"
@@ -112,7 +118,7 @@ def test_rename_session(monkeypatch):
     assert renamed.status_code == 200
     assert renamed.json()["title"] == "Après"
 
-    listed = client.get("/api/v1/sessions").json()["sessions"]
+    listed = client.get("/api/v1/sessions", headers=AUTH).json()["sessions"]
     assert next(s for s in listed if s["id"] == session_id)["title"] == "Après"
 
 
@@ -132,7 +138,7 @@ def test_session_lifecycle(monkeypatch):
     session_id = created.json()["id"]
     assert session_id
 
-    listed = client.get("/api/v1/sessions").json()["sessions"]
+    listed = client.get("/api/v1/sessions", headers=AUTH).json()["sessions"]
     assert any(s["id"] == session_id for s in listed)
 
     messages = client.get(f"/api/v1/sessions/{session_id}/messages", headers=AUTH)
@@ -148,8 +154,14 @@ def test_session_lifecycle(monkeypatch):
     assert missing.json()["error"]["code"] == "not_found"
 
 
+def test_list_messages_requires_api_key(monkeypatch):
+    """P0 SEC (F4) : les messages exigent X-API-Key (PII)."""
+    _install_fake(monkeypatch)
+    assert client.get("/api/v1/sessions/absent/messages").status_code == 401
+
+
 def test_messages_of_missing_session_is_404(monkeypatch):
     _install_fake(monkeypatch)
-    response = client.get("/api/v1/sessions/absent/messages")
+    response = client.get("/api/v1/sessions/absent/messages", headers=AUTH)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"

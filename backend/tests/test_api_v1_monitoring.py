@@ -34,18 +34,24 @@ class _FakePredictor:
         ]
 
 
-# --- /metrics (public) --------------------------------------------------------
+# --- /metrics (protégé P0) -------------------------------------------------------
+
+
+def test_metrics_requires_api_key():
+    """P0 SEC (F4) : l'exposition Prometheus exige X-API-Key."""
+    assert client.get("/api/v1/metrics").status_code == 401
+    assert client.get("/api/v1/metrics/json").status_code == 401
 
 
 def test_metrics_prometheus_public():
-    response = client.get("/api/v1/metrics")
+    response = client.get("/api/v1/metrics", headers=AUTH)
     assert response.status_code == 200
     assert "text/plain" in response.headers.get("content-type", "")
     assert response.text.strip()  # registre prometheus_client sérialisé (non vide)
 
 
 def test_metrics_json_public():
-    response = client.get("/api/v1/metrics/json")
+    response = client.get("/api/v1/metrics/json", headers=AUTH)
     assert response.status_code == 200
     assert response.headers.get("content-type", "").startswith("application/json")
     body = response.json()

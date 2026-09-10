@@ -104,7 +104,7 @@ pour toute évolution.
 
 ```
 app/
-├── config/settings.py            # Settings Pydantic — SOURCE UNIQUE de config
+├── config/settings.py            # Settings Pydantic — réglages INFRA uniquement
 ├── domain/
 │   ├── entities/plan.py          # Intent, Plan, Action, ApprovalDecision…
 │   ├── errors.py                 # hiérarchie typée (code stable + HTTP status)
@@ -113,6 +113,7 @@ app/
 │   ├── core.py                   # boucle AgentCore (ne lève jamais : statut)
 │   ├── memory/                   # short_term.py, long_term.py
 │   ├── policies/                 # budget.py, sandbox_policy.py
+│   ├── settings.py               # AgentConfig — config agent (base IHM/Mongo)
 │   └── factory.py                # composition root + flag AGENT_NEW_CORE
 └── infrastructure/
     ├── legacy_registry.py        # ia/tools/tool_registry → ToolRegistryPort
@@ -155,9 +156,22 @@ aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
 
 ## 4. Configuration
 
-**Source unique : `app/config/settings.py`** (Pydantic Settings, `.env`).
+**Deux sources, responsabilités séparées (SCRUM-138)** :
 
-- Fail-fast au chargement : `AGENT_PROVIDER=openrouter` exige
+- **Infrastructure** : `app/config/settings.py` (Pydantic Settings, `.env`) —
+  UNIQUEMENT `API_KEY`, `CORS_ALLOWED_ORIGINS`, `DASHBOARD_WS_TOKEN`,
+  `PERSISTENCE_BACKEND` / `MONGODB_*`, `TRAIN_STREAM_STALL_MINUTES`,
+  `MODEL_SANITY_MIN_CONFIDENCE`. AUCUNE configuration d'agent n'y réside.
+- **Agent (module de configuration de l'IHM)** : `core/agent_settings.py`
+  (store persistant — collection MongoDB `agent_settings` en mode
+  `PERSISTENCE_BACKEND=mongodb`, SQLite sinon) + modèle typé
+  `app/agent/settings.py` (`AgentConfig`, `get_agent_config()`). Toute la
+  config agent (provider LLM, modèle, URLs, clés API, timeout/contexte,
+  budgets, log level, surface MCP, feature flags) y vit et est
+  entièrement stockée/chargée depuis la base — priorité décroissante :
+  base (dashboard) → env `AGENT_*`/`MCP_*` (repli CI) → défauts du module.
+
+- Fail-fast au chargement : `provider=openrouter` exige
   `OPENROUTER_API_KEY` ; `hf` exige `HF_API_KEY`/`HF_TOKEN`.
 - Feature flags agent : `AGENT_<NOM>` = 1/true/yes/on
   (`reliability`, `audit`, `tool_analytics`, `context`, `copilot`,

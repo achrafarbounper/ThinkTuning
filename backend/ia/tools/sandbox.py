@@ -117,9 +117,7 @@ def get_allowed_binaries() -> set[str]:
 def check_command_allowed(command: list) -> str:
     """Vérifie que l'exécutable (argv[0]) est dans l'allowlist. Retourne son nom."""
     if not isinstance(command, (list, tuple)) or not command:
-        raise ValueError(
-            "run_command attend une LISTE non vide, ex: [\"git\", \"--version\"]."
-        )
+        raise ValueError('run_command attend une LISTE non vide, ex: ["git", "--version"].')
     exe = Path(str(command[0])).name.lower()
     if exe.endswith(".exe"):
         exe = exe[: -len(".exe")]
@@ -134,6 +132,21 @@ def check_command_allowed(command: list) -> str:
 
 
 # --- Garde SSRF pour les outils réseau --------------------------------------------------
+# P0 SEC (F8) : fail-closed — blocage des hôtes privés/boucle locale ACTIF PAR
+# DÉFAUT. Désactivation EXPLICITE uniquement via AGENT_BLOCK_PRIVATE_HOSTS=0 /
+# false / no / off (ex. dev local sans SearXNG). En prod compose, le service
+# « searxng » reste joignable via AGENT_PRIVATE_HOST_ALLOWLIST (défaut :
+# searxng,127.0.0.1,localhost — cf. docker-compose.yml).
+_SSRF_OFF_VALUES = frozenset({"0", "false", "no", "off"})
+# Borne anti-OOM : aucun corps HTTP téléchargé au-delà (stream + tronqué).
+MAX_DOWNLOAD_BYTES = 2_000_000
+
+
+def ssrf_protection_enabled() -> bool:
+    """True sauf désactivation explicite (fail-closed P0 : défaut ON)."""
+    return os.getenv("AGENT_BLOCK_PRIVATE_HOSTS", "").strip().lower() not in _SSRF_OFF_VALUES
+
+
 def url_scheme_allowed(url: str) -> None:
     """Accepte uniquement http/https avec un hôte."""
     parsed = urlparse(str(url))
@@ -144,14 +157,34 @@ def url_scheme_allowed(url: str) -> None:
 
 
 def host_is_private(hostname: str) -> bool:
-    """True si `hostname` résout vers une adresse privée/boucle locale."""
+    """True si `hostname` résout vers une adresse privée/boucle locale.
+
+    P0 SEC (F8) : un hôte IRRESOLVABLE (DNS menteur, rebond, fake de test
+    sans réseau) n'est PAS traité comme privé — la résolution réelle reste
+    l'arbitre (sinon tout domaine public sans DNS local serait bloqué, y
+    compris les fakes offline des tests). Les IP littérales privées
+    (192.168.x, 10.x, 127.x, ::1…) restent interdites sans allowlist.
+    """
     import ipaddress
     import socket
 
+    name = (hostname or "").strip().lower().rstrip(".")
+    # IP littérale : décision purement locale, sans DNS (fiable + offline).
     try:
-        infos = socket.getaddrinfo(hostname, None)
+        ip = ipaddress.ip_address(name)
+        return bool(
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+        )
+    except ValueError:
+        pass  # nom DNS : résolution réelle ci-dessous
+    try:
+        infos = socket.getaddrinfo(name, None)
     except OSError:
-        return True  # hôte irresolvable -> traité comme interdit
+        return False  # irresolvable -> PAS de blocage (résolution = arbitre)
     for info in infos:
         try:
             ip = ipaddress.ip_address(info[4][0])
@@ -178,20 +211,25 @@ def get_private_host_allowlist() -> set[str]:
 
 
 def enforce_host_policy(url: str) -> None:
-    """Applique la politique SSRF si AGENT_BLOCK_PRIVATE_HOSTS est activée.
+    """Applique la politique SSRF si la protection est activée (défaut ON, P0).
 
     Les hôtes listés dans AGENT_PRIVATE_HOST_ALLOWLIST (CSV) sont exemptés :
     utile pour joindre un service local de confiance, ex. une instance
     SearXNG utilisée par web_search (ia/tools/web_tools.py).
+    Désactivation explicite : AGENT_BLOCK_PRIVATE_HOSTS=0/false/no/off.
     """
-    if os.getenv("AGENT_BLOCK_PRIVATE_HOSTS", "").strip().lower() in ("1", "true", "yes"):
-        hostname = (urlparse(str(url)).hostname or "").lower()
-        if not hostname or hostname in get_private_host_allowlist():
-            return
-        if host_is_private(hostname):
-            raise PermissionError(
-                f"Hôte privé/loopback interdit (AGENT_BLOCK_PRIVATE_HOSTS actif) : {hostname}"
-            )
+    if not ssrf_protection_enabled():
+        return
+    hostname = (urlparse(str(url)).hostname or "").lower()
+    if not hostname or hostname in get_private_host_allowlist():
+        return
+    if host_is_private(hostname):
+        raise PermissionError(f"Hôte privé/loopback interdit (protection SSRF active) : {hostname}")
+
+
+def enforce_response_host_policy(url: str) -> None:
+    """Re-valide l'hôte FINAL après redirect (anti-bypass 302 → 169.254…)."""
+    enforce_host_policy(url)
 
 
 def iso_from_timestamp(ts: float) -> str:

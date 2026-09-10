@@ -56,6 +56,11 @@ services:
       - "127.0.0.1:8888:8080"
     environment:
       - SEARXNG_BASE_URL=http://127.0.0.1:8888/
+      # P0 SEC (F14) : secret injecté — JAMAIS en dur dans searxng/settings.yml
+      # (qui référence $SEARXNG_SECRET). Génération : python -c
+      # "import secrets; print(secrets.token_urlsafe(32))".
+      # ${SEARXNG_SECRET:?…} = fail-closed compose : démarrage refusé sans secret.
+      - SEARXNG_SECRET=${SEARXNG_SECRET:?SEARXNG_SECRET manquant — générez-le : python -c "import secrets; print(secrets.token_urlsafe(32))"}
     volumes:
       - ./searxng:/etc/searxng
     profiles: ["search"]
@@ -71,9 +76,16 @@ services:
       - "8000:8000"
     environment:
       - MODEL_PATH=/app/experiments/models
-      - API_KEY=${API_KEY}
+      # P0 SEC (F1) : fail-closed prod — api_key.ensure_api_key_configured()
+      # refuse le démarrage si ENV=prod et API_KEY absente/faible (<32 chars).
+      # Génération : python -c "import secrets; print(secrets.token_urlsafe(32))".
+      - ENV=${ENV:-dev}
+      - API_KEY=${API_KEY:?API_KEY manquant — générez-le : python -c "import secrets; print(secrets.token_urlsafe(32))"}
       - JOB_STORE_PATH=/app/experiments/jobs.db
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173,http://localhost:3000}
+      # P0 SEC (F6) : X-Forwarded-For fiable UNIQUEMENT derrière ce nginx
+      # (proxy_set_header ci-dessous) → trust_proxy=1 ici, 0 en exposition directe.
+      - RATE_LIMIT_TRUST_PROXY=1
       # L'image Docker désactive warmup/sanity au boot (petites instances cloud
       # 512 Mo, cf. Dockerfile) ; en local on conserve le comportement complet.
       - MODEL_SANITY_ON_STARTUP=1

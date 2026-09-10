@@ -668,11 +668,22 @@ class MCPClientStore:
 _client_store_singleton: MCPClientStore | None = None
 _client_store_singleton_lock = threading.Lock()
 
+# Cache du store Mongo (mode PERSISTENCE_BACKEND=mongodb) : instancié UNE seule
+# fois puis réutilisé — même sémantique que le singleton SQLite (_client_store_singleton).
+# Annoté avec le type de retour du getter (la classe ``MongoMCPClientStore`` n'est
+# importable qu'en lazy : import de module circulaire).
+_mongo_client_store_singleton: "MCPClientStore | None" = None
+
 
 def get_mcp_client_store() -> MCPClientStore:
     if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
         from app.infrastructure.persistence.mongodb import MongoMCPClientStore
-        return MongoMCPClientStore()  # type: ignore[return-value]
+
+        global _mongo_client_store_singleton
+        with _client_store_singleton_lock:
+            if _mongo_client_store_singleton is None:
+                _mongo_client_store_singleton = MongoMCPClientStore()  # type: ignore[assignment]
+            return _mongo_client_store_singleton  # type: ignore[return-value]
     """Instance unique paresseuse du registre des clients MCP.
 
     Le path est résolu à la première instanciation (``MCP_CLIENT_STORE_PATH``

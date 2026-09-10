@@ -220,9 +220,8 @@ def test_auth_posture_is_locked():
         ("/api/v1/models/{name}/activate", "post"),
         ("/api/v1/models/{name}", "delete"),
         ("/api/v1/evaluate/confusion", "get"),
-        # Phase 3d-4 — agent / sessions / chat : la surface agent et chat est
-        # protégée (parité legacy) ; la LECTURE sessions reste publique (liste,
-        # messages) comme dans le legacy, les écritures exigent la clé.
+        # Phase 3d-4 — agent / sessions / chat : la surface agent, chat ET
+        # sessions (P0 SEC F4 : lectures PII protégées) exige la clé.
         ("/api/v1/agent/settings", "get"),
         ("/api/v1/agent/settings", "put"),
         ("/api/v1/agent/settings/test", "post"),
@@ -234,14 +233,18 @@ def test_auth_posture_is_locked():
         ("/api/v1/agent/approvals/{request_id}/reject", "post"),
         ("/api/v1/agent/flow", "get"),
         ("/api/v1/agent/flow/{flow_id}", "get"),
+        ("/api/v1/sessions", "get"),
         ("/api/v1/sessions", "post"),
+        ("/api/v1/sessions/{session_id}/messages", "get"),
         ("/api/v1/sessions/{session_id}", "delete"),
+        ("/api/v1/metrics", "get"),
+        ("/api/v1/metrics/json", "get"),
         ("/api/v1/chat/models", "get"),
         ("/api/v1/chat/ai", "post"),
         # Phase 3d-5 — la surface écrite est protégée (drift, explain,
         # pipeline, active learning, annotate, classifiers predict/reload)
         # + observabilité MCP (surface d'administration interne).
-        # Les GET metrics / classifiers restent PUBLICS (parité legacy).
+        # Les GET classifiers restent PUBLICS (parité legacy).
         ("/api/v1/drift", "post"),
         ("/api/v1/explain", "post"),
         ("/api/v1/mcp/metrics", "get"),
@@ -262,10 +265,6 @@ def test_auth_posture_is_locked():
     for path in (
         "/api/v1/health",
         "/api/v1/health/model-sanity",
-        "/api/v1/sessions",
-        "/api/v1/sessions/{session_id}/messages",
-        "/api/v1/metrics",
-        "/api/v1/metrics/json",
         "/api/v1/classifiers",
         "/api/v1/classifiers/{name}",
     ):

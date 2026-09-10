@@ -35,6 +35,22 @@ const AGENT_DEFAULTS: AgentSettings = {
   timeoutSeconds: 60,
   contextLength: 512,
   temperature: 0.2,
+  // SCRUM-138 : budgets, log, MCP et flags (module de configuration IHM).
+  maxLlmRounds: 6,
+  maxToolCalls: 20,
+  logLevel: "INFO",
+  mcpFirst: false,
+  mcpAuthRequired: true,
+  flagReliability: true,
+  flagAudit: true,
+  flagToolAnalytics: true,
+  flagContext: true,
+  flagCopilot: true,
+  flagWebsocket: true,
+  flagMultiAgent: true,
+  flagCustomTools: true,
+  flagNewCore: true,
+  flagLlmV2: true,
 };
 
 /** Lecture + validation de la config API stockée (fusion avec les défauts). */

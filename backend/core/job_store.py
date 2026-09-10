@@ -360,11 +360,21 @@ class PersistentJobStore(dict):
 
 _store: PersistentJobStore | None = None
 
+# Cache du store Mongo (mode PERSISTENCE_BACKEND=mongodb) : instancié UNE seule
+# fois puis réutilisé — même sémantique que le singleton SQLite (_store) au-dessus.
+# Annoté avec le type de retour du getter (la classe ``MongoJobStore`` n'est
+# importable qu'en lazy : import de module circulaire).
+_mongo_store: "PersistentJobStore | None" = None
+
 
 def get_job_store() -> PersistentJobStore:
     if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
         from app.infrastructure.persistence.mongodb import MongoJobStore
-        return MongoJobStore()  # type: ignore[return-value]
+
+        global _mongo_store
+        if _mongo_store is None:
+            _mongo_store = MongoJobStore()  # type: ignore[assignment]
+        return _mongo_store  # type: ignore[return-value]
     global _store
     if _store is None:
         _store = PersistentJobStore()

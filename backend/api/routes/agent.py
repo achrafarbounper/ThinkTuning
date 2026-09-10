@@ -64,6 +64,7 @@ from api.dependencies.auth import _get_api_key, require_api_key
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
 from app.agent.factory import build_agent_core, new_core_enabled
+from app.agent.settings import agent_flag, get_agent_config
 from app.application.agent_settings_usecase import (
     get_effective_settings,
     update_settings,
@@ -82,7 +83,6 @@ from app.application.run_lifecycle import (
     resolve_resume_hash,
 )
 from app.application.session_memory import load_session_history, persist_exchange
-from app.config.settings import get_settings
 from app.domain.entities.plan import Intent
 from app.domain.errors import AgentRunError
 from app.infrastructure.events.in_memory import InMemoryEventBus
@@ -115,17 +115,19 @@ from core.audit_store import (  # Phase A (audit / conformité)
 
 
 def _flag(name: str) -> bool:
-    """Lit un feature flag depuis Settings (compatibilité avec l'ancien ``flag()``).
+    """Lit un feature flag depuis la configuration de l'agent (module IHM).
 
-    Utilise le cache de ``get_settings()`` — les tests qui basculent un flag par
-    ``monkeypatch.setenv`` doivent appeler ``get_settings.cache_clear()`` après.
+    Source : ``app.agent.settings.agent_flag`` — base MongoDB (store IHM) en
+    priorité, repli env ``AGENT_<NOM>``. Lecture à l'appel : les tests qui
+    basculent un flag par ``monkeypatch.setenv`` n'ont plus besoin de vider un
+    cache.
     """
-    return getattr(get_settings(), f"flag_{name}", False)
+    return agent_flag(name)
 
 
 def _active_features() -> list[str]:
     """Liste ordonnée des flags activés (compatibilité avec l'ancien ``active_features()``)."""
-    return [name for name, active in get_settings().active_flags().items() if active]
+    return [name for name, active in get_agent_config().active_flags().items() if active]
 from core.flow_store import (
     AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
 )
@@ -213,11 +215,12 @@ async def _deprecated_surface_headers(request: Request, response: Response) -> N
 def writable_endpoint(func: _F) -> _F:
     """Garde « lecture seule » du mode MCP-First (tâche 20).
 
-    Décore les endpoints MUTANTS de la surface legacy : quand le feature flag
-    ``MCP_FIRST=true`` est actif (``app/config/settings.py``), l'appel est
-    refusé AVANT toute exécution — 405 avec le code ``mcp_first_read_only`` et
-    un renvoi vers la surface MCP (``POST /mcp/sse``). Les délégations v1
-    héritent du garde par appel direct des handlers (strangler, source unique).
+    Décore les endpoints MUTANTS de la surface legacy : quand le réglage
+    ``MCP_FIRST=true`` est actif (persisté dans le module de configuration de
+    l'IHM, ou env en repli), l'appel est refusé AVANT toute exécution — 405
+    avec le code ``mcp_first_read_only`` et un renvoi vers la surface MCP
+    (``POST /mcp/sse``). Les délégations v1 héritent du garde par appel direct
+    des handlers (strangler, source unique).
 
     Exception documentée : l'approbation humaine (``/approvals/{id}/approve``,
     ``/reject``) n'est PAS décorée — c'est le canal qui débloque les runs MCP
@@ -227,7 +230,7 @@ def writable_endpoint(func: _F) -> _F:
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        if get_settings().mcp_first:
+        if get_agent_config().mcp_first:
             raise HTTPException(
                 status_code=405,
                 detail={
@@ -423,6 +426,11 @@ class AgentSettingsUpdate(BaseModel):
 
     Champ absent ou ``null`` : inchangé. Chaîne vide pour les champs texte :
     retour à la valeur par défaut du serveur.
+
+    SCRUM-138 : les réglages déplacés de ``app/config/settings.py`` (budgets,
+    niveau de log, surface MCP, feature flags) sont désormais des clés de ce
+    module de configuration IHM — stockées dans la base MongoDB et chargées
+    à chaque lecture.
     """
 
     provider: str | None = Field(
@@ -438,6 +446,35 @@ class AgentSettingsUpdate(BaseModel):
     timeout_seconds: float | None = Field(None, ge=10, le=3600)
     context_length: int | None = Field(None, ge=512, le=131072)
     temperature: float | None = Field(None, ge=0, le=2)
+    # Déplacés de app/config/settings.py (SCRUM-138) : budgets & garde-fous.
+    max_llm_rounds: int | None = Field(
+        None, ge=1, le=50, description="Rounds LLM max par run."
+    )
+    max_tool_calls: int | None = Field(
+        None, ge=1, le=200, description="Appels d'outils max par run."
+    )
+    # Observabilité : niveau du logger « thinktuning.agent ».
+    log_level: str | None = Field(
+        None, description="« DEBUG », « INFO », « WARNING » ou « ERROR »."
+    )
+    # Surface MCP.
+    mcp_first: bool | None = Field(
+        None, description="MCP-First : surface HTTP legacy de l'agent en read-only."
+    )
+    mcp_auth_required: bool | None = Field(
+        None, description="Auth X-API-Key obligatoire sur POST /mcp/sse."
+    )
+    # Feature flags (convention AGENT_<NOM> historique, désormais persistés).
+    flag_reliability: bool | None = None
+    flag_audit: bool | None = None
+    flag_tool_analytics: bool | None = None
+    flag_context: bool | None = None
+    flag_copilot: bool | None = None
+    flag_websocket: bool | None = None
+    flag_multi_agent: bool | None = None
+    flag_custom_tools: bool | None = None
+    flag_new_core: bool | None = None
+    flag_llm_v2: bool | None = None
 
 
 class ConnectivityTestRequest(BaseModel):
@@ -1069,7 +1106,7 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                     kind, payload = await asyncio.wait_for(
                         asyncio.to_thread(events.get), timeout=HEARTBEAT_INTERVAL_S
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Heartbeat : garde la connexion SSE vivante derrière les
                     # proxies qui coupent les flux silencieux (>30s sans byte).
                     yield ": heartbeat\n\n"
@@ -1330,10 +1367,14 @@ def update_agent_settings(
         raise HTTPException(status_code=400, detail="; ".join(errors))
 
     # Rechargement immédiat ; une config encore incomplète n'est PAS une erreur.
+    # ``ValueError`` : valeur persistée invalide (ex. provider double-encodé
+    # resté en base) — les réglages sont quand même sauvés, seul le reload est
+    # dégradé (warning dans la réponse, jamais un 500). (SCRUM-137)
     try:
         reload_agent_runner()
-    except HTTPException as exc:
-        payload["warning"] = f"Paramètres enregistrés, mais agent non rechargé : {exc.detail}"
+    except (HTTPException, ValueError) as exc:
+        detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        payload["warning"] = f"Paramètres enregistrés, mais agent non rechargé : {detail}"
         payload["reload_ok"] = False
     else:
         payload["reload_ok"] = True

@@ -45,7 +45,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response
 
-from app.config.settings import get_settings
+from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
@@ -91,15 +91,16 @@ def mcp_auth_required() -> bool:
     La surface MCP exécute des outils RÉELS : sans garde, ``MCP_FIRST=true``
     gèle l'HTTP legacy mais laisse un canal d'exécution ouvert. Lecture de
     l'environnement à l'appel (compatibilité ``monkeypatch.setenv`` des
-    tests), puis ``Settings.mcp_auth_required`` ; repli ``True``
-    (fail-closed) si les Settings ne sont pas chargeables. Rollback
+    tests), puis le réglage persisté du module de configuration de l'IHM
+    (``AgentConfig.mcp_auth_required`` — base MongoDB, cf. SCRUM-138) ; repli
+    ``True`` (fail-closed) si la configuration n'est pas chargeable. Rollback
     explicite : ``MCP_AUTH_REQUIRED=false``.
     """
     env = os.getenv("MCP_AUTH_REQUIRED")
     if env is not None:
         return env.strip().lower() not in {"false", "0", "no", "off"}
     try:
-        return get_settings().mcp_auth_required
+        return get_agent_config().mcp_auth_required
     except Exception:
         return True
 

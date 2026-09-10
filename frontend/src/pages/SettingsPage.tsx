@@ -26,7 +26,38 @@ interface DraftShape {
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
+  // SCRUM-138 : budgets, log, MCP et flags — module de configuration IHM
+  // (stockés/chargés depuis la base MongoDB).
+  maxLlmRounds: number | string;
+  maxToolCalls: number | string;
+  logLevel: string;
+  mcpFirst: boolean;
+  mcpAuthRequired: boolean;
+  flagReliability: boolean;
+  flagAudit: boolean;
+  flagToolAnalytics: boolean;
+  flagContext: boolean;
+  flagCopilot: boolean;
+  flagWebsocket: boolean;
+  flagMultiAgent: boolean;
+  flagCustomTools: boolean;
+  flagNewCore: boolean;
+  flagLlmV2: boolean;
 }
+
+/** Libellés UI des feature flags (module de configuration IHM — base MongoDB). */
+const AGENT_FLAG_LABELS: Array<{ key: keyof DraftShape; label: string; hint?: string }> = [
+  { key: "flagReliability", label: "Fiabilité & retry", hint: "Retry + circuit breaker des appels LLM." },
+  { key: "flagAudit", label: "Audit", hint: "Journalisation des actions de l'agent." },
+  { key: "flagToolAnalytics", label: "Statistiques d'outils", hint: "Analytics d'utilisation des outils." },
+  { key: "flagContext", label: "Contexte", hint: "Gestion mémoire / contexte de session." },
+  { key: "flagCopilot", label: "Copilot", hint: "Suggestions de réponses." },
+  { key: "flagWebsocket", label: "WebSocket", hint: "Streaming temps réel du chat." },
+  { key: "flagMultiAgent", label: "Multi-agents", hint: "Orchestration Lead/Worker." },
+  { key: "flagCustomTools", label: "Tools personnalisés", hint: "Registre des outils dynamiques (SCRUM-99)." },
+  { key: "flagNewCore", label: "Noyau agentique v2", hint: "Bascule AGENT_NEW_CORE." },
+  { key: "flagLlmV2", label: "Client LLM v2", hint: "Bascule AGENT_LLM_V2 (HttpLLMClient)." },
+];
 
 export default function SettingsPage() {
     const {
@@ -55,6 +86,21 @@ export default function SettingsPage() {
     timeoutSeconds: agentSettings?.timeoutSeconds ?? 60,
     contextLength: agentSettings?.contextLength ?? 512,
     temperature: agentSettings?.temperature ?? 0.2,
+    maxLlmRounds: agentSettings?.maxLlmRounds ?? 6,
+    maxToolCalls: agentSettings?.maxToolCalls ?? 20,
+    logLevel: agentSettings?.logLevel ?? "INFO",
+    mcpFirst: agentSettings?.mcpFirst ?? false,
+    mcpAuthRequired: agentSettings?.mcpAuthRequired ?? true,
+    flagReliability: agentSettings?.flagReliability ?? true,
+    flagAudit: agentSettings?.flagAudit ?? true,
+    flagToolAnalytics: agentSettings?.flagToolAnalytics ?? true,
+    flagContext: agentSettings?.flagContext ?? true,
+    flagCopilot: agentSettings?.flagCopilot ?? true,
+    flagWebsocket: agentSettings?.flagWebsocket ?? true,
+    flagMultiAgent: agentSettings?.flagMultiAgent ?? true,
+    flagCustomTools: agentSettings?.flagCustomTools ?? true,
+    flagNewCore: agentSettings?.flagNewCore ?? true,
+    flagLlmV2: agentSettings?.flagLlmV2 ?? true,
   }));
 
   const updateDraft = useCallback(
@@ -335,6 +381,94 @@ export default function SettingsPage() {
               />
             </label>
           )}
+
+          {/* Budgets & garde-fous (module IHM — base MongoDB) */}
+          <div className="tt-assistant-section">
+            <span className="tt-assistant-label">Budgets & garde-fous</span>
+            <div className="tt-assistant-grid">
+              <label>
+                <span className="tt-assistant-label">Rounds LLM max par run</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={draft.maxLlmRounds || 6}
+                  onChange={(e) => updateDraft("maxLlmRounds", Number(e.target.value))}
+                  className="tt-input-tt-settings"
+                />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Appels d'outils max par run</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="200"
+                  value={draft.maxToolCalls || 20}
+                  onChange={(e) => updateDraft("maxToolCalls", Number(e.target.value))}
+                  className="tt-input-tt-settings"
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Observabilité */}
+          <div className="tt-assistant-section">
+            <span className="tt-assistant-label">Niveau de log</span>
+            <select
+              value={draft.logLevel}
+              onChange={(e) => updateDraft("logLevel", e.target.value)}
+              className="tt-select-tt-settings"
+            >
+              <option value="DEBUG">DEBUG</option>
+              <option value="INFO">INFO</option>
+              <option value="WARNING">WARNING</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+            <p className="tt-assistant-section-help">
+              Niveau des journaux du noyau agent (persisté dans la base).
+            </p>
+          </div>
+
+          {/* Surface MCP */}
+          <div className="tt-assistant-section">
+            <span className="tt-assistant-label">Surface MCP</span>
+            <label className="tt-assistant-checkbox">
+              <input
+                type="checkbox"
+                checked={draft.mcpFirst}
+                onChange={(e) => updateDraft("mcpFirst", e.target.checked)}
+              />
+              MCP-First — surface HTTP legacy de l'agent en lecture seule
+            </label>
+            <label className="tt-assistant-checkbox">
+              <input
+                type="checkbox"
+                checked={draft.mcpAuthRequired}
+                onChange={(e) => updateDraft("mcpAuthRequired", e.target.checked)}
+              />
+              Auth X-API-Key obligatoire sur le transport MCP
+            </label>
+          </div>
+
+          {/* Feature flags (AGENT_<NOM> historique) */}
+          <div className="tt-assistant-section">
+            <span className="tt-assistant-label">Fonctionnalités</span>
+            <p className="tt-assistant-section-help">
+              Bascules persistées via le module de configuration IHM (base
+              MongoDB) — appliquées lors du prochain run de l'agent.
+            </p>
+            {AGENT_FLAG_LABELS.map(({ key, label, hint }) => (
+              <label key={key} className="tt-assistant-checkbox">
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft[key])}
+                  onChange={(e) => updateDraft(key, e.target.checked)}
+                />
+                <span>{label}</span>
+                {hint && <small className="tt-assistant-section-help">{hint}</small>}
+              </label>
+            ))}
+          </div>
 
           <div className="tt-assistant-actions" style={{ marginTop: "1.25rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
             <button
