@@ -45,11 +45,13 @@ def llm_endpoint(settings):
     return url, api_key
 
 
-def build_legacy_llm_client(model: str | None = None):
+def build_legacy_llm_client(model: str | None = None, *, think: bool = False):
     """Construit le client LLM legacy avec les réglages centralisés.
 
     ``model`` : surcharge ponctuelle du modèle demandé par le client
     (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
+    ``think`` : active la réflexion native du provider (Ollama ``think`` —
+    sans effet sur les autres providers).
 
     Retourne l'instance ``ia.agent.llm_client.LLMClient``. L'import passe par
     l'identité de PAQUET réel (``ia.agent``) — jamais par l'identité nue
@@ -89,7 +91,7 @@ def llm_v2_enabled() -> bool:
         return True
 
 
-def build_llm_client(model: str | None = None):
+def build_llm_client(model: str | None = None, *, think: bool = False):
     """Seam du client LLM : choisit l'implémentation selon ``AGENT_LLM_V2``.
 
     - défaut (flag absent ou ``1``) → ``HttpLLMClient`` (implémentation propre
@@ -98,6 +100,8 @@ def build_llm_client(model: str | None = None):
 
     ``model`` : surcharge ponctuelle du modèle demandé par le client
     (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
+    ``think`` : active la réflexion native du provider (Ollama ``think`` —
+    sans effet sur les autres providers).
     """
     if llm_v2_enabled():
         from app.infrastructure.llm.http_client import HttpLLMClient
@@ -113,7 +117,7 @@ def build_llm_client(model: str | None = None):
             context_length=settings.agent_context_length,
             think=think,
         )
-    return build_legacy_llm_client(model=model)
+    return build_legacy_llm_client(model=model, think=think)
 
 
 def build_agent_core(approval_gateway=None, on_tool_event=None,
@@ -143,7 +147,7 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
     """
     settings = get_settings()
     registry = LegacyToolRegistryAdapter()
-    llm = build_llm_client(model=model)
+    llm = build_llm_client(model=model, think=enable_thinking)
     logger.info(
         "Noyau agentique assemblé : provider=%s model=%s outils=%d flags=%s",
         settings.agent_provider.value, model or settings.agent_model_name,

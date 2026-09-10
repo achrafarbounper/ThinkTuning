@@ -49,7 +49,12 @@ from app.config.settings import get_settings
 from app.domain.entities.mcp import MCPScopeRole
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
+from app.infrastructure.mcp.tools.orchestrate_tool import (
+    _result_to_text,
+    orchestrate_stream,
+)
 from app.infrastructure.security.api_key import is_valid_api_key
+from core.audit_store import ACT_MCP_ORCHESTRATE
 
 logger = logging.getLogger("thinktuning.mcp.sse")
 
@@ -268,6 +273,25 @@ async def mcp_sse(
             },
         )
     raw = (await request.body()).decode("utf-8", errors="replace")
+    headers = {
+        "Mcp-Session-Id": session_id,
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
+    # Mode stream : `orchestrate` avec `stream`/`enable_thinking` diffuse la
+    # réflexion et la progression (`thinking_delta`, `core_tool`) en SSE à
+    # événements nommés, puis le JSON-RPC final (`orchestrate.done`).
+    try:
+        request_payload = json.loads(raw) if raw.strip() else None
+    except (ValueError, TypeError):
+        request_payload = None
+    if _is_streaming_orchestrate(request_payload):
+        assert isinstance(request_payload, dict)
+        return StreamingResponse(
+            _stream_orchestrate(request_payload, client_id=client_id),
+            media_type="text/event-stream",
+            headers=headers,
+        )
     # MCP tools may execute synchronous LLM/tool work for several seconds.
     # Keep that work off FastAPI's event loop so independent requests remain
     # responsive while a run is in progress.
@@ -276,11 +300,6 @@ async def mcp_sse(
         raw,
         client_id=client_id,
     )
-    headers = {
-        "Mcp-Session-Id": session_id,
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-    }
     return StreamingResponse(
         iter([_sse_message(response_payload)]),
         media_type="text/event-stream",

@@ -317,6 +317,7 @@ def test_sse_orchestrate_streams_core_reflection_payload(client, monkeypatch):
                 },
             },
         }),
+        headers=AUTH,
     )
 
     assert response.status_code == 200
