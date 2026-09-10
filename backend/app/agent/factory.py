@@ -67,6 +67,7 @@ def build_legacy_llm_client(model: str | None = None):
         context_length=settings.agent_context_length,
         provider=settings.agent_provider.value,
         api_key=api_key,
+        think=think,
     )
 
 
@@ -110,6 +111,7 @@ def build_llm_client(model: str | None = None):
             api_key=api_key,
             timeout=settings.agent_timeout_seconds,
             context_length=settings.agent_context_length,
+            think=think,
         )
     return build_legacy_llm_client(model=model)
 

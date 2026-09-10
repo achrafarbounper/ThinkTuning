@@ -42,7 +42,7 @@ import type {
 } from './types';
 import './chat.css';
 import { DEFAULT_BASE_URL } from "../../api/clientCore";
-import { orchestrateViaMcp } from "../../api/mcpClient";
+import { orchestrateViaMcpStream } from "../../api/mcpClient";
 
 /** Endpoint du backend, préfixé de la base URL configurée (Paramètres / VITE_API_URL). */
 const AI_ENDPOINT = '/api/v1/chat/ai';
@@ -728,12 +728,22 @@ export function ChatWindow() {
   /** Ajoute un fragment de réflexion au message en cours de streaming. */
   const appendThinkingDelta = useCallback(
     (id: string, delta: string) => {
-      const entry = streamBufferRef.current.get(id) ?? { content: '', thinking: '' };
-      entry.thinking += delta;
-      streamBufferRef.current.set(id, entry);
-      scheduleFlush();
+      if (!delta) return;
+      // La réflexion est une surface UX temps réel : elle ne doit pas attendre
+      // le buffer rAF du texte final, sinon elle n'apparaît qu'à la fin du run.
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.id === id
+            ? {
+                ...message,
+                thinking: (message.thinking ?? '') + delta,
+                thinkingStreaming: true,
+              }
+            : message,
+        ),
+      );
     },
-    [scheduleFlush],
+    [],
   );
 
   /** Modifie certains champs d'un message (fin de streaming, erreur…). */
@@ -1211,9 +1221,8 @@ const base = resolveBaseUrl();
   );
 /**
    * Tour de chat via la surface MCP (S7 — tâche 20) : POST /mcp/sse puis
-   * `tools/call orchestrate` — l'agent run complet s'exécute côté serveur et le
-   * tool renvoie `{answer, status, actions, awaiting_approval}` en un bloc
-   * (pas de streaming progressif : MCP-over-SSE est un aller-retour JSON-RPC).
+   * `tools/call orchestrate` — les événements de réflexion et de progression
+   * sont consommés en temps réel, avec fallback JSON-RPC monolithique.
    * Canal privilégié quand MCP_FIRST=true gèle l'API HTTP legacy en lecture
    * seule ; l'approbation humaine reste le canal HTTP whitelisté.
    */
@@ -1223,11 +1232,44 @@ const base = resolveBaseUrl();
       prompt: string,
       controller: AbortController,
     ): Promise<void> => {
-      const result = await orchestrateViaMcp(
+      const result = await orchestrateViaMcpStream(
         {
           prompt,
           session_id: sessionId || undefined,
           enable_thinking: enableThinking,
+        },
+        (event) => {
+          if (event.thinking_delta) {
+            appendThinkingDelta(assistantId, event.thinking_delta);
+          }
+          const toolName = typeof event.tool?.tool === 'string' ? event.tool.tool : undefined;
+          if (toolName) {
+            const toolEvent = event.tool;
+            if (!toolEvent) return;
+            if (toolEvent.event === 'tool_start') {
+              appendToolCall(assistantId, {
+                tool: toolName,
+                args:
+                  toolEvent.args && typeof toolEvent.args === 'object'
+                    ? JSON.stringify(toolEvent.args)
+                    : undefined,
+                status: 'running',
+              });
+            } else {
+              completeToolCall(assistantId, {
+                tool: toolName,
+                status: toolEvent.status === 'error' ? 'error' : 'ok',
+                summary:
+                  typeof toolEvent.result_summary === 'string'
+                    ? toolEvent.result_summary
+                    : undefined,
+                duration_ms:
+                  typeof toolEvent.duration_ms === 'number'
+                    ? toolEvent.duration_ms
+                    : undefined,
+              });
+            }
+          }
         },
         {
           baseUrl: resolveBaseUrl(),
@@ -1252,10 +1294,21 @@ const base = resolveBaseUrl();
         return;
       }
       // completed / rejected / error : le run porte la réponse finale.
-      if (result.thinking) appendThinkingDelta(assistantId, result.thinking);
+      flushStreamBuffer();
       appendDelta(assistantId, result.answer || '');
+      flushStreamBuffer();
+      patchMessage(assistantId, { thinkingStreaming: false });
     },
-    [appendDelta, appendThinkingDelta, enableThinking, sessionId],
+    [
+      appendDelta,
+      appendThinkingDelta,
+      appendToolCall,
+      completeToolCall,
+      enableThinking,
+      flushStreamBuffer,
+      patchMessage,
+      sessionId,
+    ],
   );
 
   /** Envoie le message de l'utilisateur puis diffuse la réponse de l'IA en streaming. */
@@ -1280,7 +1333,7 @@ const base = resolveBaseUrl();
           createdAt: nowIso(),
           streaming: true,
           thinking: '',
-          thinkingStreaming: false,
+          thinkingStreaming: enableThinking,
         },
       ]);
       setStickToBottom(true);
@@ -1764,4 +1817,3 @@ function McpIcon() {
     </svg>
   );
 }
-

@@ -175,10 +175,40 @@ def test_openrouter_extracts_inline_think_tags(monkeypatch):
     _capture_post(monkeypatch, lines)
 
     client = LLMClient(DEFAULT_OPENROUTER_URL, "vendor/model", provider="openrouter")
-    answer = client.call([{"role": "user", "content": "q"}])
+    thinking_chunks: list[str] = []
+    answer = client.call_stream(
+        [{"role": "user", "content": "q"}],
+        on_thinking=thinking_chunks.append,
+    )
 
     assert answer == "Réponse propre."
     assert client.last_thinking == "Peser les options."
+    assert thinking_chunks == ["Peser les options."]
+
+
+def test_openrouter_streams_inline_think_tags_split_across_fragments(monkeypatch):
+    """Les balises inline peuvent être coupées entre deux tokens réseau."""
+    lines = [
+        _sse('{"choices":[{"delta":{"content":"<thi"}}]}'),
+        _sse('{"choices":[{"delta":{"content":"nk>Penser"}}]}'),
+        _sse('{"choices":[{"delta":{"content":" ici</thi"}}]}'),
+        _sse('{"choices":[{"delta":{"content":"nk>Réponse"}}]}'),
+        'data: [DONE]',
+    ]
+    _capture_post(monkeypatch, lines)
+
+    thinking_chunks: list[str] = []
+    content_chunks: list[str] = []
+    client = LLMClient(DEFAULT_OPENROUTER_URL, "vendor/model", provider="openrouter")
+    answer = client.call_stream(
+        [{"role": "user", "content": "q"}],
+        on_thinking=thinking_chunks.append,
+        on_content=content_chunks.append,
+    )
+
+    assert answer == "Réponse"
+    assert "".join(thinking_chunks) == "Penser ici"
+    assert "".join(content_chunks) == "Réponse"
 
 
 def test_unknown_provider_is_rejected():

@@ -8,6 +8,7 @@ import {
   McpSseClient,
   McpTransportError,
   orchestrateViaMcp,
+  orchestrateViaMcpStream,
   parseSseData,
 } from "./mcpClient";
 
@@ -233,5 +234,53 @@ describe("orchestrateViaMcp", () => {
     );
     expect(err).toBeInstanceOf(McpTransportError);
     expect(err.message).toContain("L'agent MCP a échoué");
+  });
+});
+
+describe("orchestrateViaMcpStream", () => {
+  it("normalise la réflexion et le payload core_tool du flux MCP", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ answer: "Réponse", status: "completed" }),
+        }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        'event: orchestrate.thinking',
+        'data: {"thinking_delta":"Réflexion"}',
+        '',
+        'event: orchestrate.tool',
+        'data: {"core_tool":{"event":"tool_start","tool":"now","args":{}}}',
+        '',
+        'event: orchestrate.done',
+        `data: ${JSON.stringify(rpc)}`,
+        '',
+        'data: [DONE]',
+        '',
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events: Array<Record<string, unknown>> = [];
+    const result = await orchestrateViaMcpStream(
+      { prompt: "Analyse", enable_thinking: true },
+      (event) => events.push(event as Record<string, unknown>),
+      { baseUrl: "http://api" },
+    );
+
+    expect(events[0]).toEqual({ thinking_delta: "Réflexion" });
+    expect(events[1].tool).toEqual({
+      event: "tool_start",
+      tool: "now",
+      args: {},
+    });
+    expect(result.answer).toBe("Réponse");
   });
 });
