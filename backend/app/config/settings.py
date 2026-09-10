@@ -161,6 +161,14 @@ class Settings(BaseSettings):
         default=False,
         description="MCP-First : surface HTTP legacy de l'agent en read-only.",
     )
+    # Auth transport MCP (P5) : la surface exécute des outils RÉELS — le
+    # transport HTTP exige la même clé API que la surface REST (X-API-Key,
+    # cf. app/infrastructure/security/api_key.py). ACTIVÉ par défaut
+    # (fail-closed) ; ``MCP_AUTH_REQUIRED=false`` pour un rollback explicite.
+    mcp_auth_required: bool = Field(
+        default=True,
+        description="Auth X-API-Key obligatoire sur POST /mcp/sse (transport MCP).",
+    )
 
 
     @model_validator(mode="before")

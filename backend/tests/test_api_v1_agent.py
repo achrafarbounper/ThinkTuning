@@ -216,6 +216,58 @@ def test_ask_core_happy_path(monkeypatch):
     assert body["response"] == "Réponse du noyau"
     assert body["status"] == "completed"
     assert body["request_id"] == "req-1"
+
+
+def test_ask_core_forwards_model_and_thinking(monkeypatch):
+    """P3 : le chemin bloquant honore le modèle demandé et le mode Réflexion.
+
+    ``model`` alimente les métadonnées du run (use-case) ET la surcharge
+    réelle du client LLM (partial du factory passé en ``build_core``) —
+    parité AskStreamRequest dont les champs étaient ignorés sur ce chemin.
+    """
+    captured: dict = {}
+
+    def _fake_run_ask_core(**kwargs):
+        captured.update(kwargs)
+        return _AskOutcome()
+
+    monkeypatch.setattr("api.routes.agent.new_core_enabled", lambda: True)
+    monkeypatch.setattr("api.routes.agent.run_ask_core", _fake_run_ask_core)
+
+    response = client.post(
+        "/api/v1/agent/ask/core",
+        json={"prompt": "salut", "model": "custom-model", "enable_thinking": True},
+        headers=AUTH,
+    )
+    assert response.status_code == 200
+    # Métadonnées du run : le modèle demandé prime sur la config serveur.
+    assert captured["model"] == "custom-model"
+    # Surcharge LLM réelle : le partial du factory porte model + thinking.
+    assert captured["build_core"].keywords["model"] == "custom-model"
+    assert captured["build_core"].keywords["enable_thinking"] is True
+
+
+def test_ask_core_default_model_falls_back_to_server_config(monkeypatch):
+    """Sans ``model`` explicite, le défaut serveur (agent_config) est utilisé
+    et le partial du factory ne surcharge PAS le modèle (None → Settings)."""
+    captured: dict = {}
+
+    def _fake_run_ask_core(**kwargs):
+        captured.update(kwargs)
+        return _AskOutcome()
+
+    monkeypatch.setattr("api.routes.agent.new_core_enabled", lambda: True)
+    monkeypatch.setattr("api.routes.agent.run_ask_core", _fake_run_ask_core)
+    monkeypatch.setattr("api.routes.agent.agent_config",
+                        lambda: {"model": "server-default"})
+
+    response = client.post(
+        "/api/v1/agent/ask/core", json={"prompt": "salut"}, headers=AUTH
+    )
+    assert response.status_code == 200
+    assert captured["model"] == "server-default"
+    assert captured["build_core"].keywords["model"] is None
+    assert captured["build_core"].keywords["enable_thinking"] is False
 # --- Approbations ------------------------------------------------------------
 
 

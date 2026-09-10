@@ -21,8 +21,9 @@
  *     l'écho ; CORS n'expose pas cet en-tête au JS, on garde le nôtre) ;
  *   - `X-Client-Id` : identifiant du dashboard pour l'audit MCP
  *     (`agent_audit.subject` — cf. docs/mcp/MCP_SECURITY.md) ;
- *   - `X-API-Key` : transmise quand configurée (l'endpoint MCP ne l'exige pas
- *     encore — durcissement auth prévu en S4/S5) ; sans effet si absente.
+ *   - `X-API-Key` : transmise quand configurée (le transport MCP l'EXIGE
+ *     depuis P5 — `MCP_AUTH_REQUIRED`, fail-closed ; même clé que la surface
+ *     REST). Sans clé configurée, l'appel répond 401 avec l'enveloppe v1.
  */
 
 // Chemin du transport MCP (NON versionné : surface MCP à discovery propre).

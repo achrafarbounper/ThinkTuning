@@ -12,7 +12,10 @@ Conventions MCP respectées :
       sans état : on renvoie l'identifiant reçu, ou on en génère un si absent) ;
     - notification JSON-RPC (pas d'``id``) : aucune réponse attendue — le flux
       SSE émet un commentaire de garde (``: ok``) pour rester bien formé ;
-    - erreur de protocole : réponse JSON-RPC ``error`` (id: null) dans le flux.
+    - erreur de protocole : réponse JSON-RPC ``error`` (id: null) dans le flux ;
+    - auth transport (P5) : ``X-API-Key`` exigée par défaut
+      (``MCP_AUTH_REQUIRED``, fail-closed) — même clé, même repli dev et même
+      comparaison à temps constant que la surface REST ; 401 en enveloppe v1.
 
 Note strangler : l'endpoint MCP est déclaré ``include_in_schema=False`` — il
 n'est PAS une route REST et n'a aucune raison d'apparaître dans
@@ -39,9 +42,11 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response
 
+from app.config.settings import get_settings
 from app.domain.entities.mcp import MCPScopeRole
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
+from app.infrastructure.security.api_key import is_valid_api_key
 
 logger = logging.getLogger("thinktuning.mcp.sse")
 
@@ -70,6 +75,25 @@ _server = build_mcp_server(scope=MCPScopeRole.CONTRIBUTOR, audit=audit_mcp_call)
 def mcp_server_enabled() -> bool:
     """Le serveur MCP est-il activé ? (interrupteur de rollback)."""
     return _MCP_SERVER_ENABLED
+
+
+def mcp_auth_required() -> bool:
+    """Auth transport obligatoire sur ``POST /mcp/sse`` ? (P5 — défaut : oui).
+
+    La surface MCP exécute des outils RÉELS : sans garde, ``MCP_FIRST=true``
+    gèle l'HTTP legacy mais laisse un canal d'exécution ouvert. Lecture de
+    l'environnement à l'appel (compatibilité ``monkeypatch.setenv`` des
+    tests), puis ``Settings.mcp_auth_required`` ; repli ``True``
+    (fail-closed) si les Settings ne sont pas chargeables. Rollback
+    explicite : ``MCP_AUTH_REQUIRED=false``.
+    """
+    env = os.getenv("MCP_AUTH_REQUIRED")
+    if env is not None:
+        return env.strip().lower() not in {"false", "0", "no", "off"}
+    try:
+        return get_settings().mcp_auth_required
+    except Exception:
+        return True
 
 
 def _sse_message(payload: dict[str, Any] | str | None) -> str:
@@ -104,8 +128,10 @@ async def mcp_sse(
     Tâche 12 (audit) : l'entête optionnelle ``X-Client-Id`` identifie le
     client MCP appelant — chaque appel d'action est journalisé dans
     ``agent_audit`` avec ``subject`` = client_id (repli : id de session,
-    sinon ``anonymous``). L'authentification forte (secret client store)
-    reste à brancher en S4/S5.
+    sinon ``anonymous``). Auth transport (P5) : ``X-API-Key`` exigée par
+    défaut (``MCP_AUTH_REQUIRED=0`` pour un rollback explicite) — vérifiée
+    AVANT toute lecture du corps (fail-closed) ; le secret client store
+    (révocation par client) reste un durcissement S4+.
     """
     if not mcp_server_enabled():
         return JSONResponse(
@@ -117,9 +143,28 @@ async def mcp_sse(
                 }
             },
         )
-    raw = (await request.body()).decode("utf-8", errors="replace")
     session_id = mcp_session_id or f"tt-{uuid.uuid4().hex[:16]}"
     client_id = (x_client_id or session_id).strip() or "anonymous"
+    # Auth transport (P5) : même mécanisme que la surface REST (X-API-Key,
+    # repli dev, comparaison à temps constant — module partagé
+    # app/infrastructure/security/api_key.py). Vérifié AVANT la lecture du
+    # corps : aucune ressource n'est consommée pour une requête non authentifiée.
+    if mcp_auth_required() and not is_valid_api_key(request.headers.get("X-API-Key")):
+        logger.warning(
+            "Requête MCP rejetée (X-API-Key absente/invalide) : client_id=%s session=%s",
+            client_id,
+            session_id,
+        )
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": {
+                    "code": "unauthorized",
+                    "message": "Invalid or missing X-API-Key header.",
+                }
+            },
+        )
+    raw = (await request.body()).decode("utf-8", errors="replace")
     # MCP tools may execute synchronous LLM/tool work for several seconds.
     # Keep that work off FastAPI's event loop so independent requests remain
     # responsive while a run is in progress.
@@ -140,4 +185,4 @@ async def mcp_sse(
     )
 
 
-__all__ = ["mcp_server_enabled", "router"]
+__all__ = ["mcp_auth_required", "mcp_server_enabled", "router"]

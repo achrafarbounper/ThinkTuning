@@ -181,7 +181,11 @@ def _sse_jsonrpc_response(client: TestClient, message: dict):
     response = client.post(
         "/mcp/sse",
         content=json.dumps(message),
-        headers={"X-Client-Id": "dashboard-mcp", "Mcp-Session-Id": "tt-test"},
+        headers={
+            "X-Client-Id": "dashboard-mcp",
+            "Mcp-Session-Id": "tt-test",
+            "X-API-Key": API_KEY,
+        },
     )
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")

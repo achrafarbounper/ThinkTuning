@@ -8,8 +8,8 @@
  *    policy sandbox (AUTO_APPROVE / APPROVE / REJECT), budget plafonné et
  *    validation humaine des actions à risque (carte Approuver / Refuser,
  *    reprise via resume_request_id) ;
- *  - Multi-agents   : orchestration via le tool MCP `orchestrate`
- *    (/mcp/sse), avec réponse JSON-RPC streamée dans la bulle.
+ *  - Multi-agents   : orchestration superviseur / workers (POST
+ *    /api/v1/agent/multi/ask/stream, SSE nommé agent.*).
  *
  * Les runs du noyau v2 sont persistés comme sessions de flux (événements
  * core.*) et rejouables dans la page Flow Map (GET /api/agent/flow).
@@ -27,9 +27,10 @@ export default function AssistantPage() {
           du modèle LLM, sessions réinitialisables. Le <strong>mode Agent (v2)</strong>{" "}
           passe par le noyau agentique (Intent → Plan → Policy → Budget →
           Action) : outils réels, sandbox policy et validation humaine des
-          actions à risque. Le <strong>mode Multi-agents</strong> passe par le
-          tool MCP <code>orchestrate</code>, avec les garde-fous de policy et
-          d’approbation.
+          actions à risque. Le <strong>mode Multi-agents</strong> passe par
+          l’orchestrateur superviseur / workers (SSE <code>agent.*</code> de{" "}
+          <code>POST /api/v1/agent/multi/ask/stream</code>), avec les
+          garde-fous de policy et d’approbation.
         </p>
       </header>
       <ChatWindow />

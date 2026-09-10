@@ -313,3 +313,68 @@ def test_core_stream_persists_flow(client, monkeypatch):
     assert "core.tool" in kinds
     assert kinds[-1] == "core.done"
     assert detail["answer_summary"] == "Réponse noyau."
+
+
+def test_core_stream_forwards_requested_model(client, monkeypatch):
+    """P3 : le champ ``model`` d'AskStreamRequest est honoré de bout en bout —
+    surcharge réelle du client LLM (build_agent_core), métadonnées du run,
+    session de flux et trame ``final`` (sans quoi le sélecteur du modèle du
+    chat était silencieusement ignoré en mode Agent)."""
+    monkeypatch.setattr(agent_routes, "new_core_enabled", lambda: True)
+    monkeypatch.setattr(agent_routes, "agent_config", lambda: {"model": "fake-model"})
+
+    captured: dict = {}
+
+    class _FakeApprovalStore:
+        def get(self, request_id):
+            return None
+
+    class _FakeRunStore:
+        def __init__(self):
+            self.started_with = None
+
+        def start_run(self, prompt, model="", source=""):
+            self.started_with = model
+            return {"id": "run-core"}
+
+        def finish_run(self, rid, status, answer_summary="", error=None):
+            pass
+
+        def append_tool_event(self, rid, event):
+            pass
+
+    run_store = _FakeRunStore()
+
+    class _FakeCore:
+        def __init__(self, event_bus=None, **kw):
+            captured["model"] = kw.get("model")
+            self._bus = event_bus
+
+        def run(self, intent, history=None):
+            return AgentRunResult(answer="Réponse noyau.",
+                                  status=RunStatus.COMPLETED,
+                                  rounds_used=1, tool_calls_used=0)
+
+    monkeypatch.setattr(agent_routes, "build_approval_store", lambda: _FakeApprovalStore())
+    monkeypatch.setattr(agent_routes, "get_run_store", lambda: run_store)
+    monkeypatch.setattr(agent_routes, "build_agent_core", lambda **kw: _FakeCore(**kw))
+    monkeypatch.setattr(agent_routes, "_audit_log", lambda *a, **k: None)
+    monkeypatch.setattr(agent_routes, "_persist_exchange", lambda *a, **k: None)
+    monkeypatch.setattr(agent_routes, "_load_session_history", lambda *a, **k: [])
+
+    with client.stream("POST", "/api/agent/ask/core/stream",
+                       json={"prompt": "Analyse noyau.", "model": "custom-model"},
+                       headers=HEADERS) as resp:
+        assert resp.status_code == 200
+        body = b"".join(resp.iter_bytes()).decode("utf-8", errors="replace")
+
+    # Surcharge LLM réelle (le noyau est assemblé AVEC le modèle demandé).
+    assert captured["model"] == "custom-model"
+    # Métadonnées du run : le modèle demandé prime sur la config serveur.
+    assert run_store.started_with == "custom-model"
+    # Session de flux : le modèle demandé est journalisé.
+    flows = client.get("/api/agent/flow", headers=HEADERS).json()["flows"]
+    assert len(flows) == 1
+    assert flows[0]["model"] == "custom-model"
+    # Trame ``final`` (contrat AskResponse) : modèle demandé renvoyé.
+    assert '"model": "custom-model"' in body

@@ -50,10 +50,16 @@ export default defineConfig({
     },
   },
   server: {
-    // En développement, /api/* est transféré vers l'API FastAPI locale,
-    // ce qui rend fetch("/api/ai") homogène entre dev et production.
+    // En développement, /api/* et /mcp/* sont transférés vers l'API FastAPI
+    // locale : fetch("/api/ai") ET fetch("/mcp/sse") (modes MCP / orchestrate
+    // du chat) restent homogènes entre dev et production (le proxy nginx du
+    // dashboard expose les mêmes deux locations).
     proxy: {
       '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/mcp': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },

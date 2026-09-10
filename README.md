@@ -641,15 +641,17 @@ npm install
 npm run dev            # http://localhost:5173
 ```
 
-Le proxy Vite transfère `/api/*` vers `http://localhost:8000`
-(voir `frontend/vite.config.ts`), donc `fetch("/api/…")` fonctionne tel quel.
+Le proxy Vite transfère `/api/*` **et** `/mcp/*` (transport MCP du chat)
+vers `http://localhost:8000` (voir `frontend/vite.config.ts`), donc
+`fetch("/api/…")` comme `fetch("/mcp/sse")` fonctionnent tel quel.
 
 ### Lancement en production (Docker)
 
 Deux images indépendantes : `backend/Dockerfile` construit l'API FastAPI
 (gunicorn + workers uvicorn, port hôte `8000`) et `frontend/Dockerfile`
 construit le dashboard puis le sert via **nginx** standalone (port hôte
-`8080`), qui inverse-proxy les appels `/api/*` vers le service API :
+`8080`), qui inverse-proxy les appels `/api/*` et `/mcp/*` (transport MCP,
+SSE sans buffering) vers le service API :
 
 ```bash
 docker compose build
