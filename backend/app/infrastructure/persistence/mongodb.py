@@ -25,11 +25,38 @@ def _utcnow() -> str:
 
 
 class MongoConfig:
-    """Validated, environment-based Atlas configuration."""
+    """Validated, environment-based Atlas configuration.
+
+    Source unique : ``backend/.env`` (gitignoré) chargé paresseusement ici
+    aussi — importer ``persistence.mongodb`` directement (sans passer par
+    ``app.config.settings``) doit quand même voir ``MONGODB_URI``. En dernier
+    recours, repli sur ``Settings`` (pydantic-settings lit l'env + `.env`).
+    Priorité : arg explicite > variable d'environnement > Settings.
+    """
 
     def __init__(self, uri: str | None = None, database: str | None = None) -> None:
-        self.uri = uri or os.getenv("MONGODB_URI", "")
-        self.database = database or os.getenv("MONGODB_DATABASE", "thinktuning")
+        if not uri:
+            try:
+                from app.config.settings import _load_dotenv_to_environ
+
+                _load_dotenv_to_environ()
+            except Exception:
+                pass
+        settings_uri: str | None = None
+        settings_db: str | None = None
+        if not os.getenv("MONGODB_URI", "") or not os.getenv("MONGODB_DATABASE", ""):
+            try:
+                from app.config.settings import get_settings
+
+                _s = get_settings()
+                settings_uri = _s.mongodb_uri
+                settings_db = _s.mongodb_database
+            except Exception:
+                pass
+        self.uri = uri or os.getenv("MONGODB_URI", "") or settings_uri or ""
+        self.database = (
+            database or os.getenv("MONGODB_DATABASE", "") or settings_db or "thinktuning"
+        )
         if not self.uri:
             raise ValueError("MONGODB_URI is required when PERSISTENCE_BACKEND=mongodb")
 

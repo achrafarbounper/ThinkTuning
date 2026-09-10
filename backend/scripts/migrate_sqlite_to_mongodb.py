@@ -133,7 +133,8 @@ def migrate(files: list[Path], client: MongoClient, database: str) -> dict[str, 
         source = path.name
         report["sources"][source] = {}
         for table, rows in tables.items():
-            target = normalize_row(path, table, dict(rows[0]))[0] if rows else None
+            first = normalize_row(path, table, dict(rows[0])) if rows else None
+            target = first[0] if first else None
             collection = db[target or f"sqlite_{path.stem}_{table}"]
             count = 0
             for row in rows:

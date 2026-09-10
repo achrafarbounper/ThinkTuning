@@ -30,6 +30,46 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
+def _load_dotenv_to_environ() -> None:
+    """Charge backend/.env (et .env racine en repli) dans ``os.environ``.
+
+    Pourquoi : les stores legacy (``core/*_store.py``) et ``MongoConfig``
+    lisent ``os.getenv`` DIRECTEMENT, sans passer par pydantic-settings.
+    Sans ce chargement, ``PERSISTENCE_BACKEND=mongodb`` posé uniquement dans
+    un fichier ``.env`` serait invisible pour eux et le runtime resterait en
+    SQLite. Parser stdlib uniquement (pas de dépendance ``python-dotenv``) :
+    lignes ``CLE=valeur``, `#` commentaires, guillemets simples/doubles
+    retirés. Ne surcharge JAMAIS une variable déjà exportée (l'env réel
+    garde la priorité sur le fichier).
+    """
+
+    def _parse(path) -> None:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+    from pathlib import Path as _Path
+
+    _backend_dir = _Path(__file__).resolve().parents[2]  # backend/
+    _parse(_backend_dir / ".env")  # backend/.env d'abord (le plus spécifique)
+    _parse(_backend_dir.parent / ".env")  # racine repo en repli
+
+
+_load_dotenv_to_environ()
+
+
 class AgentProvider(StrEnum):
     """Providers LLM supportés par le client de l'agent (cf. ia/agent/llm_client.py)."""
 
@@ -64,7 +104,10 @@ class Settings(BaseSettings):
         extra="ignore",  # tolère les variables hors périmètre (.env utilisateur)
     )
 
-    # Persistence remains SQLite by default; Atlas is enabled explicitly.
+    # Persistence SQLite par défaut ; Atlas activé explicitement via
+    # PERSISTENCE_BACKEND=mongodb (cf. backend/.env, gitignoré — jamais de
+    # secret en dur ici). MongoConfig (persistence/mongodb.py) lit MONGODB_URI
+    # depuis l'environnement, alimenté ci-dessous par _load_dotenv_to_environ().
     persistence_backend: Literal["sqlite", "mongodb"] = "sqlite"
     mongodb_uri: str | None = None
     mongodb_database: str = "thinktuning"
