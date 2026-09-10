@@ -216,7 +216,7 @@ async def _stream_orchestrate(
             item = await asyncio.wait_for(
                 asyncio.to_thread(events.get), timeout=10.0
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             yield ": heartbeat\n\n"
             continue
         if item is None:
