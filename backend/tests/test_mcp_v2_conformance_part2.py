@@ -9,10 +9,19 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.domain.entities.mcp import MCPScopeRole, MCPVersion
-from app.infrastructure.mcp.mcp_server import InMemoryToolProvider, MCPServer, MCPTool
+from app.infrastructure.mcp.mcp_server import InMemoryToolProvider, MCPTool
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.mcp_server_sse import router as mcp_sse_router
 from app.infrastructure.mcp.protocol import ErrorCode, empty_input_schema
+
+API_KEY = "test-mcp-v2-key"
+
+
+@pytest.fixture(autouse=True)
+def _api_key_env(monkeypatch):
+    """Clé transport MCP (P5) posée à chaque test (lecture à l'appel)."""
+    monkeypatch.setenv("API_KEY", API_KEY)
+    yield
 
 
 @pytest.mark.parametrize("params,expected", [
@@ -24,8 +33,7 @@ from app.infrastructure.mcp.protocol import ErrorCode, empty_input_schema
     ({"messages": [{"role": "u", "content": "x"}], "systemPrompt": 123}, "string"),
 ])
 def test_sampling_create_validates_params(params: dict, expected: str) -> None:
-    from app.domain.entities.mcp import SamplingRequest, SamplingResponse
-    from app.domain.errors import LLMClientError
+    from app.domain.entities.mcp import SamplingResponse
 
     class _Port:
         def create_message(self, request):
@@ -36,7 +44,11 @@ def test_sampling_create_validates_params(params: dict, expected: str) -> None:
         tool_provider=InMemoryToolProvider([
             MCPTool(
                 name="t", description="d", input_schema=empty_input_schema(),
-                annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+                annotations={
+                    "readOnlyHint": True,
+                    "destructiveHint": False,
+                    "idempotentHint": True,
+                },
                 required_scope=MCPScopeRole.READ_ONLY, handler=lambda _: "ok",
             )
         ]),
@@ -49,7 +61,6 @@ def test_sampling_create_validates_params(params: dict, expected: str) -> None:
 
 
 def test_sampling_create_handles_llm_error() -> None:
-    from app.domain.entities.mcp import SamplingRequest, SamplingResponse
     from app.domain.errors import LLMClientError
 
     class _FailPort:
@@ -61,7 +72,11 @@ def test_sampling_create_handles_llm_error() -> None:
         tool_provider=InMemoryToolProvider([
             MCPTool(
                 name="t", description="d", input_schema=empty_input_schema(),
-                annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+                annotations={
+                    "readOnlyHint": True,
+                    "destructiveHint": False,
+                    "idempotentHint": True,
+                },
                 required_scope=MCPScopeRole.READ_ONLY, handler=lambda _: "ok",
             )
         ]),
@@ -75,7 +90,10 @@ def test_sampling_create_handles_llm_error() -> None:
 
 
 def test_orchestrate_tool_visible_v2() -> None:
-    server = build_mcp_server(scope=MCPScopeRole.CONTRIBUTOR, version=MCPVersion(major=2, minor=0, patch=0))
+    server = build_mcp_server(
+        scope=MCPScopeRole.CONTRIBUTOR,
+        version=MCPVersion(major=2, minor=0, patch=0),
+    )
     reply = json.loads(server.handle_text(json.dumps({
         "jsonrpc": "2.0", "id": 15, "method": "tools/list", "params": {},
     })))
@@ -125,7 +143,7 @@ def test_transport_sse_announces_sampling() -> None:
         content=json.dumps({
             "jsonrpc": "2.0", "id": 20, "method": "initialize", "params": {},
         }),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-API-Key": API_KEY},
     )
     assert response.status_code == 200
     body = response.text

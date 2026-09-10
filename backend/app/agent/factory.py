@@ -45,8 +45,13 @@ def llm_endpoint(settings):
     return url, api_key
 
 
-def build_legacy_llm_client(*, think: bool = False):
+def build_legacy_llm_client(model: str | None = None, *, think: bool = False):
     """Construit le client LLM legacy avec les réglages centralisés.
+
+    ``model`` : surcharge ponctuelle du modèle demandé par le client
+    (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
+    ``think`` : active la réflexion native du provider (Ollama ``think`` —
+    sans effet sur les autres providers).
 
     Retourne l'instance ``ia.agent.llm_client.LLMClient``. L'import passe par
     l'identité de PAQUET réel (``ia.agent``) — jamais par l'identité nue
@@ -59,7 +64,7 @@ def build_legacy_llm_client(*, think: bool = False):
 
     return _llm_mod.LLMClient(
         url=url,
-        model=settings.agent_model_name,
+        model=model or settings.agent_model_name,
         timeout=settings.agent_timeout_seconds,
         context_length=settings.agent_context_length,
         provider=settings.agent_provider.value,
@@ -86,12 +91,17 @@ def llm_v2_enabled() -> bool:
         return True
 
 
-def build_llm_client(*, think: bool = False):
+def build_llm_client(model: str | None = None, *, think: bool = False):
     """Seam du client LLM : choisit l'implémentation selon ``AGENT_LLM_V2``.
 
     - défaut (flag absent ou ``1``) → ``HttpLLMClient`` (implémentation propre
       httpx du port ``LLMClientPort``, cf. ``app/infrastructure/llm``) ;
     - ``AGENT_LLM_V2=0`` → client legacy (repli, tant que le chemin v1 vit).
+
+    ``model`` : surcharge ponctuelle du modèle demandé par le client
+    (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
+    ``think`` : active la réflexion native du provider (Ollama ``think`` —
+    sans effet sur les autres providers).
     """
     if llm_v2_enabled():
         from app.infrastructure.llm.http_client import HttpLLMClient
@@ -100,20 +110,21 @@ def build_llm_client(*, think: bool = False):
         url, api_key = llm_endpoint(settings)
         return HttpLLMClient(
             url=url,
-            model=settings.agent_model_name,
+            model=model or settings.agent_model_name,
             provider=settings.agent_provider.value,
             api_key=api_key,
             timeout=settings.agent_timeout_seconds,
             context_length=settings.agent_context_length,
             think=think,
         )
-    return build_legacy_llm_client(think=think)
+    return build_legacy_llm_client(model=model, think=think)
 
 
 def build_agent_core(approval_gateway=None, on_tool_event=None,
                      enable_thinking=False, on_thinking=None,
                      event_bus=None,
-                     intent_classifier=None) -> AgentCore:
+                     intent_classifier=None,
+                     model=None) -> AgentCore:
     """Assemble le noyau agentique complet (LLM réel + registre legacy).
 
     ``approval_gateway`` : callback optionnel ``(Action) -> bool`` injecté au
@@ -131,15 +142,15 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
     ``intent_classifier`` : classifieur d'intention optionnel (chat/action,
     Phase 4). Reste observatoire : détermine ``AgentCore.last_intent`` et
     émet ``agent.intent_detected``, sans modifier la boucle LLM.
+    ``model`` : surcharge ponctuelle du modèle LLM demandé par le client
+    (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
     """
     settings = get_settings()
     registry = LegacyToolRegistryAdapter()
-    # Le mode de réflexion est une option du run MCP/core : il doit aussi être
-    # transmis au provider pour obtenir les tokens de raisonnement en streaming.
-    llm = build_llm_client(think=enable_thinking)
+    llm = build_llm_client(model=model, think=enable_thinking)
     logger.info(
         "Noyau agentique assemblé : provider=%s model=%s outils=%d flags=%s",
-        settings.agent_provider.value, settings.agent_model_name,
+        settings.agent_provider.value, model or settings.agent_model_name,
         len(registry.tool_names()), settings.active_flags(),
     )
     return AgentCore(

@@ -64,6 +64,13 @@ class FakeSessionStore:
         self.messages.pop(session_id, None)
         return True
 
+    def rename_session(self, session_id: str, title: str) -> dict | None:
+        if session_id not in self.sessions:
+            return None
+        self.sessions[session_id]["title"] = title
+        self.sessions[session_id]["updated_at"] = "2026-01-01T00:01:00Z"
+        return self._row(session_id)
+
     def get_messages(self, session_id: str, limit: int = 200) -> list[dict]:
         return self.messages.get(session_id, [])[-limit:]
 
@@ -86,6 +93,36 @@ def test_list_sessions_is_public(monkeypatch):
 def test_create_session_requires_api_key(monkeypatch):
     _install_fake(monkeypatch)
     assert client.post("/api/v1/sessions", json={"title": "T"}).status_code == 401
+
+
+def test_rename_session_requires_api_key(monkeypatch):
+    _install_fake(monkeypatch)
+    assert client.patch("/api/v1/sessions/x", json={"title": "T"}).status_code == 401
+
+
+def test_rename_session(monkeypatch):
+    _install_fake(monkeypatch)
+    session_id = client.post(
+        "/api/v1/sessions", json={"title": "Avant"}, headers=AUTH
+    ).json()["id"]
+
+    renamed = client.patch(
+        f"/api/v1/sessions/{session_id}", json={"title": "Après"}, headers=AUTH
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "Après"
+
+    listed = client.get("/api/v1/sessions").json()["sessions"]
+    assert next(s for s in listed if s["id"] == session_id)["title"] == "Après"
+
+
+def test_rename_missing_session_is_404(monkeypatch):
+    _install_fake(monkeypatch)
+    response = client.patch(
+        "/api/v1/sessions/absent", json={"title": "T"}, headers=AUTH
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
 
 
 def test_session_lifecycle(monkeypatch):

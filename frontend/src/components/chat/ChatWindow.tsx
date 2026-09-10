@@ -8,8 +8,8 @@
  *     · Agent (v2)    : noyau agentique POST /api/v1/agent/ask/core — boucle
  *       Intent -> Plan -> Policy -> Budget -> Action, appels d'outils
  *       streamés (core_tool) et carte de validation humaine,
- *     · Multi-agents  : orchestration via le tool MCP `orchestrate`
- *       POST /mcp/sse,
+ *     · Multi-agents  : orchestration superviseur / workers via
+ *       POST /api/v1/agent/multi/ask/stream (SSE nommé agent.*),
  * - l'authentification via l'en-tête X-API-Key (config dashboard ou VITE_API_KEY),
  * - le chargement (spinner + curseur clignotant),
  * - le défilement automatique vers le bas (avec respect du scroll manuel),
@@ -53,7 +53,6 @@ const AI_ENDPOINT = '/api/v1/chat/ai';
  * synthetise. Evenements SSE nommes agent.plan / agent.worker.* / agent.done.
  */
 const MULTI_ASK_STREAM_ENDPOINT = '/api/v1/agent/multi/ask/stream';
-const MCP_SSE_ENDPOINT = '/mcp/sse';
 
 /** Mode SSE demande : les evenements d observabilite (worker.tool) sont filtres. */
 const MULTI_SSE_MODE = 'compact';
@@ -443,6 +442,28 @@ export function ChatWindow() {
   useEffect(() => {
     storeSession(sessionId);
   }, [sessionId]);
+
+  // Exclusivité des modes AU MONTAGE : l'exclusivité n'est garantie qu'à
+  // l'usage (chaque toggle désactive les autres), mais des clés localStorage
+  // historiques peuvent contenir plusieurs flags actifs simultanément. Un
+  // seul mode est conservé — priorité MCP > Agent (v2) > Multi-agents — et
+  // les autres clés sont réinitialisées.
+  useEffect(() => {
+    const mcp = loadStoredMcpMode();
+    const core = loadStoredCoreMode();
+    const multi = loadStoredMultiMode();
+    if ([mcp, core, multi].filter(Boolean).length <= 1) return;
+    setMcpMode(mcp);
+    setCoreMode(!mcp && core);
+    setMultiMode(!mcp && !core && multi);
+    try {
+      window.localStorage.setItem(MCP_MODE_STORAGE_KEY, String(mcp));
+      window.localStorage.setItem(CORE_MODE_STORAGE_KEY, String(!mcp && core));
+      window.localStorage.setItem(MULTI_MODE_STORAGE_KEY, String(!mcp && !core && multi));
+    } catch {
+      /* stockage indisponible : l'état en mémoire reste cohérent */
+    }
+  }, []);
 
   /** Charge les messages d'une conversation existante et la rend active. */
   const selectSession = useCallback(
@@ -850,8 +871,10 @@ export function ChatWindow() {
    *   - rejected          : motif du blocage policy affiché au mot pour mot.
    */
   /**
-   * Compatibilité de reprise pour les anciennes demandes multi-agents :
-   * l'entrée normale passe par `askMcpOrchestrateTurn` ci-dessous.
+   * Tour MULTI-AGENTS (superviseur / workers) : POST /api/v1/agent/multi/
+   * ask/stream — entrée NORMALE du mode « Multi-agents » (trace temps réel :
+   * plan + workers + réflexion) ET reprise native d'une sous-tâche bloquée
+   * sur une validation humaine (resume_request_id).
    */
   const askMultiAgentTurn = useCallback(
     async (
@@ -1049,71 +1072,6 @@ export function ChatWindow() {
   );
 
   /**
-   * Entrée MCP de l'orchestration : le backend retourne une réponse JSON-RPC
-   * dans une trame SSE unique, dont le contenu est le JSON stable du tool
-   * `orchestrate`.
-   */
-  const askMcpOrchestrateTurn = useCallback(
-    async (
-      assistantId: string,
-      prompt: string,
-      controller: AbortController,
-    ): Promise<void> => {
-      const session = sessionId || `assistant-${createId()}`;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Mcp-Session-Id': session,
-        'X-Client-Id': 'assistant-ia',
-      };
-      const body = {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/call',
-        params: {
-          name: 'orchestrate',
-          arguments: { prompt, session_id: session, scope: 'default' },
-        },
-      };
-      const response = await fetch(`${resolveBaseUrl()}${MCP_SSE_ENDPOINT}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(await apiErrorMessage(response));
-      }
-      if (!response.body) {
-        throw new Error('Le transport MCP n’a retourné aucun flux.');
-      }
-
-      let payloadText = '';
-      for await (const payload of readSseEvents(response.body)) {
-        if (payload !== '[DONE]') payloadText = payload;
-      }
-      if (!payloadText) throw new Error('Réponse MCP vide.');
-
-      const rpc = JSON.parse(payloadText) as {
-        error?: { message?: string };
-        result?: { content?: Array<{ text?: string }>; isError?: boolean };
-      };
-      if (rpc.error) {
-        throw new Error(rpc.error.message || 'Échec de l’appel MCP orchestrate.');
-      }
-      const text = rpc.result?.content?.[0]?.text;
-      if (!text || rpc.result?.isError) {
-        throw new Error(text || 'Le tool MCP orchestrate a échoué.');
-      }
-      const result = JSON.parse(text) as { answer?: string; status?: string };
-      if (result.status === 'error') {
-        throw new Error(result.answer || 'Échec de l’orchestration MCP.');
-      }
-      appendDelta(assistantId, result.answer ?? '');
-    },
-    [appendDelta, sessionId],
-  );
-
-  /**
    * Tour de chat via le NOYAU agentique v2 : POST /api/agent/ask/core/
    * stream (SSE : core_tool / delta / final), avec repli transparent sur le
    * POST bloquant /api/agent/ask/core si le backend ne connaît pas le flux.
@@ -1154,10 +1112,20 @@ const base = resolveBaseUrl();
 
       /** Repli : POST bloquant /api/agent/ask/core (réponse d'un bloc). */
       const askCoreBlocking = async (): Promise<void> => {
-        // Contrat backend (schéma AskRequest) : champs en snake_case.
-        const body: { prompt: string; session_id?: string; resume_request_id?: string } = { prompt };
+        // Contrat backend (schéma AskRequest, repli bloquant) : champs en
+        // snake_case. AskRequest expose désormais model/enable_thinking
+        // (parité AskStreamRequest) : le repli est fidèle au mode streamé.
+        const body: {
+          prompt: string;
+          session_id?: string;
+          resume_request_id?: string;
+          model?: string;
+          enable_thinking?: boolean;
+        } = { prompt };
         if (sessionId) body.session_id = sessionId;
         if (resumeRequestId) body.resume_request_id = resumeRequestId;
+        if (selectedModel) body.model = selectedModel;
+        if (enableThinking) body.enable_thinking = true;
 
         const response = await fetch(`${base}${CORE_ASK_ENDPOINT}`, {
           method: 'POST',
@@ -1175,6 +1143,10 @@ const base = resolveBaseUrl();
       const body: Record<string, unknown> = { prompt };
       if (sessionId) body.session_id = sessionId;
       if (resumeRequestId) body.resume_request_id = resumeRequestId;
+      // Sélecteur de modèle de l'en-tête ('' = défaut serveur) : le schéma
+      // AskStreamRequest expose `model` — sans ce champ, le choix serait
+      // ignoré en mode Agent (le chat simple, lui, l'honore déjà).
+      if (selectedModel) body.model = selectedModel;
       // Mode « Réflexion » : le noyau diffuse son raisonnement (thinking_delta).
       if (enableThinking) body.enable_thinking = true;
 
@@ -1245,7 +1217,7 @@ const base = resolveBaseUrl();
         if (event.final) handleFinal(event.final, streamedChars > 0);
       }
     },
-    [appendDelta, appendThinkingDelta, appendToolCall, completeToolCall, enableThinking, sessionId],
+    [appendDelta, appendThinkingDelta, appendToolCall, completeToolCall, enableThinking, selectedModel, sessionId],
   );
 /**
    * Tour de chat via la surface MCP (S7 — tâche 20) : POST /mcp/sse puis
@@ -1377,9 +1349,11 @@ const base = resolveBaseUrl();
           await askMcpTurn(assistantId, trimmed, controller);
           return;
         }
-        // Mode Multi-agents : orchestration superviseur / workers (SSE nommé).
+        // Mode Multi-agents : orchestration superviseur / workers — plan,
+        // dispatch et synthèse streamés (SSE nommé agent.*) avec trace temps
+        // réel et reprise native après validation humaine.
         if (multiMode) {
-          await askMcpOrchestrateTurn(assistantId, trimmed, controller);
+          await askMultiAgentTurn(assistantId, trimmed, controller);
           return;
         }
         // Mode Agent (v2) : noyau agentique — boucle
@@ -1526,10 +1500,10 @@ const base = resolveBaseUrl();
         });
       }
     } finally {
-      if (!controller.signal.aborted) {
-        flushStreamBuffer();
-        patchMessage(assistantId, { streaming: false });
-      }
+      // Clôture inconditionnelle (même sur interruption Stop) : la bulle ne
+      // doit jamais rester « streaming » à l'écran.
+      flushStreamBuffer();
+      patchMessage(assistantId, { streaming: false });
       setIsLoading(false);
       abortRef.current = null;
     }
@@ -1544,6 +1518,10 @@ const base = resolveBaseUrl();
     const { requestId, tool, reason } = pendingApproval;
     setPendingApproval(null);
     setIsLoading(true);
+
+    // Annulable via le bouton Stop (même convention que handleApprove).
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const headers: Record<string, string> = {};
       const apiKey = resolveApiKey();
@@ -1552,6 +1530,7 @@ const base = resolveBaseUrl();
       const response = await fetch(`${base}${APPROVALS_ENDPOINT}/${requestId}/reject`, {
         method: 'POST',
         headers,
+        signal: controller.signal,
       });
       if (!response.ok) {
         throw new Error(await apiErrorMessage(response));
@@ -1566,17 +1545,23 @@ const base = resolveBaseUrl();
         },
       ]);
     } catch (error) {
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: createId(),
-          role: 'assistant' as const,
-          content: '',
-          createdAt: nowIso(),
-          error: error instanceof Error ? error.message : String(error),
-        },
-      ]);
+      // Une annulation volontaire (bouton Stop) n'est pas une erreur.
+      if (!controller.signal.aborted) {
+        setMessages((previous) => [
+          ...previous,
+          {
+            id: createId(),
+            role: 'assistant' as const,
+            content: '',
+            createdAt: nowIso(),
+            error: error instanceof Error ? error.message : String(error),
+          },
+        ]);
+      }
     } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
       setIsLoading(false);
     }
   }, [pendingApproval, isLoading]);

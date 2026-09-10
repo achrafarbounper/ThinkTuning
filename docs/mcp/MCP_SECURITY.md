@@ -33,6 +33,26 @@ class MCPSecurityScope(BaseModel):
 
 ---
 
+## 🔑 Auth transport HTTP — `POST /mcp/sse` (P5)
+
+Le transport MCP exécute des outils **réels** : sans garde, `MCP_FIRST=true`
+gèle l'HTTP legacy mais laisserait un canal d'exécution ouvert. Le transport
+exige donc la **même clé API que la surface REST** — source unique
+`app/infrastructure/security/api_key.py` (utilisée aussi par
+`api/dependencies/auth.py`, règle hexagonale : l'infra n'importe pas `api`).
+
+- Défaut : **actif** (fail-closed) — `Settings.mcp_auth_required = True` ;
+- En-tête : `X-API-Key` (le dashboard la transmet déjà via `mcpClient.ts`) ;
+- Repli de développement : `dev-local-api-key` si `API_KEY` est absente
+  (warning au démarrage) — parité avec la surface REST ;
+- Comparaison à temps constant (timing attack) ;
+- 401 en enveloppe v1 (`{"error": {"code": "unauthorized", ...}}`), vérifié
+  **avant** toute lecture du corps ;
+- Rollback explicite : `MCP_AUTH_REQUIRED=false` (env, lu à l'appel) ;
+- Révocation par client / secret client store : durcissement S4+ (roadmap).
+
+---
+
 ## 📊 Audit MCP
 
 Chaque appel MCP est **tracé** via `core/audit_store.py`.

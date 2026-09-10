@@ -741,7 +741,11 @@ export interface paths {
         delete: operations["delete_session_api_v1_sessions__session_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename Session
+         * @description Renomme une conversation (parité legacy : écriture → X-API-Key).
+         */
+        patch: operations["rename_session_api_v1_sessions__session_id__patch"];
         trace?: never;
     };
     "/api/v1/sessions/{session_id}/messages": {
@@ -1153,6 +1157,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mcp/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Mcp Metrics
+         * @description Métriques internes MCP : error rate, call volume, revoked clients.
+         *
+         *     Voir ``api.routes.mcp.mcp_metrics`` pour la molécule complète.
+         */
+        get: operations["get_mcp_metrics_api_v1_mcp_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1257,6 +1283,17 @@ export interface components {
              * @description Session de conversation (core/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur.
              */
             session_id?: string | null;
+            /**
+             * Model
+             * @description Modèle LLM ; absent/vide = défaut serveur (parité AskStreamRequest — le sélecteur du chat était auparavant ignoré sur ce chemin).
+             */
+            model?: string | null;
+            /**
+             * Enable Thinking
+             * @description Mode « Réflexion » (parité AskStreamRequest).
+             * @default false
+             */
+            enable_thinking: boolean;
         };
         /** AskResponse */
         AskResponse: {
@@ -1877,6 +1914,11 @@ export interface components {
             title?: string | null;
             /** Model */
             model?: string | null;
+        };
+        /** SessionRename */
+        SessionRename: {
+            /** Title */
+            title: string;
         };
         /**
          * TrainHistoryResponse
@@ -3289,6 +3331,43 @@ export interface operations {
             };
         };
     };
+    rename_session_api_v1_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_messages_api_v1_sessions__session_id__messages_get: {
         parameters: {
             query?: {
@@ -3947,6 +4026,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_mcp_metrics_api_v1_mcp_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

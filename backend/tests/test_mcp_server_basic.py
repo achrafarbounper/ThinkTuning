@@ -47,6 +47,19 @@ def client() -> TestClient:
     return TestClient(_sse_app())
 
 
+# Clé transport MCP (P5) : le SSE exige X-API-Key — posée à chaque test
+# (lecture à l'appel) et transmise par chaque requête authentifiée.
+API_KEY = "test-mcp-key"
+AUTH = {"X-API-Key": API_KEY}
+
+
+@pytest.fixture(autouse=True)
+def _api_key_env(monkeypatch):
+    """Pose API_KEY pendant chaque test (la clé est lue à l'appel)."""
+    monkeypatch.setenv("API_KEY", API_KEY)
+    yield
+
+
 # --- Dispatch JSON-RPC / MCP -------------------------------------------------
 
 
@@ -191,6 +204,7 @@ def test_sse_initialize(client):
         content=json.dumps({
             "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {},
         }),
+        headers=AUTH,
     )
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -207,6 +221,7 @@ def test_sse_call_tool(client):
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
             "params": {"name": "mcp_version", "arguments": {}},
         }),
+        headers=AUTH,
     )
     assert response.status_code == 200
     assert '"text"' in response.text
@@ -220,6 +235,7 @@ def test_sse_lists_orchestrate_for_assistant_scope(client):
         content=json.dumps({
             "jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {},
         }),
+        headers=AUTH,
     )
     assert response.status_code == 200
     assert '"orchestrate"' in response.text
@@ -259,6 +275,7 @@ def test_sse_calls_orchestrate_with_contributor_scope(client, monkeypatch):
                 },
             },
         }),
+        headers=AUTH,
     )
     assert response.status_code == 200
     assert '"isError": false' in response.text
@@ -300,6 +317,7 @@ def test_sse_orchestrate_streams_core_reflection_payload(client, monkeypatch):
                 },
             },
         }),
+        headers=AUTH,
     )
 
     assert response.status_code == 200

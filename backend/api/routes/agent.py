@@ -278,6 +278,15 @@ class AskRequest(BaseModel):
         description="Session de conversation (core/session_store) où journaliser "
         "l'échange ; absent : aucune persistance côté serveur.",
     )
+    model: str | None = Field(
+        None, max_length=100,
+        description="Modèle LLM ; absent/vide = défaut serveur "
+        "(parité AskStreamRequest — le sélecteur du chat était auparavant "
+        "ignoré sur ce chemin).",
+    )
+    enable_thinking: bool = Field(
+        False, description="Mode « Réflexion » (parité AskStreamRequest).",
+    )
 
 
 class AskStreamRequest(BaseModel):
@@ -798,10 +807,18 @@ def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
             prompt=request.prompt,
             session_id=request.session_id,
             resume_request_id=request.resume_request_id,
-            model=agent_config()["model"],
+            # Modèle demandé (sélecteur du chat) sinon défaut serveur —
+            # métadonnées du run ET surcharge réelle du client LLM (partial
+            # du factory : le modèle est appliqué à l'assemblage du noyau,
+            # pas seulement journalisé).
+            model=request.model or agent_config()["model"],
             run_store=get_run_store(),
             approval_store=build_approval_store(),
-            build_core=build_agent_core,
+            build_core=functools.partial(
+                build_agent_core,
+                model=request.model,
+                enable_thinking=request.enable_thinking,
+            ),
             load_history=_load_session_history,
             persist_exchange=_persist_exchange,
             audit_log=_audit_log,
@@ -841,8 +858,11 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
         )
 
     events: queue.Queue[tuple[str, object]] = queue.Queue()
+    # Modèle effectif : surcharge explicite du client (sélecteur du chat,
+    # champ ``model`` d'AskStreamRequest) sinon défaut de la config serveur.
+    effective_model = request.model or agent_config()["model"]
     run_store = get_run_store()
-    run_row = run_store.start_run(request.prompt, model=agent_config()["model"],
+    run_row = run_store.start_run(request.prompt, model=effective_model,
                                   source="ask_core_stream")
     _audit_log(ACT_RUN, subject="ask_core_stream",
                detail={"status": "started"}, run_id=run_row["id"])
@@ -851,7 +871,7 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     # Même convention que /multi/ask/stream : chaque run du noyau v2 crée une
     # session de flux (timeline horodatée rejouable dans le dashboard). La
     # persistance est défensive et ne doit JAMAIS faire échouer le streaming.
-    flow_record = get_flow_store().start_flow(request.prompt, agent_config()["model"])
+    flow_record = get_flow_store().start_flow(request.prompt, effective_model)
     flow_t0 = time.perf_counter()
 
     def _flow_record(event_type: str, data: dict) -> None:
@@ -917,6 +937,7 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                 approval_gateway=_approval_gateway,
                 enable_thinking=request.enable_thinking,
                 event_bus=bus,
+                model=effective_model,
             )
             history = _load_session_history(request.session_id, request.resume_request_id)
             result = core.run(
@@ -974,7 +995,7 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
 
             events.put(("final", {
                 "response": result.answer or "",
-                "model": agent_config()["model"],
+                "model": effective_model,
                 "status": api_status,
                 "request_id": approval_payload["request_id"] if approval_payload else run_row["id"],
                 "approval": approval_payload,
@@ -1578,8 +1599,9 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
     """
     events = queue.Queue()
     run_store = get_run_store()
+    effective_model = model or agent_config()["model"]
     run_row = run_store.start_run(
-        prompt, model=model or agent_config()["model"], source="ws"
+        prompt, model=effective_model, source="ws"
     )
     tool_events: list[dict] = []
     bus = InMemoryEventBus()
@@ -1621,6 +1643,7 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
                 approval_gateway=make_approval_gateway(resume_hash),
                 enable_thinking=enable_thinking,
                 event_bus=bus,
+                model=model or None,
             )
             result = core.run(
                 Intent(prompt=prompt,
@@ -1644,7 +1667,7 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
                 {
                     "event": "final",
                     "response": answer,
-                    "model": agent_config()["model"],
+                    "model": effective_model,
                     "status": core_api_status(result.status),
                     "request_id": None,
                 },

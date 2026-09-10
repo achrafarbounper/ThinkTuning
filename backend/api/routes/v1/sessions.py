@@ -4,8 +4,9 @@
 
 Délégation aux handlers legacy ``api.routes.sessions`` (parité par
 construction). Posture d'auth IDENTIQUE au legacy : la lecture (liste,
-messages) reste publique ; les écritures (création, suppression) exigent
-X-API-Key. Les 404 légitimes sont traduits en enveloppe v1 ``{"error": ...}``.
+messages) reste publique ; les écritures (création, renommage, suppression)
+exigent X-API-Key. Les 404 légitimes sont traduits en enveloppe v1
+``{"error": ...}``.
 """
 
 from __future__ import annotations
@@ -45,6 +46,14 @@ def list_sessions(limit: int = 100):
 def create_session(body: legacy.SessionCreate, _: bool = Depends(require_api_key)):
     """Crée une session vide (titre dérivé du premier message)."""
     return _call_guarded(legacy.create_session, body)
+
+
+@router.patch("/{session_id}")
+def rename_session(
+    session_id: str, body: legacy.SessionRename, _: bool = Depends(require_api_key)
+):
+    """Renomme une conversation (parité legacy : écriture → X-API-Key)."""
+    return _call_guarded(legacy.rename_session, session_id, body)
 
 
 @router.delete("/{session_id}")

@@ -2,26 +2,27 @@
 
 import logging
 import os
-import secrets
 
 from fastapi import Header, HTTPException
 
-logger = logging.getLogger(__name__)
+from app.infrastructure.security.api_key import (
+    effective_api_key,
+    is_valid_api_key,
+)
 
-# Repli de développement : utilisé UNIQUEMENT si API_KEY n'est pas défini.
-# Un warning est émis au démarrage (cf. api/main.py) pour qu'une exposition
-# réseau avec cette clé publique ne passe jamais inaperçue.
-_DEV_FALLBACK_KEY = "dev-local-api-key"
+logger = logging.getLogger(__name__)
 
 
 def _get_api_key() -> str:
-    """Clé API effective, lue à chaque appel (source unique de vérité).
+    """Clé API effective (source unique : app/infrastructure/security/api_key).
 
     La lecture à l'appel (et non à l'import) permet aux tests et aux
     processus longs de changer la clé via l'environnement sans recharger
     le module — et supprime la duplication qui existait avec api/__init__.py.
+    Le même module sert au transport MCP SSE (P5), qui ne peut pas importer
+    la couche ``api`` (règle hexagonale).
     """
-    return os.getenv("API_KEY") or _DEV_FALLBACK_KEY
+    return effective_api_key()
 
 
 def warn_if_insecure_api_key() -> None:
@@ -34,9 +35,8 @@ def warn_if_insecure_api_key() -> None:
 
 
 def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> bool:
-    expected_key = _get_api_key()
-    # Comparaison à temps constant : `!=` fuiterait la clé octet par octet via
-    # la mesure du temps de réponse (timing attack).
-    if x_api_key is None or not secrets.compare_digest(x_api_key, expected_key):
+    # Comparaison à temps constant déléguée au module partagé (le transport
+    # MCP SSE applique exactement la même vérification — P5).
+    if not is_valid_api_key(x_api_key):
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key header.")
     return True

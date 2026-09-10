@@ -2217,6 +2217,71 @@
       }
     },
     "/api/v1/sessions/{session_id}": {
+      "patch": {
+        "tags": [
+          "Sessions (v1)"
+        ],
+        "summary": "Rename Session",
+        "description": "Renomme une conversation (parité legacy : écriture → X-API-Key).",
+        "operationId": "rename_session_api_v1_sessions__session_id__patch",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRename"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Sessions (v1)"
@@ -3742,6 +3807,25 @@
             ],
             "title": "Session Id",
             "description": "Session de conversation (core/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur."
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Modèle LLM ; absent/vide = défaut serveur (parité AskStreamRequest — le sélecteur du chat était auparavant ignoré sur ce chemin)."
+          },
+          "enable_thinking": {
+            "type": "boolean",
+            "title": "Enable Thinking",
+            "description": "Mode « Réflexion » (parité AskStreamRequest).",
+            "default": false
           }
         },
         "type": "object",
@@ -5120,6 +5204,21 @@
         },
         "type": "object",
         "title": "SessionCreate"
+      },
+      "SessionRename": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "SessionRename"
       },
       "TrainHistoryResponse": {
         "properties": {
