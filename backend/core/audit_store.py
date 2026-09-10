@@ -341,6 +341,12 @@ class AuditStore:
 _store: AuditStore | None = None
 _store_lock = threading.Lock()
 
+# Cache du store Mongo (mode PERSISTENCE_BACKEND=mongodb) : instancié UNE seule
+# fois puis réutilisé — même sémantique que le singleton SQLite (_store) au-dessus.
+# Annoté avec le type de retour du getter (la classe ``MongoAuditStore`` n'est
+# importable qu'en lazy : import de module circulaire).
+_mongo_store: "AuditStore | None" = None
+
 
 def _current_path() -> str:
     """Chemin effectif de la base, relu à chaque création de store.
@@ -355,7 +361,12 @@ def get_audit_store() -> AuditStore:
     """Store partagé de l'application (instance unique paresseuse)."""
     if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
         from app.infrastructure.persistence.mongodb import MongoAuditStore
-        return MongoAuditStore()  # type: ignore[return-value]
+
+        global _mongo_store
+        with _store_lock:
+            if _mongo_store is None:
+                _mongo_store = MongoAuditStore()  # type: ignore[assignment]
+            return _mongo_store  # type: ignore[return-value]
     global _store
     with _store_lock:
         if _store is None:

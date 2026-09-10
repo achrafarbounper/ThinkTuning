@@ -172,7 +172,19 @@ app.add_middleware(
     # wildcard), méthodes/headers énumérés — jamais ["*"] + credentials.
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "X-API-Key", "Content-Type", "Accept"],
+    # En-têtes énumérés — jamais ["*"] + credentials. Outre la surface REST
+    # (Authorization/X-API-Key), le transport MCP (POST /mcp/sse, mcpClient.ts)
+    # envoie l'identité client (X-Client-Id) et la session (Mcp-Session-Id) :
+    # sans eux, le preflight répond 400 « Disallowed CORS headers » et le
+    # navigateur bloque l'appel (net::ERR_FAILED sur mcpClient.ts).
+    allow_headers=[
+        "Authorization",
+        "X-API-Key",
+        "Mcp-Session-Id",
+        "X-Client-Id",
+        "Content-Type",
+        "Accept",
+    ],
 )
 
 # SCRUM-34 : démarre le scheduler APScheduler et recharge les planifications
