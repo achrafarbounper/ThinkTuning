@@ -564,8 +564,7 @@ class MongoAgentSettingsStore:
 
     def get_all(self):
         return {
-            d["key"]: _decode_settings_value(d.get("value"))
-            for d in self.c.find({}, {"_id": 0})
+            d["key"]: _decode_settings_value(d.get("value")) for d in self.c.find({}, {"_id": 0})
         }
 
     def save_many(self, values):

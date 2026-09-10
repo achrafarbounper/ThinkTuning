@@ -182,8 +182,7 @@ class AgentConfig(BaseModel):
         """Fail-fast : cohérence provider / clés API (message explicite)."""
         if self.provider is AgentProvider.OPENROUTER and not self.openrouter_api_key:
             raise ValueError(
-                "AGENT_PROVIDER=openrouter exige OPENROUTER_API_KEY "
-                "(https://openrouter.ai/keys)"
+                "AGENT_PROVIDER=openrouter exige OPENROUTER_API_KEY (https://openrouter.ai/keys)"
             )
         if self.provider is AgentProvider.HF and not self.effective_hf_key:
             raise ValueError(

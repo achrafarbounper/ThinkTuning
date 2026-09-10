@@ -88,14 +88,14 @@ def ensure_api_key_configured() -> str:
                 "API_KEY absente en production (ENV=prod) : démarrage refusé "
                 "(fail-closed, cf. docs/SECURITY_DIAGNOSTIC.md F1). "
                 "Générez-en une : python -c "
-                "\"import secrets; print(secrets.token_urlsafe(32))\"."
+                '"import secrets; print(secrets.token_urlsafe(32))".'
             )
         if len(raw) < MIN_PROD_API_KEY_LENGTH or raw in {"change-me", DEV_FALLBACK_KEY}:
             raise RuntimeError(
                 f"API_KEY de production trop faible ({len(raw)} chars < "
                 f"{MIN_PROD_API_KEY_LENGTH}) : démarrage refusé. "
                 "Générez une clé 256-bit : python -c "
-                "\"import secrets; print(secrets.token_urlsafe(32))\"."
+                '"import secrets; print(secrets.token_urlsafe(32))".'
             )
         return raw
     if not raw:

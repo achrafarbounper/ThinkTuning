@@ -146,4 +146,3 @@ def get_settings(*, env_file: str | None = ".env") -> Settings:
     l'environnement (une entrée de cache par valeur de ``env_file``).
     """
     return Settings(_env_file=env_file)  # type: ignore[call-arg]
-

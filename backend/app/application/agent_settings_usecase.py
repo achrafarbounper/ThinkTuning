@@ -156,27 +156,28 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
     if log_level is not None and log_level != "":
         level = str(log_level).strip().upper()
         if level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
-            errors.append(
-                "log_level doit valoir 'DEBUG', 'INFO', 'WARNING' ou 'ERROR'."
-            )
+            errors.append("log_level doit valoir 'DEBUG', 'INFO', 'WARNING' ou 'ERROR'.")
         else:
             values["log_level"] = level
 
     for bool_key in (
         "mcp_first",
         "mcp_auth_required",
-        *(f"flag_{name}" for name in (
-            "reliability",
-            "audit",
-            "tool_analytics",
-            "context",
-            "copilot",
-            "websocket",
-            "multi_agent",
-            "custom_tools",
-            "new_core",
-            "llm_v2",
-        )),
+        *(
+            f"flag_{name}"
+            for name in (
+                "reliability",
+                "audit",
+                "tool_analytics",
+                "context",
+                "copilot",
+                "websocket",
+                "multi_agent",
+                "custom_tools",
+                "new_core",
+                "llm_v2",
+            )
+        ),
     ):
         raw_flag = values.get(bool_key)
         if raw_flag is not None and not isinstance(raw_flag, bool):
@@ -187,9 +188,7 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
                 elif lowered in ("false", "0", "no", "off", ""):
                     values[bool_key] = lowered != ""
                 else:
-                    errors.append(
-                        f"{bool_key} doit être un booléen (true/false/1/0/yes/no)."
-                    )
+                    errors.append(f"{bool_key} doit être un booléen (true/false/1/0/yes/no).")
             elif isinstance(raw_flag, (int, float)):
                 values[bool_key] = bool(raw_flag)
             else:
