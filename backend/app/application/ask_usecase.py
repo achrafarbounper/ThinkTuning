@@ -45,7 +45,7 @@ class AskCoreResult:
     approval: dict | None
     run_id: str
     model: str
-    result: Any = field(default=None, repr=False)   # RunResult brut (streaming)
+    result: Any = field(default=None, repr=False)  # RunResult brut (streaming)
 
 
 def run_ask_core(
@@ -70,8 +70,7 @@ def run_ask_core(
     échoue (la route la traduit en 502).
     """
     run_row = run_store.start_run(prompt, model=model, source="ask_core")
-    audit_log(ACT_RUN, subject="ask_core",
-              detail={"status": "started"}, run_id=run_row["id"])
+    audit_log(ACT_RUN, subject="ask_core", detail={"status": "started"}, run_id=run_row["id"])
 
     # Gateway d'approbation : si le run reprend après validation humaine
     # (resume_request_id -> action approuvée), la gateway accorde UNIQUEMENT
@@ -99,7 +98,8 @@ def run_ask_core(
         action = result.awaiting_action
         approval_payload = create_approval_request(approval_store, action, prompt)
         audit_log(
-            ACT_APPROVAL, subject="ask_core",
+            ACT_APPROVAL,
+            subject="ask_core",
             detail={"request_id": approval_payload["request_id"], "tool": action.tool},
             run_id=run_row["id"],
         )
@@ -111,14 +111,20 @@ def run_ask_core(
         answer_summary=(result.answer or "")[:300],
     )
     audit_log(
-        ACT_RUN, subject="ask_core",
-        detail={"status": api_status, "actions": len(result.actions),
-                "rounds": result.rounds_used, "tool_calls": result.tool_calls_used},
+        ACT_RUN,
+        subject="ask_core",
+        detail={
+            "status": api_status,
+            "actions": len(result.actions),
+            "rounds": result.rounds_used,
+            "tool_calls": result.tool_calls_used,
+        },
         run_id=run_row["id"],
     )
     if api_status != "error":
-        persist_exchange(session_id, prompt, result.answer or "",
-                         tool_events=core_tool_events(result) or None)
+        persist_exchange(
+            session_id, prompt, result.answer or "", tool_events=core_tool_events(result) or None
+        )
 
     return AskCoreResult(
         answer=result.answer or "",

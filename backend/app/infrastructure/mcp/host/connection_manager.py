@@ -38,8 +38,9 @@ class ConnectionManager:
             logger.warning("Skipping MCP server %s: missing command", config.name)
             return False
         if config.token_env and not os.getenv(config.token_env):
-            logger.warning("Skipping MCP server %s: " \
-            "missing token %s", config.name, config.token_env)
+            logger.warning(
+                "Skipping MCP server %s: missing token %s", config.name, config.token_env
+            )
             return False
         return True
 
@@ -68,8 +69,12 @@ class ConnectionManager:
         self.sessions[name] = session
         return session
 
-    def call(self, request: MCPRemoteCall | str, method: str | None = None,
-             params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def call(
+        self,
+        request: MCPRemoteCall | str,
+        method: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if isinstance(request, MCPRemoteCall):
             name, method, params = request.server, request.method, request.params
         else:
@@ -88,8 +93,10 @@ class ConnectionManager:
             raise
 
     def health(self) -> dict[str, Any]:
-        return {name: bool(session.process and session.process.poll() is None)
-                for name, session in self.sessions.items()}
+        return {
+            name: bool(session.process and session.process.poll() is None)
+            for name, session in self.sessions.items()
+        }
 
     def list_tools(self, server: str | None = None) -> list[MCPHostTool]:
         names = [server] if server else list(self.configs)
@@ -100,12 +107,14 @@ class ConnectionManager:
             payload = self.call(name, "tools/list")
             for tool in payload.get("tools", []):
                 if isinstance(tool, dict) and isinstance(tool.get("name"), str):
-                    tools.append(MCPHostTool(
-                        name=tool["name"],
-                        description=str(tool.get("description", "")),
-                        input_schema=tool.get("inputSchema", {"type": "object"}),
-                        read_only=bool(tool.get("annotations", {}).get("readOnlyHint", True)),
-                    ))
+                    tools.append(
+                        MCPHostTool(
+                            name=tool["name"],
+                            description=str(tool.get("description", "")),
+                            input_schema=tool.get("inputSchema", {"type": "object"}),
+                            read_only=bool(tool.get("annotations", {}).get("readOnlyHint", True)),
+                        )
+                    )
         return tools
 
     def stop(self) -> None:

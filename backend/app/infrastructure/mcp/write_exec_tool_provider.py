@@ -148,9 +148,7 @@ class WriteExecToolProvider(LegacyRegistryToolProvider):
             try:
                 entry, _warnings = compile_tool(name, meta)
             except Exception as exc:  # entrée illisible : jamais bloquante
-                logger.warning(
-                    "MCP write/exec : « %s » non compilable (%s) — exclu", name, exc
-                )
+                logger.warning("MCP write/exec : « %s » non compilable (%s) — exclu", name, exc)
                 continue
             if entry["annotations"]["readOnlyHint"]:
                 # Garantie structurelle : la surface write/exec est MUTANTE.

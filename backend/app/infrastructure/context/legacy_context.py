@@ -27,9 +27,7 @@ class LegacyContextProvider:
         max_tokens: int = 1200,
         summarize_fn=None,
     ) -> tuple[list[Message], dict]:
-        return _legacy.optimize_history(
-            messages, max_tokens=max_tokens, summarize_fn=summarize_fn
-        )
+        return _legacy.optimize_history(messages, max_tokens=max_tokens, summarize_fn=summarize_fn)
 
     def update_memory_summary(
         self,
@@ -38,9 +36,7 @@ class LegacyContextProvider:
         answer: str,
         max_chars: int = 2000,
     ) -> str:
-        return _legacy.update_memory_summary(
-            previous_summary, prompt, answer, max_chars=max_chars
-        )
+        return _legacy.update_memory_summary(previous_summary, prompt, answer, max_chars=max_chars)
 
     def format_memory_note(self, summary: str) -> Message | None:
         return _legacy.format_memory_note(summary)

@@ -157,9 +157,7 @@ _PROMPTS: tuple[MCPPromptTemplate, ...] = (
 )
 
 # Index nom → prompt (validation des arguments) — dérivé du même catalogue.
-_PROMPT_INDEX: dict[str, MCPPromptTemplate] = {
-    prompt.name: prompt for prompt in _PROMPTS
-}
+_PROMPT_INDEX: dict[str, MCPPromptTemplate] = {prompt.name: prompt for prompt in _PROMPTS}
 
 # Index nom → template (résolution ``prompts/get``) — une seule source de
 # vérité avec le catalogue : aucun drift possible entre list et get.
@@ -206,9 +204,7 @@ class PromptProvider(MCPPromptRegistryPort):
         prompt = _PROMPT_INDEX.get(name)
         if prompt is None:
             available = ", ".join(sorted(_PROMPT_INDEX))
-            raise NotFoundError(
-                f"Prompt inconnu : '{name}'. Prompts disponibles : {available}."
-            )
+            raise NotFoundError(f"Prompt inconnu : '{name}'. Prompts disponibles : {available}.")
         values = dict(arguments or {})
         for key, value in values.items():
             if not isinstance(value, str):
@@ -223,8 +219,7 @@ class PromptProvider(MCPPromptRegistryPort):
         ]
         if missing:
             raise ValidationError(
-                f"Argument(s) requis manquant(s) pour le prompt '{name}' : "
-                f"{', '.join(missing)}."
+                f"Argument(s) requis manquant(s) pour le prompt '{name}' : {', '.join(missing)}."
             )
         resolved = _TEMPLATES[name].format(**values)
         logger.debug("MCP prompt '%s' résolu (%d caractère(s))", name, len(resolved))

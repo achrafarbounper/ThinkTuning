@@ -35,9 +35,7 @@ def start_intent_training_run(
     return runner.start(request)
 
 
-def cancel_intent_training_run(
-    job_id: str, *, runner: IntentTrainingRunnerPort
-) -> TrainJob:
+def cancel_intent_training_run(job_id: str, *, runner: IntentTrainingRunnerPort) -> TrainJob:
     """Annule un job d'intention (404 si inconnu — cf. adaptateur)."""
     return runner.cancel(job_id)
 
@@ -61,9 +59,7 @@ def list_intent_model_versions(*, versioning: IntentVersioningPort) -> dict:
     return {"total": len(versions), "items": versions, "active": active}
 
 
-def activate_intent_version(
-    version: str, *, versioning: IntentVersioningPort
-) -> dict:
+def activate_intent_version(version: str, *, versioning: IntentVersioningPort) -> dict:
     """Pointe active.json sur une version existante (422 si inconnue).
 
     Le classifieur en mémoire n'est PAS rechargé ici : l'IHM chaîne

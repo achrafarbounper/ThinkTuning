@@ -47,7 +47,9 @@ def classify_llm_error(exc: BaseException) -> ErrorClass:
         status = exc.response.status_code if exc.response is not None else None
         retryable = status in RETRYABLE_HTTP_STATUS
         return ErrorClass(
-            ErrorCategory.HTTP, retryable, http_status=status,
+            ErrorCategory.HTTP,
+            retryable,
+            http_status=status,
             reason=f"http {status}",
         )
     if isinstance(exc, CircuitBreaker.CallNotPermitted):

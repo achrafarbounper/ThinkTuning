@@ -64,9 +64,7 @@ def load_mcp_version(
     else:
         found = next((c for c in _default_candidates() if c.is_file()), None)
         if found is None:
-            return _fallback(
-                "pyproject.toml introuvable (racine package et CWD sondés)", strict
-            )
+            return _fallback("pyproject.toml introuvable (racine package et CWD sondés)", strict)
         path = found
     try:
         return MCPVersion.from_toml_source(path.read_text(encoding="utf-8"))

@@ -84,7 +84,10 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
 
     provider = values.get("provider")
     if provider is not None and provider not in (
-        "ollama", "openrouter", "hf", "lm_studio",
+        "ollama",
+        "openrouter",
+        "hf",
+        "lm_studio",
     ):
         errors.append("provider doit valoir 'ollama', 'openrouter', 'hf' ou 'lm_studio'.")
 

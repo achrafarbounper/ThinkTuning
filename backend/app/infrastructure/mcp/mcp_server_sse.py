@@ -140,9 +140,7 @@ def _is_streaming_orchestrate(payload: object) -> bool:
     )
 
 
-async def _stream_orchestrate(
-    payload: dict[str, Any], *, client_id: str
-) -> AsyncIterator[str]:
+async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> AsyncIterator[str]:
     """Relaye la réflexion et la progression du tool MCP en temps réel.
 
     Les événements de progression reprennent les payloads du flux core
@@ -213,9 +211,7 @@ async def _stream_orchestrate(
     yield _sse_event("orchestrate.started", {"status": "started"})
     while True:
         try:
-            item = await asyncio.wait_for(
-                asyncio.to_thread(events.get), timeout=10.0
-            )
+            item = await asyncio.wait_for(asyncio.to_thread(events.get), timeout=10.0)
         except TimeoutError:
             yield ": heartbeat\n\n"
             continue

@@ -36,9 +36,7 @@ class MemoryRunStore:
         self._runs: dict[str, dict[str, Any]] = {}
         self._seq = 0
 
-    def start_run(
-        self, prompt: str, model: str = "", source: str = "api"
-    ) -> dict[str, Any]:
+    def start_run(self, prompt: str, model: str = "", source: str = "api") -> dict[str, Any]:
         with self._lock:
             self._seq += 1
             run_id = f"run-{self._seq:04d}-{uuid.uuid4().hex[:6]}"
@@ -92,13 +90,12 @@ class MemoryRunStore:
     ) -> list[dict[str, Any]]:
         with self._lock:
             rows = [
-                dict(row) for row in reversed(list(self._runs.values()))
+                dict(row)
+                for row in reversed(list(self._runs.values()))
                 if status is None or row["status"] == status
             ]
         if tool is not None:
-            rows = [r for r in rows if any(
-                ev.get("tool") == tool for ev in r["tools"]
-            )]
+            rows = [r for r in rows if any(ev.get("tool") == tool for ev in r["tools"])]
         # Contrat legacy : limit <= 0 = non borné (le SQLite legacy n'émet
         # aucune clause LIMIT dans ce cas).
         return rows if limit <= 0 else rows[:limit]
@@ -159,14 +156,10 @@ class MemoryApprovalStore:
                 record["decided_by"] = decided_by
             return dict(record)
 
-    def approve(
-        self, request_id: str, decided_by: str | None = None
-    ) -> dict[str, Any] | None:
+    def approve(self, request_id: str, decided_by: str | None = None) -> dict[str, Any] | None:
         return self._decide(request_id, APPROVED, decided_by)
 
-    def reject(
-        self, request_id: str, decided_by: str | None = None
-    ) -> dict[str, Any] | None:
+    def reject(self, request_id: str, decided_by: str | None = None) -> dict[str, Any] | None:
         return self._decide(request_id, REJECTED, decided_by)
 
     def list(self, status: str | None = None) -> list[dict[str, Any]]:

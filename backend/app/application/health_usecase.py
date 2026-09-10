@@ -39,9 +39,7 @@ def run_health_check(
     )
 
 
-def run_model_sanity_check(
-    model_name: str | None, *, predictor: PredictionPort
-) -> SanityReport:
+def run_model_sanity_check(model_name: str | None, *, predictor: PredictionPort) -> SanityReport:
     """Exécute le sanity check comportemental d'une version de modèle.
 
     Retourne le rapport COMPLET : la décision HTTP (200 rapport vs 503

@@ -32,9 +32,7 @@ class PredictionPort(Protocol):
     legacy par l'adaptateur).
     """
 
-    def predict(
-        self, texts: list[str], model_name: str | None = None
-    ) -> list[PredictionResult]:
+    def predict(self, texts: list[str], model_name: str | None = None) -> list[PredictionResult]:
         """Prédit le sentiment d'une liste non vide de phrases (ordre préservé)."""
         ...
 

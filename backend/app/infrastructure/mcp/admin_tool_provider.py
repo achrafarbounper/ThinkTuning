@@ -147,16 +147,12 @@ class AdminToolProvider(LegacyRegistryToolProvider):
                 continue
             func = self._tools.get(name)
             if func is None:
-                logger.warning(
-                    "MCP admin : « %s » sans implémentation legacy — exclu", name
-                )
+                logger.warning("MCP admin : « %s » sans implémentation legacy — exclu", name)
                 continue
             try:
                 entry, _warnings = compile_tool(name, meta)
             except Exception as exc:  # entrée illisible : jamais bloquante
-                logger.warning(
-                    "MCP admin : « %s » non compilable (%s) — exclu", name, exc
-                )
+                logger.warning("MCP admin : « %s » non compilable (%s) — exclu", name, exc)
                 continue
             if entry["annotations"]["readOnlyHint"]:
                 # Garantie structurelle : la surface admin est MUTANTE.

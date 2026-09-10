@@ -120,11 +120,15 @@ def build_llm_client(model: str | None = None, *, think: bool = False):
     return build_legacy_llm_client(model=model, think=think)
 
 
-def build_agent_core(approval_gateway=None, on_tool_event=None,
-                     enable_thinking=False, on_thinking=None,
-                     event_bus=None,
-                     intent_classifier=None,
-                     model=None) -> AgentCore:
+def build_agent_core(
+    approval_gateway=None,
+    on_tool_event=None,
+    enable_thinking=False,
+    on_thinking=None,
+    event_bus=None,
+    intent_classifier=None,
+    model=None,
+) -> AgentCore:
     """Assemble le noyau agentique complet (LLM réel + registre legacy).
 
     ``approval_gateway`` : callback optionnel ``(Action) -> bool`` injecté au
@@ -150,11 +154,14 @@ def build_agent_core(approval_gateway=None, on_tool_event=None,
     llm = build_llm_client(model=model, think=enable_thinking)
     logger.info(
         "Noyau agentique assemblé : provider=%s model=%s outils=%d flags=%s",
-        settings.agent_provider.value, model or settings.agent_model_name,
-        len(registry.tool_names()), settings.active_flags(),
+        settings.agent_provider.value,
+        model or settings.agent_model_name,
+        len(registry.tool_names()),
+        settings.active_flags(),
     )
     return AgentCore(
-        llm, registry,
+        llm,
+        registry,
         approval_gateway=approval_gateway,
         on_tool_event=on_tool_event,
         enable_thinking=enable_thinking,

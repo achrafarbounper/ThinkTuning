@@ -409,12 +409,9 @@ def _decode_segment(raw: str, *, segment: _Segment) -> str:
     decoded = unquote(raw)
     if "%" in decoded:
         raise NotFoundError(
-            f"{segment.label} : encodage multiple interdit dans l'URI "
-            f"('{_short_uri(raw)}')"
+            f"{segment.label} : encodage multiple interdit dans l'URI ('{_short_uri(raw)}')"
         )
-    if "\\" in decoded or "\x00" in decoded or any(
-        ord(c) < 32 or ord(c) == 127 for c in decoded
-    ):
+    if "\\" in decoded or "\x00" in decoded or any(ord(c) < 32 or ord(c) == 127 for c in decoded):
         raise NotFoundError(
             f"{segment.label} : séparateur backslash ou caractère de contrôle "
             f"interdit dans l'URI ('{_short_uri(raw)}')"
@@ -427,13 +424,11 @@ def _decode_segment(raw: str, *, segment: _Segment) -> str:
         )
     if not segment.allow_slash and len(parts) > 1:
         raise NotFoundError(
-            f"{segment.label} : séparateur '/' interdit dans l'URI "
-            f"('{_short_uri(raw)}')"
+            f"{segment.label} : séparateur '/' interdit dans l'URI ('{_short_uri(raw)}')"
         )
     if len(decoded) > segment.max_chars:
         raise NotFoundError(
-            f"{segment.label} : trop long ({len(decoded)} > "
-            f"{segment.max_chars} caractères)"
+            f"{segment.label} : trop long ({len(decoded)} > {segment.max_chars} caractères)"
         )
     return decoded
 
@@ -447,8 +442,7 @@ def _match_route(uri: str) -> tuple[_Route, dict[str, str]]:
     """
     if not isinstance(uri, str) or not uri.startswith(RESOURCE_SCHEME):
         raise NotFoundError(
-            f"Resource inconnue : '{_short_uri(str(uri))}' "
-            f"(schéma attendu : '{RESOURCE_SCHEME}')"
+            f"Resource inconnue : '{_short_uri(str(uri))}' (schéma attendu : '{RESOURCE_SCHEME}')"
         )
     for route in _ROUTES:
         match = route.pattern.match(uri)
@@ -482,9 +476,7 @@ def _lazy_legacy_tool(name: str) -> Callable[[], Callable[..., dict]]:
 
         func = TOOLS.get(name)
         if func is None:
-            raise RuntimeError(
-                f"Tool legacy « {name} » introuvable dans ia.tools.tool_registry."
-            )
+            raise RuntimeError(f"Tool legacy « {name} » introuvable dans ia.tools.tool_registry.")
         return func
 
     return _resolve
@@ -612,9 +604,7 @@ def _read_model_version_info(version: str) -> dict:
             f"Version de modèle inconnue : '{version}'. Utilisez "
             "thinktuning://models pour voir les versions disponibles."
         )
-    version_dir = safe_resolve(
-        Path(str(listing["model_root"])) / version, must_exist=True
-    )
+    version_dir = safe_resolve(Path(str(listing["model_root"])) / version, must_exist=True)
     artifacts: list[dict[str, Any]] = [
         {"name": child.name, "size_bytes": child.stat().st_size}
         for child in version_dir.iterdir()
@@ -759,30 +749,20 @@ class LegacyResourceProvider(MCPResourceRegistryPort):
             "job": (lambda: job_get) if job_get else _lazy_legacy_tool("job_get"),
             "job_logs": (lambda: job_logs) if job_logs else _lazy_job_logs(),
             "models": (
-                (lambda: model_versions)
-                if model_versions
-                else _lazy_legacy_tool("model_versions")
+                (lambda: model_versions) if model_versions else _lazy_legacy_tool("model_versions")
             ),
             "model_info": (
-                (lambda: model_info)
-                if model_info
-                else (lambda: _read_model_version_info)
+                (lambda: model_info) if model_info else (lambda: _read_model_version_info)
             ),
             "dataset_stats": (
-                (lambda: dataset_stats)
-                if dataset_stats
-                else _lazy_legacy_tool("dataset_stats")
+                (lambda: dataset_stats) if dataset_stats else _lazy_legacy_tool("dataset_stats")
             ),
             "dataset_preview": (
-                (lambda: dataset_preview)
-                if dataset_preview
-                else _lazy_legacy_tool("head_file")
+                (lambda: dataset_preview) if dataset_preview else _lazy_legacy_tool("head_file")
             ),
             "config": (lambda: agent_config) if agent_config else _lazy_agent_config(),
             "job_metrics": (lambda: job_metrics) if job_metrics else _lazy_job_metrics(),
-            "health": (
-                (lambda: system_health) if system_health else _lazy_system_health()
-            ),
+            "health": ((lambda: system_health) if system_health else _lazy_system_health()),
         }
 
     # --- Métadonnées (resources/list) — pur, sans I/O -----------------------
@@ -831,9 +811,7 @@ class LegacyResourceProvider(MCPResourceRegistryPort):
             # PermissionError = chemin hors sandbox) → 404 fail-closed : le
             # client peut corriger l'URI, le transport reste sain.
             logger.info("MCP resource %s indisponible : %s", uri, exc)
-            raise NotFoundError(
-                f"Resource « {_short_uri(uri)} » indisponible : {exc}"
-            ) from exc
+            raise NotFoundError(f"Resource « {_short_uri(uri)} » indisponible : {exc}") from exc
         return _payload_to_json(payload)
 
     def _execute(self, kind: str, params: dict[str, str]) -> Any:
@@ -860,9 +838,7 @@ class LegacyResourceProvider(MCPResourceRegistryPort):
                     f"Format non supporté : '{suffix or 'aucun'}'. "
                     f"Formats : {sorted(_DATASET_SUFFIXES)} (CSV/TSV/JSONL)."
                 )
-            return self._resolvers[kind]()(
-                path=params["path"], max_lines=MAX_PREVIEW_LINES
-            )
+            return self._resolvers[kind]()(path=params["path"], max_lines=MAX_PREVIEW_LINES)
         return self._resolvers[kind]()(**params)
 
 

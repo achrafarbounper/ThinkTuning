@@ -40,7 +40,7 @@ __all__ = [
     "ApprovalDecision",
     "ApprovalStatus",
     "Decision",
-        "DEFAULT_MCP_VERSION",
+    "DEFAULT_MCP_VERSION",
     "HealthSnapshot",
     "Intent",
     "MCPResource",

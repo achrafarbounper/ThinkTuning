@@ -36,9 +36,7 @@ from core.models import (
 )
 
 
-def start_training_run(
-    request: TrainRequest, *, runner: TrainingRunnerPort
-) -> TrainJob:
+def start_training_run(request: TrainRequest, *, runner: TrainingRunnerPort) -> TrainJob:
     """Démarre un entraînement : job PENDING immédiatement retourné (202)."""
     return runner.start(request)
 
@@ -51,9 +49,7 @@ def get_training_job_status(job_id: str, *, jobs: TrainingJobsPort) -> TrainJob:
     return job
 
 
-def get_training_job_history(
-    job_id: str, *, jobs: TrainingJobsPort
-) -> TrainHistoryResponse:
+def get_training_job_history(job_id: str, *, jobs: TrainingJobsPort) -> TrainHistoryResponse:
     """Historique des métriques par epoch (SCRUM-73) ; liste vide si aucune."""
     if jobs.get(job_id) is None:
         raise NotFoundError("job_id introuvable")

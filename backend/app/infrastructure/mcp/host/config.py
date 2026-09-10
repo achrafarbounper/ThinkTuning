@@ -24,6 +24,7 @@ def load_server_configs(path: str | Path | None = None) -> list[MCPServerConfig]
         return []
     try:
         import yaml  # type: ignore[import-not-found]
+
         document: dict[str, Any] = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     except ImportError as exc:
         raise RuntimeError("PyYAML is required only when AGENT_MCP_HOST is enabled") from exc
@@ -44,12 +45,17 @@ def load_server_configs(path: str | Path | None = None) -> list[MCPServerConfig]
         if not command or not command[0] or command[0] == "[]":
             logger.warning("Skipping MCP server %s: command not configured", name)
             continue
-        configs.append(MCPServerConfig(
-            name=name, command=command, env={str(k):
-                                             str(v) for k, v in (raw.get("env") or {}).items()},
-            token_env=raw.get("token_env"), timeout=float(raw.get("timeout_seconds", 10)),
-            max_restarts=int(raw.get("max_restarts", 2)), enabled=bool(raw.get("enabled", True)),
-        ))
+        configs.append(
+            MCPServerConfig(
+                name=name,
+                command=command,
+                env={str(k): str(v) for k, v in (raw.get("env") or {}).items()},
+                token_env=raw.get("token_env"),
+                timeout=float(raw.get("timeout_seconds", 10)),
+                max_restarts=int(raw.get("max_restarts", 2)),
+                enabled=bool(raw.get("enabled", True)),
+            )
+        )
     return configs
 
 

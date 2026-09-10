@@ -16,8 +16,9 @@ class StdioSessionError(RuntimeError):
 
 
 class StdioSession:
-    def __init__(self, command: list[str], env: dict[str, str] | None = None,
-                 timeout: float = 10.0) -> None:
+    def __init__(
+        self, command: list[str], env: dict[str, str] | None = None, timeout: float = 10.0
+    ) -> None:
         if not command:
             raise ValueError("MCP command cannot be empty")
         self.command, self.env, self.timeout = command, env, timeout
@@ -30,17 +31,25 @@ class StdioSession:
             return
         try:
             self.process = subprocess.Popen(
-                self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True, encoding="utf-8", env=self.env,
+                self.command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                env=self.env,
                 bufsize=1,
             )
         except OSError as exc:
             raise StdioSessionError(f"cannot start MCP server: {self.command[0]}") from exc
-        self.request("initialize", {
-            "protocolVersion": "2025-06-18",
-            "capabilities": {},
-            "clientInfo": {"name": "thinktuning-host", "version": "1.0"},
-        })
+        self.request(
+            "initialize",
+            {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "thinktuning-host", "version": "1.0"},
+            },
+        )
         self.notify("notifications/initialized", {})
 
     def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -50,10 +59,17 @@ class StdioSession:
             assert self.process.stdin and self.process.stdout
             request_id = self._next_id
             self._next_id += 1
-            self.process.stdin.write(json.dumps({
-                "jsonrpc": "2.0", "id": request_id, "method": method,
-                "params": params or {},
-            }) + "\n")
+            self.process.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "method": method,
+                        "params": params or {},
+                    }
+                )
+                + "\n"
+            )
             self.process.stdin.flush()
             result: dict[str, Any] | None = [None]
             error: list[BaseException] = []
@@ -81,9 +97,16 @@ class StdioSession:
         if not self.process or self.process.poll() is not None:
             raise StdioSessionError("MCP server is not running")
         assert self.process.stdin
-        self.process.stdin.write(json.dumps({
-            "jsonrpc": "2.0", "method": method, "params": params or {},
-        }) + "\n")
+        self.process.stdin.write(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "method": method,
+                    "params": params or {},
+                }
+            )
+            + "\n"
+        )
         self.process.stdin.flush()
 
     def stop(self) -> None:

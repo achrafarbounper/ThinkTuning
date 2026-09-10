@@ -51,7 +51,7 @@ _FLAG_NAMES = (
     "multi_agent",
     "custom_tools",  # SCRUM-99 : tools personnalisés dynamiques
     "new_core",  # bascule du noyau agentique v2 (AGENT_NEW_CORE)
-    "llm_v2",    # client LLM propre vs legacy (AGENT_LLM_V2)
+    "llm_v2",  # client LLM propre vs legacy (AGENT_LLM_V2)
 )
 
 
@@ -88,6 +88,7 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [o.strip() for o in v.split(",") if o.strip()]
         return v
+
     dashboard_ws_token: str = Field(
         default="", description="Jeton dédié au WebSocket /train/stream (défaut : api_key)"
     )
@@ -174,7 +175,6 @@ class Settings(BaseSettings):
         default=True,
         description="Auth X-API-Key obligatoire sur POST /mcp/sse (transport MCP).",
     )
-
 
     @model_validator(mode="before")
     @classmethod

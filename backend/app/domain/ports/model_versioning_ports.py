@@ -58,9 +58,7 @@ class ModelVersioningPort(Protocol):
 class EvaluationPort(Protocol):
     """Évaluation d'un modèle sur un échantillon de référence (confusion)."""
 
-    def run_confusion(
-        self, *, model: str | None, limit: int, max_mistakes: int
-    ) -> dict:
+    def run_confusion(self, *, model: str | None, limit: int, max_mistakes: int) -> dict:
         """Matrice de confusion + métriques + erreurs par classe + mistakes.
 
         ``model=None`` => dernière version valide. Lève

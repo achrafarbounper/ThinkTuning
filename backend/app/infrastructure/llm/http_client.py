@@ -56,7 +56,7 @@ def _parse_chunk(line: Any):
         line = line.decode("utf-8", errors="replace")
     line = line.strip()
     if line.startswith("data:"):
-        line = line[len("data:"):].lstrip()
+        line = line[len("data:") :].lstrip()
     if not line or line == "[DONE]":
         return None
     try:
@@ -190,12 +190,20 @@ class HttpLLMClient:
         logger.info(
             "llm_request provider=%s url=%s model=%s messages=%d "
             "timeout=%s streaming=true num_ctx=%d",
-            self.provider, self.url, self.model, len(messages),
-            self.timeout, self.context_length,
+            self.provider,
+            self.url,
+            self.model,
+            len(messages),
+            self.timeout,
+            self.context_length,
         )
         payload = _build_payload(
-            self.provider, self.model, messages,
-            self.temperature, self.context_length, self.think,
+            self.provider,
+            self.model,
+            messages,
+            self.temperature,
+            self.context_length,
+            self.think,
         )
         try:
             content, thinking = self._stream(payload, on_thinking, on_content)
@@ -214,7 +222,8 @@ class HttpLLMClient:
         logger.info(
             "llm_response status=ok elapsed_ms=%.0f content_chars=%d thinking_chars=%d",
             (time.perf_counter() - started) * 1000,
-            len(content), len(self.last_thinking),
+            len(content),
+            len(self.last_thinking),
         )
         logger.debug("llm_response_content=%s", content)
         self.last_error = None
@@ -236,8 +245,11 @@ class HttpLLMClient:
         ec = error_class.to_dict() if error_class is not None else None
         logger.warning(
             "llm_attempt_failed attempt=%d/%d category=%s error=%s retryable=%s",
-            attempt, self.retry_attempts, (ec or {}).get("category"),
-            type(exc).__name__, (ec or {}).get("retryable"),
+            attempt,
+            self.retry_attempts,
+            (ec or {}).get("category"),
+            type(exc).__name__,
+            (ec or {}).get("retryable"),
         )
 
     def _open_stream(self, payload: dict):
@@ -275,7 +287,9 @@ class HttpLLMClient:
         except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError):
             logger.error(
                 "llm_open_failed url=%s provider=%s elapsed_ms=%.0f",
-                self.url, self.provider, (time.perf_counter() - started) * 1000,
+                self.url,
+                self.provider,
+                (time.perf_counter() - started) * 1000,
             )
             if resp is not None:
                 try:
@@ -306,8 +320,7 @@ class HttpLLMClient:
                 # sur une erreur de template / de validité.
                 if chunk.get("error"):
                     raise RuntimeError(
-                        "Erreur LLM en flux : "
-                        + json.dumps(chunk["error"], ensure_ascii=False)
+                        "Erreur LLM en flux : " + json.dumps(chunk["error"], ensure_ascii=False)
                     )
                 msg = chunk.get("message") or chunk.get("delta") or {}
                 delta = msg.get("content") or ""

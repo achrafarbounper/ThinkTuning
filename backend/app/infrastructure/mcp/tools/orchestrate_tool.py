@@ -140,9 +140,9 @@ def orchestrate_stream(
 ) -> AgentRunResult:
     """Exécute ``orchestrate`` en exposant les événements de progression.
 
-        Le run reste synchrone côté noyau, mais ses callbacks sont relayés au
-        transport SSE. Le résultat final conserve exactement le contrat MCP
-        existant, ce qui permet au client de basculer progressivement.
+    Le run reste synchrone côté noyau, mais ses callbacks sont relayés au
+    transport SSE. Le résultat final conserve exactement le contrat MCP
+    existant, ce qui permet au client de basculer progressivement.
     """
     emit = on_event or (lambda _kind, _payload: None)
     return orchestrate(
@@ -150,9 +150,7 @@ def orchestrate_stream(
         session_id=session_id,
         scope=scope,
         enable_thinking=enable_thinking,
-        on_thinking=lambda chunk: emit(
-            "orchestrate.thinking", {"thinking_delta": chunk}
-        ),
+        on_thinking=lambda chunk: emit("orchestrate.thinking", {"thinking_delta": chunk}),
         on_tool_event=lambda event: emit("orchestrate.tool", dict(event)),
     )
 
@@ -220,8 +218,10 @@ def build_orchestrate_tool(
             ) from exc
         logger.info(
             "MCP orchestrate terminé : statut=%s actions=%d rounds=%d tools=%d",
-            result.status.value, len(result.actions),
-            result.rounds_used, result.tool_calls_used,
+            result.status.value,
+            len(result.actions),
+            result.rounds_used,
+            result.tool_calls_used,
         )
         return _result_to_text(result)
 
