@@ -168,9 +168,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allowed_origins(),
     allow_origin_regex=_cors_allow_origin_regex(),
+    # P0 SEC (F5) : credentials UNIQUEMENT avec origines explicites (pas de
+    # wildcard), méthodes/headers énumérés — jamais ["*"] + credentials.
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "X-API-Key", "Content-Type", "Accept"],
 )
 
 # SCRUM-34 : démarre le scheduler APScheduler et recharge les planifications

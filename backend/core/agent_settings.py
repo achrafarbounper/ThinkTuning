@@ -132,6 +132,18 @@ def _get_store() -> AgentSettingsStore:
     return _store
 
 
+def get_settings_store() -> AgentSettingsStore:
+    """Store persistant des paramètres (SQLite ou MongoDB selon PERSISTENCE_BACKEND).
+
+    Point d'accès PUBLIC unique (SCRUM-137) : la lecture
+    (``get_agent_settings``, consommée par ``core/agent_cache.agent_config``)
+    et les adaptateurs d'écriture (``LegacySettingsAdapter``) doivent résoudre
+    le MÊME backend — sans quoi une sauvegarde du dashboard reste invisible du
+    runtime et le rechargement de l'agent s'appuie sur des valeurs périmées.
+    """
+    return _get_store()
+
+
 def reset_store_for_tests(path: str) -> AgentSettingsStore:
     """Réinitialise le store partagé vers une base isolée (tests)."""
     global _store
@@ -187,8 +199,14 @@ def get_agent_settings() -> dict:
         "temperature": entry("temperature", None, None),
     }
     # Normalisation : l'env peut porter « OpenRouter » ; les chaînes sont
-    # nettoyées pour que « » == non défini côté consommateurs.
-    settings["provider"]["value"] = (settings["provider"]["value"] or "ollama").strip().lower()
+    # nettoyées pour que « » == non défini côté consommateurs. Des guillemets
+    # environnants survivent à un double-encodage JSON (ex. valeur migrée
+    # « "openrouter" » restée en base) : retirés en durcissement (SCRUM-137)
+    # pour que LLMClient ne lève jamais « Provider LLM inconnu ».
+    raw_provider = settings["provider"]["value"] or "ollama"
+    settings["provider"]["value"] = (
+        str(raw_provider).strip().strip("\"'").lower() or "ollama"
+    )
     for text_key in ("model", "ollama_url", "openrouter_url", "hf_url", "lm_studio_url"):
         raw = settings[text_key]["value"]
         settings[text_key]["value"] = raw.strip() if isinstance(raw, str) else raw

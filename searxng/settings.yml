@@ -6,8 +6,12 @@
 use_default_settings: true
 
 server:
-  # Clé secrète interne de l'instance (à changer en production).
-  secret_key: "thinktuning-searxng-change-me"
+  # P0 SEC (F14) — PAS de secret en dur : la stack SearXNG honore
+  # $SEARXNG_SECRET (docs admin/settings_server : « secret_key $SEARXNG_SECRET
+  # — Used for cryptography purpose »). Compose DOIT injecter SEARXNG_SECRET
+  # (généré au setup, cf. docker-compose.yml) ; SANS la variable, SearXNG
+  # refuse de démarrer (fail-closed) au lieu d'utiliser une clé publique.
+  secret_key: "$SEARXNG_SECRET"
   # Instance locale réservée à l'agent : le limiter anti-bot renverrait
   # des 429 aux requêtes répétées de web_search.
   limiter: false

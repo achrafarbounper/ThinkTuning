@@ -7,10 +7,17 @@ from fastapi.testclient import TestClient
 from api import app
 
 client = TestClient(app)
+AUTH = {"X-API-Key": "test-key"}
+
+
+def test_metrics_requires_api_key():
+    """P0 SEC (F4) : l'exposition Prometheus n'est plus publique."""
+    assert client.get("/api/v1/metrics").status_code == 401
+    assert client.get("/api/v1/metrics/json").status_code == 401
 
 
 def test_metrics_endpoint_exposes_prometheus_data():
-    response = client.get("/api/v1/metrics")
+    response = client.get("/api/v1/metrics", headers=AUTH)
 
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("text/plain")
@@ -23,7 +30,7 @@ def test_metrics_json_endpoint_returns_structured_snapshot():
     # Génère au moins une observation pour que l'histogramme soit peuplé.
     client.get("/api/v1/health", headers={"X-API-Key": "test-key"})
 
-    response = client.get("/api/v1/metrics/json")
+    response = client.get("/api/v1/metrics/json", headers=AUTH)
 
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("application/json")

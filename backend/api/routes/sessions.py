@@ -8,8 +8,8 @@
     DELETE /api/sessions/{id}            suppression (messages inclus)
     GET    /api/sessions/{id}/messages   messages chronologiques
 
-Les endpoints d'écriture exigent la clé API (X-API-Key) ; la lecture est
-publique comme les autres routes de consultation de l'agent.
+P0 SEC (F4) : TOUTE la surface sessions exige la clé API (X-API-Key) — les
+conversations contiennent des PII et ne sont plus en lecture publique.
 """
 
 
@@ -32,7 +32,7 @@ class SessionRename(BaseModel):
 
 
 @router.get("")
-def list_sessions(limit: int = 100):
+def list_sessions(limit: int = 100, _: bool = Depends(require_api_key)):
     """Liste des conversations (id/titre/modèle/horodatages)."""
     return {"sessions": get_session_store().list_sessions(limit=limit)}
 
@@ -61,7 +61,7 @@ def delete_session(session_id: str, _: bool = Depends(require_api_key)):
 
 
 @router.get("/{session_id}/messages")
-def list_messages(session_id: str, limit: int = 200):
+def list_messages(session_id: str, limit: int = 200, _: bool = Depends(require_api_key)):
     """Messages d'une conversation, dans l'ordre chronologique.
 
     Les événements d'outils bruts restent disponibles dans chaque message via

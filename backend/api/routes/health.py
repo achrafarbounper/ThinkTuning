@@ -5,6 +5,7 @@ import os
 from fastapi import APIRouter, HTTPException, Query
 
 from api.middlewares.maintenance import is_maintenance_mode
+from app.infrastructure.ml.model_repository_adapter import mask_model_dir
 from core.job_store import get_job_store
 from core.model_sanity import VERDICT_OK, run_model_sanity
 from core.model_versioning import MODEL_ROOT, list_model_versions
@@ -16,9 +17,13 @@ router = APIRouter(tags=["Health"])
 
 @router.get("/health")
 def health():
-    """Statut rapide de l'API : modèle dispo ou non, jobs actifs, maintenance."""
+    """Statut rapide de l'API : modèle dispo ou non, jobs actifs, maintenance.
+
+    P0 SEC (F4) : ``model_dir`` n'expose que le NOM de version (jamais le
+    chemin absolu serveur — anti-fingerprinting).
+    """
     versions = list_model_versions()
-    active_model_dir = os.path.join(MODEL_ROOT, versions[0]) if versions else None
+    active_model_dir = mask_model_dir(os.path.join(MODEL_ROOT, versions[0])) if versions else None
 
     return {
         "status": "ok",

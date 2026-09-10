@@ -1069,7 +1069,7 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
                     kind, payload = await asyncio.wait_for(
                         asyncio.to_thread(events.get), timeout=HEARTBEAT_INTERVAL_S
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Heartbeat : garde la connexion SSE vivante derrière les
                     # proxies qui coupent les flux silencieux (>30s sans byte).
                     yield ": heartbeat\n\n"
@@ -1330,10 +1330,14 @@ def update_agent_settings(
         raise HTTPException(status_code=400, detail="; ".join(errors))
 
     # Rechargement immédiat ; une config encore incomplète n'est PAS une erreur.
+    # ``ValueError`` : valeur persistée invalide (ex. provider double-encodé
+    # resté en base) — les réglages sont quand même sauvés, seul le reload est
+    # dégradé (warning dans la réponse, jamais un 500). (SCRUM-137)
     try:
         reload_agent_runner()
-    except HTTPException as exc:
-        payload["warning"] = f"Paramètres enregistrés, mais agent non rechargé : {exc.detail}"
+    except (HTTPException, ValueError) as exc:
+        detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        payload["warning"] = f"Paramètres enregistrés, mais agent non rechargé : {detail}"
         payload["reload_ok"] = False
     else:
         payload["reload_ok"] = True

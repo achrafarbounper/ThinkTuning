@@ -39,7 +39,7 @@ VERCEL_REGEX = r"^https://think-tuning-ai-[a-z0-9-]+\.vercel\.app$"
 
 
 def _make_client(origins: list[str], regex: str | None = None) -> TestClient:
-    """App synthétique câblée comme api/main.py : CORS = seul middleware."""
+    """App synthétique câblée comme api/main.py : CORS = seul middleware (P0)."""
     app = FastAPI()
 
     @app.get("/ping")
@@ -51,8 +51,8 @@ def _make_client(origins: list[str], regex: str | None = None) -> TestClient:
         allow_origins=origins,
         allow_origin_regex=regex,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "X-API-Key", "Content-Type", "Accept"],
     )
     return TestClient(app)
 

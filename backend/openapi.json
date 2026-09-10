@@ -2124,7 +2124,7 @@
           "Sessions (v1)"
         ],
         "summary": "List Sessions",
-        "description": "Liste des conversations (publique — parité avec le legacy).",
+        "description": "Liste des conversations (protégé — parité avec le legacy durci).",
         "operationId": "list_sessions_api_v1_sessions_get",
         "parameters": [
           {
@@ -2135,6 +2135,22 @@
               "type": "integer",
               "default": 100,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
             }
           }
         ],
@@ -2344,7 +2360,7 @@
           "Sessions (v1)"
         ],
         "summary": "List Messages",
-        "description": "Messages d'une conversation, ordre chronologique (public — parité).",
+        "description": "Messages d'une conversation, ordre chronologique (protégé — PII).",
         "operationId": "list_messages_api_v1_sessions__session_id__messages_get",
         "parameters": [
           {
@@ -2364,6 +2380,22 @@
               "type": "integer",
               "default": 200,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
             }
           }
         ],
@@ -2503,12 +2535,40 @@
         "summary": "Metrics",
         "description": "Snapshot Prometheus au format texte (lancement du Monitoring).",
         "operationId": "metrics_api_v1_metrics_get",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -2523,12 +2583,40 @@
         "summary": "Metrics Json",
         "description": "Repli JSON agrégé (même payload que le legacy).",
         "operationId": "metrics_json_api_v1_metrics_json_get",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -3944,7 +4032,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -3956,7 +4044,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -3977,7 +4065,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File"
           },
           "text_column": {
@@ -5524,13 +5612,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",

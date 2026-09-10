@@ -709,7 +709,7 @@ export interface paths {
         };
         /**
          * List Sessions
-         * @description Liste des conversations (publique — parité avec le legacy).
+         * @description Liste des conversations (protégé — parité avec le legacy durci).
          */
         get: operations["list_sessions_api_v1_sessions_get"];
         put?: never;
@@ -757,7 +757,7 @@ export interface paths {
         };
         /**
          * List Messages
-         * @description Messages d'une conversation, ordre chronologique (public — parité).
+         * @description Messages d'une conversation, ordre chronologique (protégé — PII).
          */
         get: operations["list_messages_api_v1_sessions__session_id__messages_get"];
         put?: never;
@@ -1359,7 +1359,10 @@ export interface components {
         };
         /** Body_predict_batch_api_v1_predict_batch_post */
         Body_predict_batch_api_v1_predict_batch_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /**
              * Text Column
@@ -2039,10 +2042,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -3237,7 +3236,9 @@ export interface operations {
             query?: {
                 limit?: number;
             };
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3373,7 +3374,9 @@ export interface operations {
             query?: {
                 limit?: number;
             };
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path: {
                 session_id: string;
             };
@@ -3470,7 +3473,9 @@ export interface operations {
     metrics_api_v1_metrics_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3485,12 +3490,23 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     metrics_json_api_v1_metrics_json_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -3503,6 +3519,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

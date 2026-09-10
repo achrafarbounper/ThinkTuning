@@ -18,6 +18,26 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # P0 SEC (F7) : en-têtes de durcissement sur TOUTES les réponses (y
+    # compris le SPA statique) — anti-clickjacking / MIME-sniffing / XSS.
+    # CSP stricte : même origine uniquement (le dashboard ne charge ni CDN
+    # ni inline tiers) ; frame-ancestors 'none' (pas d'iframe).
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    # HSTS activé UNIQUEMENT quand le proxy termine du TLS en amont
+    # (X-Forwarded-Proto=https) — sinon un navigateur HTTP mémoriserait un
+    # HSTS indésirable. Derrière Render/Vercel/Cloudflare : actif.
+    # (déclaration conditionnelle impossible avec add_header → map en tête
+    # de http{} dans nginx.main.conf si besoin ; ici on documente.)
+
+    # Corps de requêtes borné : l'API impose déjà ses propres plafonds
+    # (PREDICT_*/batch) ; nginx coupe avant (anti Slowloris volumétrique).
+    client_max_body_size 12m;
+    client_body_timeout 30s;
+    client_header_timeout 15s;
+
     # Proxy des appels /api/* vers l'API FastAPI (conteneur séparé).
     location /api/ {
         proxy_pass http://${API_UPSTREAM};
@@ -33,6 +53,7 @@ server {
         proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+        limit_req zone=api_burst burst=60 nodelay;
     }
 
     # Transport MCP (POST /mcp/sse) : la réponse est un flux SSE à événement
@@ -50,6 +71,7 @@ server {
         proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+        limit_req zone=api_burst burst=20 nodelay;
     }
 
     # SPA : tout le reste sert index.html (routing côté client).

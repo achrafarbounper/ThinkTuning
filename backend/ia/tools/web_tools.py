@@ -11,10 +11,11 @@ directement exploitable par le LLM :
     - web_read   : texte lisible extrait d'une page HTML (scripts, styles,
       balises supprimés), pour lire un article ou une documentation.
 
-Sécurité (mêmes garde-fous que network_tools.py) :
+Sécurité (mêmes garde-fous que network_tools.py, P0 SEC F8) :
     - schémas http/https uniquement ;
-    - politique anti-SSRF optionnelle : AGENT_BLOCK_PRIVATE_HOSTS=1 interdit
-      les hôtes privés/loopback ;
+    - protection SSRF ACTIVE PAR DÉFAUT (fail-closed), redirects suivis
+      manuellement avec re-validation de l'hôte final (anti-bypass 302
+      vers 169.254…) et corps bornés (anti-OOM) ;
     - timeouts plafonnés et sorties tronquées pour ne pas saturer le LLM.
 """
 
@@ -24,11 +25,16 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
-from .sandbox import enforce_host_policy, truncate_output, url_scheme_allowed
+from .sandbox import (
+    enforce_host_policy,
+    enforce_response_host_policy,
+    truncate_output,
+    url_scheme_allowed,
+)
 
 DEFAULT_TIMEOUT_S = 20.0
-DEFAULT_MAX_CHARS = 6000   # web_read : texte lisible injecté au LLM
-FETCH_MAX_CHARS = 12000    # web_fetch : corps brut, plafond plus large
+DEFAULT_MAX_CHARS = 6000  # web_read : texte lisible injecté au LLM
+FETCH_MAX_CHARS = 12000  # web_fetch : corps brut, plafond plus large
 DEFAULT_MAX_RESULTS = 5
 MAX_RESULTS_LIMIT = 10
 
@@ -46,6 +52,7 @@ _HTTP_HEADERS = {
 
 _TIMEOUT_MIN, _TIMEOUT_MAX = 1.0, 120.0
 _PARSE_INPUT_LIMIT = 300_000  # jamais plus de ~300 Ko parsés par page
+_MAX_REDIRECTS = 5  # suivi manuel des redirects avec re-validation SSRF
 
 # --- Configuration des backends de recherche (env relues à chaque appel) ------------
 
@@ -81,6 +88,7 @@ def _clean_max_chars(max_chars: int) -> int:
 
 
 # --- Parsing HTML (bibliothèque standard, zéro dépendance) ---------------------------
+
 
 def _unwrap_ddg_redirect(href: str) -> str:
     """Déballe les liens réécrits par DuckDuckGo (/l/?uddg=<URL encodée>)."""
@@ -162,13 +170,49 @@ class _ReadableTextParser(HTMLParser):
     """HTML -> texte lisible : scripts/styles exclus, blocs sur nouvelles lignes."""
 
     SKIP_TAGS = frozenset({"script", "style", "noscript", "template", "svg", "iframe"})
-    BLOCK_TAGS = frozenset({
-        "address", "article", "aside", "blockquote", "br", "caption", "center",
-        "div", "dd", "dl", "dt", "fieldset", "figcaption", "figure", "footer",
-        "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li",
-        "main", "nav", "ol", "p", "pre", "section", "table", "tbody", "td",
-        "tfoot", "th", "thead", "tr", "ul",
-    })
+    BLOCK_TAGS = frozenset(
+        {
+            "address",
+            "article",
+            "aside",
+            "blockquote",
+            "br",
+            "caption",
+            "center",
+            "div",
+            "dd",
+            "dl",
+            "dt",
+            "fieldset",
+            "figcaption",
+            "figure",
+            "footer",
+            "form",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "header",
+            "hr",
+            "li",
+            "main",
+            "nav",
+            "ol",
+            "p",
+            "pre",
+            "section",
+            "table",
+            "tbody",
+            "td",
+            "tfoot",
+            "th",
+            "thead",
+            "tr",
+            "ul",
+        }
+    )
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -228,15 +272,64 @@ def _parsed_page(html_text: str) -> tuple[str, str]:
 
 
 def _request_page(url: str, headers: dict | None, timeout: float) -> requests.Response:
-    """GET avec garde-fous schéma/SSRF + en-têtes navigateur fusionnés."""
-    url_scheme_allowed(url)
-    enforce_host_policy(url)
+    """GET avec garde-fous schéma/SSRF + en-têtes navigateur fusionnés.
+
+    P0 : suivi manuel des redirects avec re-validation SSRF + corps borné
+    (anti-bypass 302 → 169.254… et anti-OOM) — cf. ``_secure_get``.
+    """
     merged = dict(_HTTP_HEADERS)
     merged.update(dict(headers or {}))
-    return requests.get(url, headers=merged, timeout=_clean_timeout(timeout))
+    return _secure_get(url, headers=merged, timeout=_clean_timeout(timeout))
 
 
 # --- SEARCH ------------------------------------------------------------------------
+
+
+def _secure_get(
+    url: str,
+    *,
+    params: dict | None = None,
+    headers: dict | None = None,
+    timeout: float,
+) -> requests.Response:
+    """GET durci P0 (SSRF fail-closed + anti-redirect-bypass + borne taille).
+
+    Suit manuellement ≤ _MAX_REDIRECTS sauts après re-validation SSRF de
+    chaque URL, puis retourne la réponse finale AVEC ``resp.text`` borné à
+    ``MAX_DOWNLOAD_BYTES`` (anti-OOM — les fakes de tests sans ``raw``
+    retournent déjà du texte court, inchangé).
+    """
+    from urllib.parse import urljoin
+
+    from .sandbox import MAX_DOWNLOAD_BYTES
+
+    current = url
+    current_params = params
+    for _ in range(_MAX_REDIRECTS + 1):
+        url_scheme_allowed(current)
+        enforce_host_policy(current)
+        resp = requests.get(
+            current,
+            params=current_params,
+            headers=headers,
+            timeout=timeout,
+            allow_redirects=False,
+        )
+        current_params = None  # params déjà encodés dans l'URL après le 1er saut
+        location = (resp.headers or {}).get("location")
+        if resp.status_code not in (301, 302, 303, 307, 308) or not location:
+            enforce_response_host_policy(getattr(resp, "url", None) or current)
+            try:
+                text = resp.text or ""
+            except Exception:
+                text = ""
+            if len(text) > MAX_DOWNLOAD_BYTES:
+                resp.text = text[:MAX_DOWNLOAD_BYTES]  # type: ignore[attr-defined]
+            return resp
+        current = urljoin(getattr(resp, "url", None) or current, location)
+        enforce_host_policy(current)
+    raise RuntimeError(f"Trop de redirects (>{_MAX_REDIRECTS}) pour : {url}")
+
 
 def _searxng_search(query: str, max_results: int, timeout: float) -> dict:
     """Backend primaire : instance SearXNG auto-hébergée (API JSON native).
@@ -261,15 +354,13 @@ def _searxng_search(query: str, max_results: int, timeout: float) -> dict:
     if language:
         params["language"] = language
     try:
-        resp = requests.get(url, params=params, headers=dict(_HTTP_HEADERS),
-                            timeout=timeout)
+        resp = _secure_get(url, params=params, headers=dict(_HTTP_HEADERS), timeout=timeout)
     except requests.RequestException as exc:
         payload["error"] = f"SearXNG injoignable ({url}) : {exc}"
         return payload
     if resp.status_code >= 400:
         detail = {
-            403: "format=json désactivé sur l'instance "
-                 "(search: formats dans searxng/settings.yml)",
+            403: "format=json désactivé sur l'instance (search: formats dans searxng/settings.yml)",
             429: "rate limit de l'instance",
         }.get(resp.status_code, resp.reason)
         payload["error"] = f"SearXNG HTTP {resp.status_code} : {detail} ({url})"
@@ -287,11 +378,13 @@ def _searxng_search(query: str, max_results: int, timeout: float) -> dict:
         if not item_url or not title or item_url in seen_urls:
             continue  # doublons agrégés / entrées vides ignorés
         seen_urls.add(item_url)
-        payload["results"].append({
-            "title": title,
-            "url": item_url,
-            "snippet": " ".join(str(item.get("content") or "").split()),
-        })
+        payload["results"].append(
+            {
+                "title": title,
+                "url": item_url,
+                "snippet": " ".join(str(item.get("content") or "").split()),
+            }
+        )
         if len(payload["results"]) >= max_results:
             break
     payload["result_count"] = len(payload["results"])
@@ -302,7 +395,8 @@ def _searxng_search(query: str, max_results: int, timeout: float) -> dict:
     if unresponsive:
         payload["unresponsive_engines"] = [
             " : ".join(str(part) for part in entry)
-            if isinstance(entry, (list, tuple)) else str(entry)
+            if isinstance(entry, (list, tuple))
+            else str(entry)
             for entry in unresponsive[:10]
         ]
     return payload
@@ -327,17 +421,42 @@ def _ddg_lite_search(query: str, max_results: int, timeout: float) -> dict:
     # un HTTP 202 « anomalie » sans résultats.
     try:
         resp = requests.post(
-            SEARCH_ENDPOINT, data={"q": query}, headers=dict(_HTTP_HEADERS),
+            SEARCH_ENDPOINT,
+            data={"q": query},
+            headers=dict(_HTTP_HEADERS),
             timeout=timeout,
+            allow_redirects=False,
         )
+        location = (resp.headers or {}).get("location")
+        if resp.status_code in (301, 302, 303, 307, 308) and location:
+            # Redirect DDG re-validé SSRF avant suivi (même politique que GET).
+            from urllib.parse import urljoin
+
+            target = urljoin(SEARCH_ENDPOINT, location)
+            url_scheme_allowed(target)
+            enforce_host_policy(target)
+            resp = requests.post(
+                target,
+                data={"q": query},
+                headers=dict(_HTTP_HEADERS),
+                timeout=timeout,
+                allow_redirects=False,
+            )
+        enforce_response_host_policy(getattr(resp, "url", None) or SEARCH_ENDPOINT)
+        try:
+            body = resp.text or ""
+        except Exception:
+            body = ""
+        from .sandbox import MAX_DOWNLOAD_BYTES
+
+        if len(body) > MAX_DOWNLOAD_BYTES:
+            resp.text = body[:MAX_DOWNLOAD_BYTES]  # type: ignore[attr-defined]
     except requests.RequestException as exc:
         payload["error"] = f"DuckDuckGo injoignable : {exc}"
         return payload
 
     if resp.status_code >= 400:
-        payload["error"] = (
-            f"Recherche impossible : HTTP {resp.status_code} ({resp.reason})."
-        )
+        payload["error"] = f"Recherche impossible : HTTP {resp.status_code} ({resp.reason})."
         return payload
     # Page « anomalie » anti-bot (observée en réel : HTTP 202 + formulaire
     # anomaly.js?cc=botnet) : DDG refuse la requête sans aucun résultat. On
@@ -358,7 +477,8 @@ def _ddg_lite_search(query: str, max_results: int, timeout: float) -> dict:
     # Liens publicitaires exclus : ce sont les seuls « résultats » dont l'URL
     # finale reste sur duckduckgo.com (/y.js?ad_domain=...) après déballage.
     found = [
-        item for item in parser.results
+        item
+        for item in parser.results
         if not urlparse(item["url"]).netloc.lower().endswith("duckduckgo.com")
     ]
     payload["results"] = found[:max_results]
@@ -368,8 +488,9 @@ def _ddg_lite_search(query: str, max_results: int, timeout: float) -> dict:
     return payload
 
 
-def web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS,
-               timeout: float = DEFAULT_TIMEOUT_S) -> dict:
+def web_search(
+    query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT_S
+) -> dict:
     """Recherche web : SearXNG (primaire) puis DuckDuckGo Lite (repli).
 
     Renvoie {query, engine, result_count, results} — 'engine' indique le
@@ -405,17 +526,19 @@ def web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS,
     if searxng_error:
         fallback["searxng_error"] = searxng_error
         if "error" in fallback:
-            fallback["error"] = (
-                f"{searxng_error} | Repli DuckDuckGo : {fallback['error']}"
-            )
+            fallback["error"] = f"{searxng_error} | Repli DuckDuckGo : {fallback['error']}"
     return fallback
 
 
 # --- FETCH -------------------------------------------------------------------------
 
-def web_fetch(url: str, headers: dict | None = None,
-              timeout: float = DEFAULT_TIMEOUT_S,
-              max_chars: int = FETCH_MAX_CHARS) -> dict:
+
+def web_fetch(
+    url: str,
+    headers: dict | None = None,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    max_chars: int = FETCH_MAX_CHARS,
+) -> dict:
     """Récupère une page distante : {status, reason, url, content_type, title, body}.
 
     Comme http_get : ne lève PAS sur 4xx/5xx, le code HTTP est retourné tel
@@ -443,8 +566,10 @@ def web_fetch(url: str, headers: dict | None = None,
 
 # --- READ --------------------------------------------------------------------------
 
-def web_read(url: str, timeout: float = DEFAULT_TIMEOUT_S,
-             max_chars: int = DEFAULT_MAX_CHARS) -> dict:
+
+def web_read(
+    url: str, timeout: float = DEFAULT_TIMEOUT_S, max_chars: int = DEFAULT_MAX_CHARS
+) -> dict:
     """Lit une page web et en extrait le TEXTE lisible (sans HTML).
 
     Scripts, styles et balises sont supprimés ; titres, paragraphes et listes

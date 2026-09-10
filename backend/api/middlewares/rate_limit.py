@@ -14,10 +14,10 @@ from fastapi.responses import JSONResponse
 from app.infrastructure.mcp.security.rate_limit_bucket import TokenBucket
 
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
-# Derrière un reverse proxy de confiance (nginx en prod), l'IP client arrive
-# dans X-Forwarded-For. Désactiver (0) si l'API est exposée directement :
-# sinon un client peut forger son IP et contourner la limite.
-RATE_LIMIT_TRUST_PROXY = os.getenv("RATE_LIMIT_TRUST_PROXY", "1").lower() in {
+# P0 SEC (F6) : X-Forwarded-For NON fiable par défaut (spoofable en exposition
+# directe → bypass du throttle). Mettre 1 UNIQUEMENT derrière un reverse proxy
+# de confiance (nginx compose : proxy_set_header X-Forwarded-For).
+RATE_LIMIT_TRUST_PROXY = os.getenv("RATE_LIMIT_TRUST_PROXY", "0").lower() in {
     "1", "true", "yes", "on",
 }
 
