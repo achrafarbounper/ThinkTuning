@@ -49,3 +49,21 @@ services:
       # --- Rate limiting derrière le proxy Render ----------------------------
       - key: RATE_LIMIT_TRUST_PROXY
         value: "1" # sinon IP interne partagée = blocage de tous les clients
+      # --- Agent LLM : joignable DEPUIS Render (fix KO ask/core + MCP) --------
+      # Ollama/LM Studio par défaut pointent vers 192.168.x.x (LAN privé,
+      # injoignable depuis Render) : le noyau v2 (ask/core/stream + MCP
+      # orchestrate) timeout alors que le multi-agents legacy survit. En prod
+      # Render, utiliser un provider hébergé (openrouter ou hf).
+      - key: AGENT_PROVIDER
+        value: "openrouter"
+      - key: AGENT_MODEL_NAME
+        value: "openrouter/free"
+      - key: AGENT_TIMEOUT_SECONDS
+        value: "120"
+      - key: OPENROUTER_API_KEY
+        sync: false # à saisir dans le dashboard Render (secret)
+      # --- SSE : premier byte rapide + heartbeats (fix KO flux Render) --------
+      - key: AGENT_SSE_FIRST_EVENT_TIMEOUT
+        value: "25" # le flux démarre même si le LLM rame, erreur dans le flux
+      - key: AGENT_SSE_HEARTBEAT
+        value: "10" # commentaire SSE toutes les 10s (proxies anti-silence)
