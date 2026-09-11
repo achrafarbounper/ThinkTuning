@@ -4,10 +4,9 @@
 
 | Base | Contenu | TTL/purge |
 |---|---|---|
-| `experiments/jobs.db` | jobs d'entraînement (statuts, erreurs) | backup chiffré |
-| `experiments/train_metrics.db` | métriques par epoch (loss/F1/accuracy) | backup chiffré |
-| `experiments/agent_sessions.db` | conversations (données personnelles) | TTL 90 j (`scripts/retention.py`) + chiffrement au repos |
-| `experiments/agent_audit.db` | journal d'audit | TTL 365 j + chiffrement au repos |
+| MongoDB `jobs` / `train_metrics` | jobs et métriques d'entraînement | backup chiffré |
+| MongoDB `agent_sessions` | conversations (données personnelles) | TTL 90 j + chiffrement au repos |
+| MongoDB `agent_audit` / `tool_audit` | journaux d'audit | TTL 365 j + chiffrement au repos |
 
 Le chiffrement au repos (sessions + audit) est **fail-closed en production** :
 `ensure_store_crypto_configured()` (appelé dans le lifespan de l'API) refuse le
@@ -18,14 +17,13 @@ démarrage si `STORE_ENCRYPTION_KEY` est absente quand `ENV=prod`.
 ```bash
 cd backend
 python scripts/backup_encrypted.py
-# -> experiments/backups/thinktuning-<TS>.backup.enc (+ manifeste .json)
+# -> experiments/backups/thinktuning-<TS>.mongo.backup.enc (+ manifeste .json)
 ```
 
 - Archive **Fernet** (AES-128-CBC + HMAC) ; aucune base en clair sur disque
   pendant l'opération (tar en mémoire, chiffré en flux) ;
 - clé : `BACKUP_ENCRYPTION_KEY` sinon `STORE_ENCRYPTION_KEY` ;
-- le manifeste `.json` porte les tailles + le résultat de
-  `PRAGMA integrity_check` AU MOMENT du backup.
+- le manifeste `.json` porte le nombre de documents exportés par collection.
 
 Copier ensuite l'archive `.enc` + le manifeste hors de la machine (stockage
 objet, NAS) — le backup local seul ne protège pas d'un ransomware.
@@ -39,8 +37,8 @@ n'est pas un backup.**
 # 1. Restaurer dans un répertoire isolé (jamais destructif) :
 python scripts/backup_encrypted.py --restore experiments/backups/thinktuning-XXXX.backup.enc
 
-# 2. Vérifier le rapport : integrity_ok == true pour chaque base restaurée
-#    (PRAGMA integrity_check exécuté sur les fichiers déchiffrés).
+# 2. Vérifier le rapport : le nombre de documents par collection correspond
+#    au manifeste.
 
 # 3. Écraser les bases live UNIQUEMENT après vérification :
 python scripts/backup_encrypted.py --restore experiments/backups/thinktuning-XXXX.backup.enc --apply

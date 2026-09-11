@@ -289,18 +289,12 @@ _mongo_store: "FlowStore | None" = None
 
 def get_flow_store() -> FlowStore:
     """Store partagé de l'application (instance unique paresseuse)."""
-    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
-        from app.infrastructure.persistence.mongodb import MongoFlowStore
+    from app.infrastructure.persistence.mongodb import MongoFlowStore
 
-        global _mongo_store
-        with _store_lock:
-            if _mongo_store is None:
-                _mongo_store = MongoFlowStore()  # type: ignore[assignment]
-            return _mongo_store  # type: ignore[return-value]
     global _store
     with _store_lock:
         if _store is None:
-            _store = FlowStore(AGENT_FLOW_PATH)
+            _store = MongoFlowStore()  # type: ignore[assignment]
         return _store
 
 
@@ -308,5 +302,7 @@ def reset_flow_store(path: str | None = None) -> FlowStore:
     """Remplace le store partagé par une base neuve (isolation des tests)."""
     global _store
     with _store_lock:
-        _store = FlowStore(path or AGENT_FLOW_PATH)
+        from app.infrastructure.persistence.mongodb import MongoFlowStore
+
+        _store = MongoFlowStore()  # type: ignore[assignment]
         return _store

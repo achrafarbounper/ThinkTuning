@@ -1,8 +1,6 @@
-"""Outils bases de données de l'agent : SQLite (stdlib) et PostgreSQL (psycopg2).
+"""Outils bases de données de l'agent : PostgreSQL (psycopg2).
 
 Sécurité :
-    - SQLite : chemin confiné à la sandbox ; mode lecture seule par défaut
-      (PRAGMA query_only) — toute écriture est rejetée par la base elle-même ;
     - PostgreSQL : DSN lu dans l'argument `dsn` ou la variable AGENT_PG_DSN ;
       filtre anti-écriture par mot-clé quand readonly=true (défaut) ;
       statement_timeout appliqué à chaque session.
@@ -10,10 +8,6 @@ Sécurité :
 
 import os
 import re
-import sqlite3
-from pathlib import Path
-
-from .sandbox import safe_resolve
 
 DEFAULT_MAX_ROWS = 50
 PG_CONNECT_TIMEOUT_S = 10
@@ -42,54 +36,6 @@ def _cell(value):
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
-
-
-# --- SQLite ----------------------------------------------------------------------
-def sqlite_query(db_path: str, query: str, readonly: bool = True,
-                 max_rows: int = DEFAULT_MAX_ROWS) -> dict:
-    """Exécute une requête SQL sur une base SQLite située dans la sandbox.
-
-    readonly=true (défaut) : connexion en lecture seule stricte (PRAGMA
-    query_only) — INSERT/UPDATE/DDL refusés. Mettre readonly=false pour
-    écrire (création de base autorisée si le parent existe).
-    """
-    db_file: Path = safe_resolve(db_path, must_exist=bool(readonly))
-    if readonly and not db_file.is_file():
-        raise FileNotFoundError(f"Base SQLite introuvable : {db_file}")
-
-    if readonly:
-        _assert_readonly_sql(query, "SQLite")
-
-    conn = sqlite3.connect(str(db_file))
-    try:
-        if readonly:
-            conn.execute("PRAGMA query_only = ON")
-        cur = conn.execute(query)
-
-        result: dict = {"db": str(db_file), "readonly": bool(readonly)}
-        if cur.description is not None:
-            columns = [col[0] for col in cur.description]
-            rows = cur.fetchmany(max(1, int(max_rows)) + 1)
-            truncated = len(rows) > int(max_rows)
-            result.update(
-                {
-                    "columns": columns,
-                    "rows": [[_cell(v) for v in row] for row in rows[: int(max_rows)]],
-                    "row_count": min(len(rows), int(max_rows)),
-                    "truncated": truncated,
-                }
-            )
-        else:
-            result["rows_affected"] = cur.rowcount
-        if not readonly:
-            conn.commit()
-        return result
-    except sqlite3.Error as exc:
-        if readonly:
-            raise RuntimeError(f"SQLite (lecture seule) : {exc}") from exc
-        raise RuntimeError(f"SQLite : {exc}") from exc
-    finally:
-        conn.close()
 
 
 # --- PostgreSQL ---------------------------------------------------------------------

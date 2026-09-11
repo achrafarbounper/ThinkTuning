@@ -16,7 +16,6 @@ endpoint est en lecture seule.
 
 from __future__ import annotations
 
-import os
 import time
 
 from fastapi import APIRouter
@@ -25,19 +24,9 @@ router = APIRouter(tags=["MCP"])
 
 
 def _client_store():
-    """``MCPClientStore`` résolu À L'APPEL — l'env var (tests) prime.
-
-    Le défaut du constructeur (``MCP_CLIENT_STORE_PATH``) est figé à l'import
-    du module : résoudre le chemin ici permet l'isolation des tests via
-    ``MCP_CLIENT_STORE_PATH`` sans recharger le module.
-    """
+    """Resolve the Mongo-backed MCP client store at call time."""
     from core.mcp_client_store import get_mcp_client_store
-
-    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
-        return get_mcp_client_store()
-    from core.mcp_client_store import MCP_CLIENT_STORE_PATH, MCPClientStore
-
-    return MCPClientStore(path=os.getenv("MCP_CLIENT_STORE_PATH") or MCP_CLIENT_STORE_PATH)
+    return get_mcp_client_store()
 
 
 def _client_view(client: dict) -> dict:

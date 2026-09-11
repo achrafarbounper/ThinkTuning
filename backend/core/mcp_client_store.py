@@ -676,27 +676,10 @@ _mongo_client_store_singleton: "MCPClientStore | None" = None
 
 
 def get_mcp_client_store() -> MCPClientStore:
-    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
-        from app.infrastructure.persistence.mongodb import MongoMCPClientStore
+    from app.infrastructure.persistence.mongodb import MongoMCPClientStore
 
-        global _mongo_client_store_singleton
-        with _client_store_singleton_lock:
-            if _mongo_client_store_singleton is None:
-                _mongo_client_store_singleton = MongoMCPClientStore()  # type: ignore[assignment]
-            return _mongo_client_store_singleton  # type: ignore[return-value]
-    """Instance unique paresseuse du registre des clients MCP.
-
-    Le path est résolu à la première instanciation (``MCP_CLIENT_STORE_PATH``
-    ou défaut ``experiments/mcp_clients.db``) — permet aux tests de redéfinir
-    la variable d'environnement avant le premier accès.
-
-    Returns :
-        Le ``MCPClientStore`` singleton (thread-safe).
-    """
     global _client_store_singleton
     with _client_store_singleton_lock:
         if _client_store_singleton is None:
-            _client_store_singleton = MCPClientStore(
-                path=os.getenv("MCP_CLIENT_STORE_PATH") or MCP_CLIENT_STORE_PATH
-            )
+            _client_store_singleton = MongoMCPClientStore()  # type: ignore[assignment]
         return _client_store_singleton

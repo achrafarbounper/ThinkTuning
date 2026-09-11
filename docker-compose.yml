@@ -79,6 +79,8 @@ services:
       - "8000:8000"
     environment:
       - MODEL_PATH=/app/experiments/models
+      - MONGODB_URI=${MONGODB_URI:?MONGODB_URI manquant}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-thinktuning}
       # P0 SEC (F1) : fail-closed prod — api_key.ensure_api_key_configured()
       # refuse le démarrage si ENV=prod et API_KEY absente/faible (<32 chars).
       # Génération : python -c "import secrets; print(secrets.token_urlsafe(32))".

@@ -248,18 +248,12 @@ _mongo_store: "ApprovalStore | None" = None
 
 def get_approval_store() -> ApprovalStore:
     """Store partagé de l'application (instance unique paresseuse)."""
-    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
-        from app.infrastructure.persistence.mongodb import MongoApprovalStore
+    from app.infrastructure.persistence.mongodb import MongoApprovalStore
 
-        global _mongo_store
-        with _store_lock:
-            if _mongo_store is None:
-                _mongo_store = MongoApprovalStore()  # type: ignore[assignment]
-            return _mongo_store  # type: ignore[return-value]
     global _store
     with _store_lock:
         if _store is None:
-            _store = ApprovalStore(AGENT_APPROVAL_PATH)
+            _store = MongoApprovalStore()  # type: ignore[assignment]
         return _store
 
 
@@ -267,5 +261,7 @@ def reset_approval_store(path: str | None = None) -> ApprovalStore:
     """Remplace le store partagé par une base neuve (isolation des tests)."""
     global _store
     with _store_lock:
-        _store = ApprovalStore(path or AGENT_APPROVAL_PATH)
+        from app.infrastructure.persistence.mongodb import MongoApprovalStore
+
+        _store = MongoApprovalStore()  # type: ignore[assignment]
         return _store

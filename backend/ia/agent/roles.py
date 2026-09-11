@@ -28,7 +28,7 @@ _ML = [
     "model_versions", "start_training", "train_model", "cancel_training",
     "stop_training",
 ]
-_DATA = ["sqlite_query", "postgres_query"]
+_DATA = ["postgres_query"]
 _MATH = ["calc", "add"]
 # Le rôle « ops » porte TOUS les diagnostics lecture seule : env_info / disk_usage
 # / gpu_info (aligné sur les outils RÉELS du registre, cf. plan_correct.py qui
@@ -100,8 +100,7 @@ ROLES: Dict[str, Role] = {
         name="data",
         label="Données (SQL)",
         description=(
-            "Interrogation de bases de données relationnelles (SQLite, "
-            "PostgreSQL) en lecture sécurisée."
+            "Interrogation de bases PostgreSQL en lecture sécurisée."
         ),
         tools=_DATA,
     ),

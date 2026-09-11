@@ -277,18 +277,12 @@ _mongo_store: "RunStore | None" = None
 
 def get_run_store() -> RunStore:
     """Store partagé de l'application (instance unique paresseuse)."""
-    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
-        from app.infrastructure.persistence.mongodb import MongoRunStore
+    from app.infrastructure.persistence.mongodb import MongoRunStore
 
-        global _mongo_store
-        with _store_lock:
-            if _mongo_store is None:
-                _mongo_store = MongoRunStore()  # type: ignore[assignment]
-            return _mongo_store  # type: ignore[return-value]
     global _store
     with _store_lock:
         if _store is None:
-            _store = RunStore(AGENT_RUN_PATH)
+            _store = MongoRunStore()  # type: ignore[assignment]
         return _store
 
 
@@ -296,5 +290,7 @@ def reset_run_store(path: str | None = None) -> RunStore:
     """Remplace le store partagé par une base neuve (isolation des tests)."""
     global _store
     with _store_lock:
-        _store = RunStore(path or AGENT_RUN_PATH)
+        from app.infrastructure.persistence.mongodb import MongoRunStore
+
+        _store = MongoRunStore()  # type: ignore[assignment]
         return _store
