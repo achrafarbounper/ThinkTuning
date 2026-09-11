@@ -27,7 +27,11 @@ from functools import lru_cache
 from urllib.parse import urlparse
 
 from app.domain.entities.plan import Action, ActionCategory, Decision
-from app.domain.security import classify_path_risk
+from app.domain.security import (
+    DENIED_EXTENSIONS,
+    DENIED_PATH_PARTS,
+    classify_path_risk,
+)
 
 # ---------------------------------------------------------------------------
 # Cibles sensibles : source unique dans app/domain/security.py (P1 SEC —
@@ -191,3 +195,15 @@ def decide(tool: str, args: dict, category: ActionCategory | None = None) -> Dec
 def decide_action(action: Action) -> Decision:
     """Variante typée pour une entité ``Action`` du domaine."""
     return decide(action.tool, action.args, action.category)
+
+
+# API publique du module — les constantes de ``app/domain/security`` sont
+# RÉ-EXPORTÉES ici (source unique ; cf. test_security_tools.py).
+__all__ = [
+    "DENIED_EXTENSIONS",
+    "DENIED_PATH_PARTS",
+    "classify_tool",
+    "decide",
+    "decide_action",
+    "is_private_host",
+]

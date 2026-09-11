@@ -261,10 +261,12 @@ class MongoRunStore:
         self._lock = threading.RLock()
 
     def start_run(self, prompt: str, model: str = "", source: str = "api") -> dict:
+        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+
         d = {
             "_id": uuid.uuid4().hex[:12],
             "id": "",
-            "prompt": prompt or "",
+            "prompt": redact_secrets(prompt or ""),  # P1 : aucun secret en clair
             "model": model or "",
             "source": source,
             "status": "running",
@@ -280,9 +282,13 @@ class MongoRunStore:
         return d
 
     def append_tool_event(self, run_id: str, event: dict[str, Any]) -> None:
+        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+
+        # P1 : les éventuels secrets (args, headers Authorization, …) sont
+        # masqués AVANT persistance — même convention que le store SQLite.
         self.c.update_one(
             {"_id": str(run_id)},
-            {"$push": {"tools": {**event, "at": _utcnow()}}},
+            {"$push": {"tools": {**redact_secrets(event), "at": _utcnow()}}},
         )
 
     def finish_run(
@@ -296,13 +302,15 @@ class MongoRunStore:
 
         if status not in STATUSES:
             raise ValueError(f"Statut de run inconnu : '{status}'")
+        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+
         r = self.c.update_one(
             {"_id": str(run_id)},
             {
                 "$set": {
                     "status": status,
-                    "answer_summary": answer_summary or "",
-                    "error": error,
+                    "answer_summary": redact_secrets(answer_summary or ""),  # P1 : masqué
+                    "error": redact_secrets(error) if error else None,
                     "finished_at": _utcnow(),
                 }
             },
@@ -451,20 +459,20 @@ class MongoApprovalStore:
         d.pop("_id", None)
         return d
 
-    def get(self, rid):
-        return self.c.find_one({"_id": str(rid)}, {"_id": 0})
+    def get(self, request_id):
+        return self.c.find_one({"_id": str(request_id)}, {"_id": 0})
 
     def list(self, status=None):
         q = {"status": status} if status else {}
         return list(self.c.find(q, {"_id": 0}).sort("created_at", -1))
 
-    def _decide(self, rid, status, decided_by):
-        d = self.get(rid)
+    def _decide(self, request_id, status, decided_by):
+        d = self.get(request_id)
         if not d:
             return None
         if d["status"] == "pending":
             self.c.update_one(
-                {"_id": str(rid)},
+                {"_id": str(request_id)},
                 {
                     "$set": {
                         "status": status,
@@ -473,14 +481,13 @@ class MongoApprovalStore:
                     }
                 },
             )
-        return self.get(rid)
+        return self.get(request_id)
 
     def approve(self, request_id, decided_by=None):
-        rid = request_id
-        return self._decide(rid, "approved", decided_by)
+        return self._decide(request_id, "approved", decided_by)
 
-    def reject(self, rid, decided_by=None):
-        return self._decide(rid, "rejected", decided_by)
+    def reject(self, request_id, decided_by=None):
+        return self._decide(request_id, "rejected", decided_by)
 
 
 class MongoAuditStore:

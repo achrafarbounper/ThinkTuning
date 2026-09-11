@@ -56,12 +56,13 @@ def test_memory_fakes_satisfy_typed_ports():
     assert isinstance(MemoryApprovalStore(), ApprovalStorePort)
 
 
-def test_sqlite_wrappers_are_legacy_subclasses():
-    from core.approval_store import ApprovalStore as LegacyApproval
-    from core.run_store import RunStore as LegacyRun
+def test_sqlite_wrappers_alias_mongo_backends():
+    """Post-migration : ``persistence.sqlite`` n'ouvre plus AUCUNE base —
+    chaque alias résout l'implémentation MongoDB (strangler pattern)."""
+    from app.infrastructure.persistence import mongodb
 
-    assert issubclass(SqliteRunStore, LegacyRun)
-    assert issubclass(SqliteApprovalStore, LegacyApproval)
+    assert SqliteRunStore is mongodb.MongoRunStore
+    assert SqliteApprovalStore is mongodb.MongoApprovalStore
 
 
 def test_sqlite_wrappers_satisfy_typed_ports(tmp_path):
@@ -192,15 +193,15 @@ def test_approval_unknown_id_returns_none(factory, tmp_path):
 # --- Fabrique de coexistence ------------------------------------------------------
 
 
-def test_default_factories_delegate_to_legacy_singletons():
-    """Les fabriques par défaut renvoient les singletons legacy (même base) —
-    coexistence stricte tant que le swap d'implémentation n'a pas lieu."""
-    from app.infrastructure.persistence import sqlite as persistence
+def test_default_factories_delegate_to_shared_singletons():
+    """Les accès par défaut renvoient des singletons partagés (même base) —
+    les getters legacy restent l'unique porte d'entrée des stores (le module
+    ``persistence.sqlite`` est un passthrough vers MongoDB)."""
     from core.approval_store import get_approval_store as legacy_approvals
     from core.run_store import get_run_store as legacy_runs
 
-    assert persistence.default_run_store() is legacy_runs()
-    assert persistence.default_approval_store() is legacy_approvals()
+    assert legacy_runs() is legacy_runs()
+    assert legacy_approvals() is legacy_approvals()
 
 
 # --- Intégration use-case + persistance mémoire (zéro réseau / SQLite) --------

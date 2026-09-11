@@ -16,7 +16,7 @@ def test_tool_names_from_legacy_manifest() -> None:
     assert "read_file" in names
     assert "web_search" in names
     assert "predict_sentiment" in names
-    assert "sqlite_query" in names
+    assert "postgres_query" in names  # outil SQL restant (sqlite_query retiré de la migration)
     # Trié, déterministe, sans doublons
     assert names == sorted(set(names))
 

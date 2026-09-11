@@ -2594,6 +2594,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2631,6 +2632,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2666,6 +2668,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2697,6 +2700,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2732,6 +2736,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -2765,6 +2770,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -2798,6 +2804,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -2838,6 +2845,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2869,6 +2877,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2904,6 +2913,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2935,6 +2945,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 schedule_id: string;
@@ -2966,6 +2977,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3001,6 +3013,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -3034,6 +3047,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -3074,6 +3088,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3105,6 +3120,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3138,6 +3154,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3175,6 +3192,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3206,6 +3224,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3239,6 +3258,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 name: string;
@@ -3274,6 +3294,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 name: string;
@@ -3316,6 +3337,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3349,6 +3371,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3380,6 +3403,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3415,6 +3439,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3450,6 +3475,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3485,6 +3511,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3520,6 +3547,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3557,6 +3585,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3588,6 +3617,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 request_id: string;
@@ -3621,6 +3651,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 request_id: string;
@@ -3657,6 +3688,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3688,6 +3720,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 flow_id: string;
@@ -3723,6 +3756,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3754,6 +3788,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3789,6 +3824,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 session_id: string;
@@ -3822,6 +3858,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 session_id: string;
@@ -3861,6 +3898,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 session_id: string;
@@ -3894,6 +3932,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3925,6 +3964,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3960,6 +4000,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3991,6 +4032,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4022,6 +4064,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4057,6 +4100,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4092,6 +4136,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4127,6 +4172,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -4160,6 +4206,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -4197,6 +4244,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4228,6 +4276,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4263,6 +4312,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4301,6 +4351,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4334,6 +4385,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4365,6 +4417,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4400,6 +4453,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -4484,6 +4538,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 name: string;
@@ -4521,6 +4576,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path: {
                 name: string;
@@ -4554,6 +4610,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                Authorization?: string | null;
             };
             path?: never;
             cookie?: never;

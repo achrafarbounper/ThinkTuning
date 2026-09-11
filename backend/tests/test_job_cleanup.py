@@ -5,7 +5,7 @@ Contrat :
     - seuls les jobs TERMINAUX (completed/failed/cancelled) expirés sont supprimés ;
     - les jobs actifs (pending/running) ne sont jamais touchés, quel que soit l'âge ;
     - dry_run liste sans supprimer ;
-    - la purge retire le job de la mémoire, du SQLite et ses métriques d'epochs.
+    - la purge retire le job de la mémoire, du stockage et ses métriques d'epochs.
 """
 import os
 import time
@@ -68,22 +68,21 @@ def test_cleanup_dry_run_lists_without_deleting(tmp_path):
     assert store.get("old-cancelled") is not None
 
 
-def test_cleanup_module_function_with_custom_db_path(tmp_path):
-    """Le contrat du CLI cleanup_old_jobs.py : (max_age_days, dry_run, db_path)."""
-    db_path = str(tmp_path / "cli.db")
-    store = PersistentJobStore(path=db_path)
-    store["ancien"] = _aged("ancien", JobStatus.COMPLETED, 40)
-    store.update_job_timestamp("ancien", time.time() - 40 * 86400)
+def test_cleanup_module_function_operates_on_shared_store(tmp_path):
+    """Contrat du CLI cleanup_old_jobs.py : (max_age_days, dry_run) sur le
+    store partagé (MongoDB est l'unique backend — plus de paramètre db_path)."""
+    from core.job_store import get_job_store
 
-    result = cleanup_old_jobs(max_age_days=30, dry_run=False, db_path=db_path)
+    store = get_job_store()
+    store["module-cli-job"] = _aged("module-cli-job", JobStatus.COMPLETED, 40)
+    store.update_job_timestamp("module-cli-job", time.time() - 40 * 86400)
+
+    result = cleanup_old_jobs(max_age_days=30, dry_run=False)
 
     assert result["deleted"] == 1
-    assert result["job_ids"] == ["ancien"]
-    # La fonction crée une instance dédiée au db_path : la suppression est
-    # vérifiée depuis le SQLite (les caches mémoire des autres instances ne
-    # sont pas synchronisés — comportement documenté du store).
-    verification = PersistentJobStore(path=db_path)
-    assert verification.get("ancien") is None
+    assert result["job_ids"] == ["module-cli-job"]
+    # Suppression effective dans le store partagé (idem mémoire + persisté).
+    assert store.get("module-cli-job") is None
 
 
 def test_cleanup_purges_epoch_metrics(tmp_path):

@@ -11,6 +11,8 @@ Lance avec : pytest tests/test_api_auth_register.py -v
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -110,15 +112,17 @@ def test_store_register_hashes_secret_jamais_en_clair(tmp_path) -> None:
         reset_service_account_store,
     )
 
-    db = str(tmp_path / "sa.db")
-    store = reset_service_account_store(db)
+    store = reset_service_account_store()
     created = store.register_account(email="user@example.com", password="s3cret-tres-long")
     assert created["id"] and created["role"] == "read"
 
     rows = store._get_by_client_id(created["id"])
     assert rows is not None
     assert rows["secret_hash"] != "s3cret-tres-long"  # hash stocké, jamais le clair
-    assert "s3cret-tres-long" not in open(db, "rb").read().decode("latin1")
+    # La base persistée (MongoDB) ne contient JAMAIS le secret en clair.
+    raw = store.c.find_one({"name": "user@example.com"})
+    assert raw is not None
+    assert "s3cret-tres-long" not in json.dumps(raw, ensure_ascii=False)
 
     # Le mot de passe (secret choisi par l'utilisateur) sert à s'authentifier.
     issued = store.issue_token(

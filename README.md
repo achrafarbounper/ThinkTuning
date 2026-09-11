@@ -540,7 +540,6 @@ Comportements notables :
 | Docker | `docker_logs` | `(container, tail=100)` | Dernières lignes de logs |
 | Docker | `docker_exec` | `(container, command)` | Commande via `sh -c` dans le conteneur |
 | GPU | `gpu_info` | `()` | CUDA, VRAM totale/allouée/réservée, utilisation % (torch + nvidia-smi) |
-| Bases | `sqlite_query` | `(db_path, query, readonly=true)` | SQLite confinée à la sandbox, lecture seule par défaut |
 | Bases | `postgres_query` | `(query, readonly=true, timeout_s=30)` | PostgreSQL via psycopg2, statement_timeout appliqué |
 
 ### Recherche web de l'agent (SearXNG + repli DuckDuckGo)
@@ -597,10 +596,10 @@ curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
   -X POST http://localhost:8000/api/agent/tools/run \
   -d '{"tool": "docker_ps", "args": {"all_containers": true}}'
 
-# Requête SQLite en lecture seule
+# Requête PostgreSQL en lecture seule
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
   -X POST http://localhost:8000/api/agent/tools/run \
-  -d '{"tool": "sqlite_query", "args": {"db_path": "experiments/jobs.db", "query": "SELECT * FROM jobs LIMIT 5"}}'
+  -d '{"tool": "postgres_query", "args": {"query": "SELECT * FROM jobs LIMIT 5", "readonly": true}}'
 
 # Recherche Internet (outils web_search / web_fetch / web_read)
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
@@ -741,7 +740,7 @@ GET /train/stream/{job_id}?token=<DASHBOARD_WS_TOKEN ou API_KEY>
   terminal, événement `end` + fermeture — pas de connexion ouverte inutile.
 - **Architecture** : l'endpoint consomme une abstraction
   `TrainingEventsSource` (`core/training_events.py`) dont l'implémentation
-  actuelle, `SQLitePollingEventsSource`, lit le SQLite partagé (compatible
+  actuelle, `MongoPollingEventsSource`, scrute le store partagé (compatible
   multi-workers). Pour passer à une diffusion push (Redis pub/sub, NATS, ...)
   plus tard, il suffit d'implémenter la même interface — l'endpoint ne change
   pas.

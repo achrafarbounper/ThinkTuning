@@ -3,7 +3,7 @@
   - core/job_logs : capture des logs par job (mapping thread -> job),
   - Trainer.on_progress : callback batch-par-batch des phases train/eval,
   - core/trainer_runner : état des étapes + pourcentage global (job.progress),
-  - SQLitePollingEventsSource : get_progress / get_logs.
+  - MongoPollingEventsSource : get_progress / get_logs.
 """
 import logging
 import os
@@ -23,7 +23,7 @@ import api  # noqa: E402,F401  (initialise l'app comme les autres tests)
 from core import job_logs, trainer_runner
 from core.job_store import get_job_store
 from core.models import TRAIN_JOB_STEPS, JobStatus, TrainJob
-from core.training_events import SQLitePollingEventsSource
+from core.training_events import MongoPollingEventsSource
 from src.model.trainer import Trainer
 
 # ---------------------------------------------------------------------------
@@ -216,7 +216,7 @@ def test_update_batch_progress_and_events_source():
     assert 0 < stored["global_pct"] < 100
 
     # Source d'événements : get_progress / get_logs.
-    source = SQLitePollingEventsSource()
+    source = MongoPollingEventsSource()
     assert source.get_progress_sync(job.job_id) == stored
     assert source.get_progress_sync("job-inconnu") is None
 

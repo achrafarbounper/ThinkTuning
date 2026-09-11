@@ -278,12 +278,15 @@ def _dashboard_app() -> TestClient:
 
 
 def _register_dashboard_clients(tmp_path, monkeypatch) -> None:
-    """Registre clients isolé : 1 actif + 1 révoqué (avec usage enregistré)."""
-    from app.domain.ports.mcp_ports import MCPSecurityScope
-    from core.mcp_client_store import MCPClientStore
+    """Registre clients isolé : 1 actif + 1 révoqué (avec usage enregistré).
 
-    monkeypatch.setenv("MCP_CLIENT_STORE_PATH", str(tmp_path / "mcp_clients.db"))
-    store = MCPClientStore(path=str(tmp_path / "mcp_clients.db"))
+    Le dashboard lit le singleton ``get_mcp_client_store()`` (MongoDB) : c'est
+    DANS ce store qu'on enregistre les clients — l'isolation par test vient du
+    provider mock de conftest (plus de fichier ``MCP_CLIENT_STORE_PATH``)."""
+    from app.domain.ports.mcp_ports import MCPSecurityScope
+    from core.mcp_client_store import get_mcp_client_store
+
+    store = get_mcp_client_store()
     store.register(
         "cli-active", "secret-a",
         MCPSecurityScope(

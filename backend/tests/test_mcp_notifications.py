@@ -314,13 +314,10 @@ def test_compose_slack_blocks_structure() -> None:
 # get_mcp_client_store — singleton (fallback du service)
 # ============================================================================
 
-def test_get_mcp_client_store_is_singleton(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_get_mcp_client_store_is_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
     import core.mcp_client_store as store_module
 
-    monkeypatch.setenv("MCP_CLIENT_STORE_PATH", str(tmp_path / "clients.db"))
     monkeypatch.setattr(store_module, "_client_store_singleton", None)
     first = store_module.get_mcp_client_store()
     second = store_module.get_mcp_client_store()
     assert first is second
-    # Le path de l'env var au premier accès est respecté
-    assert first.path == str(tmp_path / "clients.db")
