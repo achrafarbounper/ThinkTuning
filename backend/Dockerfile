@@ -23,7 +23,7 @@
 # ---------------------------------------------------------------------------
 # 1/2 — WHEELHOUSE : compilation des wheels (toolchain jetable, cache pip)
 # ---------------------------------------------------------------------------
-FROM python:3.13-slim AS wheelhouse
+FROM python:3.13-slim@sha256:cc9dffa47c8294ba9bb795a8dfaeb7b76f2b30acade2c52a461a2999d127eb00 AS wheelhouse
 
 # build-essential : nécessaires uniquement pour les rares sdist sans wheel
 RUN apt-get update \
@@ -44,7 +44,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # ---------------------------------------------------------------------------
 # 2/2 — RUNTIME : installation offline, non-root, healthcheck, gunicorn
 # ---------------------------------------------------------------------------
-FROM python:3.13-slim AS runtime
+FROM python:3.13-slim@sha256:cc9dffa47c8294ba9bb795a8dfaeb7b76f2b30acade2c52a461a2999d127eb00 AS runtime
 
 # OMP/MKL à 2 : les instances cloud gratuites partagent < 1 CPU — 4 threads
 # n'apportent rien et gonflent la RAM (arenas BLAS par thread).

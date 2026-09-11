@@ -48,7 +48,10 @@ services:
   # « search ») : docker compose --profile search up -d searxng
   # L'API JSON est activée dans searxng/settings.yml (search.formats).
   searxng:
-    image: searxng/searxng:latest
+    # P2 lot 15 (supply-chain) : version + digest épinglés (manifeste amd64,
+    # vérifié par .github/workflows/ci.yml via scripts/check_docker_pins.py
+    # contre .docker/digest-pins.yml). Ne JAMAIS repasser en :latest.
+    image: searxng/searxng:2026.9.5-a303e9c0c@sha256:433c747648f3723764b9109ccee3d9bca339096d1bcf2ba3b071d8ce81609551
     container_name: thinktuning-searxng
     # Relance automatique : l'agent compte sur cette instance pour web_search.
     restart: unless-stopped
@@ -60,7 +63,7 @@ services:
       # (qui référence $SEARXNG_SECRET). Génération : python -c
       # "import secrets; print(secrets.token_urlsafe(32))".
       # ${SEARXNG_SECRET:?…} = fail-closed compose : démarrage refusé sans secret.
-      - SEARXNG_SECRET=${SEARXNG_SECRET:?SEARXNG_SECRET manquant — générez-le : python -c "import secrets; print(secrets.token_urlsafe(32))"}
+      - 'SEARXNG_SECRET=${SEARXNG_SECRET:?SEARXNG_SECRET manquant (generez-le : python -c "import secrets; print(secrets.token_urlsafe(32))")}'
     volumes:
       - ./searxng:/etc/searxng
     profiles: ["search"]
@@ -80,7 +83,7 @@ services:
       # refuse le démarrage si ENV=prod et API_KEY absente/faible (<32 chars).
       # Génération : python -c "import secrets; print(secrets.token_urlsafe(32))".
       - ENV=${ENV:-dev}
-      - API_KEY=${API_KEY:?API_KEY manquant — générez-le : python -c "import secrets; print(secrets.token_urlsafe(32))"}
+      - 'API_KEY=${API_KEY:?API_KEY manquant (generez-le : python -c "import secrets; print(secrets.token_urlsafe(32))")}'
       - JOB_STORE_PATH=/app/experiments/jobs.db
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173,http://localhost:3000}
       # P0 SEC (F6) : X-Forwarded-For fiable UNIQUEMENT derrière ce nginx
@@ -125,6 +128,12 @@ services:
       # cf. frontend/templates/default.conf.template) — pas des build args.
       - API_UPSTREAM=app:8000
       - FRONTEND_PORT=8080
+      # P1 SEC (point 10b) : le proxy nginx INJECTE la clé admin en X-API-Key
+      # sur /api/* et /mcp/* — le navigateur ne stocke JAMAIS la clé
+      # (localStorage supprimé côté React). Fail-closed comme le service app :
+      # pas de dashboard sans clé fournie. (Scalaire YAML quoté : les ":" et
+      # guillemets du message d'erreur ne doivent pas casser le parsing.)
+      - 'API_KEY=${API_KEY:?API_KEY manquant (generez-le : python -c "import secrets; print(secrets.token_urlsafe(32))")}'
     ports:
       - "8080:8080"
     depends_on:

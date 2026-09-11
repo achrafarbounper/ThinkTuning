@@ -58,9 +58,31 @@ class ModuleTrainingRunnerAdapter:
         job = TrainJob(job_id=job_id, status=JobStatus.PENDING)
         with _jobs_lock:
             get_job_store()[job_id] = job
-        thread = threading.Thread(
-            target=trainer_runner.run_training, args=(job_id, request), daemon=True
-        )
+        # P2 lot 16 (résilience) : plafond de runs concurrents + file d'attente
+        # bornée (TRAIN_MAX_CONCURRENT / TRAIN_QUEUE_MAX). Le slot est libéré
+        # par la target wrapper à la fin du run (réussite OU échec).
+        from core.training_gate import TrainingBusyError, get_training_gate
+
+        gate = get_training_gate()
+
+        def _run_with_slot() -> None:
+            try:
+                trainer_runner.run_training(job_id, request)
+            finally:
+                gate.release()
+
+        try:
+            gate.acquire(job_id)
+        except TrainingBusyError as err:
+            # Capacité atteinte : le job PENDING est soldé en FAILED (jamais
+            # de zombie) avant la levée — la route legacy/API l'expose en 429.
+            job = TrainJob(
+                job_id=job_id, status=JobStatus.FAILED, error=str(err)
+            )
+            with _jobs_lock:
+                get_job_store()[job_id] = job
+            raise
+        thread = threading.Thread(target=_run_with_slot, args=(), daemon=True)
         thread.start()
         return job
 

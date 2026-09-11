@@ -278,9 +278,11 @@ interface SidebarProps {
   page: string;
   /** Conservé pour compatibilité (l'anchor fait la navigation). */
   onNavigate?: (id: string) => void;
+  /** Déconnexion volontaire (retour à l'écran d'authentification). */
+  onLogout?: () => void;
 }
 
-export default function Sidebar({ page }: SidebarProps) {
+export default function Sidebar({ page, onLogout }: SidebarProps) {
   const { health, healthError } = useApp();
 
   // Accordéons : chaque groupe se replie indépendamment. À l'initialisation,
@@ -391,6 +393,16 @@ export default function Sidebar({ page }: SidebarProps) {
         <span className="sidebar__footer-text" title={healthError || undefined}>
           {statusLabel}
         </span>
+        {onLogout && (
+          <button
+            type="button"
+            className="sidebar__logout"
+            onClick={onLogout}
+            title="Se déconnecter"
+          >
+            Se déconnecter
+          </button>
+        )}
       </div>
     </aside>
   );

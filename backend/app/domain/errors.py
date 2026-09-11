@@ -118,6 +118,19 @@ class SandboxViolationError(AgentError):
     http_status = 403
 
 
+class PolicyUnavailableError(AgentError):
+    """PDP d'autorisation indisponible ou politique invalide (P2 Lot A).
+
+    Fail-closed par convention : le composant appelant ne doit JAMAIS
+    interpréter cette erreur comme une autorisation — il refuse l'action
+    (``AuthzDecision.deny(fail_closed=True)``) et audite. Levée uniquement à
+    l'initialisation (chargement de politique invalide) ; en runtime, la PDP
+    retourne un déni au lieu de lever."""
+
+    code = "policy_unavailable"
+    http_status = 503
+
+
 class LLMClientError(AgentError):
     """Échec du client LLM (timeout, 5xx provider, réponse non parseable).
     Retryable via le circuit breaker si l'erreur est transient."""

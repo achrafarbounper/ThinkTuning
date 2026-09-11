@@ -3,13 +3,14 @@
 import asyncio
 import json
 import os
+import secrets
 import threading
 import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from api.dependencies.auth import _get_api_key, require_api_key
+from api.dependencies.auth import _get_api_key, require_api_key, ws_is_authorized
 from core import scheduler as schedule_manager
 from core.job_store import get_job_store
 from core.models import (
@@ -47,7 +48,26 @@ def start_training(req: TrainRequest, _: bool = Depends(require_api_key)):
     with _jobs_lock:
         store[job_id] = job
 
-    thread = threading.Thread(target=run_training, args=(job_id, req), daemon=True)
+    # P2 lot 16 (résilience) : même limite de concurrence + file d'attente que
+    # la surface v1 (core.training_gate) — un seul plafond pour les deux routes.
+    from core.training_gate import TrainingBusyError, get_training_gate
+
+    gate = get_training_gate()
+
+    def _run_with_slot() -> None:
+        try:
+            run_training(job_id, req)
+        finally:
+            gate.release()
+
+    try:
+        gate.acquire(job_id)
+    except TrainingBusyError as err:
+        job = TrainJob(job_id=job_id, status=JobStatus.FAILED, error=str(err))
+        with _jobs_lock:
+            store[job_id] = job
+        raise
+    thread = threading.Thread(target=_run_with_slot, daemon=True)
     thread.start()
 
     return job
@@ -194,7 +214,16 @@ async def stream_training_metrics(websocket: WebSocket, job_id: str):
       (labeling, loading_model, ...) ne déclenchent pas le stall : elles
       peuvent légitimement durer plus longtemps sans produire d'epoch.
     """
-    if websocket.query_params.get("token") != _get_dashboard_ws_token():
+    # P1 : X-API-Key (header) d'abord — évite le jeton dans les logs d'accès
+    # des clients non navigateur ; ?token= reste le repli du dashboard. Canal
+    # en LECTURE : la clé dédiée API_KEY_READ suffit. Le jeton DÉDIÉ
+    # DASHBOARD_WS_TOKEN reste accepté (comparaison à temps constant).
+    provided = websocket.query_params.get("token")
+    header_ok = ws_is_authorized(websocket, read_scope=True)
+    dashboard_ok = bool(provided) and secrets.compare_digest(
+        provided, _get_dashboard_ws_token()
+    )
+    if not (header_ok or dashboard_ok):
         await websocket.close(code=1008, reason="Jeton invalide")
         return
     await websocket.accept()

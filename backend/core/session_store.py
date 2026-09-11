@@ -13,11 +13,14 @@ AGENT_SESSION_PATH) et store thread-safe.
 """
 
 import json
+import logging
 import os
 import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 # Réparation des doubles-encodages UTF-8 → Latin-1 → UTF-8 à la lecture des
 # contenus persistés (voir ia/agent/encoding.py). Fonction impure, sans autres
@@ -119,10 +122,14 @@ class SessionStore:
             return None
         data = dict(zip(("id", "session_id", "role", "content", "thinking",
                          "tool_calls_json", "created_at"), row))
-        data["content"] = repair_utf8_mojibake(data.get("content") or "")
-        data["thinking"] = repair_utf8_mojibake(data.get("thinking") or "")
+        # P2 lot 16 : déchiffrement transparent au repos (préfixe ``enc:`` si
+        # STORE_ENCRYPTION_KEY est posée — valeurs legacy en clair inchangées).
+        from core.store_crypto import decrypt_text
+
+        data["content"] = repair_utf8_mojibake(decrypt_text(data.get("content") or ""))
+        data["thinking"] = repair_utf8_mojibake(decrypt_text(data.get("thinking") or ""))
         try:
-            data["tool_calls"] = json.loads(data.pop("tool_calls_json") or "[]")
+            data["tool_calls"] = json.loads(decrypt_text(data.pop("tool_calls_json") or "[]"))
         except ValueError:
             data["tool_calls"] = []
         return data
@@ -234,6 +241,12 @@ class SessionStore:
         if role not in _ROLES:
             raise ValueError(f"Rôle inconnu : '{role}'. Attendus : {', '.join(_ROLES)}")
         payload = json.dumps(tool_calls or [], ensure_ascii=False)
+        # P2 lot 16 : chiffrement au repos (content/thinking/tool_calls).
+        from core.store_crypto import encrypt_text
+
+        stored_content = encrypt_text(content or "")
+        stored_thinking = encrypt_text(thinking or "")
+        stored_payload = encrypt_text(payload)
         now = _utcnow_iso()
         with self._lock:
             conn = self._connect()
@@ -248,8 +261,8 @@ class SessionStore:
                         "INSERT INTO agent_session_messages (session_id, role,"
                         " content, thinking, tool_calls_json, created_at)"
                         " VALUES (?, ?, ?, ?, ?, ?)",
-                        (str(session_id), role, content or "", thinking or "",
-                         payload, now),
+                        (str(session_id), role, stored_content, stored_thinking,
+                         stored_payload, now),
                     )
                     conn.execute(
                         "UPDATE agent_sessions SET updated_at = ? WHERE id = ?",
@@ -361,6 +374,53 @@ class SessionStore:
                 conn.commit()
             finally:
                 conn.close()
+
+    def purge_expired(self, max_age_days: int) -> dict:
+        """Purge (TTL) les sessions et messages plus vieux que ``max_age_days``.
+
+        Retourne ``{"deleted_sessions": n, "deleted_messages": n}``. Supprime
+        explicitement les messages (le cascade FK nécessiterait
+        ``PRAGMA foreign_keys=ON`` par connexion — on ne s'y fie pas) puis les
+        sessions. Appelé par ``scripts/retention.py`` (cron) — P2 lot 16.
+        """
+        from datetime import timedelta
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(max_age_days)))
+        cutoff_iso = cutoff.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        with self._lock:
+            conn = self._connect()
+            try:
+                session_ids = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT id FROM agent_sessions WHERE created_at < ?",
+                        (cutoff_iso,),
+                    ).fetchall()
+                ]
+                deleted_sessions = 0
+                deleted_messages = 0
+                if session_ids:
+                    placeholders = ", ".join("?" * len(session_ids))
+                    deleted_messages = conn.execute(
+                        f"DELETE FROM agent_session_messages WHERE session_id IN ({placeholders})",
+                        session_ids,
+                    ).rowcount
+                    cur = conn.execute(
+                        f"DELETE FROM agent_sessions WHERE id IN ({placeholders})",
+                        session_ids,
+                    )
+                    deleted_sessions = cur.rowcount
+                conn.commit()
+            finally:
+                conn.close()
+        if deleted_sessions:
+            logger.info(
+                "sessions TTL : %d session(s) / %d message(s) purgé(s) (cutoff %s)",
+                deleted_sessions,
+                deleted_messages,
+                cutoff_iso,
+            )
+        return {"deleted_sessions": deleted_sessions, "deleted_messages": deleted_messages}
 
 
 # --- Store partagé (lazy, surchargeable en tests) ------------------------------------

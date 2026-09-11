@@ -177,6 +177,14 @@ class Predictor:
             raise FileNotFoundError(f"Model path not found: {model_path}")
 
         resolved_model_path = _resolve_model_dir(model_path)
+        # P2 lot 15 (supply-chain) : vérifie l'intégrité du dossier de version
+        # contre son manifeste sha256.json AVANT tout from_pretrained (un
+        # modèle altéré/injecté est refusé — fail-closed si manifeste présent,
+        # warning sinon, blocage si MODEL_SIGNING_REQUIRED=1).
+        if not TEST_MODE:
+            from core.model_signing import verify_model_signature
+
+            verify_model_signature(resolved_model_path)
         # MODE TEST : TinyModel + TinyTokenizer (toujours sur CPU).
         if TEST_MODE:
             from src.inference.tiny_tokenizer import TinyTokenizer
@@ -199,8 +207,12 @@ class Predictor:
 
         if os.path.isdir(resolved_model_path):
             try:
-                self.tokenizer = AutoTokenizer.from_pretrained(resolved_model_path)
-                self.model = AutoModelForSequenceClassification.from_pretrained(resolved_model_path)
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    resolved_model_path, trust_remote_code=False
+                )
+                self.model = AutoModelForSequenceClassification.from_pretrained(
+                    resolved_model_path, trust_remote_code=False
+                )
             except Exception:
                 # Fallback : cherche un fichier de poids torch pur (.pt / .bin /
                 # model_state_dict.pt) et le charge dans un modèle HF neuf.
@@ -222,10 +234,13 @@ class Predictor:
                 # Le try initial a échoué (ex. tokenizer absent du dossier) :
                 # tokenizer + modèle doivent être (re)chargés ICI, avant toute
                 # référence à self.model, sinon AttributeError garanti.
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_name, trust_remote_code=False
+                )
                 self.model = AutoModelForSequenceClassification.from_pretrained(
                     resolved_model_path,
                     num_labels=3,
+                    trust_remote_code=False,
                 )
                 expected_keys = set(self.model.state_dict().keys())
                 unexpected = set(state) - expected_keys
@@ -244,10 +259,13 @@ class Predictor:
                 self.model.load_state_dict(state)
 
         elif os.path.isfile(resolved_model_path):
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name, trust_remote_code=False
+            )
             self.model = AutoModelForSequenceClassification.from_pretrained(
                 self.model_name,
                 num_labels=3,
+                trust_remote_code=False,
             )
             self.model.load_state_dict(torch.load(resolved_model_path, map_location="cpu"))
 

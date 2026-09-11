@@ -89,14 +89,21 @@ _SUMMARY_MAX_CHARS = 400
 
 
 def _summary(args: Any) -> Any:
-    """Raccourcit les arguments pour la trace (secrets / contenus tronqués)."""
+    """Raccourcit les arguments pour la trace (secrets / contenus tronqués).
+
+    P1 point 10c : les secrets contenus dans les VALEURS (DSN, Bearer,
+    ``clé=valeur``) sont masqués avant persistance (complément du masquage
+    par clés d'audit_store).
+    """
+    from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+
     if isinstance(args, dict):
         return {key: _summary(val) for key, val in args.items()}
     if isinstance(args, (list, tuple)):
         return [_summary(item) for item in list(args)[:20]]
     if args is None:
         return None
-    text = str(args)
+    text = redact_secrets(str(args))
     if len(text) > _SUMMARY_MAX_CHARS:
         return text[:_SUMMARY_MAX_CHARS] + "…"
     return text

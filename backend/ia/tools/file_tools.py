@@ -51,12 +51,15 @@ def _get_max_write_bytes(override) -> int:
 
 
 def _ensure_writable(target: Path) -> None:
-    """Garde-fous communs à toute écriture : racine, ``.git``, cible = dossier."""
-    root = get_sandbox_root()
-    if target == root:
-        raise PermissionError("Écriture sur la racine de la sandbox interdite.")
-    if ".git" in target.relative_to(root).parts:
-        raise PermissionError("Écriture sous '.git' interdite.")
+    """Garde-fous communs à toute écriture (P1, défense en profondeur).
+
+    Délègue à ``sandbox.ensure_writable_target`` (racine, ``.git``, cibles
+    sensibles DENIED_PATH_PARTS / DENIED_EXTENSIONS) puis ajoute la vérif
+    « cible = dossier existant » et la création des parents.
+    """
+    from .sandbox import ensure_writable_target
+
+    ensure_writable_target(target)
     if target.exists() and target.is_dir():
         raise IsADirectoryError(f"Chemin existant qui est un dossier : {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -350,6 +353,7 @@ def split_file(path: str, max_lines: int = 1000) -> dict:
             part_index += 1
             out_name = f"{target.stem}_part_{part_index}.txt"
             out_path = safe_resolve(str(target.parent / out_name))
+            _ensure_writable(out_path)  # P1 : garde-fou physique même sur sortie générée
             text = "\n".join(line.rstrip("\n") for line in batch) + "\n"
             _atomic_write_bytes(out_path, text.encode("utf-8"))
             parts.append(out_name)
@@ -369,7 +373,7 @@ def dedupe_lines(path: str, keep: str = "first") -> dict:
     - une sauvegarde ``<nom>.bak`` est créée avant modification ;
     - encodage UTF-8, fins de lignes normalisées.
     """
-    target = safe_resolve(path, must_exist=True)
+    target = safe_resolve(path, must_exist=True, for_write=True)
     if not target.is_file():
         raise IsADirectoryError(f"Pas un fichier : {target}")
 

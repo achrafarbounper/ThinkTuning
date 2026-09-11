@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key, require_read_api_key
 from api.dependencies.composition import get_model_versioning_port
 from app.application.models_usecase import (
     activate_model_version,
@@ -37,7 +37,7 @@ router = APIRouter(tags=["Models v1"])
 
 @router.get("/models/details", response_model=list[ModelVersion])
 def list_model_versions_v1(
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture
     versioning: ModelVersioningPort = Depends(get_model_versioning_port),
 ) -> list[ModelVersion]:
     """Modèles enregistrés, du plus récent au plus ancien ([] si aucun)."""
@@ -46,7 +46,7 @@ def list_model_versions_v1(
 
 @router.get("/models/active")
 def get_active_model_v1(
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture
     versioning: ModelVersioningPort = Depends(get_model_versioning_port),
 ) -> dict:
     """Pointeur de la version active ({"activated": False} si aucune)."""

@@ -4,6 +4,141 @@
  */
 
 export interface paths {
+    "/api/v1/auth/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Token Endpoint
+         * @description Échange client_id + client_secret contre un JWT courte durée.
+         */
+        post: operations["token_endpoint_api_v1_auth_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Endpoint
+         * @description Valide le jeton porté par ``Authorization: Bearer`` et renvoie les claims.
+         *
+         *     Le rôle ``read`` est accepté ici (vérification d'identité uniquement).
+         */
+        get: operations["verify_endpoint_api_v1_auth_verify_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Endpoint
+         * @description Révoque le jti du jeton présenté (les 15 min restantes sont annulées).
+         */
+        post: operations["revoke_endpoint_api_v1_auth_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/service-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Service Accounts
+         * @description Liste des comptes (jamais de hash/secret exposé).
+         */
+        get: operations["list_service_accounts_api_v1_auth_service_accounts_get"];
+        put?: never;
+        /**
+         * Create Service Account
+         * @description Crée un service account — le secret en clair n'est renvoyé QU'ICI.
+         */
+        post: operations["create_service_account_api_v1_auth_service_accounts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/service-accounts/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Service Account
+         * @description Révoque un compte (suppression immédiate — les jetons en vie expirent au pire).
+         */
+        delete: operations["revoke_service_account_api_v1_auth_service_accounts__account_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register Endpoint
+         * @description Inscription publique : crée un compte ``read`` avec email + mot de passe.
+         *
+         *     Route VOLONTAIREMENT publique (aucun header d'authentification) : elle ne
+         *     fait qu'ouvrir l'espace — la connexion réelle passe ensuite par
+         *     ``POST /auth/token``. L'email normalisé devient l'identifiant de compte ;
+         *     le mot de passe est hashé côté store (jamais en clair).
+         *
+         *     Statuts : 201 créé · 403 inscription désactivée (``AUTH_REGISTRATION_ENABLED=0``)
+         *     · 400 CGU non acceptées · 409 email déjà pris (pas de clé API requise)
+         *     · 422 email / mot de passe non conformes.
+         */
+        post: operations["register_endpoint_api_v1_auth_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1214,6 +1349,11 @@ export interface components {
          *
          *     Champ absent ou ``null`` : inchangé. Chaîne vide pour les champs texte :
          *     retour à la valeur par défaut du serveur.
+         *
+         *     SCRUM-138 : les réglages déplacés de ``app/config/settings.py`` (budgets,
+         *     niveau de log, surface MCP, feature flags) sont désormais des clés de ce
+         *     module de configuration IHM — stockées dans la base MongoDB et chargées
+         *     à chaque lecture.
          */
         AgentSettingsUpdate: {
             /**
@@ -1241,6 +1381,51 @@ export interface components {
             context_length?: number | null;
             /** Temperature */
             temperature?: number | null;
+            /**
+             * Max Llm Rounds
+             * @description Rounds LLM max par run.
+             */
+            max_llm_rounds?: number | null;
+            /**
+             * Max Tool Calls
+             * @description Appels d'outils max par run.
+             */
+            max_tool_calls?: number | null;
+            /**
+             * Log Level
+             * @description « DEBUG », « INFO », « WARNING » ou « ERROR ».
+             */
+            log_level?: string | null;
+            /**
+             * Mcp First
+             * @description MCP-First : surface HTTP legacy de l'agent en read-only.
+             */
+            mcp_first?: boolean | null;
+            /**
+             * Mcp Auth Required
+             * @description Auth X-API-Key obligatoire sur POST /mcp/sse.
+             */
+            mcp_auth_required?: boolean | null;
+            /** Flag Reliability */
+            flag_reliability?: boolean | null;
+            /** Flag Audit */
+            flag_audit?: boolean | null;
+            /** Flag Tool Analytics */
+            flag_tool_analytics?: boolean | null;
+            /** Flag Context */
+            flag_context?: boolean | null;
+            /** Flag Copilot */
+            flag_copilot?: boolean | null;
+            /** Flag Websocket */
+            flag_websocket?: boolean | null;
+            /** Flag Multi Agent */
+            flag_multi_agent?: boolean | null;
+            /** Flag Custom Tools */
+            flag_custom_tools?: boolean | null;
+            /** Flag New Core */
+            flag_new_core?: boolean | null;
+            /** Flag Llm V2 */
+            flag_llm_v2?: boolean | null;
         };
         /** AnnotateListResponse */
         AnnotateListResponse: {
@@ -1800,6 +1985,52 @@ export interface components {
             model_version?: string | null;
         };
         /**
+         * RegisterRequest
+         * @description Corps d'inscription publique — l'email devient l'identifiant de compte.
+         *
+         *     La validation de format (email, longueur du mot de passe) est ré-appliquée
+         *     côté store (``register_account``) : la route ne fait que traduire les
+         *     erreurs en codes HTTP stables (409 doublon / 422 invalide).
+         */
+        RegisterRequest: {
+            /**
+             * Email
+             * @description Adresse email — normalisée (minuscules) et utilisée comme identifiant
+             */
+            email: string;
+            /**
+             * Password
+             * @description Mot de passe (8 à 128 caractères) — hashé, jamais stocké en clair
+             */
+            password: string;
+            /**
+             * Accept Terms
+             * @description Acceptation obligatoire des CGU (et consentement RGPD)
+             * @default false
+             */
+            accept_terms: boolean;
+        };
+        /**
+         * RegisterResponse
+         * @description Résultat d'inscription : le compte est prêt pour ``POST /auth/token``.
+         */
+        RegisterResponse: {
+            /** Id */
+            id: string;
+            /** Email */
+            email: string;
+            /**
+             * Role
+             * @default read
+             */
+            role: string;
+            /**
+             * Message
+             * @default Compte créé. Vous pouvez maintenant vous connecter.
+             */
+            message: string;
+        };
+        /**
          * ReloadResponse
          * @description Réponse de POST /api/v1/predict/reload — shape legacy préservé.
          */
@@ -1911,6 +2142,18 @@ export interface components {
             created_at: number;
             train_request: components["schemas"]["TrainRequest"];
         };
+        /** ServiceAccountCreate */
+        ServiceAccountCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Role
+             * @default read
+             */
+            role: string;
+            /** Scopes */
+            scopes?: string[];
+        };
         /** SessionCreate */
         SessionCreate: {
             /** Title */
@@ -1922,6 +2165,41 @@ export interface components {
         SessionRename: {
             /** Title */
             title: string;
+        };
+        /**
+         * TokenRequest
+         * @description Client credentials (RFC 6749 §4.3 — grant implicite de ce service).
+         */
+        TokenRequest: {
+            /**
+             * Client Id
+             * @description Identifiant du service account
+             */
+            client_id: string;
+            /**
+             * Client Secret
+             * @description Secret du service account
+             */
+            client_secret: string;
+            /**
+             * Ttl Seconds
+             * @description Durée de vie du jeton (défaut 900 s, plafond 24 h)
+             */
+            ttl_seconds?: number | null;
+        };
+        /** TokenResponse */
+        TokenResponse: {
+            /** Token */
+            token: string;
+            /**
+             * Token Type
+             * @default Bearer
+             */
+            token_type: string;
+            /** Expires In */
+            expires_in: number;
+            /** Role */
+            role: string;
         };
         /**
          * TrainHistoryResponse
@@ -2052,6 +2330,213 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    token_endpoint_api_v1_auth_token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_endpoint_api_v1_auth_verify_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    revoke_endpoint_api_v1_auth_revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_service_accounts_api_v1_auth_service_accounts_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_service_account_api_v1_auth_service_accounts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_service_account_api_v1_auth_service_accounts__account_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_endpoint_api_v1_auth_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_v1_health_get: {
         parameters: {
             query?: never;

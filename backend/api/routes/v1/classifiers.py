@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key, require_read_api_key
 from api.routes import classifiers as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 
@@ -51,7 +51,8 @@ def get_classifier(name: str):
     response_model_exclude_none=True,
 )
 def predict_classifier(
-    name: str, req: legacy.ClassifierPredictRequest, _: bool = Depends(require_api_key)
+    name: str, req: legacy.ClassifierPredictRequest,
+    _: bool = Depends(require_read_api_key),  # P1 : lecture
 ):
     """Prédiction d'un classifieur sur une liste de textes (ordre préservé)."""
     return _call_guarded(legacy.predict_classifier, name, req)

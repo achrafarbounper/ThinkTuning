@@ -67,6 +67,10 @@ class ActionTrace(BaseModel):
     status: str  # done / error / awaiting_approval / rejected
     result_summary: str = ""
     error: str = ""
+    # P2 Lot A : traçabilité de la décision d'autorisation (PDP Casbin).
+    # Zéro par défaut = traces legacy inchangées (compatibilité totale).
+    policy_version: int = 0
+    authz_reason: str = ""
 
     model_config = {"frozen": True}
 
@@ -111,6 +115,103 @@ def _sanitize_final_answer(response: str, traces: list[ActionTrace]) -> str:
             "collectées. Peux-tu reformuler ta demande ?"
         )
     return text
+# ============================================================
+# DÉFENSES LLM (P2 lot 17) — prompt-injection + validation de plan
+# ============================================================
+
+def _injection_guard_enabled() -> bool:
+    """Garde anti-injection actif par défaut (opt-out explicite AGENT_PROMPT_INJECTION_GUARD=0)."""
+    from os import getenv
+
+    return getenv("AGENT_PROMPT_INJECTION_GUARD", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+
+
+def _plan_validation_mode() -> str:
+    """Mode de validation stricte des plans (AGENT_PLAN_VALIDATION).
+
+    ``off``   : aucun contrôle (comportement historique) ;
+    ``warn``  (défaut) : le rapport est journalisé, le plan s'exécute quand même ;
+    ``strict``: un plan hors schéma est REJETÉ et renvoyé au LLM pour
+    correction (auto-correction, zéro appel d'outil consommé).
+    """
+    from os import getenv
+
+    mode = (getenv("AGENT_PLAN_VALIDATION") or "warn").strip().lower()
+    return mode if mode in {"off", "warn", "strict"} else "warn"
+
+
+def _guard_user_prompt(prompt: str) -> str:
+    """Scan le prompt utilisateur contre le prompt-injection (P2 lot 17).
+
+    - ``flagged`` (>= medium) : journalisation structurée (audit de l'essai) ;
+    - ``high`` (family dure : harvest de secrets, hijack de rôle) : le texte
+      est NEUTRALISÉ (tronqué + préfixe d'avertissement) avant d'être envoyé
+      au LLM — le modèle ne reçoit jamais l'instruction malveillante brute.
+    Déterministe, jamais bloquant (le run continue dans tous les cas).
+    """
+    if not prompt or not _injection_guard_enabled():
+        return prompt
+    from app.domain.prompt_injection import detect_prompt_injection, redact_suspicious_context
+
+    report = detect_prompt_injection(prompt)
+    if not report.flagged:
+        return prompt
+    logger.warning(
+        "prompt_injection_detected severity=%s score=%.2f matched=%s",
+        report.severity,
+        report.score,
+        list(report.matched),
+    )
+    if report.severity == "high":
+        return redact_suspicious_context(prompt)
+    return prompt
+
+
+def _sanitize_tool_output(summary: str) -> str:
+    """Défense anti-poisoning INDIRECT (P2 lot 17) : un résultat d'outil jugé
+    suspect n'est JAMAIS réinjecté brut au LLM (tronqué + avertissement).
+    Les sorties normales passent inchangées (score 0)."""
+    if not summary or not _injection_guard_enabled():
+        return summary
+    from app.domain.prompt_injection import detect_prompt_injection, redact_suspicious_context
+
+    report = detect_prompt_injection(summary)
+    if report.flagged:
+        logger.warning(
+            "tool_output_suspicious severity=%s score=%.2f matched=%s",
+            report.severity,
+            report.score,
+            list(report.matched),
+        )
+        return redact_suspicious_context(summary)
+    return summary
+
+
+def _validate_extracted_plan(raw: str, tool_names: list[str]):
+    """Validation déterministe du schéma de plan (généralisation plan_validator).
+
+    Retourne le ``AgentPlanValidation`` si le mode est warn/strict, ``None``
+    si off — et ne lève JAMAIS (la validation ne doit pas casser le run).
+    """
+    mode = _plan_validation_mode()
+    if mode == "off":
+        return None
+    from app.domain.plan_schema import validate_agent_plan
+
+    try:
+        return validate_agent_plan(raw, known_tools=set(tool_names))
+    except Exception as exc:  # noqa: BLE001 - défensif
+        logger.warning("plan_validation_error : %s", exc)
+        return None
+
+
+# ============================================================
+# SYSTEM PROMPT (généré depuis le registre réel des outils)
+# ============================================================
 
 
 # ============================================================
@@ -391,6 +492,7 @@ class AgentCore:
         on_thinking: Callable[[str], None] | None = None,
         event_bus: EventBusPort | None = None,
         intent_classifier: Any | None = None,
+        authz_enforcer: Any | None = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
@@ -418,12 +520,65 @@ class AgentCore:
         # Le tampon est remis à zéro à chaque run (voir run()).
         self._thinking_parts: list[str] = []
         self._system_prompt = build_system_prompt(registry)
+        # P2 Lot A : enforcer d'autorisation optionnel (PDP Casbin embarquée).
+        # ``None`` = comportement historique strictement préservé (flag off) ;
+        # injecté explicitement, il fait foi (tests, composition root).
+        self._authz_enforcer = authz_enforcer
+        self._authz_gate: Any | None = None
+
+    def _resolve_authz_gate(self) -> Any | None:
+        """Résout le gate PDP du run (None si inactif — flag off, défaut)."""
+        if self._authz_enforcer is None:
+            from core.feature_flags import flag  # import paresseux (anti-cycle)
+
+            if not flag("security_authz_casbin"):
+                return None
+            from app.infrastructure.security.authz import factory  # import paresseux
+
+            try:
+                self._authz_enforcer = factory.get_default_enforcer()
+            except Exception as exc:  # pragma: no cover — PDP non constructible
+                logger.error("PDP indisponible (%s) : gate authz désactivé", exc)
+                return None
+        from app.infrastructure.security.authz import factory  # import paresseux
+
+        return self._authz_enforcer.gate_for_run(
+            subject="agent", tenant=factory.default_tenant(), source="agent"
+        )
+
+    def _authz_deny(self, action: Action) -> Any | None:
+        """Décision PDP contraignante pour l'action, sinon None (shadow/off).
+
+        Fail-closed : une erreur du gate produit un refus explicite (jamais
+        une autorisation implicite) — convention ``PolicyUnavailableError``.
+        """
+        if self._authz_gate is None:
+            return None
+        try:
+            return self._authz_gate.check(action)
+        except Exception as exc:  # noqa: BLE001 — fail-closed volontaire
+            logger.error("Gate PDP en échec (%s) : %s refusé fail-closed", exc, action.tool)
+            from app.domain.authorization import (  # import paresseux (allègement)
+                REASON_PDP_UNAVAILABLE,
+                RULE_PDP_UNAVAILABLE,
+                AuthzDecision,
+            )
+
+            return AuthzDecision.deny(
+                reason=REASON_PDP_UNAVAILABLE,
+                policy_version=0,
+                rule=RULE_PDP_UNAVAILABLE,
+                fail_closed=True,
+            )
 
     def run(self, intent: Intent, history: list[Message] | None = None) -> AgentRunResult:
         """Exécute un run complet. Ne lève JAMAIS : le statut porte l'échec."""
         # Nouveau run (rebouffrage du même AgentCore en tests / atelier) :
         # le tampon de réflexion est propre à chaque exécution.
         self._thinking_parts = []
+        # P2 Lot A : le gate d'autorisation est résolu UNE fois par run
+        # (sujet/tenant fixes) ; flag désactivé -> None, zéro surcoût.
+        self._authz_gate = self._resolve_authz_gate()
         if self._event_bus is not None:
             self._safe_emit("agent.run_start", prompt=intent.prompt)
         # Phase 4 : classification d'intention (chat/action) — observatoire et
@@ -435,10 +590,14 @@ class AgentCore:
         # Une SEULE relance « outil annoncé mais jamais appelé » par run :
         # surcoût borné même face à un modèle têtu (convention anti-boucle).
         nudged = False
+        # P2 lot 17 : le prompt utilisateur est scanné (prompt-injection) avant
+        # d'être envoyé au LLM — les essais « high » sont neutralisés, les
+        # autres journalisés. L'observabilité reste sur le prompt ORIGINAL.
+        guarded_prompt = _guard_user_prompt(intent.prompt)
         messages: list[Message] = [
             {"role": "system", "content": self._system_prompt},
             *(history or []),
-            {"role": "user", "content": intent.prompt},
+            {"role": "user", "content": guarded_prompt},
         ]
 
         while True:
@@ -464,6 +623,41 @@ class AgentCore:
                     traces, budget, RunStatus.FAILED, answer=f"Erreur LLM : {exc}"
                 )
             plan = extract_plan(response)
+            # P2 lot 17 : validation déterministe du schéma de plan
+            # (généralisation du plan_validator legacy au noyau v2).
+            if plan is not None:
+                validation = _validate_extracted_plan(
+                    response, self._registry.tool_names()
+                )
+                if validation is not None and not validation.ok:
+                    if _plan_validation_mode() == "strict":
+                        # REJET du plan : auto-correction sans consommer d'appel
+                        # d'outil (le round LLM courant est déjà compté).
+                        logger.warning(
+                            "plan_rejected_by_schema error_code=%s message=%s",
+                            validation.error_code.value if validation.error_code else "",
+                            validation.message,
+                        )
+                        messages = [
+                            *messages,
+                            {"role": "assistant", "content": response},
+                            {
+                                "role": "user",
+                                "content": (
+                                    "PLAN REJETÉ par le validateur de schéma : "
+                                    f"{validation.message} Réémettez un JSON "
+                                    'conforme : {"plan": [{"tool": "<nom>", '
+                                    '"args": {...}}]} avec UNIQUEMENT des '
+                                    f"outils connus ({', '.join(self._registry.tool_names())})."
+                                ),
+                            },
+                        ]
+                        continue
+                    logger.warning(
+                        "plan_schema_warning error_code=%s message=%s",
+                        validation.error_code.value if validation.error_code else "",
+                        validation.message,
+                    )
 
             if plan is None:
                 # Garde-fou : une réponse en texte qui ANNONCE un outil connu
@@ -540,6 +734,13 @@ class AgentCore:
                 continue
             decision = decide_action(action)
 
+            # P2 Lot A : la PDP (mode strict) peut refuser une action que la
+            # sandbox aurait approuvée — deny-by-default PRIME sur le verdict
+            # historique (le REJECT branché ci-dessous gère trace + anti-boucle).
+            authz = self._authz_deny(action)
+            if authz is not None:
+                decision = Decision.REJECT
+
             if decision is Decision.REJECT:
                 print_ = action.fingerprint()
                 traces.append(
@@ -548,7 +749,13 @@ class AgentCore:
                         args=action.args,
                         decision=decision.value,
                         status="rejected",
-                        error="cible sensible ou règle dure",
+                        error=(
+                            f"politique d'autorisation : {authz.reason}"
+                            if authz is not None
+                            else "cible sensible ou règle dure"
+                        ),
+                        policy_version=authz.policy_version if authz is not None else 0,
+                        authz_reason=authz.reason if authz is not None else "",
                     )
                 )
                 if print_ in rejected_prints:
@@ -613,14 +820,18 @@ class AgentCore:
             try:
                 value = func(**action.args)
                 duration_ms = round((time.perf_counter() - started) * 1000, 2)
-                results.append(f"[{step.task_id}] {action.tool} -> {self._summarize(value)}")
+                # P2 lot 17 : anti-poisoning indirect — la sortie d'outil est
+                # scannée AVANT réinjection au LLM (une sortie suspecte est
+                # tronquée + préfixée d'un avertissement).
+                summary = _sanitize_tool_output(self._summarize(value))
+                results.append(f"[{step.task_id}] {action.tool} -> {summary}")
                 traces.append(
                     ActionTrace(
                         tool=action.tool,
                         args=action.args,
                         decision=decision.value,
                         status="done",
-                        result_summary=self._summarize(value),
+                        result_summary=summary,
                     )
                 )
                 self._emit_tool_event(
@@ -628,7 +839,7 @@ class AgentCore:
                         "event": "tool_result",
                         "tool": action.tool,
                         "status": "ok",
-                        "summary": self._summarize(value),
+                        "summary": summary,
                         "duration_ms": duration_ms,
                     }
                 )
@@ -740,8 +951,14 @@ class AgentCore:
 
     @staticmethod
     def _summarize(value: Any) -> str:
-        """Résumé mono-ligne d'un résultat d'outil (aperçu, contexte plafonné)."""
+        """Résumé mono-ligne d'un résultat d'outil (aperçu, contexte plafonné).
+
+        P1 point 10c : les secrets contenus dans les VALEURS (DSN, Bearer,
+        ``clé=valeur``) sont masqués avant tout usage (traces, SSE, journal).
+        """
         import json as _json
+
+        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
 
         if isinstance(value, (dict, list)):
             try:
@@ -750,6 +967,7 @@ class AgentCore:
                 text = str(value)
         else:
             text = str(value)
+        text = redact_secrets(text)
         text = " ".join(text.split())
         if len(text) > _RESULT_SUMMARY_CHARS:
             return text[:_RESULT_SUMMARY_CHARS] + "… [tronqué]"

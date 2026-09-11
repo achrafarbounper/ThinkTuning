@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 import api
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_read_api_key
 from core import agent_cache
 
 router = APIRouter(tags=["Explication"])
@@ -71,7 +71,7 @@ def build_explanation_prompt(text: str, sentiment: str, confidence: float) -> st
 @router.post("/explain", response_model=ExplainResponse)
 def explain_route(
     req: ExplainRequest,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture (aucune mutation)
 ):
     # 1) Prédiction DistilBERT : sert de contexte pour l'explication.
     predictor = api._get_predictor()

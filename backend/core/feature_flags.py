@@ -30,6 +30,9 @@ import os
 #   multi_agent    (F) orchestration multi-agents (superviseur/workers)
 #   custom_tools   (G) tools personnalisés dynamiques (SCRUM-99 : registre +
 #                      propositions du planner + API d'enregistrement humain)
+#   security_authz_casbin (P2 Lot A) PDP Casbin embarquée : deny-by-default
+#                      des outils non déclarés, modes de tenant
+#                      legacy_permissive (shadow) / strict, audit unifié.
 FEATURES = (
     "reliability",
     "audit",
@@ -39,6 +42,7 @@ FEATURES = (
     "websocket",
     "multi_agent",
     "custom_tools",
+    "security_authz_casbin",
 )
 
 # Valeurs considérées comme « activé » (insensible à la casse).

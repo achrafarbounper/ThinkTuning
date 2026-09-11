@@ -126,7 +126,7 @@ def find_file(pattern: str, path: str = ".", max_results: int = MAX_FIND_RESULTS
 # --- mkdir -------------------------------------------------------------------------
 def make_dir(path: str) -> str:
     """Crée un répertoire (parents inclus, sans erreur s'il existe déjà)."""
-    created = safe_resolve(path)
+    created = safe_resolve(path, for_write=True)  # P1 : refus d'un dossier sensible
     created.mkdir(parents=True, exist_ok=True)
     return f"Répertoire prêt : {created}"
 
@@ -135,7 +135,7 @@ def make_dir(path: str) -> str:
 def copy_path(src: str, dst: str) -> str:
     """Copie fichier ou arborescence dans la sandbox."""
     source = safe_resolve(src, must_exist=True)
-    destination = safe_resolve(dst)
+    destination = safe_resolve(dst, for_write=True)  # P1 : destination = écriture
 
     if source.is_dir():
         if destination.exists():
@@ -152,8 +152,10 @@ def copy_path(src: str, dst: str) -> str:
 # --- mv -------------------------------------------------------------------------------
 def move_path(src: str, dst: str) -> str:
     """Déplace/renomme fichier ou répertoire dans la sandbox."""
-    source = safe_resolve(src, must_exist=True)
-    destination = safe_resolve(dst)
+    # P1 : source (suppression) ET destination (écriture) passent par le
+    # garde-fou — déplacer/écraser une cible sensible est refusé physiquement.
+    source = safe_resolve(src, must_exist=True, for_write=True)
+    destination = safe_resolve(dst, for_write=True)
     if source == destination:
         return f"Source et destination identiques, rien à faire : {source}"
     moved = shutil.move(str(source), str(destination))
@@ -167,9 +169,11 @@ def remove_path(path: str, recursive: bool = False) -> str:
     Garde-fous :
         - la racine de la sandbox elle-même n'est jamais supprimable ;
         - tout ce qui est sous `.git` est interdit ;
+        - toute cible SENSIBLE (DENIED_PATH_PARTS / DENIED_EXTENSIONS) est
+          refusée physiquement (P1, aligné sur le REJECT de la policy) ;
         - un répertoire non vide exige recursive=true.
     """
-    target = safe_resolve(path, must_exist=True)
+    target = safe_resolve(path, must_exist=True, for_write=True)
 
     root = get_root()
     if target == root:

@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, StringConstraints
 
 import api
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key, require_read_api_key
 from core.dynamic_batcher import DynamicBatcher
 from core.inference_executor import get_executor
 from core.predictor_cache import reload_predictor
@@ -112,7 +112,7 @@ class BatchedPredictRequest(BaseModel):
 @router.post("/predict/batched", response_model=PredictResponse)
 async def predict_batched(
     req: BatchedPredictRequest,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture (inférence sans mutation)
 ):
     """Prédiction batch asynchrone (Phase 2).
 
@@ -133,7 +133,7 @@ async def predict_batched(
 def predict_route(
     req: PredictRequest,
     model: str | None = None,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture
 ):
     predictor = api._get_predictor(model)
     results = predictor.predict(req.texts)
@@ -150,7 +150,7 @@ async def predict_batch(
     text_column: str = Form("text"),
     response_format: str = Form("json"),
     model: str | None = None,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture
 ):
     raw = await file.read()
     if not raw:
@@ -271,7 +271,7 @@ class CompareRequest(BaseModel):
 
 
 @router.post("/compare")
-def compare_route(payload: CompareRequest, _: bool = Depends(require_api_key)):
+def compare_route(payload: CompareRequest, _: bool = Depends(require_read_api_key)):  # P1 : lecture
     predictor = api._get_predictor()
     a, b = predictor.predict([payload.text_a, payload.text_b])
 

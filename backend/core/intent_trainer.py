@@ -605,9 +605,11 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         # Continual training : reprise des poids + tokenizer d'une version
         # d'intention existante (validée tôt par la route ; revalidée ici).
         base_dir = resolve_intent_model_dir(req.base_model_version)
-        tokenizer = AutoTokenizer.from_pretrained(base_dir, use_fast=False)
+        tokenizer = AutoTokenizer.from_pretrained(
+            base_dir, use_fast=False, trust_remote_code=False
+        )
         model = AutoModelForSequenceClassification.from_pretrained(
-            base_dir, num_labels=len(labels)
+            base_dir, num_labels=len(labels), trust_remote_code=False
         )
         logger.info(
             "Continual training d'intention : reprise depuis la version %s -> %s",
@@ -615,9 +617,11 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
             base_dir,
         )
     else:
-        tokenizer = AutoTokenizer.from_pretrained(req.base_model, use_fast=False)
+        tokenizer = AutoTokenizer.from_pretrained(
+            req.base_model, use_fast=False, trust_remote_code=False
+        )
         model = AutoModelForSequenceClassification.from_pretrained(
-            req.base_model, num_labels=len(labels)
+            req.base_model, num_labels=len(labels), trust_remote_code=False
         )
         logger.info("Modèle d'intention chargé : %s", req.base_model)
 

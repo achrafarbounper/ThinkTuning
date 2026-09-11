@@ -32,6 +32,8 @@ _AGENT_ENV_KEYS = (
     "AGENT_WEBSOCKET",
     "AGENT_MULTI_AGENT",
     "AGENT_CUSTOM_TOOLS",
+    "AGENT_SECURITY_AUTHZ_CASBIN",  # P2 Lot A : PDP Casbin embarquée
+    "AGENT_AUTHZ_TENANT",  # P2 Lot A : tenant des runs agent
     "MCP_FIRST",
     "MCP_AUTH_REQUIRED",
 )

@@ -1,0 +1,59 @@
+{
+  "policy_version": 1,
+  "default_tenant_mode": "legacy_permissive",
+  "tenant_modes": {
+    "default": "legacy_permissive"
+  },
+  "role_aliases": {
+    "read_only": "viewer",
+    "contributor": "operator"
+  },
+  "roles": {
+    "viewer": [
+      "tool.list",
+      "tool.read:*",
+      "tool.execute:read",
+      "tool.execute:system"
+    ],
+    "operator": [
+      "tool.list",
+      "tool.read:*",
+      "tool.execute:read",
+      "tool.execute:system",
+      "tool.execute:network",
+      "tool.execute:write",
+      "tool.execute:delete",
+      "tool.execute:exec"
+    ],
+    "admin": [
+      "tool.list",
+      "tool.read:*",
+      "tool.execute:*",
+      "admin.*"
+    ],
+    "agent": [
+      "tool.list",
+      "tool.read:*",
+      "tool.execute:read",
+      "tool.execute:system",
+      "tool.execute:network",
+      "tool.execute:write",
+      "tool.execute:delete",
+      "tool.execute:exec"
+    ],
+    "service": [
+      "tool.list",
+      "tool.read:*",
+      "tool.execute:read",
+      "tool.execute:system"
+    ]
+  },
+  "denies": [
+    {
+      "role": "*",
+      "action": "tool.execute:unknown",
+      "resource": "*",
+      "reason": "capacité d'outil non déclarée (deny-by-default, registre incomplet)"
+    }
+  ]
+}

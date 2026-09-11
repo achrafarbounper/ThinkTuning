@@ -28,9 +28,14 @@ DEFAULT_TIMEOUT_SECONDS = 30
 
 # Shells volontairement ABSENTS de l'allowlist : ils permettraient d'exécuter
 # n'importe quoi et annuleraient le filtrage (cmd, powershell, bash, sh, ...).
+# P1 SEC (F11, confinement) : curl/wget/docker/... retirés — le transfert web
+# passe par http_get/download_file (politique SSRF + bornes DÉDIÉES) et le
+# pilotage docker par docker_tools.* (run_subprocess direct, allowlist de
+# conteneurs AGENT_DOCKER_ALLOWED_CONTAINERS). Ré-ajout possible via
+# AGENT_ALLOWED_BINARIES par un opérateur informé.
 DEFAULT_ALLOWED_BINARIES = (
-    "python,python3,pip,pytest,git,docker,nvidia-smi,"
-    "node,npm,curl,wget,"
+    "python,python3,pip,pytest,git,nvidia-smi,"
+    "node,npm,"
     "ls,dir,cat,type,head,tail,grep,findstr,find,echo,wc,diff,sort,uniq,tree,"
     "whoami,hostname,tasklist"
 )
@@ -45,12 +50,19 @@ def get_sandbox_root() -> Path:
     return Path.cwd().resolve()
 
 
-def safe_resolve(path: str | Path, must_exist: bool = False) -> Path:
+def safe_resolve(
+    path: str | Path,
+    must_exist: bool = False,
+    for_write: bool = False,
+) -> Path:
     """Résout `path` dans la sandbox et refuse toute évasion.
 
     - Chemins relatifs : résolus depuis la racine de la sandbox.
     - Chemins absolus : acceptés UNIQUEMENT s'ils restent sous la racine.
     - `..` et liens qui feraient sortir de la racine : PermissionError.
+    - `for_write=True` : refuse en plus toute CIBLE SENSIBLE (défense en
+      profondeur P1 — la policy décisionnelle reste l'arbitre du plan, la
+      sandbox bloque physiquement la même cible pour les appels directs).
     """
     root = get_sandbox_root()
     candidate = Path(str(path)).expanduser()
@@ -59,9 +71,46 @@ def safe_resolve(path: str | Path, must_exist: bool = False) -> Path:
         raise PermissionError(
             f"Chemin hors sandbox interdit : '{path}' (racine autorisée : {root})"
         )
+    if for_write:
+        ensure_writable_target(resolved)
     if must_exist and not resolved.exists():
         raise FileNotFoundError(f"Introuvable : {resolved}")
     return resolved
+
+
+def ensure_writable_target(target: Path) -> None:
+    """Refuse physiquement l'écriture sur une cible sensible (P1, défense en profondeur).
+
+    Bloque, indépendamment de la policy décisionnelle :
+        - la racine de la sandbox elle-même ;
+        - tout chemin sous ``.git`` ;
+        - toute cible dont une composante figure dans ``DENIED_PATH_PARTS``
+          (.env, venv, __pycache__, node_modules, id_rsa…) ou dont l'extension
+          figure dans ``DENIED_EXTENSIONS`` (.key, .pem, .p12, .pfx…) —
+          délégué à ``app.domain.security.classify_path_risk`` (source unique).
+
+    La policy (``app/agent/policies/sandbox_policy.py``) traite déjà ces
+    cibles en REJECT au niveau du plan ; ce garde-fou protège les appels
+    d'outils qui ne passent PAS par le gate (défense en profondeur).
+    """
+    from app.domain.security import classify_path_risk  # import paresseux (cf. mcp_host_tools)
+
+    root = get_sandbox_root()
+    if target == root:
+        raise PermissionError("Écriture sur la racine de la sandbox interdite.")
+    try:
+        relative = target.relative_to(root)
+    except ValueError:
+        # Hors racine : safe_resolve l'a déjà refusé — rejet par prudence si
+        # ce helper est appelé directement avec un chemin externe.
+        raise PermissionError(f"Chemin hors sandbox interdit : {target}")
+    if ".git" in relative.parts:
+        raise PermissionError("Écriture sous '.git' interdite.")
+    if classify_path_risk(str(target)):
+        raise PermissionError(
+            f"Écriture sur cible sensible interdite : {target} "
+            "(DENIED_PATH_PARTS / DENIED_EXTENSIONS, cf. app.domain.security)."
+        )
 
 
 def truncate_output(text: str, limit: int = DEFAULT_MAX_OUTPUT_CHARS) -> str:
@@ -77,11 +126,19 @@ def run_subprocess(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     cwd: Path | None = None,
     max_output_chars: int = DEFAULT_MAX_OUTPUT_CHARS,
+    env: dict | None = None,
+    preexec_fn=None,
 ) -> tuple[int, str, str]:
     """Exécute `argv` SANS shell, avec timeout et sorties plafonnées.
 
     Retourne (returncode, stdout, stderr). Lève RuntimeError sur exécutable
     introuvable ou timeout — messages propres exploitables par l'agent.
+
+    Paramètres optionnels (P1 point 9 — confinement run_python) :
+        - ``env``        : environnement DU SOUS-PROCESSUS (``None`` = hérité,
+                           comportement historique inchangé) ;
+        - ``preexec_fn`` : fonction POSIX appelée dans l'enfant juste avant
+                           l'exec (rlimits…) ; ``None`` partout sous Windows.
     """
     timeout = max(1.0, min(float(timeout), 600.0))
     try:
@@ -94,6 +151,8 @@ def run_subprocess(
             timeout=timeout,
             cwd=str(cwd) if cwd else None,
             shell=False,  # jamais de shell -> pas d'injection
+            env=env,
+            preexec_fn=preexec_fn,
         )
     except FileNotFoundError as exc:
         raise RuntimeError(f"Exécutable introuvable : {argv[0]} ({exc})") from exc

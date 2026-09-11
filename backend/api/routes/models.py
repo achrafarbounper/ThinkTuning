@@ -9,7 +9,7 @@ import shutil
 from fastapi import APIRouter, Depends, HTTPException
 
 import api
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key, require_read_api_key
 from core.model_activation import activate_model, is_active, read_active_pointer
 from core.model_sanity import VERDICT_OK, run_model_sanity
 from core.model_versioning import (
@@ -48,12 +48,12 @@ def activate_model_version(name: str, _: bool = Depends(require_api_key)):
 
 
 @router.get("/active")
-def get_active_version(_: bool = Depends(require_api_key)):
+def get_active_version(_: bool = Depends(require_read_api_key)):  # P1 : lecture
     """Pointeur de la version actuellement active (ou null si aucune)."""
     return read_active_pointer() or {"activated": False}
 
 @router.get("", tags=["Models"])
-def list_models(_: bool = Depends(require_api_key)):
+def list_models(_: bool = Depends(require_read_api_key)):  # P1 : lecture
     root = api.MODEL_ROOT
 
     items = []
@@ -70,7 +70,7 @@ def list_models(_: bool = Depends(require_api_key)):
 
 
 @router.get("/details", response_model=list[ModelVersion])
-def list_models_details(_: bool = Depends(require_api_key)):
+def list_models_details(_: bool = Depends(require_read_api_key)):  # P1 : lecture
     """Renvoie la liste des modèles enregistrés, du plus récent au plus ancien."""
     model_versions = []
     # Aucun modèle entraîné (ex: premier lancement de l'image Docker avec
@@ -94,7 +94,7 @@ def list_models_details(_: bool = Depends(require_api_key)):
 
 
 @router.get("/{name}/report")
-def get_model_report(name: str, _: bool = Depends(require_api_key)):
+def get_model_report(name: str, _: bool = Depends(require_read_api_key)):  # P1 : lecture
     """Retourne le rapport JSON associé à une version de modèle."""
     version_dir = os.path.join(MODEL_ROOT, name)
     report_path = os.path.join(version_dir, "training_report.json")

@@ -113,6 +113,8 @@ class RunStore:
         source: str = "api",
     ) -> dict:
         """Crée un run ``running`` et retourne la ligne complète."""
+        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+
         run_id = uuid.uuid4().hex[:12]
         with self._lock:
             conn = self._connect()
@@ -125,7 +127,14 @@ class RunStore:
                             answer_summary, error, tools_json, created_at, finished_at
                         ) VALUES (?, ?, ?, ?, ?, '', NULL, '[]', ?, NULL)
                         """,
-                        (run_id, prompt or "", model or "", source, RUNNING, _utcnow_iso()),
+                        (
+                            run_id,
+                            redact_secrets(prompt or ""),  # P1 : aucun secret en clair
+                            model or "",
+                            source,
+                            RUNNING,
+                            _utcnow_iso(),
+                        ),
                     )
             finally:
                 conn.close()
@@ -136,9 +145,12 @@ class RunStore:
 
         ``event`` est le dict émis par AgentCore (tool_start / tool_result) ;
         il est stocké tel quel (horodaté à la réception) sans jamais bloquer
-        le flux d'exécution.
+        le flux d'exécution. P1 : les éventuels secrets contenus dans les
+        arguments/résultats sont masqués AVANT persistance.
         """
-        entry = {**event, "at": _utcnow_iso()}
+        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+
+        entry = {**redact_secrets(event), "at": _utcnow_iso()}
         with self._lock:
             conn = self._connect()
             try:
@@ -168,6 +180,8 @@ class RunStore:
         error: str | None = None,
     ) -> dict | None:
         """Clôture un run : statut final, résumé de réponse ou erreur."""
+        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+
         if status not in STATUSES:
             raise ValueError(f"Statut de run inconnu : '{status}'")
         with self._lock:
@@ -185,7 +199,13 @@ class RunStore:
                         SET status = ?, answer_summary = ?, error = ?, finished_at = ?
                         WHERE id = ?
                         """,
-                        (status, answer_summary or "", error, _utcnow_iso(), str(run_id)),
+                        (
+                            status,
+                            redact_secrets(answer_summary or ""),  # P1 : masqué
+                            redact_secrets(error) if error else None,
+                            _utcnow_iso(),
+                            str(run_id),
+                        ),
                     )
                 row = conn.execute(
                     f"SELECT {_SELECT_COLUMNS} FROM agent_runs WHERE id = ?",

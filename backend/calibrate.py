@@ -408,8 +408,10 @@ def main(args):
     raw = load_raw_dataset(max_per_lang=args.max_per_lang)
 
     logger.info(f"2. Chargement du tokenizer et du modèle ({model_label})...")
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=False)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_path, trust_remote_code=False
+    )
 
     logger.info(f"3. Tokenisation du dataset (max_length={max_length})...")
     tokenized = tokenize_dataset(raw, tokenizer, max_length=max_length)

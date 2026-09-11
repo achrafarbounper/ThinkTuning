@@ -41,6 +41,15 @@ client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limit():
+    """P1 : /train a un quota 5/HEURE (route coûteuse) — chaque test repart
+    d'un bucket vide (sinon les tests de validation croisent le throttle)."""
+    api._reset_rate_limit_buckets()
+    yield
+    api._reset_rate_limit_buckets()
+
+
 # ---------------------------------------------------------------------------
 # Fakes des trois ports (déterministes, aucune infrastructure)
 # ---------------------------------------------------------------------------

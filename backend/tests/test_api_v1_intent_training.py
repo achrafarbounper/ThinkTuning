@@ -29,6 +29,15 @@ client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limit():
+    """P1 : /train (et l'entraînement d'intention, même préfixe) a un quota
+    5/HEURE — chaque test repart d'un bucket vide."""
+    api._reset_rate_limit_buckets()
+    yield
+    api._reset_rate_limit_buckets()
+
+
 # ---------------------------------------------------------------------------
 # Fakes des trois ports (déterministes, aucune infrastructure)
 # ---------------------------------------------------------------------------
