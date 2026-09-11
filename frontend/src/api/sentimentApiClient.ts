@@ -406,7 +406,12 @@ export class SentimentApiClient extends SentimentApiClientCore {
   getTrainMetricsStreamUrl(jobId: string): string {
     const wsUrl = this.baseUrl.replace(/^http/, "ws").replace(/^https/, "wss");
     const params = new URLSearchParams();
-    if (this.apiKey) params.set("token", this.apiKey);
+    // Le backend accepte le JWT en query `?token=` (ws_is_authorized valide le
+    // Bearer en repli du header, que les navigateurs ne peuvent pas poser).
+    // Session JWT PRIORITAIRE (canal de lecture : rôle read/admin suffit),
+    // repli X-API-Key (API_KEY_READ incluse) — sinon aucune query.
+    const credential = this.bearerToken || this.apiKey;
+    if (credential) params.set("token", credential);
     const qs = params.toString();
     return `${wsUrl}/api/v1/train/stream/${encodeURIComponent(jobId)}${qs ? `?${qs}` : ""}`;
   }

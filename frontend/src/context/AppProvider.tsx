@@ -206,7 +206,9 @@ export default function AppProvider({ children }: { children: ReactNode }) {
   });
 
   const refreshModels = useCallback(async () => {
-    if (!config.apiKey) return;
+    // Le Bearer JWT suffit (lecture) : le polling tourne dès qu'une session
+    // valide existe, qu'une clé API soit mémorisée ou non (P1 SEC).
+    if (!config.apiKey && !sessionToken) return;
     try {
       const list = await client.listModels();
       setModels(list ?? []);
@@ -214,15 +216,15 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setModelsError(err instanceof Error ? err.message : String(err));
     }
-  }, [client, config.apiKey]);
+  }, [client, config.apiKey, sessionToken]);
 
-  // Le polling des modèles est mis en pause sans clé API (flot d'appels inutile)
-  // et différé pour rester hors du chemin critique.
+  // Le polling des modèles est mis en pause sans clé API ni session JWT (flot
+  // d'appels inutile) et différé pour rester hors du chemin critique.
   usePolling({
     intervalMs: MODELS_POLL_MS,
     immediate: true,
     initialDelayMs: MODELS_FIRST_DELAY_MS,
-    enabled: Boolean(config.apiKey),
+    enabled: Boolean(config.apiKey || sessionToken),
     tick: refreshModels,
   });
 
@@ -309,8 +311,10 @@ export default function AppProvider({ children }: { children: ReactNode }) {
         setAgentLoading(false);
       }
     };
-    if (config.apiKey) void loadAgent();
-  }, [client, config.apiKey, persistAgentSettings, pushLog]);
+    // Une session JWT valide suffit (lecture) ; sinon il faut une clé API
+    // mémorisée en mémoire (Settings) pour charger les réglages de l'agent.
+    if (config.apiKey || sessionToken) void loadAgent();
+  }, [client, config.apiKey, sessionToken, persistAgentSettings, pushLog]);
 
   const addToHistory = useCallback(
     (newPreds: PredictionResult[]) => {

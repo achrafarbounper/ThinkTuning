@@ -156,7 +156,10 @@ export default function App() {
     password: string
   ): Promise<AuthResult> => {
     try {
-      const result = await loginClient.authenticate(email, password);
+      // TTL 24 h demandé (plafond backend, cf. AUTH_TTL_SECONDS dans
+      // api/authSession.ts) : sans cet argument, le défaut serveur (900 s)
+      // ferait expirer la session dashboard toutes les 15 minutes.
+      const result = await loginClient.authenticate(email, password, AUTH_TTL_SECONDS);
       return {
         email,
         token: result.token,
