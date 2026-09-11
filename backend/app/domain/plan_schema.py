@@ -74,8 +74,7 @@ class AgentPlanValidation:
             return {
                 "ok": True,
                 "steps": [
-                    {"tool": s.tool, "args": s.args, "task_id": s.task_id}
-                    for s in self.steps
+                    {"tool": s.tool, "args": s.args, "task_id": s.task_id} for s in self.steps
                 ],
             }
         return {
@@ -94,9 +93,7 @@ def _extract_json_candidates(raw: str) -> list[str]:
     candidates.extend(m.strip() for m in _FENCE_RE.findall(cleaned))
     candidates.extend(m.strip() for m in re.findall(r"\{.*\}", cleaned, re.DOTALL))
     # Liste directe ``[...]`` au milieu de prose.
-    candidates.extend(
-        m.strip() for m in re.findall(r"\[.*\]", cleaned, re.DOTALL) if "{" in m
-    )
+    candidates.extend(m.strip() for m in re.findall(r"\[.*\]", cleaned, re.DOTALL) if "{" in m)
     return sorted(set(candidates), key=len)
 
 
@@ -194,8 +191,7 @@ def validate_agent_plan(
         unknown_keys = set(item) - set(_STEP_KEYS)
         if unknown_keys:
             errors.append(
-                f"action #{index} : clés inconnues {sorted(unknown_keys)} "
-                "(tool/args uniquement)"
+                f"action #{index} : clés inconnues {sorted(unknown_keys)} (tool/args uniquement)"
             )
             continue
         tool = item.get("tool")
@@ -215,14 +211,11 @@ def validate_agent_plan(
             continue
         if len(args) > MAX_ARGS_PER_ACTION:
             errors.append(
-                f"action #{index} : trop d'arguments ({len(args)} > "
-                f"{MAX_ARGS_PER_ACTION})"
+                f"action #{index} : trop d'arguments ({len(args)} > {MAX_ARGS_PER_ACTION})"
             )
             continue
         oversized = [
-            str(k)
-            for k, v in args.items()
-            if isinstance(v, str) and len(v) > MAX_ARG_STRING_CHARS
+            str(k) for k, v in args.items() if isinstance(v, str) and len(v) > MAX_ARG_STRING_CHARS
         ]
         if oversized:
             errors.append(

@@ -168,8 +168,7 @@ class InfisicalSecretSource(_HttpVaultSource):
         if not token or not project_id:
             _audit_secret_access(name, self.name, ok=False)
             raise RuntimeError(
-                "INFISICAL_TOKEN / INFISICAL_PROJECT_ID absents : source infisical "
-                "non configurée"
+                "INFISICAL_TOKEN / INFISICAL_PROJECT_ID absents : source infisical non configurée"
             )
         base = os.getenv("INFISICAL_URL", "https://app.infisical.com").rstrip("/")
         headers = {

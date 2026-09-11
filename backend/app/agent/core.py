@@ -115,9 +115,12 @@ def _sanitize_final_answer(response: str, traces: list[ActionTrace]) -> str:
             "collectées. Peux-tu reformuler ta demande ?"
         )
     return text
+
+
 # ============================================================
 # DÉFENSES LLM (P2 lot 17) — prompt-injection + validation de plan
 # ============================================================
+
 
 def _injection_guard_enabled() -> bool:
     """Garde anti-injection actif par défaut (opt-out explicite AGENT_PROMPT_INJECTION_GUARD=0)."""
@@ -626,9 +629,7 @@ class AgentCore:
             # P2 lot 17 : validation déterministe du schéma de plan
             # (généralisation du plan_validator legacy au noyau v2).
             if plan is not None:
-                validation = _validate_extracted_plan(
-                    response, self._registry.tool_names()
-                )
+                validation = _validate_extracted_plan(response, self._registry.tool_names())
                 if validation is not None and not validation.ok:
                     if _plan_validation_mode() == "strict":
                         # REJET du plan : auto-correction sans consommer d'appel

@@ -209,4 +209,3 @@ class AuthzDecision(_FrozenModel):
 
 REASON_PDP_UNAVAILABLE = "pdp indisponible — refus fail-closed"
 RULE_PDP_UNAVAILABLE = "pdp_unavailable"
-

@@ -114,10 +114,7 @@ def is_valid_api_key(candidate: str | None) -> bool:
     """
     if candidate is None:
         return False
-    return any(
-        secrets.compare_digest(candidate, expected)
-        for expected in _accepted_admin_keys()
-    )
+    return any(secrets.compare_digest(candidate, expected) for expected in _accepted_admin_keys())
 
 
 def is_valid_read_api_key(candidate: str | None) -> bool:
@@ -129,10 +126,7 @@ def is_valid_read_api_key(candidate: str | None) -> bool:
     """
     if candidate is None:
         return False
-    return any(
-        secrets.compare_digest(candidate, expected)
-        for expected in _accepted_read_keys()
-    )
+    return any(secrets.compare_digest(candidate, expected) for expected in _accepted_read_keys())
 
 
 def generate_api_key(nbytes: int = 32) -> str:
@@ -192,8 +186,7 @@ def ensure_api_key_configured() -> str:
             )
         if os.getenv("API_KEY_OLD"):
             logger.warning(
-                "Rotation en cours : API_KEY_OLD acceptée jusqu'à %s "
-                "(API_KEY_OLD_EXPIRES).",
+                "Rotation en cours : API_KEY_OLD acceptée jusqu'à %s (API_KEY_OLD_EXPIRES).",
                 os.getenv("API_KEY_OLD_EXPIRES") or "(sans date)",
             )
         return raw

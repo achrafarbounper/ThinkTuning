@@ -29,9 +29,7 @@ logger = logging.getLogger("thinktuning.security.authz")
 
 # tools_config.json est à backend/ia/tools/ ; ce module à backend/app/infra/
 # .../authz/ — soit 4 niveaux parents jusqu'à backend/.
-_TOOLS_CONFIG_PATH = (
-    Path(__file__).resolve().parents[4] / "ia" / "tools" / "tools_config.json"
-)
+_TOOLS_CONFIG_PATH = Path(__file__).resolve().parents[4] / "ia" / "tools" / "tools_config.json"
 
 _ACTION_UNKNOWN = "tool.execute:unknown"
 

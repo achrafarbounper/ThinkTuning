@@ -848,8 +848,16 @@ class MongoToolAuditStore:
     def __init__(self, provider=None):
         self.c = (provider or get_mongo_provider()).collection("tool_audit")
 
-    def log_tool_call(self, tool_name, args, result=None, duration_ms=0.0,
-                      success=True, error_message=None, job_id=None):
+    def log_tool_call(
+        self,
+        tool_name,
+        args,
+        result=None,
+        duration_ms=0.0,
+        success=True,
+        error_message=None,
+        job_id=None,
+    ):
         d = {
             "_id": uuid.uuid4().hex,
             "job_id": job_id,
@@ -916,8 +924,11 @@ class MongoFeedbackStore:
             acc = self.c.count_documents({"tool": tool, "accepted": True})
             rej = self.c.count_documents({"tool": tool, "accepted": False})
             total = acc + rej
-            out[tool] = {"accepts": acc, "rejects": rej,
-                         "accept_rate": round(acc / total, 3) if total else 0.0}
+            out[tool] = {
+                "accepts": acc,
+                "rejects": rej,
+                "accept_rate": round(acc / total, 3) if total else 0.0,
+            }
         return out
 
     def boost(self, tool):
@@ -945,20 +956,36 @@ class MongoServiceAccountStore:
             _audit,
             _hash_secret,
         )
+
         if not name or len(name.strip()) < 3 or role not in ("admin", "read"):
             raise ValueError("nom ou rôle de service account invalide")
         name = name.strip()
         if self.c.find_one({"name": name}):
             raise ValueError(f"nom de service account déjà pris : {name}")
         secret = secrets.token_urlsafe(32)
-        d = {"_id": str(uuid.uuid4()), "name": name, "role": role,
-             "scopes": list(scopes or []), "secret_hash": _hash_secret(secret),
-             "enabled": True, "created_at": _utcnow(), "last_used_at": ""}
+        d = {
+            "_id": str(uuid.uuid4()),
+            "name": name,
+            "role": role,
+            "scopes": list(scopes or []),
+            "secret_hash": _hash_secret(secret),
+            "enabled": True,
+            "created_at": _utcnow(),
+            "last_used_at": "",
+        }
         self.c.insert_one(d)
-        _audit("service_account_created", name, {"account_id": d["_id"], "role": role,
-                                                  "scopes": d["scopes"]})
-        return {"id": d["_id"], "name": name, "role": role, "scopes": d["scopes"],
-                "client_secret": secret}
+        _audit(
+            "service_account_created",
+            name,
+            {"account_id": d["_id"], "role": role, "scopes": d["scopes"]},
+        )
+        return {
+            "id": d["_id"],
+            "name": name,
+            "role": role,
+            "scopes": d["scopes"],
+            "client_secret": secret,
+        }
 
     def register_account(self, *, email, password, role="read", scopes=None):
         from app.infrastructure.security.service_accounts import (
@@ -967,6 +994,7 @@ class MongoServiceAccountStore:
             EmailAlreadyTakenError,
             RegistrationError,
         )
+
         email = (email or "").strip().lower()
         if "@" not in email:
             raise RegistrationError("adresse email invalide")
@@ -975,9 +1003,17 @@ class MongoServiceAccountStore:
         if self.c.find_one({"name": email}):
             raise EmailAlreadyTakenError(f"un compte existe déjà avec cet email : {email}")
         from app.infrastructure.security.service_accounts import _audit, _hash_secret
-        d = {"_id": str(uuid.uuid4()), "name": email, "role": role,
-             "scopes": list(scopes or []), "secret_hash": _hash_secret(password),
-             "enabled": True, "created_at": _utcnow(), "last_used_at": ""}
+
+        d = {
+            "_id": str(uuid.uuid4()),
+            "name": email,
+            "role": role,
+            "scopes": list(scopes or []),
+            "secret_hash": _hash_secret(password),
+            "enabled": True,
+            "created_at": _utcnow(),
+            "last_used_at": "",
+        }
         self.c.insert_one(d)
         _audit("service_account_registered", email, {"account_id": d["_id"], "role": role})
         return {"id": d["_id"], "email": email, "role": role}
@@ -985,38 +1021,51 @@ class MongoServiceAccountStore:
     def list_accounts(self):
         out = []
         for d in self.c.find({}):
-            out.append({
-                "id": d["_id"],
-                "name": d.get("name", ""),
-                "role": d.get("role", ""),
-                "scopes": d.get("scopes", []),
-                "enabled": bool(d.get("enabled")),
-                "created_at": d.get("created_at", ""),
-                "last_used_at": d.get("last_used_at", ""),
-            })
+            out.append(
+                {
+                    "id": d["_id"],
+                    "name": d.get("name", ""),
+                    "role": d.get("role", ""),
+                    "scopes": d.get("scopes", []),
+                    "enabled": bool(d.get("enabled")),
+                    "created_at": d.get("created_at", ""),
+                    "last_used_at": d.get("last_used_at", ""),
+                }
+            )
         return out
 
     def _get_by_client_id(self, account_id):
-        return self.c.find_one({
-            "$or": [
-                {"_id": str(account_id)},
-                {"name": str(account_id).strip().lower()},
-            ]
-        })
+        return self.c.find_one(
+            {
+                "$or": [
+                    {"_id": str(account_id)},
+                    {"name": str(account_id).strip().lower()},
+                ]
+            }
+        )
 
     def issue_token(self, *, client_id, client_secret, jwt_secret, ttl_seconds=900):
         import secrets
 
         from app.infrastructure.security.service_accounts import _audit, _hash_secret
+
         d = self._get_by_client_id(client_id)
-        if not d or not d.get("enabled") or not secrets.compare_digest(
-            d["secret_hash"], _hash_secret(client_secret)
+        if (
+            not d
+            or not d.get("enabled")
+            or not secrets.compare_digest(d["secret_hash"], _hash_secret(client_secret))
         ):
             _audit("service_account_authenticated", client_id, {"ok": False})
             raise PermissionError("client_id ou secret invalide")
         from app.domain.tokens import create_access_token
-        token = create_access_token(subject=d["name"], secret=jwt_secret, role=d["role"],
-                                    scopes=d.get("scopes", []), ttl_seconds=ttl_seconds)
+
+        token = create_access_token(
+            subject=d["name"],
+            secret=jwt_secret,
+            role=d["role"],
+            scopes=d.get("scopes", []),
+            ttl_seconds=ttl_seconds,
+        )
         self.c.update_one({"_id": d["_id"]}, {"$set": {"last_used_at": _utcnow()}})
         return {"token": token, "role": d["role"]}
 

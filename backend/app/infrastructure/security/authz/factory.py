@@ -56,9 +56,7 @@ def get_default_enforcer() -> AuthzPolicyEnforcer:
                 policy = load_policy_document()
                 pdp = CasbinPDP(policy)
             except Exception as exc:  # noqa: BLE001 — fail-closed volontaire
-                raise PolicyUnavailableError(
-                    f"construction de la PDP impossible : {exc}"
-                ) from exc
+                raise PolicyUnavailableError(f"construction de la PDP impossible : {exc}") from exc
             _default_enforcer = AuthzPolicyEnforcer(
                 pdp=pdp,
                 policy=policy,
