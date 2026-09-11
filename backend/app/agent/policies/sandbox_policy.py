@@ -27,7 +27,7 @@ from functools import lru_cache
 from urllib.parse import urlparse
 
 from app.domain.entities.plan import Action, ActionCategory, Decision
-from app.domain.security import DENIED_EXTENSIONS, DENIED_PATH_PARTS, classify_path_risk
+from app.domain.security import classify_path_risk
 
 # ---------------------------------------------------------------------------
 # Cibles sensibles : source unique dans app/domain/security.py (P1 SEC —

@@ -131,8 +131,13 @@ jobs:
         working-directory: frontend
         run: npm audit --audit-level=high
 
+      # NB : le tag `0.28.0` (sans préfixe `v`) n'existe plus — les tags de
+      # trivy-action sont désormais préfixés `v` (ex. v0.36.0), ce qui cassait
+      # la résolution de l'action au stade "Getting action download info".
+      # On référence par SHA complet immuable + commentaire de version : bonne
+      # pratique supply-chain, alignée avec l'objectif même de ce job (pins).
       - name: Trivy (FS — bloquant High/Critical)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -143,7 +148,7 @@ jobs:
           skip-dirs: backend/venv,frontend/node_modules,backend/experiments,backend/data,backend/.venv
 
       - name: SBOM CycloneDX (inventaire — non bloquant)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
