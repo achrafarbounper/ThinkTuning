@@ -96,6 +96,16 @@ V1_PATHS = {
     "/api/v1/classifiers/{name}": {"get"},
     "/api/v1/classifiers/{name}/predict": {"post"},
     "/api/v1/classifiers/{name}/reload": {"post"},
+    # P2 lot 13 — auth moderne (JWT courte durée + service accounts).
+    # ``token`` est le point d'échange PUBLIC (client_credentials dans le
+    # corps) ; ``verify``/``revoke`` exigent un Bearer JWT (non déclaré en
+    # header OpenAPI — comportement verrouillé par tests P2) ; la gestion
+    # des comptes exige la clé ADMIN (require_api_key).
+    "/api/v1/auth/token": {"post"},
+    "/api/v1/auth/verify": {"get"},
+    "/api/v1/auth/revoke": {"post"},
+    "/api/v1/auth/service-accounts": {"get", "post"},
+    "/api/v1/auth/service-accounts/{account_id}": {"delete"},
 }
 
 
@@ -260,6 +270,11 @@ def test_auth_posture_is_locked():
         ("/api/v1/active_learning/cycle/status/{job_id}", "get"),
         ("/api/v1/classifiers/{name}/predict", "post"),
         ("/api/v1/classifiers/{name}/reload", "post"),
+        # P2 lot 13 — gestion des service accounts : ADMIN (clé) uniquement ;
+        # un service account (JWT) ne peut pas créer/listé/révoquer un compte.
+        ("/api/v1/auth/service-accounts", "get"),
+        ("/api/v1/auth/service-accounts", "post"),
+        ("/api/v1/auth/service-accounts/{account_id}", "delete"),
     ):
         assert "X-API-Key" in _header_names(path, method), f"auth absente du contrat : {path}"
     for path in (

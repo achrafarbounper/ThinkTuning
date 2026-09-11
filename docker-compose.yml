@@ -48,7 +48,10 @@ services:
   # « search ») : docker compose --profile search up -d searxng
   # L'API JSON est activée dans searxng/settings.yml (search.formats).
   searxng:
-    image: searxng/searxng:latest
+    # P2 lot 15 (supply-chain) : version + digest épinglés (manifeste amd64,
+    # vérifié par .github/workflows/ci.yml via scripts/check_docker_pins.py
+    # contre .docker/digest-pins.yml). Ne JAMAIS repasser en :latest.
+    image: searxng/searxng:2026.9.5-a303e9c0c@sha256:433c747648f3723764b9109ccee3d9bca339096d1bcf2ba3b071d8ce81609551
     container_name: thinktuning-searxng
     # Relance automatique : l'agent compte sur cette instance pour web_search.
     restart: unless-stopped

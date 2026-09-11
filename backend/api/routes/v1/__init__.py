@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from . import (
     active_learning,
     agent,
+    auth,
     chat,
     classifiers,
     drift,
@@ -30,6 +31,7 @@ from . import (
 )
 
 router = APIRouter()
+router.include_router(auth.router)
 router.include_router(health.router)
 router.include_router(prediction.router)
 router.include_router(training.router)

@@ -48,3 +48,6 @@ casbin>=1.36.0
 onnx>=1.14.0
 onnxruntime>=1.17.0
 pymongo>=4.8.0
+# P2 lot 15/16 — chiffrement au repos des stores sessions/audit (Fernet,
+# core/store_crypto.py) + backups chiffrés (scripts/backup_encrypted.py).
+cryptography>=42.0.0

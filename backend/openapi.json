@@ -6,6 +6,251 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/auth/token": {
+      "post": {
+        "tags": [
+          "Auth v1"
+        ],
+        "summary": "Token Endpoint",
+        "description": "Échange client_id + client_secret contre un JWT courte durée.",
+        "operationId": "token_endpoint_api_v1_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/verify": {
+      "get": {
+        "tags": [
+          "Auth v1"
+        ],
+        "summary": "Verify Endpoint",
+        "description": "Valide le jeton porté par ``Authorization: Bearer`` et renvoie les claims.\n\nLe rôle ``read`` est accepté ici (vérification d'identité uniquement).",
+        "operationId": "verify_endpoint_api_v1_auth_verify_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Verify Endpoint Api V1 Auth Verify Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/revoke": {
+      "post": {
+        "tags": [
+          "Auth v1"
+        ],
+        "summary": "Revoke Endpoint",
+        "description": "Révoque le jti du jeton présenté (les 15 min restantes sont annulées).",
+        "operationId": "revoke_endpoint_api_v1_auth_revoke_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/service-accounts": {
+      "post": {
+        "tags": [
+          "Auth v1"
+        ],
+        "summary": "Create Service Account",
+        "description": "Crée un service account — le secret en clair n'est renvoyé QU'ICI.",
+        "operationId": "create_service_account_api_v1_auth_service_accounts_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceAccountCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Service Account Api V1 Auth Service Accounts Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Auth v1"
+        ],
+        "summary": "List Service Accounts",
+        "description": "Liste des comptes (jamais de hash/secret exposé).",
+        "operationId": "list_service_accounts_api_v1_auth_service_accounts_get",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Service Accounts Api V1 Auth Service Accounts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/service-accounts/{account_id}": {
+      "delete": {
+        "tags": [
+          "Auth v1"
+        ],
+        "summary": "Revoke Service Account",
+        "description": "Révoque un compte (suppression immédiate — les jetons en vie expirent au pire).",
+        "operationId": "revoke_service_account_api_v1_auth_service_accounts__account_id__delete",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Account Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -4206,7 +4451,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "format": "binary"
+                "contentMediaType": "application/octet-stream"
               },
               {
                 "type": "null"
@@ -4218,7 +4463,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "format": "binary"
+                "contentMediaType": "application/octet-stream"
               },
               {
                 "type": "null"
@@ -4239,7 +4484,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File"
           },
           "text_column": {
@@ -5437,6 +5682,35 @@
         "title": "ScheduledJob",
         "description": "Une planification d'entraÃ®nement rÃ©currente (SCRUM-34)."
       },
+      "ServiceAccountCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Name"
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^(admin|read)$",
+            "title": "Role",
+            "default": "read"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Scopes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ServiceAccountCreate"
+      },
       "SessionCreate": {
         "properties": {
           "title": {
@@ -5481,6 +5755,71 @@
           "title"
         ],
         "title": "SessionRename"
+      },
+      "TokenRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Client Id",
+            "description": "Identifiant du service account"
+          },
+          "client_secret": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Client Secret",
+            "description": "Secret du service account"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 86400.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ttl Seconds",
+            "description": "Durée de vie du jeton (défaut 900 s, plafond 24 h)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "client_secret"
+        ],
+        "title": "TokenRequest",
+        "description": "Client credentials (RFC 6749 §4.3 — grant implicite de ce service)."
+      },
+      "TokenResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "expires_in",
+          "role"
+        ],
+        "title": "TokenResponse"
       },
       "TrainHistoryResponse": {
         "properties": {
@@ -5786,6 +6125,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",

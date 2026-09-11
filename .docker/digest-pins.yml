@@ -1,0 +1,20 @@
+# P2 lot 15 — Pin digest Docker (supply-chain).
+#
+# Images externes utilisées par les Dockerfiles / docker-compose, épinglées par
+# digest SHA-256 (manifest amd64, vérifié via l'API Docker Hub le 2026-09-11).
+# Le job CI "supply-chain" (scripts/check_docker_pins.py) REFUSE tout écart
+# entre ces pins et l'état publié du registre : une image re-taguée ou compromise
+# fait échouer la pipeline bloquante.
+#
+# Procédure de mise à jour :
+#   python scripts/check_docker_pins.py --refresh   # réécrit ce fichier
+images:
+  python:3.13-slim:
+    digest: sha256:cc9dffa47c8294ba9bb795a8dfaeb7b76f2b30acade2c52a461a2999d127eb00
+  node:20-alpine:
+    digest: sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+  nginx:1.27-alpine:
+    digest: sha256:536b72538bc421dad99a6a085e7bedf6de6535da4e020f2b30badc6942508276
+  searxng/searxng:
+    tag: 2026.9.5-a303e9c0c
+    digest: sha256:433c747648f3723764b9109ccee3d9bca339096d1bcf2ba3b071d8ce81609551

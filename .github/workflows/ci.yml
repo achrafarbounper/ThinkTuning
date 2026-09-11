@@ -93,3 +93,67 @@ jobs:
 
       - name: Build (vite)
         run: npm run build
+
+  # ==========================================================================
+  # P2 lot 15 — Supply-chain (bloquant Haute/Critique)
+  #   - pins digest Docker vérifiés contre Docker Hub (check_docker_pins.py) ;
+  #   - pip-audit (Python) + npm audit (JS) : exit non-zéro dès High/Critical ;
+  #   - trivy (scan FS) : vulnérabilités High/Critical bloquantes ;
+  #   - SBOM CycloneDX généré et archivé (inventaire des composants).
+  # ==========================================================================
+  supply-chain:
+    name: Supply-chain — pins + audits vulnérabilités + SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install audit tools
+        run: pip install pip-audit pyyaml
+
+      - name: Pins Docker (digest commités == Docker Hub)
+        working-directory: backend
+        run: python scripts/check_docker_pins.py
+
+      - name: pip-audit (dépendances Python — bloquant)
+        working-directory: backend
+        run: pip-audit -r requirements.txt
+
+      - name: npm audit (dépendances JS — bloquant High/Critical)
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+      - name: Trivy (FS — bloquant High/Critical)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "true"
+          skip-dirs: backend/venv,frontend/node_modules,backend/experiments,backend/data,backend/.venv
+
+      - name: SBOM CycloneDX (inventaire — non bloquant)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: cyclonedx
+          output: sbom-cyclonedx.json
+          skip-dirs: backend/venv,frontend/node_modules,backend/experiments,backend/data,backend/.venv
+
+      - name: Upload SBOM (artefact d'audit)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom-cyclonedx.json

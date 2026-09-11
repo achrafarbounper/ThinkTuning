@@ -308,6 +308,16 @@ def _save_trained_model(trainer, model_dir):
     if os.path.isdir(tmp_dir):
         shutil.rmtree(tmp_dir)
 
+    # --- 6. Signature du dossier publié (P2 lot 15) ---------------------------
+    # sha256.json liste l'empreinte de CHAQUE fichier ; vérifié au chargement
+    # par src/inference/predictor.py (MODEL_SIGNING_REQUIRED=1 en prod).
+    try:
+        from core.model_signing import write_signature_manifest
+
+        write_signature_manifest(model_dir)
+    except Exception as exc:  # pragma: no cover - défensif, ne rompt pas le run
+        logger.warning("Signature de la version modèle non écrite : %s", exc)
+
 
 def write_label_mappings(trainer, model_dir):
     """Ecrit id2label.json / label2id.json dans le dossier versionne (SCRUM-55).

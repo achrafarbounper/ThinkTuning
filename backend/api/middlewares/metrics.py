@@ -26,6 +26,7 @@ async def request_metrics_middleware(request: Request, call_next):
     route = request.scope.get("route")
     request_path = getattr(route, "path", request.url.path)
     client_ip = request.client.host if request.client else "unknown"
+    request_id = getattr(request.state, "request_id", "-")
 
     try:
         response = await call_next(request)
@@ -39,7 +40,8 @@ async def request_metrics_middleware(request: Request, call_next):
             method=request.method, path=request_path, status_code=str(status_code)
         ).observe(duration)
         logger.exception(
-            "http_request method=%s path=%s status=%s duration_ms=%.3f client_ip=%s",
+            "http_request request_id=%s method=%s path=%s status=%s duration_ms=%.3f client_ip=%s",
+            request_id,
             request.method,
             request_path,
             status_code,
@@ -57,7 +59,8 @@ async def request_metrics_middleware(request: Request, call_next):
         method=request.method, path=request_path, status_code=str(status_code)
     ).observe(duration)
     logger.info(
-        "http_request method=%s path=%s status=%s duration_ms=%.3f client_ip=%s",
+        "http_request request_id=%s method=%s path=%s status=%s duration_ms=%.3f client_ip=%s",
+        request_id,
         request.method,
         request_path,
         status_code,

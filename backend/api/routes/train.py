@@ -48,7 +48,26 @@ def start_training(req: TrainRequest, _: bool = Depends(require_api_key)):
     with _jobs_lock:
         store[job_id] = job
 
-    thread = threading.Thread(target=run_training, args=(job_id, req), daemon=True)
+    # P2 lot 16 (résilience) : même limite de concurrence + file d'attente que
+    # la surface v1 (core.training_gate) — un seul plafond pour les deux routes.
+    from core.training_gate import TrainingBusyError, get_training_gate
+
+    gate = get_training_gate()
+
+    def _run_with_slot() -> None:
+        try:
+            run_training(job_id, req)
+        finally:
+            gate.release()
+
+    try:
+        gate.acquire(job_id)
+    except TrainingBusyError as err:
+        job = TrainJob(job_id=job_id, status=JobStatus.FAILED, error=str(err))
+        with _jobs_lock:
+            store[job_id] = job
+        raise
+    thread = threading.Thread(target=_run_with_slot, daemon=True)
     thread.start()
 
     return job

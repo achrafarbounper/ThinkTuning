@@ -354,14 +354,18 @@ def run_training(job_id: str, req):
             # base. Le reste du pipeline est inchangé : le résultat est une
             # nouvelle version chaînée sur l'ancienne (warm start).
             base_dir = resolve_model_dir(req.base_model_version)
-            tokenizer = AutoTokenizer.from_pretrained(base_dir)
-            model = AutoModelForSequenceClassification.from_pretrained(base_dir)
+            tokenizer = AutoTokenizer.from_pretrained(base_dir, trust_remote_code=False)
+            model = AutoModelForSequenceClassification.from_pretrained(
+                base_dir, trust_remote_code=False
+            )
             logger.info(
                 f"Continual training : reprise depuis la version "
                 f"{req.base_model_version} -> {base_dir}"
             )
         else:
-            tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"])
+            tokenizer = AutoTokenizer.from_pretrained(
+                cfg["model_name"], trust_remote_code=False
+            )
             model = build_model(cfg)
             logger.info(f"Modèle chargé : {cfg['model_name']} sur {cfg['device']}")
 

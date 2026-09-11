@@ -87,6 +87,12 @@ async def lifespan(_app: FastAPI):
     from api.dependencies.auth import warn_if_insecure_api_key
 
     warn_if_insecure_api_key()
+    # P2 lot 16 (privacy) : fail-closed production — refus de démarrer SANS
+    # STORE_ENCRYPTION_KEY (sessions/audit chiffrés au repos) ; en dev/test,
+    # warning non bloquant. Lève RuntimeError en prod sans clé.
+    from core.store_crypto import ensure_store_crypto_configured
+
+    ensure_store_crypto_configured()
     # Le sanity check charge potentiellement le modèle (plusieurs secondes) :
     # exécuté en thread daemon pour ne pas retarder la disponibilité de l'API.
     # L'état reste visible via GET /health/model-sanity.
@@ -115,6 +121,7 @@ async def lifespan(_app: FastAPI):
 from api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
 from api.middlewares.metrics import request_metrics_middleware  # noqa: E402
 from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
+from api.middlewares.request_id import request_id_middleware  # noqa: E402
 from core.scheduler import ensure_scheduler_started  # noqa: E402
 
 
@@ -158,12 +165,14 @@ app = FastAPI(
 )
 
 # Ordonancement explicite — en Starlette, le DERNIER middleware ajouté est le
-# plus EXTERNE. Ordre final : CORS (extérieur) → maintenance → rate limit →
-# métriques (intérieur). Ainsi les preflights OPTIONS sont répondues par CORS
-# avant tout le reste et ne polluent ni les métriques ni le rate limit.
+# plus EXTERNE. Ordre final : CORS (extérieur) → request-id (tracing) →
+# maintenance → rate limit → métriques (intérieur). Ainsi les preflights
+# OPTIONS sont répondues par CORS avant tout le reste, et chaque requête
+# porte son X-Request-Id dans les logs/métriques/audit (P2 lot 16).
 app.add_middleware(BaseHTTPMiddleware, dispatch=request_metrics_middleware)
 app.add_middleware(BaseHTTPMiddleware, dispatch=rate_limit_middleware)
 app.add_middleware(BaseHTTPMiddleware, dispatch=maintenance_mode_middleware)
+app.add_middleware(BaseHTTPMiddleware, dispatch=request_id_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allowed_origins(),

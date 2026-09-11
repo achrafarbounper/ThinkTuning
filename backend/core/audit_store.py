@@ -23,11 +23,14 @@ valeurs trop longues sont tronquées.
 """
 
 import json
+import logging
 import os
 import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 AGENT_AUDIT_PATH = os.getenv(
     "AGENT_AUDIT_PATH", os.path.join("experiments", "agent_audit.db")
@@ -177,6 +180,14 @@ class AuditStore:
             )
             """
         )
+        # P2 lot 16 : colonne ``is_error`` (booléen agrégé SANS lire le détail
+        # JSON — nécessaire dès que ``detail_json`` est chiffré au repos) +
+        # migration ALTER pour les bases créées avant cette colonne.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_audit)").fetchall()}
+        if "is_error" not in columns:
+            conn.execute(
+                "ALTER TABLE agent_audit ADD COLUMN is_error INTEGER NOT NULL DEFAULT 0"
+            )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_ts ON agent_audit(ts)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON agent_audit(action)")
         conn.commit()
@@ -187,8 +198,14 @@ class AuditStore:
         if row is None:
             return None
         data = dict(zip(_COLUMNS, row))
+        raw_detail = data.pop("detail_json") or "{}"
         try:
-            data["detail"] = json.loads(data.pop("detail_json") or "{}")
+            # P2 lot 16 : déchiffrement transparent (préfixe ``enc:`` si
+            # chiffrement actif — valeurs legacy en clair inchangées).
+            from core.store_crypto import decrypt_text
+
+            raw_detail = decrypt_text(raw_detail)
+            data["detail"] = json.loads(raw_detail)
         except ValueError:
             data["detail"] = {}
         return data
@@ -205,27 +222,36 @@ class AuditStore:
         request_id: str | None = None,
         run_id: str | None = None,
     ) -> dict:
-        """Ajoute une entrée d'audit (détail anonymise/trongure a l'ecriture)."""
+        """Ajoute une entrée d'audit (détail anonymisé/tronqué à l'écriture,
+        chiffré au repos si ``STORE_ENCRYPTION_KEY`` est posée — P2 lot 16)."""
         record_id = str(uuid.uuid4())
         ts = _utcnow_iso()
+        dumped = _dumps(detail)
+        # Booléen agrégé hors chiffrement (métriques MCP sans passer par le
+        # détail JSON chiffré).
+        is_error = 1 if _IS_ERROR_KEY in dumped else 0
+        from core.store_crypto import encrypt_text
+
+        stored_detail = encrypt_text(dumped)
         with self._lock:
             conn = self._connect()
             try:
                 with conn:
                     conn.execute(
                         "INSERT INTO agent_audit (id, ts, actor, action, subject,"
-                        " detail_json, ip, request_id, run_id)"
-                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        " detail_json, ip, request_id, run_id, is_error)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             record_id,
                             ts,
                             actor or "system",
                             action,
                             subject or "",
-                            _dumps(detail),
+                            stored_detail,
                             ip,
                             request_id or "",
                             run_id or "",
+                            is_error,
                         ),
                     )
             finally:
@@ -233,6 +259,33 @@ class AuditStore:
         row = self.get(record_id)
         assert row is not None
         return row
+
+    def prune_older_than(self, max_age_days: int) -> dict:
+        """Purge (TTL) les entrées plus vieilles que ``max_age_days`` jours.
+
+        Retourne ``{"deleted": n, "cutoff": ts}``. Utilise l'index
+        ``idx_audit_ts`` (pas de scan complet). Appelé par le script
+        ``scripts/retention.py`` (cron) — P2 lot 16.
+        """
+        from datetime import datetime as _dt
+
+        cutoff = _dt.now(timezone.utc).timestamp() - int(max_age_days) * 86400
+        cutoff_iso = _dt.fromtimestamp(cutoff, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.%f"
+        )[:-3] + "Z"
+        with self._lock:
+            conn = self._connect()
+            try:
+                with conn:
+                    cursor = conn.execute(
+                        "DELETE FROM agent_audit WHERE ts < ?", (cutoff_iso,)
+                    )
+                    deleted = cursor.rowcount
+            finally:
+                conn.close()
+        if deleted:
+            logger.info("audit TTL : %d entrée(s) purgée(s) (cutoff %s)", deleted, cutoff_iso)
+        return {"deleted": deleted, "cutoff": cutoff_iso}
 
     # --- Lecture ---
 
@@ -321,9 +374,8 @@ class AuditStore:
                 ).fetchone()[0]
                 errors = conn.execute(
                     f"SELECT COUNT(*) AS n FROM agent_audit "
-                    f"WHERE action IN ({placeholders})"
-                    f" AND detail_json LIKE ?",
-                    [*actions, f"%{_IS_ERROR_KEY}%"],
+                    f"WHERE action IN ({placeholders}) AND is_error = 1",
+                    actions,
                 ).fetchone()[0]
             finally:
                 conn.close()
