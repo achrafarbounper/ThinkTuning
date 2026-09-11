@@ -1,0 +1,644 @@
+/* =====================================================================
+   components/auth/auth.css
+   ---------------------------------------------------------------------
+   Écran d'authentification premium (style Linear / Vercel / Notion) :
+   carte centrée, fond gris perle, focus bleu, animations douces.
+   Toutes les classes sont préfixées .auth- (aucune collision avec .tt-*).
+   ===================================================================== */
+
+/* --- 1. Tokens de thème -------------------------------------------------
+   Le thème est piloté par data-theme="light|dark" posé sur .auth-page par
+   AuthLayout. Les valeurs sombres s'alignent sur les tokens --tt-* du
+   design system global (theme.css). */
+.auth-page {
+  --auth-bg: #f7f8fa;
+  --auth-surface: #ffffff;
+  --auth-border: #e5e7eb;
+  --auth-border-focus: #3b82f6;
+  --auth-border-focus-hover: #2563eb;
+  --auth-text: #18181b;
+  --auth-text-dim: #6b7280;
+  --auth-text-error: #dc2626;
+  --auth-icon: #9ca3af;
+  --auth-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px rgba(16, 24, 40, 0.08);
+  --auth-btn-bg: #3b82f6;
+  --auth-btn-bg-hover: #2563eb;
+  --auth-btn-text: #ffffff;
+  --auth-fade-anim: auth-fade-in 260ms ease-out;
+}
+
+.auth-page[data-theme="dark"] {
+  --auth-bg: var(--tt-bg, #0b0e11);
+  --auth-surface: var(--tt-surface-1, #12161c);
+  --auth-border: var(--tt-panel-border, #1e242c);
+  --auth-border-focus: var(--tt-ring, #5b8def);
+  --auth-border-focus-hover: #5b8def;
+  --auth-text: var(--tt-text, #e7eaee);
+  --auth-text-dim: var(--tt-text-dim, #8b94a3);
+  --auth-text-error: var(--tt-negative, #f2545b);
+  --auth-icon: var(--tt-text-dim, #8b94a3);
+  --auth-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 32px rgba(0, 0, 0, 0.35);
+  --auth-btn-bg: #3b82f6;
+  --auth-btn-bg-hover: #2563eb;
+  --auth-btn-text: #ffffff;
+}
+
+/* --- 2. Structure de page ------------------------------------------------ */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px 16px;
+  background: var(--auth-bg);
+  color: var(--auth-text);
+  font-family: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Toggle clair / sombre, fixé en haut à droite, hors du flux. */
+.auth-theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--auth-border);
+  border-radius: 10px;
+  background: var(--auth-surface);
+  color: var(--auth-text);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.auth-theme-toggle:hover {
+  border-color: var(--auth-border-focus);
+  color: var(--auth-border-focus);
+}
+
+/* --- 3. Carte d'authentification --------------------------------------- */
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 32px 28px;
+  border: 1px solid var(--auth-border);
+  border-radius: 12px;
+  background: var(--auth-surface);
+  box-shadow: var(--auth-shadow);
+  animation: var(--auth-fade-anim);
+}
+
+.auth-card__head {
+  text-align: center;
+}
+
+.auth-card__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: var(--auth-text-dim);
+}
+
+.auth-card__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600; /* semi-bold */
+  letter-spacing: -0.01em;
+  color: var(--auth-text);
+}
+
+.auth-card__subtitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--auth-text-dim);
+}
+
+/* --- 4. Formulaire ------------------------------------------------------ */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 24px;
+  animation: var(--auth-fade-anim);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.auth-field__label {
+  font-size: 14px;
+  font-weight: 500; /* medium */
+  color: var(--auth-text);
+}
+
+.auth-field__wrap {
+  position: relative;
+}
+
+.auth-field__icon {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  color: var(--auth-icon);
+  pointer-events: none;
+}
+
+.auth-field__input {
+  width: 100%;
+  height: 44px;
+  padding: 0 40px 0 40px;
+  font-size: 16px;
+  color: var(--auth-text);
+  background: var(--auth-surface);
+  border: 1px solid var(--auth-border);
+  border-radius: 8px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.auth-field__input::placeholder {
+  color: var(--auth-text-dim);
+}
+
+.auth-field__input:hover:not(:disabled) {
+  border-color: #d1d5db;
+}
+
+.auth-field__input:focus {
+  outline: none;
+  border-color: var(--auth-border-focus);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.auth-field__input[aria-invalid="true"] {
+  border-color: var(--auth-text-error);
+}
+
+.auth-field__input[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+/* Bouton œil : afficher / masquer le mot de passe. */
+.auth-field__eye {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--auth-icon);
+  cursor: pointer;
+}
+
+.auth-field__eye:hover {
+  color: var(--auth-text);
+}
+
+.auth-field__eye:focus-visible {
+  outline: 2px solid var(--auth-border-focus);
+  outline-offset: 1px;
+  border-radius: 8px;
+}
+
+/* Message d'erreur sous le champ. */
+.auth-field__error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--auth-text-error);
+  animation: auth-fade-in 180ms ease-out;
+}
+
+.auth-field__error[hidden] {
+  display: none;
+}
+
+/* Micro-secousse du champ en cas d'erreur de soumission. */
+.auth-field--shake {
+  animation: auth-shake 380ms ease;
+}
+/* --- 5. Bouton principal « Se connecter » ------------------------------- */
+.auth-submit {
+  width: 100%;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--auth-btn-bg);
+  color: var(--auth-btn-text);
+  font-size: 16px;
+  font-weight: 600; /* semi-bold */
+  cursor: pointer;
+  transition: background 160ms ease, transform 120ms ease, box-shadow 160ms ease;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--auth-btn-bg-hover);
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.25);
+}
+
+.auth-submit:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.auth-submit:focus-visible {
+  outline: 2px solid var(--auth-btn-bg);
+  outline-offset: 2px;
+}
+
+.auth-submit:disabled {
+  opacity: 0.72;
+  cursor: progress;
+  color: var(--auth-btn-text);
+}
+
+/* Spinner discret à l'intérieur du bouton pendant la connexion. */
+.auth-submit .auth-submit__spinner {
+  width: 18px;
+  height: 18px;
+  animation: auth-spin 720ms linear infinite;
+  flex-shrink: 0;
+}
+
+.auth-submit__loader-text {
+  font-size: 16px;
+}
+
+/* --- 6. Liens secondaires ------------------------------------------------ */
+.auth-links {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 14px;
+}
+
+.auth-links a {
+  color: var(--auth-text-dim);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 150ms ease;
+}
+
+.auth-links a:hover {
+  color: var(--auth-border-focus);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-links a:focus-visible {
+  outline: 2px solid var(--auth-border-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- 7. Séparateur + connexion sociale ---------------------------------- */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 0;
+  color: var(--auth-text-dim);
+  font-size: 13px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--auth-border);
+}
+
+.auth-social {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.auth-social__btn {
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--auth-border);
+  border-radius: 8px;
+  background: var(--auth-surface);
+  color: var(--auth-text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, transform 120ms ease;
+}
+
+.auth-social__btn:hover:not(:disabled) {
+  border-color: var(--auth-border-focus);
+  background: rgba(91, 141, 239, 0.06);
+  transform: translateY(-1px);
+}
+
+.auth-social__btn:focus-visible {
+  outline: 2px solid var(--auth-border-focus);
+  outline-offset: 2px;
+}
+
+.auth-social__icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* --- 8. Encart hors-carte (suggestion) ----------------------------------- */
+.auth-switch {
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--auth-text-dim);
+}
+
+.auth-switch__link {
+  color: var(--auth-border-focus);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-switch__link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: var(--auth-border-focus-hover);
+}
+
+.auth-switch__link:focus-visible {
+  outline: 2px solid var(--auth-border-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- 9. Footer minimal --------------------------------------------------- */
+.auth-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 20px;
+  color: var(--auth-text-dim);
+  font-size: 13px;
+}
+
+.auth-footer__lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--auth-text);
+  font-weight: 500;
+}
+
+.auth-footer a {
+  color: var(--auth-text-dim);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.auth-footer a:hover {
+  color: var(--auth-border-focus);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-footer a:focus-visible {
+  outline: 2px solid var(--auth-border-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- 10. Animations ------------------------------------------------------- */
+@keyframes auth-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auth-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- 11. Responsive mobile ------------------------------------------------ */
+@media (max-width: 520px) {
+  .auth-page {
+    padding: 16px 12px;
+  }
+
+  .auth-card {
+    max-width: 100%;
+    padding: 24px 20px;
+  }
+
+  .auth-links {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .auth-footer {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .auth-theme-toggle {
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+}
+
+/* --- 12. Accessibilité : mouvement réduit --------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .auth-card,
+  .auth-form {
+    animation: none;
+  }
+
+  .auth-field__error {
+    animation: none;
+  }
+
+  .auth-field--shake {
+    animation: none;
+  }
+
+  .auth-submit .auth-submit__spinner {
+    animation-duration: 1200ms;
+  }
+}
+
+/* --- 13. Compléments ------------------------------------------------------ */
+/* Monogramme de la marque (44px, dégradé brand) — en-tête de carte. */
+.auth-card__brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3b82f6, #2fbf71);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.22);
+}
+
+/* Bannière d'erreur au niveau du formulaire (échec d'authentification). */
+.auth-form__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--auth-text-error);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.auth-form__error svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* Bouton-lien « Mot de passe oublié ? » (liens secondaires du formulaire). */
+.auth-links__btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--auth-text-dim);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.auth-links__btn:hover {
+  color: var(--auth-border-focus);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-links__btn:focus-visible {
+  outline: 2px solid var(--auth-border-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- 14. Sélecteur « Serveur API » (replié, backends non locaux) ---------- */
+.auth-server summary {
+  cursor: pointer;
+  color: var(--auth-text-dim);
+  font-size: 13px;
+  padding: 6px 0;
+}
+
+.auth-server form {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.auth-server__input {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+  font-size: 14px;
+  color: var(--auth-text);
+  background: var(--auth-surface);
+  border: 1px solid var(--auth-border);
+  border-radius: 8px;
+}
+
+.auth-server__input::placeholder {
+  color: var(--auth-text-dim);
+}
+
+.auth-server__input:focus {
+  outline: none;
+  border-color: var(--auth-border-focus);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.auth-server__apply {
+  border: 0;
+  border-radius: 8px;
+  background: var(--auth-btn-bg);
+  color: var(--auth-btn-text);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.auth-server__apply:hover {
+  background: var(--auth-btn-bg-hover);
+}
+
+.auth-server__apply:focus-visible {
+  outline: 2px solid var(--auth-btn-bg);
+  outline-offset: 2px;
+}

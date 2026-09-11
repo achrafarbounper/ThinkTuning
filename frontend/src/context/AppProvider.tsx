@@ -14,6 +14,13 @@ import type { AgentSettings } from "../api/agentSettings";
 import type { ApiHealth, ModelVersion, PredictionResult } from "../api/sentimentApiClient";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { usePolling } from "../hooks/usePolling";
+import {
+  SESSION_KEY,
+  isSessionValid,
+  readStoredBaseUrl,
+  readStoredSession,
+  type AuthSession,
+} from "../api/authSession";
 import { AppContext, type ActivityLog, type ApiConnectionConfig, type AppState } from "./appContext";
 
 const DEFAULT_MAX_HISTORY = 20;
@@ -61,26 +68,27 @@ const AGENT_DEFAULTS: AgentSettings = {
  * Les clés historiques déjà stockées sont PURGÉES au passage.
  */
 function readStoredConfig(): { baseUrl: string } {
+  const baseUrl = readStoredBaseUrl(DEFAULT_BASE_URL);
+  // Purge défensive (P1 SEC) : une éventuelle clé API persistée par une
+  // version antérieure est retirée du stockage — aucun secret en localStorage.
   try {
     const parsed = JSON.parse(
       window.localStorage.getItem("thinktuning.apiConfig") ?? ""
     ) as Partial<ApiConnectionConfig>;
     if (parsed.apiKey) {
-      // Purge défensive : une clé stockée par une version antérieure est
-      // retirée du stockage (aucun secret persistant côté navigateur).
       try {
         window.localStorage.setItem(
           "thinktuning.apiConfig",
-          JSON.stringify({ baseUrl: parsed.baseUrl || DEFAULT_BASE_URL })
+          JSON.stringify({ baseUrl })
         );
       } catch {
         /* stockage indisponible : rien d'autre à faire */
       }
     }
-    return { baseUrl: parsed.baseUrl || DEFAULT_BASE_URL };
   } catch {
-    return { baseUrl: DEFAULT_BASE_URL };
+    /* cas déjà couvert par readStoredBaseUrl */
   }
+  return { baseUrl };
 }
 
 /** Lecture des paramètres agent stockés (fusion avec les défauts). */
@@ -145,7 +153,18 @@ export default function AppProvider({ children }: { children: ReactNode }) {
   const [agentError, setAgentError] = useState<string | null>(null);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const logIdRef = useRef(0);
-  const client = useMemo(() => new SentimentApiClient(config), [config]);
+
+  // Session d'authentification : le jeton JWT (si valide) est attaché au
+  // client en PRIORITÉ sur X-API-Key — le backend accepte les deux modes.
+  const [session] = useLocalStorage<AuthSession | null>(
+    SESSION_KEY,
+    readStoredSession()
+  );
+  const sessionToken = session && isSessionValid(session) ? session.token : "";
+  const client = useMemo(
+    () => new SentimentApiClient({ ...config, bearerToken: sessionToken }),
+    [config, sessionToken]
+  );
 
   // setConfig exposé tel quel au contexte (SettingsPage) : le baseUrl est
   // persisté, la clé reste mémoire seule (jamais écrite dans localStorage).

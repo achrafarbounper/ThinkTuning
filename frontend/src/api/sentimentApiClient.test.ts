@@ -416,3 +416,45 @@ describe("SentimentApiClient.modelsAndEvaluate (v1)", () => {
     );
   });
 });
+describe("SentimentApiClient.authenticate (POST /api/v1/auth/token)", () => {
+  it("envoie client_id/client_secret et retourne le jeton typé", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        token: "jwt.abc",
+        token_type: "Bearer",
+        expires_in: 900,
+        role: "read",
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api" });
+    const result = await client.authenticate("op@thinktuning.app", "s3cret", 900);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/auth/token");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(
+      JSON.stringify({
+        client_id: "op@thinktuning.app",
+        client_secret: "s3cret",
+        ttl_seconds: 900,
+      })
+    );
+    expect(result).toMatchObject({ token: "jwt.abc", token_type: "Bearer", role: "read" });
+  });
+
+  it("omet ttl_seconds s'il n'est pas fourni", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ token: "t", token_type: "Bearer", expires_in: 900, role: "read" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api" });
+    await client.authenticate("ci", "secret");
+
+    expect(fetchMock.mock.calls[0][1].body).toBe(
+      JSON.stringify({ client_id: "ci", client_secret: "secret" })
+    );
+  });
+});

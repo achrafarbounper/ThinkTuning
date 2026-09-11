@@ -1,14 +1,29 @@
 /**
- * Racine du dashboard ThinkTuning.
+ * Racine de l'application ThinkTuning.
  *
- * Shell applicatif : barre latérale (menu) + zone de contenu affichant la
- * page active. La navigation utilise le hachage d'URL (#/analyse, …) pour
- * rester fonctionnelle au rechargement, sans dépendance externe.
+ * Aiguillage global :
+ *   - aucune session valide → écran d'authentification (POST /api/v1/auth/token) ;
+ *   - session valide        → dashboard complet (AppProvider + Sidebar + pages).
+ *
+ * La navigation interne utilise le hachage d'URL (#/analyse, …) pour rester
+ * fonctionnelle au rechargement, sans dépendance externe.
  */
 
-import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import AppProvider from "./context/AppProvider";
 import { ErrorBoundary } from "./components/ui";
+import { AuthLayout, LoginForm, type AuthResult } from "./components/auth";
+import { SentimentApiClient, DEFAULT_BASE_URL } from "./api/sentimentApiClient";
+import {
+  SESSION_KEY,
+  AUTH_TTL_SECONDS,
+  buildAuthSession,
+  isSessionValid,
+  mapAuthErrorMessage,
+  readStoredBaseUrl,
+  type AuthSession,
+} from "./api/authSession";
+import { useLocalStorage } from "./hooks/useLocalStorage";
 
 // Sidebar chargé à la demande : prend en charge le CSS + les 10 icônes SVG
 // (~30 KB sortis du chemin critique). Un fallback réservant l'espace évite
@@ -54,9 +69,113 @@ function pageFromHash(): string {
   return ROUTES[id] ? id : "dashboard";
 }
 
+/**
+ * Sélecteur d'URL d'API, replié par défaut : permet de se connecter à un
+ * backend qui n'est pas sur localhost (paramètre volontairement discret pour
+ * préserver la sobriété de la page ; valeur persistée dans localStorage).
+ */
+function ApiServerForm({ value, onSubmit }: { value: string; onSubmit: (url: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  return (
+    <details className="auth-server">
+      <summary>Serveur API</summary>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const url = draft.trim();
+          if (url) onSubmit(url);
+        }}
+      >
+        <input
+          type="url"
+          className="auth-server__input"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="http://localhost:8000"
+          aria-label="URL de l'API"
+        />
+        <button type="submit" className="auth-server__apply">
+          Appliquer
+        </button>
+      </form>
+    </details>
+  );
+}
+
 export default function App() {
   const [page, setPage] = useState(pageFromHash);
   const mainRef = useRef<HTMLElement>(null);
+
+  // --- Session d'authentification (persistée, validée par expiration) ------
+  const [session, setSession] = useLocalStorage<AuthSession | null>(
+    SESSION_KEY,
+    null
+  );
+  const authenticated = isSessionValid(session);
+
+  // URL de l'API pour l'écran de connexion : lue depuis la config persistée
+  // (le dashboard possède sa propre lecture dans l'AppProvider).
+  const [apiBaseUrl, setApiBaseUrl] = useState(() =>
+    readStoredBaseUrl(DEFAULT_BASE_URL)
+  );
+
+  const applyApiBaseUrl = (url: string): void => {
+    try {
+      window.localStorage.setItem(
+        "thinktuning.apiConfig",
+        JSON.stringify({ baseUrl: url })
+      );
+    } catch {
+      /* stockage indisponible : la valeur reste valable pour la session */
+    }
+    setApiBaseUrl(url);
+  };
+
+  // Client « nu » pour l'écran de connexion : seule la route publique
+  // POST /auth/token est appelée ici (aucune clé ni jeton transmis).
+  const loginClient = useMemo(
+    () => new SentimentApiClient({ baseUrl: apiBaseUrl }),
+    [apiBaseUrl]
+  );
+
+  /** Authentification RÉELLE : échange client_id/secret → JWT via l'API. */
+  const handleAuthenticate = async (
+    email: string,
+    password: string
+  ): Promise<AuthResult> => {
+    try {
+      const result = await loginClient.authenticate(email, password);
+      return {
+        email,
+        token: result.token,
+        tokenType: result.token_type,
+        role: result.role,
+        expiresIn: result.expires_in,
+      };
+    } catch (err) {
+      // Message court + sécurisé (le backend interdit l'énumération de comptes).
+      throw new Error(mapAuthErrorMessage(err), { cause: err });
+    }
+  };
+
+  /** Connexion réussie : persiste la session puis ouvre le Tableau de bord. */
+  const handleLoginSuccess = (result: AuthResult): void => {
+    if (result.token) {
+      setSession(
+        buildAuthSession(result.email, result.token, {
+          tokenType: result.tokenType ?? "Bearer",
+          role: result.role ?? "read",
+          expiresIn: result.expiresIn ?? AUTH_TTL_SECONDS,
+        })
+      );
+    }
+    window.location.hash = "/dashboard";
+  };
+
+  /** Déconnexion volontaire (Sidebar → Se déconnecter). */
+  const handleLogout = (): void => {
+    setSession(null);
+  };
 
   // Synchronise l'état si l'utilisateur modifie le hachage (retour navigateur…).
   useEffect(() => {
@@ -76,6 +195,16 @@ export default function App() {
     mainRef.current?.focus({ preventScroll: true });
   }, [page]);
 
+  // --- Non connecté : écran d'authentification (page PAR DÉFAUT) -----------
+  if (!authenticated) {
+    return (
+      <AuthLayout>
+        <LoginForm authenticate={handleAuthenticate} onSuccess={handleLoginSuccess} />
+        <ApiServerForm value={apiBaseUrl} onSubmit={applyApiBaseUrl} />
+      </AuthLayout>
+    );
+  }
+
   const ActivePage = ROUTES[page];
 
   return (
@@ -85,7 +214,7 @@ export default function App() {
       </a>
       <div className="app-shell">
         <Suspense fallback={<SidebarFallback />}>
-          <Sidebar page={page} onNavigate={navigate} />
+          <Sidebar page={page} onNavigate={navigate} onLogout={handleLogout} />
         </Suspense>
         <main
           id="contenu"

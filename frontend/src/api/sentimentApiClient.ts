@@ -68,6 +68,21 @@ export interface ClassifierPrediction {
   [key: string]: unknown;
 }
 
+/** Corps de POST /api/v1/auth/token — JWT courte durée pour service account. */
+export interface AuthTokenResult {
+  token: string;
+  token_type: string;
+  expires_in: number;
+  role: string;
+}
+
+/** Corps de requête de POST /api/v1/auth/token (client credentials). */
+export interface AuthTokenPayload {
+  client_id: string;
+  client_secret: string;
+  ttl_seconds?: number;
+}
+
 /**
  * Client API complet : étend le transport (clientCore) avec tous les endpoints
  * métier du backend FastAPI. Instancié une fois dans le contexte (AppProvider).
@@ -84,6 +99,39 @@ export class SentimentApiClient extends SentimentApiClientCore {
    */
   getHealth(): Promise<ApiHealth | null> {
     return this._request<ApiHealth>("/api/v1/health");
+  }
+
+  // -- /auth (authentification par service accounts, P2 lot 13) ------------
+
+  /**
+   * Échange client_id + client_secret contre un JWT courte durée.
+   * Route PUBLIQUE (aucun header requis) : POST /api/v1/auth/token.
+   * 401 = identifiants invalides (message unique anti-énumération côté API).
+   */
+  authenticate(
+    clientId: string,
+    clientSecret: string,
+    ttlSeconds?: number
+  ): Promise<AuthTokenResult> {
+    const body: AuthTokenPayload = {
+      client_id: clientId,
+      client_secret: clientSecret,
+    };
+    if (ttlSeconds !== undefined) body.ttl_seconds = ttlSeconds;
+    return this._request<AuthTokenResult>("/api/v1/auth/token", {
+      method: "POST",
+      body,
+    }) as Promise<AuthTokenResult>;
+  }
+
+  /**
+   * Valide le jeton porté par le client courant (claims + révocation).
+   * GET /api/v1/auth/verify — 401 si le jeton est absent, expiré ou révoqué.
+   */
+  verifyAuth() {
+    return this._request<{ valid: boolean; role: string; expires_at: number }>(
+      "/api/v1/auth/verify"
+    );
   }
 
   /** Exposition Prometheus (texte brut), via le transport central. */

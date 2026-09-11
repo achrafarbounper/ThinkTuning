@@ -45,6 +45,38 @@ describe("SentimentApiClientCore._request", () => {
     expect(init.body).toBe(JSON.stringify({ texts: ["a"] }));
   });
 
+  it("envoie Authorization: Bearer et omet X-API-Key quand un jeton est posé", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClientCore({
+      baseUrl: "http://api",
+      apiKey: "secret",
+      bearerToken: "jwt.abc",
+    });
+    await client._request("/api/v1/models");
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers["Authorization"]).toBe("Bearer jwt.abc");
+    expect(init.headers["X-API-Key"]).toBeUndefined();
+  });
+
+  it("met à jour le jeton via setBearerToken (null = retour à X-API-Key)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClientCore({ baseUrl: "http://api", apiKey: "secret" });
+    client.setBearerToken("jwt.def");
+    await client._request("/x");
+    expect(fetchMock.mock.calls[0][1].headers["Authorization"]).toBe("Bearer jwt.def");
+    expect(fetchMock.mock.calls[0][1].headers["X-API-Key"]).toBeUndefined();
+
+    client.setBearerToken(null);
+    await client._request("/y");
+    expect(fetchMock.mock.calls[1][1].headers["X-API-Key"]).toBe("secret");
+    expect(fetchMock.mock.calls[1][1].headers["Authorization"]).toBeUndefined();
+  });
+
   it("construit la query string en ignorant les paramètres vides", async () => {
     fetchMock.mockResolvedValue(jsonResponse({}));
     vi.stubGlobal("fetch", fetchMock);

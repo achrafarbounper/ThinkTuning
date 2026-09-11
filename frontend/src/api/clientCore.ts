@@ -23,6 +23,8 @@ export const DEFAULT_MULTIPART_TIMEOUT_MS = 60_000;
 export interface ApiConfig {
   baseUrl?: string;
   apiKey?: string;
+  /** Jeton JWT (Bearer) — prioritaire sur X-API-Key quand il est défini. */
+  bearerToken?: string;
 }
 
 export type QueryParams = Record<
@@ -66,10 +68,16 @@ interface MultipartOptions {
 export class SentimentApiClientCore {
   baseUrl: string;
   apiKey: string;
+  bearerToken: string;
 
-  constructor({ baseUrl = DEFAULT_BASE_URL, apiKey = "" }: ApiConfig = {}) {
+  constructor({
+    baseUrl = DEFAULT_BASE_URL,
+    apiKey = "",
+    bearerToken = "",
+  }: ApiConfig = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.apiKey = apiKey || "";
+    this.bearerToken = bearerToken || "";
     // Garde-fou environnement : en build de production, une baseUrl pointant
     // vers localhost signifie presque toujours un VITE_API_URL manquant
     // (build sans .env.production / variable Vercel absente) ou une config
@@ -87,15 +95,24 @@ export class SentimentApiClientCore {
     }
   }
 
-  setConfig({ baseUrl, apiKey }: ApiConfig = {}): void {
+  setConfig({ baseUrl, apiKey, bearerToken }: ApiConfig = {}): void {
     if (baseUrl !== undefined) this.baseUrl = baseUrl.replace(/\/+$/, "");
     if (apiKey !== undefined) this.apiKey = apiKey;
+    if (bearerToken !== undefined) this.bearerToken = bearerToken;
+  }
+
+  /** Pose ou retire le jeton JWT porté par ``Authorization: Bearer``. */
+  setBearerToken(token: string | null): void {
+    this.bearerToken = token || "";
   }
 
   _headers(isJson: boolean): Record<string, string> {
     const headers: Record<string, string> = {};
     if (isJson) headers["Content-Type"] = "application/json";
-    if (this.apiKey) headers["X-API-Key"] = this.apiKey;
+    // Session JWT prioritaire ; X-API-Key seulement en son absence — le
+    // backend valide le Bearer en premier et ne retombe pas sur la clé.
+    if (this.bearerToken) headers["Authorization"] = `Bearer ${this.bearerToken}`;
+    else if (this.apiKey) headers["X-API-Key"] = this.apiKey;
     return headers;
   }
 
@@ -214,9 +231,11 @@ export class SentimentApiClientCore {
     { formData, query, expectBlob = false, timeoutMs, signal }: MultipartOptions
   ): Promise<T> {
     const url = this._buildUrl(path, query);
-    const headers: Record<string, string> = this.apiKey
-      ? { "X-API-Key": this.apiKey }
-      : {};
+    const headers: Record<string, string> = this.bearerToken
+      ? { Authorization: `Bearer ${this.bearerToken}` }
+      : this.apiKey
+        ? { "X-API-Key": this.apiKey }
+        : {};
 
     const response = await this._send(
       url,
