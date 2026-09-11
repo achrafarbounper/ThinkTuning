@@ -125,7 +125,15 @@ jobs:
 
       - name: pip-audit (dépendances Python — bloquant)
         working-directory: backend
-        run: pip-audit -r requirements.txt
+        # --ignore-vuln PYSEC-2026-3740 (CVE-2026-81726 / GHSA-8mgp-746c-j5xp) :
+        # path traversal dans les API « model-artifact » de NLTK (TransitionParser,
+        # AveragedPerceptron, PerceptronTagger, maxent). Acceptation de risque
+        # DOCUMENTÉE : (1) aucun correctif publié — 3.10.3 est la dernière version
+        # PyPI et reste affectée (« through 3.10.3 ») ; (2) non applicable — le projet
+        # n'utilise NLTK que pour les corpus WordNet/OMW/punkt (src/augmentation/eda.py),
+        # jamais les API de sérialisation de classifieurs vulnérables. À réévaluer dès
+        # qu'une version corrigée de NLTK sera publiée.
+        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-3740
 
       - name: npm audit (dépendances JS — bloquant High/Critical)
         working-directory: frontend
