@@ -9,6 +9,7 @@ import {
   buildAuthSession,
   isSessionValid,
   mapAuthErrorMessage,
+  mapRegisterErrorMessage,
   readStoredSession,
   sessionExpiresAt,
 } from "./authSession";
@@ -78,6 +79,29 @@ describe("authSession — messages d'erreur", () => {
     expect(mapAuthErrorMessage(new ApiError("network", 0))).toBe(
       "API injoignable : vérifiez le serveur"
     );
+  });
+
+  it("traduit un ApiError 409 d'inscription en « email déjà pris »", () => {
+    expect(
+      mapRegisterErrorMessage(new ApiError("un compte existe déjà : a@b.fr", 409))
+    ).toBe("Un compte existe déjà avec cet email");
+  });
+
+  it("traduit un 403 d'inscription (désactivée) en message actionnable", () => {
+    expect(mapRegisterErrorMessage(new ApiError("inscription désactivée", 403))).toBe(
+      "L'inscription est désactivée sur ce serveur. Contactez l'administrateur."
+    );
+  });
+
+  it("remonte le message d'un ApiError d'inscription non-409/403", () => {
+    expect(mapRegisterErrorMessage(new ApiError("adresse email invalide", 422))).toBe(
+      "adresse email invalide"
+    );
+  });
+
+  it("gère les erreurs d'inscription non-ApiError", () => {
+    expect(mapRegisterErrorMessage(new Error("réseau coupé"))).toBe("réseau coupé");
+    expect(mapRegisterErrorMessage("brut")).toBe("Inscription impossible");
   });
 
   it("remonte le message d'un ApiError non-401", () => {

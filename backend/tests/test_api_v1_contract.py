@@ -102,6 +102,10 @@ V1_PATHS = {
     # header OpenAPI — comportement verrouillé par tests P2) ; la gestion
     # des comptes exige la clé ADMIN (require_api_key).
     "/api/v1/auth/token": {"post"},
+    # Inscription publique (SCRUM-138) : création de compte read par email +
+    # mot de passe (hashé côté store). SANS authentification — protégée par
+    # quota IP (rate_limit) et interrupteur AUTH_REGISTRATION_ENABLED.
+    "/api/v1/auth/register": {"post"},
     "/api/v1/auth/verify": {"get"},
     "/api/v1/auth/revoke": {"post"},
     "/api/v1/auth/service-accounts": {"get", "post"},

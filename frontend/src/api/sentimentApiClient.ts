@@ -83,6 +83,22 @@ export interface AuthTokenPayload {
   ttl_seconds?: number;
 }
 
+/** Corps de POST /api/v1/auth/register — inscription publique. */
+export interface RegisterPayload {
+  email: string;
+  password: string;
+  /** Acceptation des CGU — requise par le backend (400 sinon). */
+  accept_terms: boolean;
+}
+
+/** Réponse 201 de POST /api/v1/auth/register — compte read prêt à se connecter. */
+export interface RegisterResult {
+  id: string;
+  email: string;
+  role: string;
+  message: string;
+}
+
 /**
  * Client API complet : étend le transport (clientCore) avec tous les endpoints
  * métier du backend FastAPI. Instancié une fois dans le contexte (AppProvider).
@@ -122,6 +138,20 @@ export class SentimentApiClient extends SentimentApiClientCore {
       method: "POST",
       body,
     }) as Promise<AuthTokenResult>;
+  }
+
+  /**
+   * Inscription publique — POST /api/v1/auth/register.
+   * Route SANS authentification : crée un compte `read` (email + mot de
+   * passe) ; la connexion passe ensuite par `authenticate()`.
+   * 409 = email déjà pris · 422 = email/mot de passe non conformes ·
+   * 403 = inscription désactivée (AUTH_REGISTRATION_ENABLED=0).
+   */
+  register(payload: RegisterPayload): Promise<RegisterResult> {
+    return this._request<RegisterResult>("/api/v1/auth/register", {
+      method: "POST",
+      body: payload,
+    }) as Promise<RegisterResult>;
   }
 
   /**

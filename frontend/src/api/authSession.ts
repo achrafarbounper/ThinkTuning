@@ -117,3 +117,20 @@ export function mapAuthErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return "Connexion impossible";
 }
+
+/**
+ * Traduit une erreur d'INSCRIPTION (POST /auth/register) en message court.
+ * Distinct de `mapAuthErrorMessage` : le 409 (email déjà pris) est une
+ * information attendue pour guider l'utilisateur vers la connexion.
+ */
+export function mapRegisterErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 409) return "Un compte existe déjà avec cet email";
+    if (error.status === 403)
+      return "L'inscription est désactivée sur ce serveur. Contactez l'administrateur.";
+    if (error.status === 0) return "API injoignable : vérifiez le serveur";
+    if (typeof error.message === "string" && error.message) return error.message;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return "Inscription impossible";
+}

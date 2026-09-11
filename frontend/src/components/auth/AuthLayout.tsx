@@ -17,7 +17,7 @@ import "./auth.css";
 export type AuthTheme = "light" | "dark";
 
 export interface AuthLayoutProps {
-  /** Contenu de la carte : typiquement <LoginForm />. */
+  /** Contenu de la carte : typiquement <LoginForm /> ou <RegisterForm />. */
   children: ReactNode;
   /** Monogramme de la marque (44px, dégradé brand). */
   brand?: string;
@@ -25,6 +25,10 @@ export interface AuthLayoutProps {
   defaultTheme?: AuthTheme;
   /** Langue active affichée dans le footer. */
   lang?: "fr" | "en";
+  /** Titre de la carte (défaut : « Connexion »). */
+  title?: string;
+  /** Sous-titre de la carte. */
+  subtitle?: string;
   /** Message de l'encart hors-carte (ex. « Pas de compte ? »). */
   switchMessage?: string;
   /** Libellé du lien de création de compte. */
@@ -77,6 +81,8 @@ export function AuthLayout({
   brand = "TT",
   defaultTheme = "light",
   lang = "fr",
+  title = "Connexion",
+  subtitle = "Accédez à votre espace",
   switchMessage = "Pas encore de compte ?",
   createAccountLabel = "Créer un compte",
   onCreateAccount,
@@ -107,9 +113,9 @@ export function AuthLayout({
             </span>
           </div>
           <h1 id={TITLE_ID} className="auth-card__title">
-            Connexion
+            {title}
           </h1>
-          <p className="auth-card__subtitle">Accédez à votre espace</p>
+          <p className="auth-card__subtitle">{subtitle}</p>
         </header>
 
         {children}

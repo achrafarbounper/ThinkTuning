@@ -458,3 +458,56 @@ describe("SentimentApiClient.authenticate (POST /api/v1/auth/token)", () => {
     );
   });
 });
+
+describe("SentimentApiClient.register (POST /api/v1/auth/register)", () => {
+  it("envoie email/mot de passe/CGU et retourne le compte créé", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          id: "uuid-123",
+          email: "nouvel@utilisateur.app",
+          role: "read",
+          message: "Compte créé. Vous pouvez maintenant vous connecter.",
+        },
+        201
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api" });
+    const result = await client.register({
+      email: "nouvel@utilisateur.app",
+      password: "mot-de-passe-long",
+      accept_terms: true,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/api/v1/auth/register");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(
+      JSON.stringify({
+        email: "nouvel@utilisateur.app",
+        password: "mot-de-passe-long",
+        accept_terms: true,
+      })
+    );
+    expect(result).toMatchObject({ id: "uuid-123", email: "nouvel@utilisateur.app", role: "read" });
+  });
+
+  it("propage le 409 email déjà pris en ApiError", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { error: { code: "conflict", message: "un compte existe déjà avec cet email : a@b.fr" } },
+        409
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new SentimentApiClient({ baseUrl: "http://api" });
+    const err = await expectApiError(
+      client.register({ email: "a@b.fr", password: "mot-de-passe-long", accept_terms: true })
+    );
+    expect(err.status).toBe(409);
+    expect(err.message).toContain("déjà");
+  });
+});

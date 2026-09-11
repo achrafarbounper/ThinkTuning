@@ -33,6 +33,10 @@ export interface LoginFormProps {
   onForgotPassword?: () => void;
   /** Callback connexion sociale. */
   onSocial?: (provider: SocialProvider) => void;
+  /** Email pré-rempli (après une inscription réussie). */
+  initialEmail?: string;
+  /** Message d'information affiché en tête du formulaire (ex. succès d'inscription). */
+  notice?: string;
   /** Libellé du bouton principal. */
   submitLabel?: string;
   /** Libellé pendant la connexion. */
@@ -159,6 +163,16 @@ function AlertIcon() {
   );
 }
 
+/** Cocher verte (bannière d'information — ex. compte créé). */
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 6.5c3 0 5.5 5.5 5.5-5.5L16 18" />
+      <path d="M16 8c-3.5 0-5.5 5.5-5.5 5.5L4 18" />
+    </svg>
+  );
+}
+
 /** Marque Google officielle (simple-icons, bleu #4285F4). */
 function GoogleIcon() {
   return (
@@ -187,10 +201,12 @@ export function LoginForm({
   authenticate = defaultAuthenticate,
   onForgotPassword,
   onSocial,
+  initialEmail = "",
+  notice = "",
   submitLabel = "Se connecter",
   submittingLabel = "Connexion…",
 }: LoginFormProps) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [authError, setAuthError] = useState<string | null>(null);
@@ -286,6 +302,14 @@ export function LoginForm({
       }}
       onAnimationEnd={() => setShake(false)}
     >
+      {/* Bannière d'information (ex. succès d'inscription — compte prêt). */}
+      {notice && (
+        <p className="auth-form__notice" role="status">
+          <CheckIcon />
+          {notice}
+        </p>
+      )}
+
       {/* Bannière d'erreur au niveau du formulaire (échec d'authentification). */}
       {authError && (
         <p className="auth-form__error" role="alert">

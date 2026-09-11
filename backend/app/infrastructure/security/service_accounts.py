@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -39,6 +40,23 @@ from datetime import UTC, datetime
 from app.domain.tokens import TokenClaims, create_access_token
 
 logger = logging.getLogger(__name__)
+
+# Email pragmatique (aligne la validation backend sur le frontend, sans
+# dépendance email-validator) : local-part@domaine.tld, ASCII simple.
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", re.IGNORECASE)
+
+# Bornes du mot de passe d'inscription (choisi par l'utilisateur) — alignées
+# sur la validation frontend (min 8) et le champ Pydantic de la route.
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 128
+
+
+class RegistrationError(ValueError):
+    """Inscription invalide (email ou mot de passe non conforme)."""
+
+
+class EmailAlreadyTakenError(RegistrationError):
+    """Un compte existe déjà pour cet email (l'email est le ``name`` unique)."""
 
 SERVICE_ACCOUNTS_PATH = os.getenv(
     "SERVICE_ACCOUNTS_PATH", os.path.join("experiments", "service_accounts.db")
@@ -50,6 +68,7 @@ MAX_TOKEN_TTL_SECONDS = 86400  # 24 h (plafond dur, cf. domaine)
 
 _ACTIONS = {
     "created": "service_account_created",
+    "registered": "service_account_registered",
     "authed": "service_account_authenticated",
     "revoked": "service_account_revoked",
     "list": "service_account_listed",
@@ -203,6 +222,72 @@ class ServiceAccountStore:
             logger.warning("service_account_revoked id=%s", account_id)
         return deleted
 
+    def register_account(
+        self,
+        *,
+        email: str,
+        password: str,
+        role: str = "read",
+        scopes: list[str] | None = None,
+    ) -> dict:
+        """Inscription publique : crée un compte utilisateur à partir d'un email.
+
+        Différence clé avec ``create_account`` (admin) : le SECRET est choisi
+        par l'utilisateur (son mot de passe) au lieu d'être généré. Stockage
+        identique — seul ``sha256(secret)`` est persisté, jamais le mot de
+        passe en clair.
+
+        Règles :
+            - l'email est normalisé (minuscules, espaces retirés) et devient
+              le ``name`` UNIQUE du compte (connexion possible par email via
+              ``issue_token``, qui résout aussi par ``name``) ;
+            - le rôle est ``read`` par défaut (least-privilege : la montée en
+              rôle reste une décision ADMIN) ;
+            - ``EmailAlreadyTakenError`` (409) si l'email est déjà pris ;
+              ``RegistrationError`` (422) si l'email ou le mot de passe ne
+              satisfont pas les règles de validation.
+        """
+        email = (email or "").strip().lower()
+        if not email or not _EMAIL_RE.match(email):
+            raise RegistrationError("adresse email invalide")
+        if not (MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH):
+            raise RegistrationError(
+                f"mot de passe requis ({MIN_PASSWORD_LENGTH} à {MAX_PASSWORD_LENGTH} caractères)"
+            )
+        if role not in ("admin", "read"):
+            raise RegistrationError(f"rôle inconnu : {role!r} (admin|read)")
+        account_id = str(uuid.uuid4())
+        secret_hash = _hash_secret(password)
+        now = _utcnow_iso()
+        with self._lock:
+            conn = self._connect()
+            try:
+                with conn:
+                    conn.execute(
+                        "INSERT INTO service_accounts "
+                        "(id, name, role, scopes_json, secret_hash, enabled, created_at)"
+                        " VALUES (?, ?, ?, ?, ?, 1, ?)",
+                        (
+                            account_id,
+                            email,
+                            role,
+                            json.dumps(list(scopes or [])),
+                            secret_hash,
+                            now,
+                        ),
+                    )
+            except sqlite3.IntegrityError as exc:
+                raise EmailAlreadyTakenError(f"un compte existe déjà avec cet email : {email}") from exc
+            finally:
+                conn.close()
+        _audit(
+            _ACTIONS["registered"],
+            subject=email,
+            detail={"account_id": account_id, "role": role, "scopes": list(scopes or [])},
+        )
+        logger.info("service_account_registered email=%s role=%s", email, role)
+        return {"id": account_id, "email": email, "role": role}
+
     # --- Lecture -----------------------------------------------------------------
 
     def list_accounts(self) -> list[dict]:
@@ -234,13 +319,19 @@ class ServiceAccountStore:
         return accounts
 
     def _get_by_client_id(self, account_id: str) -> dict | None:
+        """Résout un identifiant par ``id`` (comptes admin, UUID) OU ``name``.
+
+        ``name`` = email normalisé pour les comptes inscrits via
+        ``register_account`` : le dashboard se connecte ainsi avec son adresse
+        email, sans dépendre de l'UUID interne.
+        """
         with self._lock:
             conn = self._connect()
             try:
                 row = conn.execute(
                     "SELECT id, name, role, scopes_json, secret_hash, enabled "
-                    "FROM service_accounts WHERE id = ?",
-                    (str(account_id),),
+                    "FROM service_accounts WHERE id = ? OR name = ?",
+                    (str(account_id), str(account_id)),
                 ).fetchone()
             finally:
                 conn.close()
@@ -380,7 +471,11 @@ def reset_service_account_store(path: str | None = None) -> ServiceAccountStore:
 
 __all__ = [
     "DEFAULT_TOKEN_TTL_SECONDS",
+    "EmailAlreadyTakenError",
+    "MAX_PASSWORD_LENGTH",
     "MAX_TOKEN_TTL_SECONDS",
+    "MIN_PASSWORD_LENGTH",
+    "RegistrationError",
     "SERVICE_ACCOUNTS_PATH",
     "ServiceAccountStore",
     "get_service_account_store",

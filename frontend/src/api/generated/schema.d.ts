@@ -110,6 +110,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register Endpoint
+         * @description Inscription publique : crée un compte ``read`` avec email + mot de passe.
+         *
+         *     Route VOLONTAIREMENT publique (aucun header d'authentification) : elle ne
+         *     fait qu'ouvrir l'espace — la connexion réelle passe ensuite par
+         *     ``POST /auth/token``. L'email normalisé devient l'identifiant de compte ;
+         *     le mot de passe est hashé côté store (jamais en clair).
+         *
+         *     Statuts : 201 créé · 403 inscription désactivée (``AUTH_REGISTRATION_ENABLED=0``)
+         *     · 400 CGU non acceptées · 409 email déjà pris (pas de clé API requise)
+         *     · 422 email / mot de passe non conformes.
+         */
+        post: operations["register_endpoint_api_v1_auth_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1515,7 +1544,10 @@ export interface components {
         };
         /** Body_predict_batch_api_v1_predict_batch_post */
         Body_predict_batch_api_v1_predict_batch_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /**
              * Text Column
@@ -1953,6 +1985,52 @@ export interface components {
             model_version?: string | null;
         };
         /**
+         * RegisterRequest
+         * @description Corps d'inscription publique — l'email devient l'identifiant de compte.
+         *
+         *     La validation de format (email, longueur du mot de passe) est ré-appliquée
+         *     côté store (``register_account``) : la route ne fait que traduire les
+         *     erreurs en codes HTTP stables (409 doublon / 422 invalide).
+         */
+        RegisterRequest: {
+            /**
+             * Email
+             * @description Adresse email — normalisée (minuscules) et utilisée comme identifiant
+             */
+            email: string;
+            /**
+             * Password
+             * @description Mot de passe (8 à 128 caractères) — hashé, jamais stocké en clair
+             */
+            password: string;
+            /**
+             * Accept Terms
+             * @description Acceptation obligatoire des CGU (et consentement RGPD)
+             * @default false
+             */
+            accept_terms: boolean;
+        };
+        /**
+         * RegisterResponse
+         * @description Résultat d'inscription : le compte est prêt pour ``POST /auth/token``.
+         */
+        RegisterResponse: {
+            /** Id */
+            id: string;
+            /** Email */
+            email: string;
+            /**
+             * Role
+             * @default read
+             */
+            role: string;
+            /**
+             * Message
+             * @default Compte créé. Vous pouvez maintenant vous connecter.
+             */
+            message: string;
+        };
+        /**
          * ReloadResponse
          * @description Réponse de POST /api/v1/predict/reload — shape legacy préservé.
          */
@@ -2242,10 +2320,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -2418,6 +2492,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_endpoint_api_v1_auth_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

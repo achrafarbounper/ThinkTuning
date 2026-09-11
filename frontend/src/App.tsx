@@ -12,7 +12,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import AppProvider from "./context/AppProvider";
 import { ErrorBoundary } from "./components/ui";
-import { AuthLayout, LoginForm, type AuthResult } from "./components/auth";
+import { AuthLayout, LoginForm, RegisterForm, type AuthResult } from "./components/auth";
 import { SentimentApiClient, DEFAULT_BASE_URL } from "./api/sentimentApiClient";
 import {
   SESSION_KEY,
@@ -20,6 +20,7 @@ import {
   buildAuthSession,
   isSessionValid,
   mapAuthErrorMessage,
+  mapRegisterErrorMessage,
   readStoredBaseUrl,
   type AuthSession,
 } from "./api/authSession";
@@ -138,6 +139,17 @@ export default function App() {
     [apiBaseUrl]
   );
 
+  // --- Écran d'authentification : login OU inscription (bascule interne) -----
+  const [authView, setAuthView] = useState<"login" | "register">("login");
+  // Email du compte créé juste avant — pré-remplit le login + bannière de succès.
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+
+  const openAuthView = (view: "login" | "register"): void => {
+    // Quitter la vue « post-inscription » efface le message de succès.
+    if (view === "register") setRegisteredEmail(null);
+    setAuthView(view);
+  };
+
   /** Authentification RÉELLE : échange client_id/secret → JWT via l'API. */
   const handleAuthenticate = async (
     email: string,
@@ -172,6 +184,30 @@ export default function App() {
     window.location.hash = "/dashboard";
   };
 
+  /**
+   * Inscription RÉELLE : création du compte via POST /auth/register.
+   * Le compte créé est prêt pour la connexion par email + mot de passe
+   * (aucun jeton émis ici — l'échange reste une action de connexion).
+   */
+  const handleRegister = async (email: string, password: string): Promise<AuthResult> => {
+    try {
+      const result = await loginClient.register({
+        email,
+        password,
+        accept_terms: true, // validé par RegisterForm (case CGU cochée)
+      });
+      return { email: result.email };
+    } catch (err) {
+      throw new Error(mapRegisterErrorMessage(err), { cause: err });
+    }
+  };
+
+  /** Inscription réussie : retour au login, email pré-rempli + bannière. */
+  const handleRegisterSuccess = (result: AuthResult): void => {
+    setRegisteredEmail(result.email);
+    setAuthView("login");
+  };
+
   /** Déconnexion volontaire (Sidebar → Se déconnecter). */
   const handleLogout = (): void => {
     setSession(null);
@@ -195,11 +231,33 @@ export default function App() {
     mainRef.current?.focus({ preventScroll: true });
   }, [page]);
 
-  // --- Non connecté : écran d'authentification (page PAR DÉFAUT) -----------
+  // --- Non connecté : écran d'authentification (login OU inscription) ---------
   if (!authenticated) {
+    const isRegister = authView === "register";
     return (
-      <AuthLayout>
-        <LoginForm authenticate={handleAuthenticate} onSuccess={handleLoginSuccess} />
+      <AuthLayout
+        title={isRegister ? "Inscription" : "Connexion"}
+        subtitle={isRegister ? "Créez votre compte ThinkTuning" : "Accédez à votre espace"}
+        switchMessage={
+          isRegister ? "Vous avez déjà un compte ?" : "Pas encore de compte ?"
+        }
+        createAccountLabel={isRegister ? "Se connecter" : "Créer un compte"}
+        onCreateAccount={() => openAuthView(isRegister ? "login" : "register")}
+      >
+        {isRegister ? (
+          <RegisterForm register={handleRegister} onSuccess={handleRegisterSuccess} />
+        ) : (
+          <LoginForm
+            authenticate={handleAuthenticate}
+            onSuccess={handleLoginSuccess}
+            initialEmail={registeredEmail ?? ""}
+            notice={
+              registeredEmail
+                ? `Compte créé pour ${registeredEmail}. Connectez-vous.`
+                : ""
+            }
+          />
+        )}
         <ApiServerForm value={apiBaseUrl} onSubmit={applyApiBaseUrl} />
       </AuthLayout>
     );

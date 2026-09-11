@@ -10,3 +10,5 @@ export { AuthLayout } from "./AuthLayout";
 export type { AuthLayoutProps, AuthTheme } from "./AuthLayout";
 export { LoginForm } from "./LoginForm";
 export type { AuthResult, LoginFormProps } from "./LoginForm";
+export { RegisterForm } from "./RegisterForm";
+export type { RegisterFormProps, RegisterFormResult } from "./RegisterForm";

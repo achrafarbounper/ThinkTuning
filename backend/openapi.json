@@ -251,6 +251,48 @@
         }
       }
     },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "Auth v1"
+        ],
+        "summary": "Register Endpoint",
+        "description": "Inscription publique : crée un compte ``read`` avec email + mot de passe.\n\nRoute VOLONTAIREMENT publique (aucun header d'authentification) : elle ne\nfait qu'ouvrir l'espace — la connexion réelle passe ensuite par\n``POST /auth/token``. L'email normalisé devient l'identifiant de compte ;\nle mot de passe est hashé côté store (jamais en clair).\n\nStatuts : 201 créé · 403 inscription désactivée (``AUTH_REGISTRATION_ENABLED=0``)\n· 400 CGU non acceptées · 409 email déjà pris (pas de clé API requise)\n· 422 email / mot de passe non conformes.",
+        "operationId": "register_endpoint_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -4451,7 +4493,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -4463,7 +4505,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -4484,7 +4526,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File"
           },
           "text_column": {
@@ -5438,6 +5480,66 @@
         "title": "PredictedText",
         "description": "Prédiction d'UNE phrase (shape legacy préservé + version enrichie)."
       },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "description": "Adresse email — normalisée (minuscules) et utilisée comme identifiant"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "description": "Mot de passe (8 à 128 caractères) — hashé, jamais stocké en clair"
+          },
+          "accept_terms": {
+            "type": "boolean",
+            "title": "Accept Terms",
+            "description": "Acceptation obligatoire des CGU (et consentement RGPD)",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "description": "Corps d'inscription publique — l'email devient l'identifiant de compte.\n\nLa validation de format (email, longueur du mot de passe) est ré-appliquée\ncôté store (``register_account``) : la route ne fait que traduire les\nerreurs en codes HTTP stables (409 doublon / 422 invalide)."
+      },
+      "RegisterResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "read"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "Compte créé. Vous pouvez maintenant vous connecter."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email"
+        ],
+        "title": "RegisterResponse",
+        "description": "Résultat d'inscription : le compte est prêt pour ``POST /auth/token``."
+      },
       "ReloadResponse": {
         "properties": {
           "status": {
@@ -6125,13 +6227,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",

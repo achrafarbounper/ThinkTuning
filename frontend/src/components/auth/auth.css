@@ -19,6 +19,7 @@
   --auth-text: #18181b;
   --auth-text-dim: #6b7280;
   --auth-text-error: #dc2626;
+  --auth-text-ok: #1a7f3d;
   --auth-icon: #9ca3af;
   --auth-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px rgba(16, 24, 40, 0.08);
   --auth-btn-bg: #3b82f6;
@@ -36,6 +37,7 @@
   --auth-text: var(--tt-text, #e7eaee);
   --auth-text-dim: var(--tt-text-dim, #8b94a3);
   --auth-text-error: var(--tt-negative, #f2545b);
+  --auth-text-ok: var(--tt-positive, #2fbf71);
   --auth-icon: var(--tt-text-dim, #8b94a3);
   --auth-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 32px rgba(0, 0, 0, 0.35);
   --auth-btn-bg: #3b82f6;
@@ -561,6 +563,52 @@
   width: 15px;
   height: 15px;
   flex-shrink: 0;
+}
+
+/* Bannière d'information au niveau du formulaire (ex. succès d'inscription). */
+.auth-form__notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(47, 191, 113, 0.4);
+  border-radius: 8px;
+  background: rgba(47, 191, 113, 0.08);
+  color: var(--auth-text-ok);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.auth-form__notice svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* Case CGU : consentement requis à l'inscription (RegisterForm). */
+.auth-terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--auth-text-dim);
+  cursor: pointer;
+}
+
+.auth-terms input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: var(--auth-border-focus);
+  cursor: pointer;
+}
+
+.auth-terms a {
+  color: var(--auth-border-focus);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* Bouton-lien « Mot de passe oublié ? » (liens secondaires du formulaire). */

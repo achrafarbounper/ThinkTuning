@@ -31,6 +31,9 @@ RATE_LIMIT_TRUST_PROXY = os.getenv("RATE_LIMIT_TRUST_PROXY", "0").lower() in {
 # Un seul groupe par requête (première correspondance) : les quotas ne
 # se cumulent pas.
 COSTLY_ROUTE_LIMITS: tuple[tuple[str, str, int, int], ...] = (
+    # Inscription publique : route SANS authentification — quota par IP serré
+    # contre la création de comptes en masse / l'énumération d'emails.
+    ("/api/v1/auth/register", "auth_register", 10, 60),
     # Multi-agents : coordination Lead/Workers (LLM x N) — 30/min.
     ("/api/agent/multi/ask", "agent_multi", 30, 60),
     ("/api/v1/agent/multi/ask", "agent_multi", 30, 60),
