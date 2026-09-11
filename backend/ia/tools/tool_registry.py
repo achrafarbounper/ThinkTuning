@@ -58,7 +58,7 @@ from .network_tools import http_get, http_post
 from .web_tools import web_search, web_fetch, web_read
 from .docker_tools import docker_exec, docker_logs, docker_ps
 from .gpu_tools import gpu_info
-from .database_tools import postgres_query, sqlite_query
+from .database_tools import postgres_query
 from .search_tools import append_file, now, search_in_files, tail_file
 from .calc_tools import calc
 from .ml_tools import (
@@ -159,7 +159,6 @@ TOOLS: dict[str, Callable[..., Any]] = {
     "github_list_prs": github_list_prs,
     "github_get_workflow_run": github_get_workflow_run,
     # bases de données
-    "sqlite_query": sqlite_query,
     "postgres_query": postgres_query,
     # métier ThinkTuning
     "job_list": job_list,

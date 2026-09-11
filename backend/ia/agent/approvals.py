@@ -203,7 +203,7 @@ _APPROVE_TOOLS = frozenset({
     "cancel_training", "stop_training",
 })
 
-_DB_QUERY_TOOLS = frozenset({"sqlite_query", "postgres_query"})
+_DB_QUERY_TOOLS = frozenset({"postgres_query"})
 
 # Surcharge déclarative du manifeste (« approval » dans tools_config.json).
 _APPROVAL_OVERRIDE_MAP = {

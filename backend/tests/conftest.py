@@ -13,6 +13,12 @@ retrouver la base, jamais l'état local d'une machine.
 
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("MONGODB_MOCK", "1")
+os.environ.setdefault("MONGODB_URI", "mongodb://localhost")
+os.environ.setdefault("MONGODB_DATABASE", "thinktuning_test")
+
 import pytest
 
 
@@ -41,8 +47,12 @@ def _isolated_agent_settings_store(monkeypatch, tmp_path):
     """
     from core import agent_settings as agent_settings_module
 
-    monkeypatch.setenv("PERSISTENCE_BACKEND", "sqlite")
+    monkeypatch.setenv("PERSISTENCE_BACKEND", "mongodb")
+    monkeypatch.setenv("MONGODB_MOCK", "1")
+    from app.infrastructure.persistence.mongodb import reset_mongo_provider
+    reset_mongo_provider()
     original_path = agent_settings_module.AGENT_SETTINGS_PATH
     agent_settings_module.reset_store_for_tests(str(tmp_path / "agent_settings.db"))
     yield
+    reset_mongo_provider()
     agent_settings_module.reset_store_for_tests(original_path)

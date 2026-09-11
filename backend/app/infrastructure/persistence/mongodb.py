@@ -1,8 +1,8 @@
 """MongoDB Atlas persistence adapters.
 
-The adapters deliberately keep the contracts of the existing SQLite stores.
-MongoDB is opt-in (``PERSISTENCE_BACKEND=mongodb``); importing this module does
-not connect until a store is instantiated.
+MongoDB is the runtime persistence backend.  ``MongoClientProvider`` also
+accepts an injected client, which is the supported seam for mongomock tests;
+tests therefore never need a network connection.
 """
 
 from __future__ import annotations
@@ -59,11 +59,18 @@ class MongoConfig:
             database or os.getenv("MONGODB_DATABASE", "") or settings_db or "thinktuning"
         )
         if not self.uri:
-            raise ValueError("MONGODB_URI is required when PERSISTENCE_BACKEND=mongodb")
+            raise ValueError("MONGODB_URI is required for MongoDB persistence")
 
 
 class MongoClientProvider:
-    def __init__(self, config: MongoConfig | None = None) -> None:
+    def __init__(self, config: MongoConfig | None = None, client: Any | None = None) -> None:
+        if client is not None:
+            self.client = client
+            cfg = config
+            database = cfg.database if cfg else os.getenv("MONGODB_DATABASE", "thinktuning")
+            self.db = client[database]
+            self._ensure_indexes()
+            return
         try:
             from pymongo import MongoClient
         except ImportError as exc:  # pragma: no cover - exercised in deployments
@@ -108,8 +115,29 @@ def get_mongo_provider() -> MongoClientProvider:
     global _provider
     with _provider_lock:
         if _provider is None:
-            _provider = MongoClientProvider()
+            if os.getenv("MONGODB_MOCK", "").lower() in {"1", "true", "yes"}:
+                try:
+                    import mongomock
+                except ImportError as exc:  # pragma: no cover - deployment guard
+                    raise RuntimeError(
+                        "mongomock is required when MONGODB_MOCK is enabled"
+                    ) from exc
+                _provider = MongoClientProvider(
+                    MongoConfig(uri="mongodb://localhost/thinktuning"),
+                    client=mongomock.MongoClient(),
+                )
+            else:
+                _provider = MongoClientProvider()
         return _provider
+
+
+def set_mongo_provider(provider: MongoClientProvider | None) -> None:
+    """Inject a provider for tests and close the previous provider safely."""
+    global _provider
+    with _provider_lock:
+        if _provider is not None and _provider is not provider:
+            _provider.client.close()
+        _provider = provider
 
 
 def reset_mongo_provider() -> None:
@@ -201,6 +229,8 @@ class MongoSessionStore:
             .sort("_order", 1)
             .limit(limit)
         )
+        for row in rows:
+            row.pop("_order", None)
         return rows
 
     def save_memory(self, key: str, summary: str) -> None:
@@ -225,8 +255,9 @@ class MongoSessionStore:
 
 
 class MongoRunStore:
-    def __init__(self, provider=None):
-        self.c = (provider or get_mongo_provider()).collection("agent_runs")
+    def __init__(self, provider=None, *args, **kwargs):
+        db = provider if hasattr(provider, "collection") else get_mongo_provider()
+        self.c = db.collection("agent_runs")
         self._lock = threading.RLock()
 
     def start_run(self, prompt: str, model: str = "", source: str = "api") -> dict:
@@ -294,8 +325,9 @@ class MongoRunStore:
 
 
 class MongoFlowStore:
-    def __init__(self, provider=None):
-        self.c = (provider or get_mongo_provider()).collection("agent_flows")
+    def __init__(self, provider=None, *args, **kwargs):
+        db = provider if hasattr(provider, "collection") else get_mongo_provider()
+        self.c = db.collection("agent_flows")
 
     def start_flow(self, prompt, model="", source="api"):
         d = {
@@ -382,8 +414,9 @@ class MongoFlowStore:
 
 
 class MongoApprovalStore:
-    def __init__(self, provider=None):
-        self.c = (provider or get_mongo_provider()).collection("agent_approvals")
+    def __init__(self, provider=None, *args, **kwargs):
+        db = provider if hasattr(provider, "collection") else get_mongo_provider()
+        self.c = db.collection("agent_approvals")
 
     def create(
         self,
@@ -442,7 +475,8 @@ class MongoApprovalStore:
             )
         return self.get(rid)
 
-    def approve(self, rid, decided_by=None):
+    def approve(self, request_id, decided_by=None):
+        rid = request_id
         return self._decide(rid, "approved", decided_by)
 
     def reject(self, rid, decided_by=None):
@@ -450,8 +484,9 @@ class MongoApprovalStore:
 
 
 class MongoAuditStore:
-    def __init__(self, provider=None):
-        self.c = (provider or get_mongo_provider()).collection("agent_audit")
+    def __init__(self, provider=None, *args, **kwargs):
+        db = provider if hasattr(provider, "collection") else get_mongo_provider()
+        self.c = db.collection("agent_audit")
 
     def log(
         self,
@@ -559,8 +594,9 @@ class MongoAgentSettingsStore:
     SQLite→Mongo copie les documents sans divergence (SCRUM-137).
     """
 
-    def __init__(self, provider=None):
-        self.c = (provider or get_mongo_provider()).collection("agent_settings")
+    def __init__(self, provider=None, *args, **kwargs):
+        db = provider if hasattr(provider, "collection") else get_mongo_provider()
+        self.c = db.collection("agent_settings")
 
     def get_all(self):
         return {
@@ -804,3 +840,198 @@ class MongoMCPClientStore:
 
     def count_revoked(self):
         return self.c.count_documents({"revoked": True})
+
+
+class MongoToolAuditStore:
+    """Compatibility adapter for ``ia.agent.audit``'s tool-call contract."""
+
+    def __init__(self, provider=None):
+        self.c = (provider or get_mongo_provider()).collection("tool_audit")
+
+    def log_tool_call(self, tool_name, args, result=None, duration_ms=0.0,
+                      success=True, error_message=None, job_id=None):
+        d = {
+            "_id": uuid.uuid4().hex,
+            "job_id": job_id,
+            "tool_name": tool_name,
+            "args": args,
+            "result": result if success else None,
+            "duration_ms": duration_ms,
+            "success": bool(success),
+            "error_message": error_message,
+            "created_at": time.time(),
+        }
+        self.c.insert_one(d)
+        return d["_id"]
+
+    def get_trail(self, job_id=None, tool_name=None, limit=100, since=None):
+        q = {}
+        if job_id:
+            q["job_id"] = job_id
+        if tool_name:
+            q["tool_name"] = tool_name
+        if since:
+            q["created_at"] = {"$gte": since}
+        rows = self.c.find(q, {"_id": 0}).sort("created_at", -1).limit(max(1, int(limit)))
+        return [{**d, "tool": d.pop("tool_name", "")} for d in rows]
+
+    def cleanup_old_entries(self, days=30):
+        result = self.c.delete_many({"created_at": {"$lt": time.time() - days * 86400}})
+        return int(result.deleted_count)
+
+    def get_stats(self):
+        total = self.c.count_documents({})
+        errors = self.c.count_documents({"success": False})
+        return {
+            "total_entries": total,
+            "total_errors": errors,
+            "error_rate": round(errors / total, 4) if total else 0.0,
+            "unique_tools": len(self.c.distinct("tool_name")),
+        }
+
+
+class MongoFeedbackStore:
+    def __init__(self, provider=None):
+        self.c = (provider or get_mongo_provider()).collection("copilot_feedback")
+
+    def record(self, tool, accepted, kind="tool", session_id="", suggestion=None):
+        d = {
+            "_id": uuid.uuid4().hex,
+            "id": "",
+            "created_at": _utcnow(),
+            "session_id": session_id or "",
+            "kind": kind,
+            "suggestion": suggestion or {},
+            "tool": tool or "",
+            "accepted": bool(accepted),
+        }
+        d["id"] = d["_id"]
+        self.c.insert_one(d)
+        d.pop("_id", None)
+        return d
+
+    def stats(self):
+        out = {}
+        for tool in self.c.distinct("tool"):
+            acc = self.c.count_documents({"tool": tool, "accepted": True})
+            rej = self.c.count_documents({"tool": tool, "accepted": False})
+            total = acc + rej
+            out[tool] = {"accepts": acc, "rejects": rej,
+                         "accept_rate": round(acc / total, 3) if total else 0.0}
+        return out
+
+    def boost(self, tool):
+        s = self.stats().get(tool or "", {"accepts": 0, "rejects": 0})
+        acc, rej = s["accepts"], s["rejects"]
+        if not acc and not rej:
+            return 0.0
+        return -0.15 if rej > acc else min(0.3, 0.1 * acc)
+
+    def count(self):
+        return int(self.c.count_documents({}))
+
+
+class MongoServiceAccountStore:
+    """Service-account store preserving the public SQLite API."""
+
+    def __init__(self, provider=None):
+        self.c = (provider or get_mongo_provider()).collection("service_accounts")
+        self.revoked = (provider or get_mongo_provider()).collection("revoked_tokens")
+
+    def create_account(self, *, name, role="read", scopes=None):
+        import secrets
+
+        from app.infrastructure.security.service_accounts import (
+            _audit,
+            _hash_secret,
+        )
+        if not name or len(name.strip()) < 3 or role not in ("admin", "read"):
+            raise ValueError("nom ou rôle de service account invalide")
+        name = name.strip()
+        if self.c.find_one({"name": name}):
+            raise ValueError(f"nom de service account déjà pris : {name}")
+        secret = secrets.token_urlsafe(32)
+        d = {"_id": str(uuid.uuid4()), "name": name, "role": role,
+             "scopes": list(scopes or []), "secret_hash": _hash_secret(secret),
+             "enabled": True, "created_at": _utcnow(), "last_used_at": ""}
+        self.c.insert_one(d)
+        _audit("service_account_created", name, {"account_id": d["_id"], "role": role,
+                                                  "scopes": d["scopes"]})
+        return {"id": d["_id"], "name": name, "role": role, "scopes": d["scopes"],
+                "client_secret": secret}
+
+    def register_account(self, *, email, password, role="read", scopes=None):
+        from app.infrastructure.security.service_accounts import (
+            MAX_PASSWORD_LENGTH,
+            MIN_PASSWORD_LENGTH,
+            EmailAlreadyTakenError,
+            RegistrationError,
+        )
+        email = (email or "").strip().lower()
+        if "@" not in email:
+            raise RegistrationError("adresse email invalide")
+        if not (MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH):
+            raise RegistrationError("mot de passe de longueur invalide")
+        if self.c.find_one({"name": email}):
+            raise EmailAlreadyTakenError(f"un compte existe déjà avec cet email : {email}")
+        from app.infrastructure.security.service_accounts import _audit, _hash_secret
+        d = {"_id": str(uuid.uuid4()), "name": email, "role": role,
+             "scopes": list(scopes or []), "secret_hash": _hash_secret(password),
+             "enabled": True, "created_at": _utcnow(), "last_used_at": ""}
+        self.c.insert_one(d)
+        _audit("service_account_registered", email, {"account_id": d["_id"], "role": role})
+        return {"id": d["_id"], "email": email, "role": role}
+
+    def list_accounts(self):
+        out = []
+        for d in self.c.find({}):
+            out.append({
+                "id": d["_id"],
+                "name": d.get("name", ""),
+                "role": d.get("role", ""),
+                "scopes": d.get("scopes", []),
+                "enabled": bool(d.get("enabled")),
+                "created_at": d.get("created_at", ""),
+                "last_used_at": d.get("last_used_at", ""),
+            })
+        return out
+
+    def _get_by_client_id(self, account_id):
+        return self.c.find_one({
+            "$or": [
+                {"_id": str(account_id)},
+                {"name": str(account_id).strip().lower()},
+            ]
+        })
+
+    def issue_token(self, *, client_id, client_secret, jwt_secret, ttl_seconds=900):
+        import secrets
+
+        from app.infrastructure.security.service_accounts import _audit, _hash_secret
+        d = self._get_by_client_id(client_id)
+        if not d or not d.get("enabled") or not secrets.compare_digest(
+            d["secret_hash"], _hash_secret(client_secret)
+        ):
+            _audit("service_account_authenticated", client_id, {"ok": False})
+            raise PermissionError("client_id ou secret invalide")
+        from app.domain.tokens import create_access_token
+        token = create_access_token(subject=d["name"], secret=jwt_secret, role=d["role"],
+                                    scopes=d.get("scopes", []), ttl_seconds=ttl_seconds)
+        self.c.update_one({"_id": d["_id"]}, {"$set": {"last_used_at": _utcnow()}})
+        return {"token": token, "role": d["role"]}
+
+    def revoke_account(self, account_id):
+        return bool(self.c.delete_one({"_id": str(account_id)}).deleted_count)
+
+    def revoke_token(self, claims):
+        if not claims.jti:
+            return False
+        self.revoked.update_one(
+            {"_id": claims.jti},
+            {"$set": {"expires_at": claims.expires_at}},
+            upsert=True,
+        )
+        return True
+
+    def is_token_revoked(self, jti):
+        return bool(jti and self.revoked.find_one({"_id": str(jti)}))

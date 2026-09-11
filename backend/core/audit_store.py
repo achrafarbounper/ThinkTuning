@@ -415,18 +415,12 @@ def _current_path() -> str:
 
 def get_audit_store() -> AuditStore:
     """Store partagé de l'application (instance unique paresseuse)."""
-    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
-        from app.infrastructure.persistence.mongodb import MongoAuditStore
+    from app.infrastructure.persistence.mongodb import MongoAuditStore
 
-        global _mongo_store
-        with _store_lock:
-            if _mongo_store is None:
-                _mongo_store = MongoAuditStore()  # type: ignore[assignment]
-            return _mongo_store  # type: ignore[return-value]
     global _store
     with _store_lock:
         if _store is None:
-            _store = AuditStore(_current_path())
+            _store = MongoAuditStore()  # type: ignore[assignment]
         return _store
 
 
@@ -434,5 +428,7 @@ def reset_audit_store(path: str | None = None) -> AuditStore:
     """Remplace le store partagé par une base neuve (isolation des tests)."""
     global _store
     with _store_lock:
-        _store = AuditStore(path or _current_path())
+        from app.infrastructure.persistence.mongodb import MongoAuditStore
+
+        _store = MongoAuditStore()  # type: ignore[assignment]
         return _store

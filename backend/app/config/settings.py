@@ -11,7 +11,7 @@ MongoDB) :
 
 Variables d'environnement portées ici :
     - API          : API_KEY, CORS_ALLOWED_ORIGINS, DASHBOARD_WS_TOKEN
-    - Persistence  : PERSISTENCE_BACKEND, MONGODB_URI, MONGODB_DATABASE
+    - Persistence  : MONGODB_URI, MONGODB_DATABASE
     - Streams ML   : TRAIN_STREAM_STALL_MINUTES, MODEL_SANITY_MIN_CONFIDENCE
 
 Règles :
@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -38,11 +38,9 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 def _load_dotenv_to_environ() -> None:
     """Charge backend/.env (et .env racine en repli) dans ``os.environ``.
 
-    Pourquoi : les stores legacy (``core/*_store.py``) et ``MongoConfig``
-    lisent ``os.getenv`` DIRECTEMENT, sans passer par pydantic-settings.
-    Sans ce chargement, ``PERSISTENCE_BACKEND=mongodb`` posé uniquement dans
-    un fichier ``.env`` serait invisible pour eux et le runtime resterait en
-    SQLite. Parser stdlib uniquement (pas de dépendance ``python-dotenv``) :
+    Pourquoi : ``MongoConfig`` lit ``os.getenv`` directement, sans passer par
+    pydantic-settings. Parser stdlib uniquement (pas de dépendance
+    ``python-dotenv``) :
     lignes ``CLE=valeur``, `#` commentaires, guillemets simples/doubles
     retirés. Ne surcharge JAMAIS une variable déjà exportée (l'env réel
     garde la priorité sur le fichier).
@@ -90,11 +88,7 @@ class Settings(BaseSettings):
         extra="ignore",  # tolère les variables hors périmètre (.env utilisateur)
     )
 
-    # Persistence SQLite par défaut ; Atlas activé explicitement via
-    # PERSISTENCE_BACKEND=mongodb (cf. backend/.env, gitignoré — jamais de
-    # secret en dur ici). MongoConfig (persistence/mongodb.py) lit MONGODB_URI
-    # depuis l'environnement, alimenté ci-dessous par _load_dotenv_to_environ().
-    persistence_backend: Literal["sqlite", "mongodb"] = "sqlite"
+    # MongoDB Atlas is the sole runtime persistence backend.
     mongodb_uri: str | None = None
     mongodb_database: str = "thinktuning"
 

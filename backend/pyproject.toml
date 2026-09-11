@@ -41,6 +41,7 @@ dependencies = [
     "onnx>=1.14.0",
     "onnxruntime>=1.17.0",
     "pymongo>=4.8.0",
+    "mongomock>=4.1.2",
 ]
 
 [project.optional-dependencies]

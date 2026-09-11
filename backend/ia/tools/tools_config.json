@@ -889,34 +889,6 @@
         }
       }
     },
-    "sqlite_query": {
-      "name": "sqlite_query",
-      "description": "ExÃ©cute une requÃªte SQL sur une base SQLite situÃ©e dans la sandbox",
-      "required_args": [
-        "db_path",
-        "query"
-      ],
-      "parameters": {
-        "db_path": {
-          "required": true,
-          "type": "string"
-        },
-        "query": {
-          "required": true,
-          "type": "string"
-        },
-        "readonly": {
-          "required": false,
-          "type": "boolean",
-          "default": true
-        },
-        "max_rows": {
-          "required": false,
-          "type": "integer",
-          "default": 50
-        }
-      }
-    },
     "start_training": {
       "name": "start_training",
       "description": "Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_id ; suivez la progression avec job_get/job_list",

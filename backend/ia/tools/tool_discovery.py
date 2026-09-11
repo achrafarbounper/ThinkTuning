@@ -52,7 +52,6 @@ KEYWORDS = {
     "start_training": {"entraîner", "training", "lancer", "fine-tune"},
     "train_model": {"entraîner", "training", "modèle"},
     "predict_sentiment": {"sentiment", "prédire", "classification", "avis"},
-    "sqlite_query": {"sql", "base", "requête", "sqlite"},
     "postgres_query": {"sql", "postgres", "base", "requête"},
     "git_status": {"git", "état", "statut"},
     "git_log": {"git", "historique", "log", "commits"},

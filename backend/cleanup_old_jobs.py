@@ -4,7 +4,7 @@
 Exemples :
     py cleanup_old_jobs.py --max-age-days 30 --dry-run
     py cleanup_old_jobs.py --max-age-days 30
-    py cleanup_old_jobs.py --db-path experiments/jobs.db --max-age-days 7
+    py cleanup_old_jobs.py --max-age-days 7
 """
 
 import argparse
@@ -23,11 +23,6 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     parser = argparse.ArgumentParser(description="Supprime les jobs d'entraînement terminés et obsolètes.")
     parser.add_argument(
-        "--db-path",
-        default=os.getenv("JOB_STORE_PATH", os.path.join("experiments", "jobs.db")),
-        help="Chemin SQLite du store de jobs (défaut: JOB_STORE_PATH ou experiments/jobs.db)",
-    )
-    parser.add_argument(
         "--max-age-days",
         type=int,
         default=30,
@@ -43,7 +38,6 @@ def main() -> int:
     result = cleanup_old_jobs(
         max_age_days=args.max_age_days,
         dry_run=args.dry_run,
-        db_path=args.db_path,
     )
 
     if args.dry_run:

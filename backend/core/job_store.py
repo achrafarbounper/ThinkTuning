@@ -5,8 +5,6 @@ import json
 import sqlite3
 import threading
 import time
-from typing import Dict
-
 from core.models import TrainJob
 
 JOB_STORE_PATH = os.getenv("JOB_STORE_PATH", os.path.join("experiments", "jobs.db"))
@@ -368,16 +366,11 @@ _mongo_store: "PersistentJobStore | None" = None
 
 
 def get_job_store() -> PersistentJobStore:
-    if os.getenv("PERSISTENCE_BACKEND", "sqlite").lower() == "mongodb":
-        from app.infrastructure.persistence.mongodb import MongoJobStore
+    from app.infrastructure.persistence.mongodb import MongoJobStore
 
-        global _mongo_store
-        if _mongo_store is None:
-            _mongo_store = MongoJobStore()  # type: ignore[assignment]
-        return _mongo_store  # type: ignore[return-value]
     global _store
     if _store is None:
-        _store = PersistentJobStore()
+        _store = MongoJobStore()  # type: ignore[assignment]
     return _store
 
 
@@ -409,5 +402,7 @@ def cleanup_old_jobs(
         caches mémoire d'autres instances déjà instanciées ne sont PAS
         synchronisés (seul SQLite fait foi entre instances).
     """
-    store = PersistentJobStore(path=db_path) if db_path else get_job_store()
+    if db_path:
+        raise ValueError("db_path is no longer supported; MongoDB is the only backend")
+    store = get_job_store()
     return store.cleanup_old_jobs(max_age_days=max_age_days, dry_run=dry_run)
