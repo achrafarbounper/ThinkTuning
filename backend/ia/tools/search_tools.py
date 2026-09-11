@@ -167,7 +167,7 @@ def tail_file(path: str, lines: int = 50) -> str:
 def append_file(path: str, content: str) -> str:
     """Ajoute `content` à la fin d'un fichier DANS la sandbox (crée le fichier
     et ses parents si nécessaire — contrairement à write_file qui écrase)."""
-    target = safe_resolve(path)
+    target = safe_resolve(path, for_write=True)  # P1 : tue .env/clés à l'écriture
     target.parent.mkdir(parents=True, exist_ok=True)
     # newline="" : écriture verbatim, pas de traduction \n -> \r\n sous Windows.
     with open(target, "a", encoding="utf-8", newline="") as handle:

@@ -63,7 +63,7 @@ def download_file(url: str, filename: str, max_mb: int = 50,
         raise ValueError(f"'max_mb' doit être entre 0 et {MAX_DOWNLOAD_MB}.")
     timeout = max(1.0, min(float(timeout), 300.0))
 
-    target = safe_resolve(filename)
+    target = safe_resolve(filename, for_write=True)  # P1 : refus cible sensible
     target.parent.mkdir(parents=True, exist_ok=True)
 
     response = requests.get(url, stream=True, timeout=timeout)
@@ -182,7 +182,7 @@ def zip_path(src: str, dst: str) -> dict:
       (extraction stable et prévisible par unzip_file).
     """
     source = safe_resolve(src, must_exist=True)
-    destination = safe_resolve(dst)
+    destination = safe_resolve(dst, for_write=True)  # P1 : écriture d'archive
     if destination.exists():
         raise FileExistsError(f"Destination existante : {destination}")
     if destination.suffix.lower() != ".zip":
@@ -218,7 +218,7 @@ def unzip_file(src: str, dst: str) -> dict:
     archive_path = safe_resolve(src, must_exist=True)
     if not zipfile.is_zipfile(archive_path):
         raise ValueError(f"Pas une archive zip valide : {archive_path}")
-    destination = safe_resolve(dst)
+    destination = safe_resolve(dst, for_write=True)  # P1 : extraction = écriture
     destination.mkdir(parents=True, exist_ok=True)
     resolved_destination = destination.resolve()
 

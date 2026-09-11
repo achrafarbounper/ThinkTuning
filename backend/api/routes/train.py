@@ -3,13 +3,14 @@
 import asyncio
 import json
 import os
+import secrets
 import threading
 import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from api.dependencies.auth import _get_api_key, require_api_key
+from api.dependencies.auth import _get_api_key, require_api_key, ws_is_authorized
 from core import scheduler as schedule_manager
 from core.job_store import get_job_store
 from core.models import (
@@ -194,7 +195,16 @@ async def stream_training_metrics(websocket: WebSocket, job_id: str):
       (labeling, loading_model, ...) ne déclenchent pas le stall : elles
       peuvent légitimement durer plus longtemps sans produire d'epoch.
     """
-    if websocket.query_params.get("token") != _get_dashboard_ws_token():
+    # P1 : X-API-Key (header) d'abord — évite le jeton dans les logs d'accès
+    # des clients non navigateur ; ?token= reste le repli du dashboard. Canal
+    # en LECTURE : la clé dédiée API_KEY_READ suffit. Le jeton DÉDIÉ
+    # DASHBOARD_WS_TOKEN reste accepté (comparaison à temps constant).
+    provided = websocket.query_params.get("token")
+    header_ok = ws_is_authorized(websocket, read_scope=True)
+    dashboard_ok = bool(provided) and secrets.compare_digest(
+        provided, _get_dashboard_ws_token()
+    )
+    if not (header_ok or dashboard_ok):
         await websocket.close(code=1008, reason="Jeton invalide")
         return
     await websocket.accept()

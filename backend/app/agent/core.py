@@ -740,7 +740,13 @@ class AgentCore:
 
     @staticmethod
     def _summarize(value: Any) -> str:
-        """Résumé mono-ligne d'un résultat d'outil (aperçu, contexte plafonné)."""
+        """Résumé mono-ligne d'un résultat d'outil (aperçu, contexte plafonné).
+
+        P1 point 10c : les secrets contenus dans les VALEURS (DSN, Bearer,
+        ``clé=valeur``) sont masqués avant tout usage (traces, SSE, journal).
+        """
+        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+
         import json as _json
 
         if isinstance(value, (dict, list)):
@@ -750,6 +756,7 @@ class AgentCore:
                 text = str(value)
         else:
             text = str(value)
+        text = redact_secrets(text)
         text = " ".join(text.split())
         if len(text) > _RESULT_SUMMARY_CHARS:
             return text[:_RESULT_SUMMARY_CHARS] + "… [tronqué]"

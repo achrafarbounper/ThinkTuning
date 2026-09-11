@@ -53,15 +53,33 @@ const AGENT_DEFAULTS: AgentSettings = {
   flagLlmV2: true,
 };
 
-/** Lecture + validation de la config API stockée (fusion avec les défauts). */
-function readStoredConfig(): ApiConnectionConfig {
+/** Lecture + validation de la config API stockée (fusion avec les défauts).
+ *
+ * P1 SEC (point 10b) : la clé API n'est JAMAIS lue depuis localStorage —
+ * le proxy nginx (compose) injecte X-API-Key côté serveur ; en dev sans
+ * proxy, l'utilisateur peut saisir une clé (mémoire seule, non persistée).
+ * Les clés historiques déjà stockées sont PURGÉES au passage.
+ */
+function readStoredConfig(): { baseUrl: string } {
   try {
     const parsed = JSON.parse(
       window.localStorage.getItem("thinktuning.apiConfig") ?? ""
     ) as Partial<ApiConnectionConfig>;
-    return { baseUrl: parsed.baseUrl || DEFAULT_BASE_URL, apiKey: parsed.apiKey || "" };
+    if (parsed.apiKey) {
+      // Purge défensive : une clé stockée par une version antérieure est
+      // retirée du stockage (aucun secret persistant côté navigateur).
+      try {
+        window.localStorage.setItem(
+          "thinktuning.apiConfig",
+          JSON.stringify({ baseUrl: parsed.baseUrl || DEFAULT_BASE_URL })
+        );
+      } catch {
+        /* stockage indisponible : rien d'autre à faire */
+      }
+    }
+    return { baseUrl: parsed.baseUrl || DEFAULT_BASE_URL };
   } catch {
-    return { baseUrl: DEFAULT_BASE_URL, apiKey: "" };
+    return { baseUrl: DEFAULT_BASE_URL };
   }
 }
 
@@ -93,9 +111,18 @@ function readStoredMaxHistorySize(): number {
 export default function AppProvider({ children }: { children: ReactNode }) {
   // Persistance centralisée via useLocalStorage : un seul chemin de lecture/
   // écriture/erreur (fini les try/catch + useEffect dupliqués par champ).
-  const [config, setConfig] = useLocalStorage<ApiConnectionConfig>(
+  //
+  // P1 SEC (point 10b) : la clé API n'est PLUS persistée — seul baseUrl vit
+  // dans localStorage. La clé (repli dev sans proxy) reste EN MÉMOIRE via un
+  // useState simple : un rafraîchissement de page la vide volontairement.
+  const [configBase, setConfigBase] = useLocalStorage<{ baseUrl: string }>(
     "thinktuning.apiConfig",
     readStoredConfig()
+  );
+  const [configApiKey, setConfigApiKey] = useState("");
+  const config = useMemo<ApiConnectionConfig>(
+    () => ({ baseUrl: configBase.baseUrl, apiKey: configApiKey }),
+    [configBase.baseUrl, configApiKey]
   );
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -119,6 +146,16 @@ export default function AppProvider({ children }: { children: ReactNode }) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const logIdRef = useRef(0);
   const client = useMemo(() => new SentimentApiClient(config), [config]);
+
+  // setConfig exposé tel quel au contexte (SettingsPage) : le baseUrl est
+  // persisté, la clé reste mémoire seule (jamais écrite dans localStorage).
+  const setConfig = useCallback(
+    (next: ApiConnectionConfig) => {
+      setConfigBase({ baseUrl: next.baseUrl || DEFAULT_BASE_URL });
+      setConfigApiKey(next.apiKey || "");
+    },
+    [setConfigBase]
+  );
 
   const pushLog = useCallback((type: ActivityLog["type"], text: string) => {
     logIdRef.current += 1;

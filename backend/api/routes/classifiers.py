@@ -23,7 +23,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, StringConstraints
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key, require_read_api_key
 from core.classifier_monitoring import (
     classifier_snapshot,
     classifier_snapshots,
@@ -104,7 +104,7 @@ def get_classifier(name: str):
 def predict_classifier(
     name: str,
     req: ClassifierPredictRequest,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture
 ):
     """Prédiction d'un classifieur sur une liste de textes (ordre préservé)."""
     classifier = _resolve_classifier(name)

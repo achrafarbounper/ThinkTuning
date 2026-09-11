@@ -116,9 +116,13 @@ def redact(value):
 
     - Les clés nommées comme dans ``SENSITIVE_KEYS`` (insensible à la casse)
       sont remplacées par ``[REDACTED]`` (valeur écrasée) ;
+    - P1 point 10c : les secrets contenus dans les VALEURS (DSN PostgreSQL,
+      ``Bearer …``, ``clé=secret``) sont aussi masqués (``secrets_redact``) ;
     - les chaînes trop longues sont tronquées ;
     - les listes/objets volumineux sont bornés pour garder une trace lisible.
     """
+    from core.secrets_redact import redact_secrets  # import local : anti-cycle
+
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
@@ -132,7 +136,7 @@ def redact(value):
     if value is None:
         return None
     if isinstance(value, str):
-        return _truncate(value)
+        return _truncate(redact_secrets(value))
     # Scalaires typés (int/float/bool) : préserver le type.
     return value
 

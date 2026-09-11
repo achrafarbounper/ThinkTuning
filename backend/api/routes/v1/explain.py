@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_read_api_key
 from api.routes import explain as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/explain", tags=["Explication (v1)"])
 
 @router.post("", response_model=legacy.ExplainResponse)
 def explain(
-    req: legacy.ExplainRequest, _: bool = Depends(require_api_key)
+    req: legacy.ExplainRequest, _: bool = Depends(require_read_api_key)  # P1 : lecture
 ):
     """Explique en langage naturel la prédiction d'un texte (via le LLM)."""
     try:

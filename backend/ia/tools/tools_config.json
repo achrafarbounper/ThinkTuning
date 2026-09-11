@@ -198,7 +198,7 @@
     },
     "docker_exec": {
       "name": "docker_exec",
-      "description": "ExÃ©cute `command` (chaÃ®ne, via `sh -c`) dans le conteneur",
+      "description": "ExÃ©cute `command` dans le conteneur autorisÃ© (liste d'arguments, jamais de shell ; allowlist AGENT_DOCKER_ALLOWED_CONTAINERS)",
       "required_args": [
         "container",
         "command"
@@ -210,7 +210,7 @@
         },
         "command": {
           "required": true,
-          "type": "string"
+          "type": "array"
         },
         "workdir": {
           "required": false,

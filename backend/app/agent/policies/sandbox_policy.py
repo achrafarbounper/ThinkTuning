@@ -27,42 +27,17 @@ from functools import lru_cache
 from urllib.parse import urlparse
 
 from app.domain.entities.plan import Action, ActionCategory, Decision
+from app.domain.security import DENIED_EXTENSIONS, DENIED_PATH_PARTS, classify_path_risk
 
-# Cibles sensibles : tout chemin dont une composante (ou extension) figure
-# ici est considérée critique. Ces noms sont volontairement interdits en
-# écriture/suppression/exécution par l'agent, quel que soit le réglage.
-DENIED_PATH_PARTS = frozenset(
-    {
-        ".git",
-        ".env",
-        "__pycache__",
-        "venv",
-        ".venv",
-        "node_modules",
-        "id_rsa",
-        "id_ed25519",
-    }
-)
-
-DENIED_EXTENSIONS = frozenset({".env", ".pem", ".key", ".p12", ".pfx"})
+# ---------------------------------------------------------------------------
+# Cibles sensibles : source unique dans app/domain/security.py (P1 SEC —
+# défense en profondeur : la politique DÉCIDE, la sandbox EXÉCUTE, chaque
+# couche bloque la même cible indépendamment). Ré-importées ici pour préserver
+# l'API publique de ce module (policy_adapter, tests).
+# ---------------------------------------------------------------------------
 
 # Hôtes privés / loopback (anti-SSRF, aligné sur AGENT_BLOCK_PRIVATE_HOSTS).
 _PRIVATE_HOST_PREFIXES = ("10.", "192.168.", "127.", "169.254.")
-
-
-def classify_path_risk(path: str) -> bool:
-    """Vrai si le chemin pointe une cible sensible (partie ou extension)."""
-    import os
-
-    parts = [p.lower() for p in os.path.normpath(str(path)).replace("\\", "/").split("/")]
-    if any(part in DENIED_PATH_PARTS for part in parts):
-        return True
-    # id_rsa / id_ed25519 : préfixes de clés privées (id_rsa.pub reste interdit
-    # en écriture par prudence ; la lecture publique est un faux positif
-    # acceptable pour un backend ML).
-    stem = parts[-1] if parts else ""
-    ext = os.path.splitext(stem)[1]
-    return stem.startswith(("id_rsa", "id_ed25519")) or ext in DENIED_EXTENSIONS
 
 
 def is_private_host(url: str) -> bool:

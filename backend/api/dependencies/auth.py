@@ -5,6 +5,7 @@ from fastapi import Header, HTTPException
 from app.infrastructure.security.api_key import (
     effective_api_key,
     is_valid_api_key,
+    is_valid_read_api_key,
 )
 
 
@@ -38,3 +39,41 @@ def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Ke
     if not is_valid_api_key(x_api_key):
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key header.")
     return True
+
+
+def require_read_api_key(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> bool:
+    """Dépendance LECTURE (least-privilege, P1 point 10a).
+
+    Accepte ``API_KEY_READ`` (clé dédiée monitoring/CI) OU la clé admin
+    (et l'ancienne pendant la rotation). Une clé read ne peut PAS ouvrir
+    les routes admin : ``require_api_key`` ne la reconnaît pas.
+    """
+    if not is_valid_read_api_key(x_api_key):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key header.")
+    return True
+
+
+def ws_is_authorized(websocket, *, read_scope: bool = False) -> bool:
+    """Auth d'un WebSocket (P1 point 10a — header d'abord, query en repli).
+
+    Les navigateurs ne peuvent PAS poser d'en-tête sur un WebSocket natif :
+    l'en-tête ``X-API-Key`` est accepté EN PREMIER (clients non navigateur —
+    évite le jeton dans les logs d'accès), puis le query param ``?token=``
+    (repli dashboard). Vérification déléguée aux mêmes fonctions à temps
+    constant que le REST (rotation API_KEY_OLD incluse).
+
+    ``read_scope=True`` : canal en lecture seule (métriques) — la clé
+    ``API_KEY_READ`` suffit ; les canaux d'action (agent ws) restent admin.
+    """
+    header_key = websocket.headers.get("x-api-key")
+    if header_key:
+        if read_scope and is_valid_read_api_key(header_key):
+            return True
+        if is_valid_api_key(header_key):
+            return True
+    query_key = websocket.query_params.get("token")
+    if read_scope and query_key is not None:
+        return is_valid_read_api_key(query_key)
+    return is_valid_api_key(query_key)

@@ -59,7 +59,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.dependencies.auth import _get_api_key, require_api_key
+from api.dependencies.auth import require_api_key, ws_is_authorized
 
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
@@ -1561,7 +1561,9 @@ async def agent_ws(websocket: WebSocket):
     if not _flag("websocket"):
         await websocket.close(code=1008, reason="Fonction désactivée (AGENT_WEBSOCKET)")
         return
-    if websocket.query_params.get("token") != _get_api_key():
+    # P1 : X-API-Key (header) d'abord, ?token= en repli navigateur — canal
+    # d'ACTION : scope admin uniquement (pas de clé read).
+    if not ws_is_authorized(websocket, read_scope=False):
         await websocket.close(code=1008, reason="Jeton invalide")
         return
     await websocket.accept()

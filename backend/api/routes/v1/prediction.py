@@ -25,7 +25,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key, require_read_api_key
 from api.dependencies.composition import get_prediction_port
 from api.routes import predict as legacy_predict
 from api.schemas.health import ReloadResponse
@@ -40,7 +40,7 @@ router = APIRouter(tags=["Prediction v1"])
 @router.post("/predict", response_model=PredictResponse)
 def predict(
     payload: PredictRequest,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture (infra hexagonale)
     predictor: PredictionPort = Depends(get_prediction_port),
 ) -> PredictResponse:
     """Prédit le sentiment des phrases fournies (ordre préservé)."""
@@ -58,7 +58,7 @@ async def predict_batch(
     text_column: str = Form("text"),
     response_format: str = Form("json"),
     model: str | None = None,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key),  # P1 : lecture
 ):
     """Prédit un CSV uploadé et renvoie JSON, CSV ou parquet (délégation legacy)."""
     try:
