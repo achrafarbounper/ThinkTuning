@@ -1,6 +1,10 @@
 # project/app/domain/ports/__init__.py
 """Ports du domaine (imports publics)."""
 
+from .authorization_ports import (  # noqa: F401
+    PolicyDecisionPoint,
+    PolicySourcePort,
+)
 from .mcp_ports import (  # noqa: F401
     MCPHostPort,
     MCPHostTool,
@@ -63,6 +67,8 @@ __all__ = [
     "ModelRepositoryPort",
     "ModelVersioningPort",
     "MultiAgentOrchestratorPort",
+    "PolicyDecisionPoint",
+    "PolicySourcePort",
     "PredictionPort",
     "RunStorePort",
     "SamplingPort",

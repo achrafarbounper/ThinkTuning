@@ -67,6 +67,10 @@ class ActionTrace(BaseModel):
     status: str  # done / error / awaiting_approval / rejected
     result_summary: str = ""
     error: str = ""
+    # P2 Lot A : traçabilité de la décision d'autorisation (PDP Casbin).
+    # Zéro par défaut = traces legacy inchangées (compatibilité totale).
+    policy_version: int = 0
+    authz_reason: str = ""
 
     model_config = {"frozen": True}
 
@@ -391,6 +395,7 @@ class AgentCore:
         on_thinking: Callable[[str], None] | None = None,
         event_bus: EventBusPort | None = None,
         intent_classifier: Any | None = None,
+        authz_enforcer: Any | None = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
@@ -418,12 +423,65 @@ class AgentCore:
         # Le tampon est remis à zéro à chaque run (voir run()).
         self._thinking_parts: list[str] = []
         self._system_prompt = build_system_prompt(registry)
+        # P2 Lot A : enforcer d'autorisation optionnel (PDP Casbin embarquée).
+        # ``None`` = comportement historique strictement préservé (flag off) ;
+        # injecté explicitement, il fait foi (tests, composition root).
+        self._authz_enforcer = authz_enforcer
+        self._authz_gate: Any | None = None
+
+    def _resolve_authz_gate(self) -> Any | None:
+        """Résout le gate PDP du run (None si inactif — flag off, défaut)."""
+        if self._authz_enforcer is None:
+            from core.feature_flags import flag  # import paresseux (anti-cycle)
+
+            if not flag("security_authz_casbin"):
+                return None
+            from app.infrastructure.security.authz import factory  # import paresseux
+
+            try:
+                self._authz_enforcer = factory.get_default_enforcer()
+            except Exception as exc:  # pragma: no cover — PDP non constructible
+                logger.error("PDP indisponible (%s) : gate authz désactivé", exc)
+                return None
+        from app.infrastructure.security.authz import factory  # import paresseux
+
+        return self._authz_enforcer.gate_for_run(
+            subject="agent", tenant=factory.default_tenant(), source="agent"
+        )
+
+    def _authz_deny(self, action: Action) -> Any | None:
+        """Décision PDP contraignante pour l'action, sinon None (shadow/off).
+
+        Fail-closed : une erreur du gate produit un refus explicite (jamais
+        une autorisation implicite) — convention ``PolicyUnavailableError``.
+        """
+        if self._authz_gate is None:
+            return None
+        try:
+            return self._authz_gate.check(action)
+        except Exception as exc:  # noqa: BLE001 — fail-closed volontaire
+            logger.error("Gate PDP en échec (%s) : %s refusé fail-closed", exc, action.tool)
+            from app.domain.authorization import (  # import paresseux (allègement)
+                REASON_PDP_UNAVAILABLE,
+                RULE_PDP_UNAVAILABLE,
+                AuthzDecision,
+            )
+
+            return AuthzDecision.deny(
+                reason=REASON_PDP_UNAVAILABLE,
+                policy_version=0,
+                rule=RULE_PDP_UNAVAILABLE,
+                fail_closed=True,
+            )
 
     def run(self, intent: Intent, history: list[Message] | None = None) -> AgentRunResult:
         """Exécute un run complet. Ne lève JAMAIS : le statut porte l'échec."""
         # Nouveau run (rebouffrage du même AgentCore en tests / atelier) :
         # le tampon de réflexion est propre à chaque exécution.
         self._thinking_parts = []
+        # P2 Lot A : le gate d'autorisation est résolu UNE fois par run
+        # (sujet/tenant fixes) ; flag désactivé -> None, zéro surcoût.
+        self._authz_gate = self._resolve_authz_gate()
         if self._event_bus is not None:
             self._safe_emit("agent.run_start", prompt=intent.prompt)
         # Phase 4 : classification d'intention (chat/action) — observatoire et
@@ -540,6 +598,13 @@ class AgentCore:
                 continue
             decision = decide_action(action)
 
+            # P2 Lot A : la PDP (mode strict) peut refuser une action que la
+            # sandbox aurait approuvée — deny-by-default PRIME sur le verdict
+            # historique (le REJECT branché ci-dessous gère trace + anti-boucle).
+            authz = self._authz_deny(action)
+            if authz is not None:
+                decision = Decision.REJECT
+
             if decision is Decision.REJECT:
                 print_ = action.fingerprint()
                 traces.append(
@@ -548,7 +613,13 @@ class AgentCore:
                         args=action.args,
                         decision=decision.value,
                         status="rejected",
-                        error="cible sensible ou règle dure",
+                        error=(
+                            f"politique d'autorisation : {authz.reason}"
+                            if authz is not None
+                            else "cible sensible ou règle dure"
+                        ),
+                        policy_version=authz.policy_version if authz is not None else 0,
+                        authz_reason=authz.reason if authz is not None else "",
                     )
                 )
                 if print_ in rejected_prints:
@@ -745,9 +816,9 @@ class AgentCore:
         P1 point 10c : les secrets contenus dans les VALEURS (DSN, Bearer,
         ``clé=valeur``) sont masqués avant tout usage (traces, SSE, journal).
         """
-        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
-
         import json as _json
+
+        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
 
         if isinstance(value, (dict, list)):
             try:

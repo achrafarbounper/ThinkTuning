@@ -35,6 +35,11 @@ pyyaml>=6.0
 apscheduler>=3.10.0
 # Configuration centralisée typée (app/config/settings.py, pydantic v2)
 pydantic-settings>=2.0.0
+# P2 Lot A — autorisation agentique : PDP Casbin embarquée (par process, sans
+# service distant). Port domaine : app/domain/ports/authorization_ports.py ;
+# adaptateur : app/infrastructure/security/authz/casbin_pdp.py. Activée par le
+# flag AGENT_SECURITY_AUTHZ_CASBIN (désactivée par défaut, rollback = unset).
+casbin>=1.36.0
 # Export ONNX (Phase 3) : conversion PyTorch -> ONNX + runtime CPU. Le chemin
 # PyTorch reste le défaut ; ONNX est une optimisation additive optionnelle.
 # L'export utilise l'exporter legacy torch.onnx.export(..., dynamo=False) ;
