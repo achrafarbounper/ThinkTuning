@@ -11,14 +11,14 @@ Parité legacy (``api/routes/evaluate.py``) :
       {model, n, labels, matrix, metrics{accuracy, f1_macro,
       per_class_recall}, errors_by_class, mistakes, confusion_pairs}.
 
-Auth : PARITÉ — mêmes ``Depends(require_api_key)`` que le legacy.
+Auth : scope LECTURE — X-API-Key (admin/read) OU Bearer JWT (read/admin).
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_read_api_key_or_jwt
 from api.dependencies.composition import get_evaluation_port
 from app.application.models_usecase import run_confusion_evaluation
 from app.domain.ports.model_versioning_ports import EvaluationPort
@@ -40,7 +40,7 @@ def get_confusion_v1(
         le=500,
         description="Nombre max d'exemples mal classés renvoyés",
     ),
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key_or_jwt),
     evaluation: EvaluationPort = Depends(get_evaluation_port),
 ) -> dict:
     """Matrice de confusion + erreurs par classe sur l'échantillon de référence."""

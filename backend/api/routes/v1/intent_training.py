@@ -17,7 +17,8 @@ Parité legacy (``api/routes/intent_train.py``) :
     - activate NE recharge PAS le classifieur en mémoire : l'IHM chaîne
       POST /classifiers/intent/reload (store et runtime séparés).
 
-Auth : PARITÉ — mêmes ``Depends(require_api_key)`` que le legacy.
+Auth : X-API-Key OU Bearer JWT — GET (status, jobs, versions) en scope
+read, POST (start, cancel, activate) en action admin.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
 from api.dependencies.composition import (
     get_intent_training_runner_port,
     get_intent_versioning_port,
@@ -67,7 +68,7 @@ class IntentActivateRequest(BaseModel):
 @router.post("/train/intent", response_model=TrainJob, status_code=202)
 def start_intent_training(
     req: IntentTrainRequest,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     runner: IntentTrainingRunnerPort = Depends(get_intent_training_runner_port),
 ) -> TrainJob:
     """Lance l'entraînement d'intention (job kind="intent", 202)."""
@@ -77,7 +78,7 @@ def start_intent_training(
 @router.get("/train/intent/status/{job_id}", response_model=TrainJob)
 def get_intent_training_status(
     job_id: str,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key_or_jwt),
     jobs: TrainingJobsPort = Depends(get_training_jobs_port),
 ) -> TrainJob:
     """Statut d'un job d'intention (404 si inconnu — use case partagé)."""
@@ -87,7 +88,7 @@ def get_intent_training_status(
 @router.post("/train/intent/cancel/{job_id}", response_model=TrainJob)
 def cancel_intent_training_endpoint(
     job_id: str,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     runner: IntentTrainingRunnerPort = Depends(get_intent_training_runner_port),
 ) -> TrainJob:
     """Annule un job d'intention (404 si inconnu)."""
@@ -102,7 +103,7 @@ def list_intent_training_jobs_endpoint(
     ),
     limit: int = Query(default=100, ge=1, le=1000, description="Nombre max de résultats"),
     offset: int = Query(default=0, ge=0, description="Nombre de résultats à ignorer"),
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key_or_jwt),
     jobs: TrainingJobsPort = Depends(get_training_jobs_port),
 ) -> JobListResponse:
     """Liste paginée des jobs d'intention UNIQUEMENT (filtre kind="intent")."""
@@ -114,7 +115,7 @@ def list_intent_training_jobs_endpoint(
 
 @router.get("/train/intent/versions")
 def list_intent_versions(
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key_or_jwt),
     versioning: IntentVersioningPort = Depends(get_intent_versioning_port),
 ) -> dict:
     """Versions d'intention valides + pointeur actif : {total, items, active}.
@@ -129,7 +130,7 @@ def list_intent_versions(
 @router.post("/train/intent/activate")
 def activate_intent_version_endpoint(
     req: IntentActivateRequest,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     versioning: IntentVersioningPort = Depends(get_intent_versioning_port),
 ) -> dict:
     """Pointe active.json sur une version existante (422 si inconnue).

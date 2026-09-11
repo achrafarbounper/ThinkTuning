@@ -133,19 +133,45 @@ def _require_api_key_or_jwt(
 ) -> bool:
     """Cœur partagé : X-API-Key (historique) OU Bearer JWT (nouveau).
 
-    - ``read_scope=True`` : clé ``API_KEY_READ`` OU jeton rôle ``read``
-      (least-privilege — le monitoring ne peut pas ouvrir les routes admin) ;
+    - ``read_scope=True`` : clé ``API_KEY_READ`` OU jeton (rôle ``read`` ou
+      ``admin`` — admin surclasse read, cf. ``is_valid_read_api_key``) ;
+    - ``read_scope=False`` : clé admin OU jeton rôle ``admin`` — un jeton
+      ``read`` est REFUSÉ en 403 (least-privilege : pas d'escalade) ;
     - l'identité résolue est posée sur ``request.state.auth_principal``
       (consommée par l'audit / les middlewares) ;
     - ordre de priorité : Bearer JWT d'abord (explicite), puis X-API-Key —
       un header invalide ne fait PAS échouer l'autre voie (défensif).
     """
     if authorization and authorization.startswith("Bearer "):
-        claims = authenticate_bearer_token(authorization)
-        if read_scope and claims.role != "read":
+        try:
+            claims = authenticate_bearer_token(authorization)
+        except HTTPException:
+            # Défensif (contrat ci-dessus) : un Bearer invalide (expiré,
+            # révoqué, mauvais secret) n'exclut PAS la voie clé API — on
+            # retombe dessus si elle est fournie et valide ; sinon l'erreur
+            # JWT (actionnable : expiré / révoqué / signature) est remontée.
+            if read_scope and is_valid_read_api_key(x_api_key):
+                request.state.auth_principal = {
+                    "type": "api_key", "subject": "api-key", "role": "read",
+                }
+                return True
+            if is_valid_api_key(x_api_key):
+                request.state.auth_principal = {
+                    "type": "api_key", "subject": "api-key", "role": "admin",
+                }
+                return True
+            raise
+        # Hiérarchie des rôles = celle des clés API (admin surclasse read,
+        # cf. ``is_valid_read_api_key``) : un jeton admin ouvre aussi les
+        # canaux de lecture ; un jeton read n'ouvre JAMAIS une route
+        # d'action. ``verify_access_token`` garantit role ∈ {read, admin}.
+        if not read_scope and claims.role != "admin":
             raise HTTPException(
                 status_code=403,
-                detail="Jeton sans le rôle lecture (read) requis pour cette route.",
+                detail=(
+                    "Jeton sans le rôle admin requis pour cette route d'action "
+                    f"(rôle reçu : {claims.role!r})."
+                ),
             )
         request.state.auth_principal = {
             "type": "jwt",
@@ -195,7 +221,8 @@ def ws_is_authorized(websocket, *, read_scope: bool = False) -> bool:
     constant que le REST (rotation API_KEY_OLD incluse).
 
     ``read_scope=True`` : canal en lecture seule (métriques) — la clé
-    ``API_KEY_READ`` suffit ; les canaux d'action (agent ws) restent admin.
+    ``API_KEY_READ`` ou un jeton read/admin suffit ; les canaux d'action
+    (agent ws) exigent la clé admin ou un jeton rôle admin.
     """
     header_key = websocket.headers.get("x-api-key")
     if header_key:
@@ -218,7 +245,10 @@ def ws_is_authorized(websocket, *, read_scope: bool = False) -> bool:
 
         if get_service_account_store().is_token_revoked(claims.jti):
             return False
-        if read_scope and claims.role != "read":
+        # Hiérarchie alignée sur le REST (admin surclasse read) : un jeton
+        # read OU admin ouvre un canal de lecture ; un canal d'ACTION exige
+        # le rôle admin (pas d'escalade de privilège).
+        if not read_scope and claims.role != "admin":
             return False
         return True
     return False
