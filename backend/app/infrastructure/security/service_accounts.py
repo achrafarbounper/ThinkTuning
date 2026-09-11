@@ -324,14 +324,21 @@ class ServiceAccountStore:
         ``name`` = email normalisé pour les comptes inscrits via
         ``register_account`` : le dashboard se connecte ainsi avec son adresse
         email, sans dépendre de l'UUID interne.
+
+        ``client_id`` est normalisé (strip + minuscules) pour aligner la
+        connexion sur la normalisation de l'inscription : les emails sont
+        stockés en minuscules, la résolution doit donc matcher quelle que soit
+        la casse saisie (les UUID générés sont déjà en minuscules — sans
+        effet de bord).
         """
+        client_id = str(account_id).strip().lower()
         with self._lock:
             conn = self._connect()
             try:
                 row = conn.execute(
                     "SELECT id, name, role, scopes_json, secret_hash, enabled "
                     "FROM service_accounts WHERE id = ? OR name = ?",
-                    (str(account_id), str(account_id)),
+                    (client_id, client_id),
                 ).fetchone()
             finally:
                 conn.close()
