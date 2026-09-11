@@ -8,7 +8,7 @@
 # temporables /tmp (nginx.main.conf), répertoires inscriptibles chownés au
 # build ; l'entrypoint officiel exécute l'envsubst des templates.
 # ============================================================================
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS build
+FROM node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb AS build
 WORKDIR /app
 
 COPY package*.json ./
@@ -21,7 +21,7 @@ ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
-FROM nginx:1.27-alpine@sha256:536b72538bc421dad99a6a085e7bedf6de6535da4e020f2b30badc6942508276
+FROM nginx:1.27-alpine@sha256:62223d644fa234c3a1cc785ee14242ec47a77364226f1c811d2f669f96dc2ac8
 
 COPY nginx.main.conf /etc/nginx/nginx.conf
 COPY templates/default.conf.template /etc/nginx/templates/default.conf.template
