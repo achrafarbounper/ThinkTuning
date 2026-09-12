@@ -49,7 +49,8 @@ def validate_args(schema: dict[str, Any] | None, args: dict[str, Any]) -> None:
     parameters = schema.get("parameters") or {}
     required = set(schema.get("required_args") or [])
     required.update(
-        name for name, spec in parameters.items()
+        name
+        for name, spec in parameters.items()
         if isinstance(spec, dict) and spec.get("required") is True
     )
     missing = sorted(name for name in required if name not in args)
@@ -66,14 +67,10 @@ def validate_args(schema: dict[str, Any] | None, args: dict[str, Any]) -> None:
             continue
         expected = spec.get("type")
         if isinstance(expected, str) and not _matches_type(value, expected):
-            raise ToolValidationError(
-                f"argument « {name} » doit être de type {expected}"
-            )
+            raise ToolValidationError(f"argument « {name} » doit être de type {expected}")
         enum = spec.get("enum")
         if isinstance(enum, list) and value not in enum:
-            raise ToolValidationError(
-                f"argument « {name} » doit être l'une des valeurs autorisées"
-            )
+            raise ToolValidationError(f"argument « {name} » doit être l'une des valeurs autorisées")
 
 
 class ToolRouter:
