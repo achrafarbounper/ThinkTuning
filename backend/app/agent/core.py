@@ -296,14 +296,43 @@ def _repair_pseudo_json(candidate: str) -> str:
     return repaired
 
 
-def _extract_plan_candidate(candidate: str) -> Plan | None:
-    """Parse UN candidat : JSON strict puis version réparée."""
-    import json
+def _parse_json_lenient(text: str) -> Any | None:
+    """JSON strict, puis préfixe JSON valide suivi d'une queue tolérée.
 
+    Certains petits modèles (ex. openrouter/free) recrachent le plan précédé
+    ou SUIVI d'artefacts : « {"plan": [...]}]} » — la fermeture de l'objet est
+    correcte mais une QUEUE parasite (']}', '}}', ponctuation, prose…) traîne
+    après. ``json.JSONDecoder.raw_decode`` décode le premier objet JSON valide
+    du texte et IGNORE la suite au lieu de rejeter tout le candidat en bloc :
+    un plan exploitable est préservé (régression « coupe du monde 2026 »).
+    """
+    import json as _json
+
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return _json.loads(text)  # chemin strict inchangé (aucune régression)
+    except (ValueError, TypeError):
+        pass
+    try:
+        decoded, _end = _json.JSONDecoder().raw_decode(text)
+    except (ValueError, TypeError):
+        return None
+    return decoded
+
+
+def _extract_plan_candidate(candidate: str) -> Plan | None:
+    """Parse UN candidat : JSON strict puis version réparée.
+
+    Le décodage accepte un préfixe JSON valide suivi d'une queue parasite
+    (ex. « ]} » terminal de certains modèles) : le plan reste exploitable
+    au lieu d'être jeté en bloc (régression « qui a gagné la coupe du monde
+    2026 » — plan à 2 étapes perdu à cause d'un artefact de fermeture).
+    """
     for text in (candidate, _repair_pseudo_json(candidate)):
-        try:
-            parsed = json.loads(text)
-        except (ValueError, TypeError):
+        parsed = _parse_json_lenient(text)
+        if parsed is None:
             continue
         if isinstance(parsed, list):
             return _steps_from(parsed)

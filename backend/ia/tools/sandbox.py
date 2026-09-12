@@ -14,12 +14,18 @@ Configuration (variables d'environnement, relues à chaque appel) :
     AGENT_PRIVATE_HOST_ALLOWLIST  CSV d'hôtes privés exemptés du blocage
                               précédent (ex. une instance SearXNG locale pour
                               web_search : 127.0.0.1,localhost,searxng).
+
+Priorité (SCRUM-139) : page Paramètres du dashboard (ssrf_enabled /
+ssrf_allowlist persistés, poussés en runtime à chaque lecture de la config
+effective) > ces variables d'environnement (relues à chaque appel) >
+défaut fail-closed (protection ACTIVE).
 """
 
 import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 # --- Constantes -----------------------------------------------------------------
@@ -197,12 +203,72 @@ def check_command_allowed(command: list) -> str:
 # « searxng » reste joignable via AGENT_PRIVATE_HOST_ALLOWLIST (défaut :
 # searxng,127.0.0.1,localhost — cf. docker-compose.yml).
 _SSRF_OFF_VALUES = frozenset({"0", "false", "no", "off"})
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 # Borne anti-OOM : aucun corps HTTP téléchargé au-delà (stream + tronqué).
 MAX_DOWNLOAD_BYTES = 2_000_000
 
+# --- Pilotage runtime (page Paramètres du dashboard) ------------------------------------
+# Les réglages persistés côté IHM (``ssrf_enabled`` / ``ssrf_allowlist``, module
+# de configuration ``core/agent_settings``) SURCLASSENT l'environnement :
+# ``None`` signifie « pas d'override → suivre l'env » (comportement historique,
+# env relue à chaque appel). L'override est poussé UNIQUEMENT depuis les valeurs
+# PERSISTÉES (jamais depuis les défauts) par ``get_agent_settings`` (legacy),
+# ``app.agent.settings.get_agent_config`` (noyau v2) et le use case des
+# paramètres (sauvegarde du dashboard) — via ``apply_persisted_network_policy``.
+_RUNTIME_NETWORK_POLICY: dict[str, bool | str | None] = {
+    "ssrf_enabled": None,
+    "ssrf_allowlist": None,
+}
+
+
+def set_runtime_network_policy(
+    ssrf_enabled: bool | None = None, ssrf_allowlist: str | None = None
+) -> None:
+    """Applique l'override runtime de la politique SSRF (page Paramètres).
+
+    ``None`` : la clé correspondante repasse sous le contrôle de
+    l'environnement. Idempotent ; affectations atomiques (GIL) — appelé à
+    chaque lecture de la configuration effective de l'agent.
+    """
+    _RUNTIME_NETWORK_POLICY["ssrf_enabled"] = ssrf_enabled
+    _RUNTIME_NETWORK_POLICY["ssrf_allowlist"] = ssrf_allowlist
+
+
+def reset_runtime_network_policy() -> None:
+    """Efface tout override runtime (outillage de tests uniquement)."""
+    set_runtime_network_policy(None, None)
+
+
+def apply_persisted_network_policy(persisted: dict[str, Any] | None) -> None:
+    """Applique les valeurs PERSISTÉES (page Paramètres) au bac à sable.
+
+    ``persisted`` : paires brutes du store IHM (clés ``SETTING_KEYS``). Une
+    clé ABSENTE de la base repasse sous contrôle env (override ``None``) ;
+    coercition tolérante pour les booléens stockés en chaîne (« true »/« 1 »).
+    """
+    persisted = persisted or {}
+    enabled = persisted.get("ssrf_enabled")
+    if isinstance(enabled, bool):
+        enabled_override: bool | None = enabled
+    elif isinstance(enabled, str) and enabled.strip():
+        enabled_override = enabled.strip().lower() in _TRUE_VALUES
+    else:
+        enabled_override = None
+    allowlist = persisted.get("ssrf_allowlist")
+    allowlist_override = allowlist if isinstance(allowlist, str) else None
+    set_runtime_network_policy(enabled_override, allowlist_override)
+
 
 def ssrf_protection_enabled() -> bool:
-    """True sauf désactivation explicite (fail-closed P0 : défaut ON)."""
+    """True sauf désactivation explicite (fail-closed P0 : défaut ON).
+
+    Priorité : override runtime (page Paramètres du dashboard, ``None`` = pas
+    d'override) > ``AGENT_BLOCK_PRIVATE_HOSTS`` (0/false/no/off = désactivée) >
+    défaut ON.
+    """
+    enabled = _RUNTIME_NETWORK_POLICY["ssrf_enabled"]
+    if enabled is not None:
+        return bool(enabled)
     return os.getenv("AGENT_BLOCK_PRIVATE_HOSTS", "").strip().lower() not in _SSRF_OFF_VALUES
 
 
@@ -261,11 +327,15 @@ def host_is_private(hostname: str) -> bool:
 
 
 def get_private_host_allowlist() -> set[str]:
-    """Hôtes privés explicitement autorisés (AGENT_PRIVATE_HOST_ALLOWLIST, CSV).
+    """Hôtes privés explicitement autorisés (CSV).
 
+    Priorité : override runtime (``ssrf_allowlist`` persisté côté IHM —
+    REMPLACE l'environnement dès la première sauvegarde, même vide) >
+    ``AGENT_PRIVATE_HOST_ALLOWLIST`` > vide.
     Exemple : AGENT_PRIVATE_HOST_ALLOWLIST=127.0.0.1,localhost,searxng
     """
-    raw = os.getenv("AGENT_PRIVATE_HOST_ALLOWLIST", "")
+    runtime = _RUNTIME_NETWORK_POLICY["ssrf_allowlist"]
+    raw = os.getenv("AGENT_PRIVATE_HOST_ALLOWLIST", "") if runtime is None else runtime
     return {entry.strip().lower() for entry in raw.split(",") if entry.strip()}
 
 

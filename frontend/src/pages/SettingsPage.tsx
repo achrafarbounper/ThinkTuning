@@ -33,6 +33,9 @@ interface DraftShape {
   logLevel: string;
   mcpFirst: boolean;
   mcpAuthRequired: boolean;
+  // Sécurité réseau (bac à sable SSRF — module de configuration IHM).
+  ssrfEnabled: boolean;
+  ssrfAllowlist: string;
   flagReliability: boolean;
   flagAudit: boolean;
   flagToolAnalytics: boolean;
@@ -91,6 +94,8 @@ export default function SettingsPage() {
     logLevel: agentSettings?.logLevel ?? "INFO",
     mcpFirst: agentSettings?.mcpFirst ?? false,
     mcpAuthRequired: agentSettings?.mcpAuthRequired ?? true,
+    ssrfEnabled: agentSettings?.ssrfEnabled ?? true,
+    ssrfAllowlist: agentSettings?.ssrfAllowlist ?? "",
     flagReliability: agentSettings?.flagReliability ?? true,
     flagAudit: agentSettings?.flagAudit ?? true,
     flagToolAnalytics: agentSettings?.flagToolAnalytics ?? true,
@@ -448,6 +453,35 @@ export default function SettingsPage() {
               />
               Auth X-API-Key obligatoire sur le transport MCP
             </label>
+          </div>
+
+          {/* Sécurité réseau (bac à sable SSRF) */}
+          <div className="tt-assistant-section">
+            <span className="tt-assistant-label">Sécurité réseau (SSRF)</span>
+            <label className="tt-assistant-checkbox">
+              <input
+                type="checkbox"
+                checked={draft.ssrfEnabled}
+                onChange={(e) => updateDraft("ssrfEnabled", e.target.checked)}
+              />
+              Protection SSRF — interdire les hôtes privés / loopback
+            </label>
+            <label>
+              <span className="tt-assistant-label">Hôtes privés autorisés (CSV)</span>
+              <input
+                type="text"
+                value={draft.ssrfAllowlist}
+                disabled={!draft.ssrfEnabled}
+                onChange={(e) => updateDraft("ssrfAllowlist", e.target.value)}
+                placeholder="127.0.0.1,localhost,searxng"
+                className="tt-input-tt-settings"
+              />
+            </label>
+            <p className="tt-assistant-section-help">
+              Ex. « 127.0.0.1,localhost,searxng » pour joindre une instance SearXNG
+              locale via web_search. Appliqué dès l'enregistrement, sans
+              redémarrage (surclasse les variables d'environnement).
+            </p>
           </div>
 
           {/* Feature flags (AGENT_<NOM> historique) */}
