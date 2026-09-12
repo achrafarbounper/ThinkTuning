@@ -26,6 +26,18 @@ interface DraftShape {
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
+  trainMaxPerLang: number | string;
+  trainAugmentFraction: number | string;
+  trainVariantsPerExample: number | string;
+  trainUseBackTranslation: boolean;
+  trainEpochs: number | string;
+  trainBatchSize: number | string;
+  trainNumWorkers: number | string;
+  trainMaxLength: number | string;
+  trainLearningRate: number | string;
+  trainWeightDecay: number | string;
+  trainWarmupRatio: number | string;
+  trainDevice: string;
   // SCRUM-138 : budgets, log, MCP et flags — module de configuration IHM
   // (stockés/chargés depuis la base MongoDB).
   maxLlmRounds: number | string;
@@ -86,6 +98,18 @@ export default function SettingsPage() {
     timeoutSeconds: agentSettings?.timeoutSeconds ?? 60,
     contextLength: agentSettings?.contextLength ?? 512,
     temperature: agentSettings?.temperature ?? 0.2,
+    trainMaxPerLang: agentSettings?.trainMaxPerLang ?? 500,
+    trainAugmentFraction: agentSettings?.trainAugmentFraction ?? 0.4,
+    trainVariantsPerExample: agentSettings?.trainVariantsPerExample ?? 2,
+    trainUseBackTranslation: agentSettings?.trainUseBackTranslation ?? false,
+    trainEpochs: agentSettings?.trainEpochs ?? 4,
+    trainBatchSize: agentSettings?.trainBatchSize ?? 8,
+    trainNumWorkers: agentSettings?.trainNumWorkers ?? 0,
+    trainMaxLength: agentSettings?.trainMaxLength ?? 160,
+    trainLearningRate: agentSettings?.trainLearningRate ?? 3e-5,
+    trainWeightDecay: agentSettings?.trainWeightDecay ?? 0.01,
+    trainWarmupRatio: agentSettings?.trainWarmupRatio ?? 0.1,
+    trainDevice: agentSettings?.trainDevice ?? "auto",
     maxLlmRounds: agentSettings?.maxLlmRounds ?? 6,
     maxToolCalls: agentSettings?.maxToolCalls ?? 20,
     logLevel: agentSettings?.logLevel ?? "INFO",
@@ -270,8 +294,8 @@ export default function SettingsPage() {
               <input
                 type="number"
                 min="10"
-                max="600"
-                value={draft.timeoutSeconds || 60}
+                max="3600"
+                value={draft.timeoutSeconds || 600}
                 onChange={(e) => updateDraft("timeoutSeconds", Number(e.target.value))}
                                 className="tt-input-tt-settings"
               />
@@ -281,9 +305,9 @@ export default function SettingsPage() {
               <span className="tt-assistant-label">Context length (tokens)</span>
               <input
                 type="number"
-                min="128"
-                max="32768"
-                value={draft.contextLength || 512}
+                min="512"
+                max="131072"
+                value={draft.contextLength || 2048}
                 onChange={(e) => updateDraft("contextLength", Number(e.target.value))}
                 className="tt-input-tt-settings"
               />
@@ -381,6 +405,91 @@ export default function SettingsPage() {
               />
             </label>
           )}
+
+          <div className="tt-assistant-section">
+            <span className="tt-assistant-label">Defaults d'entraînement ML</span>
+            <p className="tt-assistant-section-help">
+              Ces valeurs préremplissent les nouveaux jobs. Un override explicite
+              dans la page Entraînement reste prioritaire.
+            </p>
+            <div className="tt-assistant-grid">
+              <label>
+                <span className="tt-assistant-label">Exemples par langue</span>
+                <input type="number" min="1" value={draft.trainMaxPerLang}
+                  onChange={(e) => updateDraft("trainMaxPerLang", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Fraction augmentation</span>
+                <input type="number" min="0" max="1" step="0.05" value={draft.trainAugmentFraction}
+                  onChange={(e) => updateDraft("trainAugmentFraction", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Variantes par exemple</span>
+                <input type="number" min="1" max="100" value={draft.trainVariantsPerExample}
+                  onChange={(e) => updateDraft("trainVariantsPerExample", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Epochs</span>
+                <input type="number" min="1" max="100" value={draft.trainEpochs}
+                  onChange={(e) => updateDraft("trainEpochs", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Batch size</span>
+                <input type="number" min="1" max="1024" value={draft.trainBatchSize}
+                  onChange={(e) => updateDraft("trainBatchSize", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Workers</span>
+                <input type="number" min="0" max="128" value={draft.trainNumWorkers}
+                  onChange={(e) => updateDraft("trainNumWorkers", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Longueur maximale</span>
+                <input type="number" min="8" max="4096" value={draft.trainMaxLength}
+                  onChange={(e) => updateDraft("trainMaxLength", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Learning rate</span>
+                <input type="number" min="0.0000001" max="1" step="0.000001" value={draft.trainLearningRate}
+                  onChange={(e) => updateDraft("trainLearningRate", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Weight decay</span>
+                <input type="number" min="0" max="1" step="0.001" value={draft.trainWeightDecay}
+                  onChange={(e) => updateDraft("trainWeightDecay", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Warmup ratio</span>
+                <input type="number" min="0" max="1" step="0.01" value={draft.trainWarmupRatio}
+                  onChange={(e) => updateDraft("trainWarmupRatio", Number(e.target.value))}
+                  className="tt-input-tt-settings" />
+              </label>
+              <label>
+                <span className="tt-assistant-label">Device</span>
+                <select value={draft.trainDevice}
+                  onChange={(e) => updateDraft("trainDevice", e.target.value)}
+                  className="tt-select-tt-settings">
+                  <option value="auto">Auto</option>
+                  <option value="cpu">CPU</option>
+                  <option value="cuda">CUDA</option>
+                </select>
+              </label>
+              <label className="tt-checkbox-label">
+                <input type="checkbox" checked={draft.trainUseBackTranslation}
+                  onChange={(e) => updateDraft("trainUseBackTranslation", e.target.checked)} />
+                <span>Activer la back-translation</span>
+              </label>
+            </div>
+          </div>
 
           {/* Budgets & garde-fous (module IHM — base MongoDB) */}
           <div className="tt-assistant-section">
@@ -534,5 +643,3 @@ export default function SettingsPage() {
     </>
   );
 }
-
-

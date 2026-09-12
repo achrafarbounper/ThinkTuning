@@ -54,6 +54,7 @@ interface TrainForm {
   max_per_lang: number;
   augment_fraction: number;
   variants_per_example: number;
+  use_back_translation: boolean;
   device: string;
   epochs: string;
   batch_size: string;
@@ -81,24 +82,43 @@ function formatEpoch(seconds: number | null | undefined): string {
 }
 
 export default function TrainingPage() {
-  const { client, refreshModels, pushLog, models, modelsError } = useApp();
+  const { client, refreshModels, pushLog, models, modelsError, agentSettings } = useApp();
 
   const [trainForm, setTrainForm] = useState<TrainForm>({
-    max_per_lang: 500,
-    augment_fraction: 0.4,
-    variants_per_example: 2,
-    device: "auto",
-    epochs: "",
-    batch_size: "",
-    num_workers: "",
-    max_length: "",
-    learning_rate: "",
-    weight_decay: "",
-    warmup_ratio: "",
+    max_per_lang: Number(agentSettings?.trainMaxPerLang ?? 500),
+    augment_fraction: Number(agentSettings?.trainAugmentFraction ?? 0.4),
+    variants_per_example: Number(agentSettings?.trainVariantsPerExample ?? 2),
+    use_back_translation: agentSettings?.trainUseBackTranslation ?? false,
+    device: agentSettings?.trainDevice ?? "auto",
+    epochs: String(agentSettings?.trainEpochs ?? ""),
+    batch_size: String(agentSettings?.trainBatchSize ?? ""),
+    num_workers: String(agentSettings?.trainNumWorkers ?? ""),
+    max_length: String(agentSettings?.trainMaxLength ?? ""),
+    learning_rate: String(agentSettings?.trainLearningRate ?? ""),
+    weight_decay: String(agentSettings?.trainWeightDecay ?? ""),
+    warmup_ratio: String(agentSettings?.trainWarmupRatio ?? ""),
     // Continual training : version source (experiments/models) à partir
     // de laquelle reprendre l'entraînement. "" => modèle de base.
     base_model_version: "",
   });
+  useEffect(() => {
+    if (!agentSettings) return;
+    setTrainForm((current) => ({
+      ...current,
+      max_per_lang: Number(agentSettings.trainMaxPerLang),
+      augment_fraction: Number(agentSettings.trainAugmentFraction),
+      variants_per_example: Number(agentSettings.trainVariantsPerExample),
+      use_back_translation: agentSettings.trainUseBackTranslation,
+      device: agentSettings.trainDevice,
+      epochs: String(agentSettings.trainEpochs),
+      batch_size: String(agentSettings.trainBatchSize),
+      num_workers: String(agentSettings.trainNumWorkers),
+      max_length: String(agentSettings.trainMaxLength),
+      learning_rate: String(agentSettings.trainLearningRate),
+      weight_decay: String(agentSettings.trainWeightDecay),
+      warmup_ratio: String(agentSettings.trainWarmupRatio),
+    }));
+  }, [agentSettings]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [currentJob, setCurrentJob] = useState<string | null>(null);
   const [currentJobData, setCurrentJobData] = useState<TrainJob | null>(null);
@@ -220,6 +240,7 @@ export default function TrainingPage() {
       max_per_lang: numOrUndef(String(trainForm.max_per_lang)) ?? 500,
       augment_fraction: numOrUndef(String(trainForm.augment_fraction)) ?? 0.4,
       variants_per_example: numOrUndef(String(trainForm.variants_per_example)) ?? 2,
+      use_back_translation: trainForm.use_back_translation,
       epochs: numOrUndef(trainForm.epochs),
       batch_size: numOrUndef(trainForm.batch_size),
       num_workers: numOrUndef(trainForm.num_workers),
@@ -329,6 +350,7 @@ export default function TrainingPage() {
       max_per_lang: numOrUndef(String(trainForm.max_per_lang)) ?? 500,
       augment_fraction: numOrUndef(String(trainForm.augment_fraction)) ?? 0.4,
       variants_per_example: numOrUndef(String(trainForm.variants_per_example)) ?? 2,
+      use_back_translation: trainForm.use_back_translation,
       epochs: numOrUndef(trainForm.epochs),
       batch_size: numOrUndef(trainForm.batch_size),
       num_workers: numOrUndef(trainForm.num_workers),
@@ -429,6 +451,16 @@ export default function TrainingPage() {
                   <option value="cpu">cpu</option>
                   <option value="cuda">cuda</option>
                 </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={trainForm.use_back_translation}
+                  onChange={(e) =>
+                    setTrainForm((f) => ({ ...f, use_back_translation: e.target.checked }))
+                  }
+                />
+                use_back_translation
               </label>
               {/* Continual training : reprise depuis une version précédente */}
               <label>

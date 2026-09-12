@@ -5012,6 +5012,159 @@
             ],
             "title": "Temperature"
           },
+          "train_max_per_lang": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Max Per Lang"
+          },
+          "train_augment_fraction": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Augment Fraction"
+          },
+          "train_variants_per_example": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Variants Per Example"
+          },
+          "train_use_back_translation": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Use Back Translation"
+          },
+          "train_epochs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Epochs"
+          },
+          "train_batch_size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1024.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Batch Size"
+          },
+          "train_num_workers": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 128.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Num Workers"
+          },
+          "train_max_length": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4096.0,
+                "minimum": 8.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Max Length"
+          },
+          "train_learning_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Learning Rate"
+          },
+          "train_weight_decay": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Weight Decay"
+          },
+          "train_warmup_ratio": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Warmup Ratio"
+          },
+          "train_device": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(auto|cpu|cuda)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Device"
+          },
           "max_llm_rounds": {
             "anyOf": [
               {
@@ -5405,7 +5558,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -5417,7 +5570,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -5438,7 +5591,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File"
           },
           "text_column": {
@@ -7139,13 +7292,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",

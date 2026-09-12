@@ -19,6 +19,36 @@ import {
 } from "./agentSettings";
 
 describe("agentSettingsPayload (mapping camelCase → snake_case)", () => {
+  it("mappe les defaults d'entraînement ML", () => {
+    const payload = agentSettingsPayload({
+      trainMaxPerLang: 800,
+      trainAugmentFraction: 0.5,
+      trainVariantsPerExample: 3,
+      trainUseBackTranslation: true,
+      trainEpochs: 6,
+      trainBatchSize: 16,
+      trainNumWorkers: 2,
+      trainMaxLength: 256,
+      trainLearningRate: 0.00003,
+      trainWeightDecay: 0.02,
+      trainWarmupRatio: 0.2,
+      trainDevice: "cuda",
+    });
+
+    expect(payload.train_max_per_lang).toBe(800);
+    expect(payload.train_augment_fraction).toBe(0.5);
+    expect(payload.train_variants_per_example).toBe(3);
+    expect(payload.train_use_back_translation).toBe(true);
+    expect(payload.train_epochs).toBe(6);
+    expect(payload.train_batch_size).toBe(16);
+    expect(payload.train_num_workers).toBe(2);
+    expect(payload.train_max_length).toBe(256);
+    expect(payload.train_learning_rate).toBe(0.00003);
+    expect(payload.train_weight_decay).toBe(0.02);
+    expect(payload.train_warmup_ratio).toBe(0.2);
+    expect(payload.train_device).toBe("cuda");
+  });
+
   it("mappe les budgets, le log level, MCP et les flags vers le contrat API", () => {
     const payload = agentSettingsPayload({
       maxLlmRounds: 8,

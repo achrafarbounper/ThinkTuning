@@ -141,14 +141,9 @@ class MongoClientProvider:
                 exc,
                 type(exc).__name__,
             )
-            message = (
-                f"MongoDB Atlas injoignable : {type(exc).__name__}."
-                f" {ATLAS_CONNECTION_HINT}"
-            )
+            message = f"MongoDB Atlas injoignable : {type(exc).__name__}. {ATLAS_CONNECTION_HINT}"
             raise AtlasConnectionError(message) from exc
-        logger.info(
-            "MongoDB Atlas joignable (db=%s, hôte=%s)", cfg.database, _safe_host(cfg.uri)
-        )
+        logger.info("MongoDB Atlas joignable (db=%s, hôte=%s)", cfg.database, _safe_host(cfg.uri))
 
     def _ping(self) -> None:
         """Force une opération réseau : le constructeur ``MongoClient`` est lazy.
