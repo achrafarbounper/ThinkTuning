@@ -224,9 +224,7 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
         if not isinstance(ssrf_allowlist, str):
             errors.append("ssrf_allowlist doit être une chaîne CSV d'hôtes.")
         else:
-            cleaned = ", ".join(
-                part.strip() for part in ssrf_allowlist.split(",") if part.strip()
-            )
+            cleaned = ", ".join(part.strip() for part in ssrf_allowlist.split(",") if part.strip())
             if len(cleaned) > 500:
                 errors.append("ssrf_allowlist ne peut pas dépasser 500 caractères.")
             else:
