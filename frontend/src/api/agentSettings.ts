@@ -43,6 +43,9 @@ export const AGENT_MAX_LLM_ROUNDS_DEFAULT = 6;
 export const AGENT_MAX_TOOL_CALLS_DEFAULT = 20;
 export const AGENT_LOG_LEVEL_DEFAULT = "INFO";
 export const AGENT_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"] as const;
+/** Sécurité réseau (bac à sable SSRF) — protection ACTIVE par défaut (fail-closed). */
+export const AGENT_SSRF_ENABLED_DEFAULT = true;
+export const AGENT_SSRF_ALLOWLIST_DEFAULT = "";
 /** Feature flags (convention ``AGENT_<NOM>`` historique) — persistés en base. */
 export const AGENT_FLAGS = [
   "reliability",
@@ -100,6 +103,10 @@ export interface AgentSettings {
   // --- Surface MCP -----------------------------------------------------------
   mcpFirst: boolean;
   mcpAuthRequired: boolean;
+  // --- Sécurité réseau (bac à sable SSRF) -------------------------------------
+  ssrfEnabled: boolean;
+  /** CSV d'hôtes privés autorisés (ex. « 127.0.0.1,localhost,searxng »). */
+  ssrfAllowlist: string;
   // --- Feature flags (AGENT_<NOM> historique) --------------------------------
   flagReliability: boolean;
   flagAudit: boolean;
@@ -184,6 +191,9 @@ export function agentSettingsPayload(input?: AgentSettingsInput): AgentSettingsP
   if (src.logLevel !== undefined && src.logLevel !== "") out.log_level = src.logLevel;
   if (src.mcpFirst !== undefined) out.mcp_first = src.mcpFirst;
   if (src.mcpAuthRequired !== undefined) out.mcp_auth_required = src.mcpAuthRequired;
+  // Sécurité réseau (bac à sable SSRF).
+  if (src.ssrfEnabled !== undefined) out.ssrf_enabled = src.ssrfEnabled;
+  if (src.ssrfAllowlist !== undefined) out.ssrf_allowlist = src.ssrfAllowlist;
   for (const name of AGENT_FLAGS) {
     const camel = agentFlagCamelCase(name);
     if (src[camel as keyof AgentSettings] !== undefined)
@@ -277,6 +287,10 @@ export function normalizeAgentSettings(input?: Record<string, unknown>): AgentSe
       ((src.logLevel ?? src.log_level) as string | undefined) || AGENT_LOG_LEVEL_DEFAULT,
     mcpFirst: flag("mcpFirst", "mcp_first", false),
     mcpAuthRequired: flag("mcpAuthRequired", "mcp_auth_required", true),
+    ssrfEnabled: flag("ssrfEnabled", "ssrf_enabled", AGENT_SSRF_ENABLED_DEFAULT),
+    ssrfAllowlist:
+      ((src.ssrfAllowlist ?? src.ssrf_allowlist) as string | undefined) ??
+      AGENT_SSRF_ALLOWLIST_DEFAULT,
     flagReliability: flag("flagReliability", "flag_reliability", true),
     flagAudit: flag("flagAudit", "flag_audit", true),
     flagToolAnalytics: flag("flagToolAnalytics", "flag_tool_analytics", true),
@@ -333,6 +347,8 @@ function loadAgentSettingsFromDefaults(): AgentSettings {
     logLevel: url("VITE_AGENT_LOG_LEVEL") || AGENT_LOG_LEVEL_DEFAULT,
     mcpFirst: false,
     mcpAuthRequired: true,
+    ssrfEnabled: AGENT_SSRF_ENABLED_DEFAULT,
+    ssrfAllowlist: url("VITE_AGENT_SSRF_ALLOWLIST") || AGENT_SSRF_ALLOWLIST_DEFAULT,
     flagReliability: true,
     flagAudit: true,
     flagToolAnalytics: true,
@@ -382,6 +398,8 @@ function loadAgentSettingsFromStorage(): AgentSettings {
       logLevel: AGENT_LOG_LEVEL_DEFAULT,
       mcpFirst: false,
       mcpAuthRequired: true,
+      ssrfEnabled: AGENT_SSRF_ENABLED_DEFAULT,
+      ssrfAllowlist: AGENT_SSRF_ALLOWLIST_DEFAULT,
       flagReliability: true,
       flagAudit: true,
       flagToolAnalytics: true,

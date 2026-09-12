@@ -60,6 +60,9 @@ const AGENT_DEFAULTS: AgentSettings = {
   logLevel: "INFO",
   mcpFirst: false,
   mcpAuthRequired: true,
+  // SCRUM-139 : sécurité réseau (bac à sable SSRF) — fail-closed par défaut.
+  ssrfEnabled: true,
+  ssrfAllowlist: "",
   flagReliability: true,
   flagAudit: true,
   flagToolAnalytics: true,

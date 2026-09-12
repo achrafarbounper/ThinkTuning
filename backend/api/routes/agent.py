@@ -477,6 +477,16 @@ class AgentSettingsUpdate(BaseModel):
     mcp_auth_required: bool | None = Field(
         None, description="Auth X-API-Key obligatoire sur POST /mcp/sse."
     )
+    # Sécurité réseau (bac à sable SSRF) — persistés via le module IHM.
+    ssrf_enabled: bool | None = Field(
+        None,
+        description="Blocage des hôtes privés/loopback (anti-SSRF) — actif par défaut.",
+    )
+    ssrf_allowlist: str | None = Field(
+        None,
+        max_length=500,
+        description="CSV d'hôtes privés exemptés (ex. « 127.0.0.1,localhost,searxng »).",
+    )
     # Feature flags (convention AGENT_<NOM> historique, désormais persistés).
     flag_reliability: bool | None = None
     flag_audit: bool | None = None

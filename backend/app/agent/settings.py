@@ -80,6 +80,9 @@ _DEFAULTS: dict[str, Any] = {
     "temperature": None,
     "max_llm_rounds": 6,
     "max_tool_calls": 20,
+    # Sécurité réseau (bac à sable SSRF) — défaut fail-closed aligné sandbox.
+    "ssrf_enabled": True,
+    "ssrf_allowlist": "",
     "log_level": "INFO",
     "mcp_first": False,
     "mcp_auth_required": True,
@@ -122,6 +125,12 @@ class AgentConfig(BaseModel):
     # --- Budgets & garde-fous ------------------------------------------------
     max_llm_rounds: int = Field(default=_DEFAULTS["max_llm_rounds"], ge=1)
     max_tool_calls: int = Field(default=_DEFAULTS["max_tool_calls"], ge=1)
+    # --- Sécurité réseau (bac à sable SSRF) -----------------------------------
+    # Portés par la config typée pour la traçabilité v2 ; l'application au bac
+    # à sable se fait via ``apply_persisted_network_policy`` (page Paramètres >
+    # env, poussé à chaque lecture de la config effective).
+    ssrf_enabled: bool = True
+    ssrf_allowlist: str = ""
     # --- Observabilité -------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = _DEFAULTS["log_level"]
     # --- Surface MCP ----------------------------------------------------------
@@ -251,7 +260,17 @@ def get_agent_config(port: AgentSettingsPort | None = None) -> AgentConfig:
         for key, value in values.items()
         if value is not None and value != ""
     }
-    return AgentConfig(**mapped)
+    config = AgentConfig(**mapped)
+    # Pilotage runtime du bac à sable : seules les valeurs PERSISTÉES (page
+    # Paramètres) surclassent l'env — les clés absentes de la base repassent
+    # sous contrôle env côté ``ia.tools.sandbox`` (env relue à chaque appel).
+    try:
+        from ia.tools.sandbox import apply_persisted_network_policy
+
+        apply_persisted_network_policy(port.get_all())
+    except ImportError:  # pragma: no cover — bac à sable facultatif
+        pass
+    return config
 
 
 def agent_flag(name: str, port: AgentSettingsPort | None = None) -> bool:
