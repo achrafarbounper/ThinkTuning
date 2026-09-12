@@ -9,16 +9,57 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.domain.ports.mcp_ports import MCPSecurityScope
 from core.audit_store import MCP_ACTIONS, redact
 from core.models import TrainJob
+
+logger = logging.getLogger("thinktuning.persistence.mongodb")
+
+# Aide actionnable jointe aux erreurs de connexion Atlas : Render n'expose
+# aucune IP sortante fixe → l'IP Access List d'Atlas doit accepter 0.0.0.0/0,
+# sinon le handshake TLS est coupé (TLSV1_ALERT_INTERNAL_ERROR) avant toute
+# authentification. Voir README → « Déploiement (Render) — MongoDB Atlas ».
+ATLAS_CONNECTION_HINT = (
+    "Causes probables : 1) IP Access List Atlas restrictive — ajouter 0.0.0.0/0 "
+    "(Atlas → Network Access → Add IP Access List Entry), Render n'expose aucune "
+    "IP sortante fixe ; 2) URI invalide — attendue : "
+    "mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/?retryWrites=true&w=majority "
+    "(mot de passe URL-encodé)."
+)
+
+
+class AtlasConnectionError(RuntimeError):
+    """Échec de connexion MongoDB Atlas avec diagnostic actionnable."""
+
+
+def _normalize_atlas_uri(uri: str) -> str:
+    """Force le schéma SRV pour les hôtes Atlas (``*.mongodb.net``).
+
+    ``mongodb://`` (sans ``+srv``) sur un cluster partagé Atlas casse le
+    handshake TLS (SNI requis) ; ``mongodb+srv://`` active TLS + SNI +
+    résolution DNS SRV en une fois. Les URI hors Atlas (localhost, mongomock,
+    base self-managed) sont laissées telles quelles.
+    """
+    srv_prefix = "mongodb+srv://"
+    plain_prefix = "mongodb://"
+    if uri.startswith(plain_prefix) and ".mongodb.net" in uri:
+        return srv_prefix + uri[len(plain_prefix) :]
+    return uri
+
+
+def _safe_host(uri: str) -> str:
+    """Hôte(s) d'une URI sans jamais exposer le userinfo (mot de passe)."""
+    netloc = urlsplit(uri).netloc
+    return netloc.split("@", 1)[1] if "@" in netloc else netloc
 
 
 def _utcnow() -> str:
@@ -60,6 +101,10 @@ class MongoConfig:
         )
         if not self.uri:
             raise ValueError("MONGODB_URI is required for MongoDB persistence")
+        # Toute URI « mongodb://…*.mongodb.net » est réécrite en
+        # « mongodb+srv:// » (TLS + SNI + SRV, cf. _normalize_atlas_uri) : la
+        # forme sans +srv échoue au handshake TLS sur les clusters partagés.
+        self.uri = _normalize_atlas_uri(self.uri)
 
 
 class MongoClientProvider:
@@ -73,17 +118,45 @@ class MongoClientProvider:
             return
         try:
             from pymongo import MongoClient
+            from pymongo.errors import ConfigurationError, ServerSelectionTimeoutError
         except ImportError as exc:  # pragma: no cover - exercised in deployments
             raise RuntimeError("pymongo is required for MongoDB persistence") from exc
         cfg = config or MongoConfig()
-        self.client = MongoClient(
-            cfg.uri,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000,
-            retryWrites=True,
+        try:
+            self.client = MongoClient(
+                cfg.uri,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+                retryWrites=True,
+            )
+            self.db = self.client[cfg.database]
+            # MongoClient est lazy : on force un ping immédiat pour échouer AU
+            # DÉMARRAGE avec un diagnostic actionnable plutôt qu'au premier store
+            # (ServerSelectionTimeout différé et illisible).
+            self._ping()
+            self._ensure_indexes()
+        except (ConfigurationError, ServerSelectionTimeoutError) as exc:
+            logger.error(
+                "Connexion MongoDB Atlas impossible : %s (%s)",
+                exc,
+                type(exc).__name__,
+            )
+            message = (
+                f"MongoDB Atlas injoignable : {type(exc).__name__}."
+                f" {ATLAS_CONNECTION_HINT}"
+            )
+            raise AtlasConnectionError(message) from exc
+        logger.info(
+            "MongoDB Atlas joignable (db=%s, hôte=%s)", cfg.database, _safe_host(cfg.uri)
         )
-        self.db = self.client[cfg.database]
-        self._ensure_indexes()
+
+    def _ping(self) -> None:
+        """Force une opération réseau : le constructeur ``MongoClient`` est lazy.
+
+        Sans ce ping, un hôte injoignable n'échoue qu'à la première opération
+        des stores (erreur ``ServerSelectionTimeoutError`` brute et tardive).
+        """
+        self.client.admin.command("ping")
 
     def _ensure_indexes(self) -> None:
         indexes = {

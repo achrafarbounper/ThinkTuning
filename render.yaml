@@ -39,6 +39,20 @@ services:
       # --- Secrets (à saisir manuellement dans le dashboard) ------------------
       - key: API_KEY
         sync: false
+      # --- Persistance MongoDB Atlas (secrets dashboard) ----------------------
+      # MONGODB_URI      : chaîne « mongodb+srv://… » complète (Atlas → Connect →
+      #                    Drivers → Python, mot de passe URL-encodé). Secret :
+      #                    saisie manuelle dans le dashboard (sync: false), JAMAIS
+      #                    en clair ici. MONGODB_DATABASE : nom de la base
+      #                    (défaut « thinktuning »).
+      # Échec typique au déploiement — « SSL handshake failed … TLSV1_ALERT_
+      # INTERNAL_ERROR » : l'IP Access List d'Atlas rejette l'IP sortante de
+      # Render (non fixe) pendant le handshake TLS, AVANT l'authentification →
+      # Atlas → Network Access → Add IP Access List Entry → 0.0.0.0/0.
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DATABASE
+        value: "thinktuning"
       # --- Dimensionnement plan 512 Mo (chaque worker importe torch) ---------
       - key: GUNICORN_WORKERS
         value: "1" # 2 workers = OOM sur 512 Mo (« No open HTTP ports detected »)
