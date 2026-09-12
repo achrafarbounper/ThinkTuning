@@ -46,6 +46,18 @@ DEFAULTS: dict[str, Any] = {
     "timeout_seconds": 600,
     "context_length": 2048,
     "temperature": None,
+    "train_max_per_lang": 500,
+    "train_augment_fraction": 0.4,
+    "train_variants_per_example": 2,
+    "train_use_back_translation": False,
+    "train_epochs": 4,
+    "train_batch_size": 8,
+    "train_num_workers": 0,
+    "train_max_length": 160,
+    "train_learning_rate": 3e-5,
+    "train_weight_decay": 0.01,
+    "train_warmup_ratio": 0.1,
+    "train_device": "auto",
     # Déplacés de app/config/settings.py (SCRUM-138) :
     "max_llm_rounds": 6,
     "max_tool_calls": 20,
@@ -137,6 +149,48 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
             else:
                 values["temperature"] = temp_f
 
+    for int_key, minimum, maximum in (
+        ("train_max_per_lang", 1, 1000000),
+        ("train_variants_per_example", 1, 100),
+        ("train_epochs", 1, 100),
+        ("train_batch_size", 1, 1024),
+        ("train_num_workers", 0, 128),
+        ("train_max_length", 8, 4096),
+    ):
+        raw = values.get(int_key)
+        if raw is not None and raw != "":
+            try:
+                parsed = int(raw)
+            except (TypeError, ValueError):
+                errors.append(f"{int_key} doit être un entier.")
+            else:
+                if not minimum <= parsed <= maximum:
+                    errors.append(f"{int_key} doit être entre {minimum} et {maximum}.")
+                else:
+                    values[int_key] = parsed
+
+    for float_key, minimum, maximum in (
+        ("train_augment_fraction", 0.0, 1.0),
+        ("train_learning_rate", 0.0000001, 1.0),
+        ("train_weight_decay", 0.0, 1.0),
+        ("train_warmup_ratio", 0.0, 1.0),
+    ):
+        raw = values.get(float_key)
+        if raw is not None and raw != "":
+            try:
+                parsed = float(raw)
+            except (TypeError, ValueError):
+                errors.append(f"{float_key} doit être un nombre.")
+            else:
+                if not minimum <= parsed <= maximum:
+                    errors.append(f"{float_key} doit être entre {minimum} et {maximum}.")
+                else:
+                    values[float_key] = parsed
+
+    train_device = values.get("train_device")
+    if train_device is not None and train_device not in ("auto", "cpu", "cuda"):
+        errors.append("train_device doit valoir 'auto', 'cpu' ou 'cuda'.")
+
     # --- Déplacés de app/config/settings.py (SCRUM-138) : budgets, log,
     # --- surface MCP et feature flags, désormais persistés via l'IHM.
     for int_key, maximum in (
@@ -181,6 +235,7 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
     for bool_key in (
         "mcp_first",
         "mcp_auth_required",
+        "train_use_back_translation",
         "ssrf_enabled",
         *(
             f"flag_{name}"

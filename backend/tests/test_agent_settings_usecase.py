@@ -141,6 +141,32 @@ def test_validate_temperature_out_of_range():
     assert any("temperature" in e for e in errors)
 
 
+def test_validate_training_defaults():
+    values = {
+        "train_max_per_lang": "800",
+        "train_augment_fraction": "0.5",
+        "train_variants_per_example": "3",
+        "train_use_back_translation": "true",
+        "train_epochs": "6",
+        "train_batch_size": "16",
+        "train_num_workers": "2",
+        "train_max_length": "256",
+        "train_learning_rate": "0.00003",
+        "train_weight_decay": "0.02",
+        "train_warmup_ratio": "0.2",
+        "train_device": "cuda",
+    }
+    assert uc.validate_settings(values) == []
+    assert values["train_epochs"] == 6
+    assert values["train_learning_rate"] == 0.00003
+    assert values["train_use_back_translation"] is True
+
+
+def test_validate_training_defaults_rejects_invalid_device():
+    errors = uc.validate_settings({"train_device": "tpu"})
+    assert any("train_device" in error for error in errors)
+
+
 def test_validate_openrouter_empty_key_rejected():
     errors = uc.validate_settings({"provider": "openrouter", "openrouter_api_key": ""})
     assert any("openrouter_api_key" in e for e in errors)

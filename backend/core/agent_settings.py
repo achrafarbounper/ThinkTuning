@@ -59,6 +59,19 @@ SETTING_KEYS = (
     "timeout_seconds",
     "context_length",
     "temperature",
+    # --- Défauts d'entraînement ML -------------------------------------------
+    "train_max_per_lang",
+    "train_augment_fraction",
+    "train_variants_per_example",
+    "train_use_back_translation",
+    "train_epochs",
+    "train_batch_size",
+    "train_num_workers",
+    "train_max_length",
+    "train_learning_rate",
+    "train_weight_decay",
+    "train_warmup_ratio",
+    "train_device",
     # --- Budgets & garde-fous (déplacés de app/config/settings.py) -----------
     "max_llm_rounds",
     "max_tool_calls",
@@ -100,7 +113,7 @@ FLAG_NAMES = (
 # Clés booléennes : la valeur persistée (JSON) et la valeur env sont coercées
 # en bool pour que les consommateurs (payload IHM, AgentConfig) reçoivent un
 # booléen réel — jamais la chaîne "true" issue de l'environnement.
-_BOOL_KEYS = ("mcp_first", "mcp_auth_required", "ssrf_enabled") + tuple(
+_BOOL_KEYS = ("mcp_first", "mcp_auth_required", "ssrf_enabled", "train_use_back_translation") + tuple(
     f"flag_{name}" for name in FLAG_NAMES
 )
 
@@ -120,6 +133,18 @@ VALEURS_PAR_DEFAUT: dict[str, Any] = {
     "timeout_seconds": None,
     "context_length": None,
     "temperature": None,
+    "train_max_per_lang": 500,
+    "train_augment_fraction": 0.4,
+    "train_variants_per_example": 2,
+    "train_use_back_translation": False,
+    "train_epochs": 4,
+    "train_batch_size": 8,
+    "train_num_workers": 0,
+    "train_max_length": 160,
+    "train_learning_rate": 3e-5,
+    "train_weight_decay": 0.01,
+    "train_warmup_ratio": 0.1,
+    "train_device": "auto",
     # Déplacés de app/config/settings.py (défauts historiques identiques) :
     "max_llm_rounds": None,
     "max_tool_calls": None,
@@ -301,6 +326,17 @@ def env_and_defaults() -> dict[str, Any]:
         "max_llm_rounds": "AGENT_MAX_LLM_ROUNDS",
         "max_tool_calls": "AGENT_MAX_TOOL_CALLS",
         "log_level": "AGENT_LOG_LEVEL",
+        "train_max_per_lang": "TRAIN_MAX_PER_LANG",
+        "train_augment_fraction": "TRAIN_AUGMENT_FRACTION",
+        "train_variants_per_example": "TRAIN_VARIANTS_PER_EXAMPLE",
+        "train_epochs": "TRAIN_EPOCHS",
+        "train_batch_size": "TRAIN_BATCH_SIZE",
+        "train_num_workers": "TRAIN_NUM_WORKERS",
+        "train_max_length": "TRAIN_MAX_LENGTH",
+        "train_learning_rate": "TRAIN_LEARNING_RATE",
+        "train_weight_decay": "TRAIN_WEIGHT_DECAY",
+        "train_warmup_ratio": "TRAIN_WARMUP_RATIO",
+        "train_device": "TRAIN_DEVICE",
         # Sécurité réseau (bac à sable SSRF) — page Paramètres > env.
         "ssrf_allowlist": "AGENT_PRIVATE_HOST_ALLOWLIST",
     }
@@ -317,6 +353,15 @@ def env_and_defaults() -> dict[str, Any]:
         ("context_length", int),
         ("max_llm_rounds", int),
         ("max_tool_calls", int),
+        ("train_max_per_lang", int),
+        ("train_variants_per_example", int),
+        ("train_epochs", int),
+        ("train_batch_size", int),
+        ("train_num_workers", int),
+        ("train_max_length", int),
+        ("train_learning_rate", float),
+        ("train_weight_decay", float),
+        ("train_warmup_ratio", float),
     ):
         raw_value = values[key]
         if isinstance(raw_value, str):
@@ -428,6 +473,24 @@ def get_agent_settings() -> dict:
         "timeout_seconds": entry("timeout_seconds", "AGENT_TIMEOUT_SECONDS", None),
         "context_length": entry("context_length", "AGENT_CONTEXT_LENGTH", None),
         "temperature": entry("temperature", None, None),
+        "train_max_per_lang": entry("train_max_per_lang", "TRAIN_MAX_PER_LANG", 500),
+        "train_augment_fraction": entry(
+            "train_augment_fraction", "TRAIN_AUGMENT_FRACTION", 0.4
+        ),
+        "train_variants_per_example": entry(
+            "train_variants_per_example", "TRAIN_VARIANTS_PER_EXAMPLE", 2
+        ),
+        "train_use_back_translation": _bool_entry(
+            "train_use_back_translation", "TRAIN_USE_BACK_TRANSLATION", stored, False
+        ),
+        "train_epochs": entry("train_epochs", "TRAIN_EPOCHS", 4),
+        "train_batch_size": entry("train_batch_size", "TRAIN_BATCH_SIZE", 8),
+        "train_num_workers": entry("train_num_workers", "TRAIN_NUM_WORKERS", 0),
+        "train_max_length": entry("train_max_length", "TRAIN_MAX_LENGTH", 160),
+        "train_learning_rate": entry("train_learning_rate", "TRAIN_LEARNING_RATE", 3e-5),
+        "train_weight_decay": entry("train_weight_decay", "TRAIN_WEIGHT_DECAY", 0.01),
+        "train_warmup_ratio": entry("train_warmup_ratio", "TRAIN_WARMUP_RATIO", 0.1),
+        "train_device": entry("train_device", "TRAIN_DEVICE", "auto"),
         # Déplacés de app/config/settings.py (SCRUM-138) : mêmes clés d'env,
         # la base (MongoDB ou SQLite) reste prioritaire.
         "max_llm_rounds": entry("max_llm_rounds", "AGENT_MAX_LLM_ROUNDS", None),

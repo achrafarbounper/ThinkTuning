@@ -446,6 +446,19 @@ class AgentSettingsUpdate(BaseModel):
     timeout_seconds: float | None = Field(None, ge=10, le=3600)
     context_length: int | None = Field(None, ge=512, le=131072)
     temperature: float | None = Field(None, ge=0, le=2)
+    # Défauts persistés du formulaire d'entraînement ML.
+    train_max_per_lang: int | None = Field(None, ge=1, le=1000000)
+    train_augment_fraction: float | None = Field(None, ge=0, le=1)
+    train_variants_per_example: int | None = Field(None, ge=1, le=100)
+    train_use_back_translation: bool | None = None
+    train_epochs: int | None = Field(None, ge=1, le=100)
+    train_batch_size: int | None = Field(None, ge=1, le=1024)
+    train_num_workers: int | None = Field(None, ge=0, le=128)
+    train_max_length: int | None = Field(None, ge=8, le=4096)
+    train_learning_rate: float | None = Field(None, gt=0, le=1)
+    train_weight_decay: float | None = Field(None, ge=0, le=1)
+    train_warmup_ratio: float | None = Field(None, ge=0, le=1)
+    train_device: str | None = Field(None, pattern="^(auto|cpu|cuda)$")
     # Déplacés de app/config/settings.py (SCRUM-138) : budgets & garde-fous.
     max_llm_rounds: int | None = Field(
         None, ge=1, le=50, description="Rounds LLM max par run."

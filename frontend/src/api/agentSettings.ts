@@ -23,8 +23,20 @@ export const AGENT_HF_URL_DEFAULT = "https://router.huggingface.co/v1";
 export const AGENT_HF_API_KEY_DEFAULT = "";
 export const AGENT_LM_STUDIO_URL_DEFAULT = "http://192.168.1.184:1234/v1";
 export const AGENT_TIMEOUT_SECONDS_DEFAULT = 600;
-export const AGENT_CONTEXT_LENGTH_DEFAULT = 1024;
+export const AGENT_CONTEXT_LENGTH_DEFAULT = 2048;
 export const AGENT_TEMPERATURE_DEFAULT = 0.2;
+export const TRAIN_MAX_PER_LANG_DEFAULT = 500;
+export const TRAIN_AUGMENT_FRACTION_DEFAULT = 0.4;
+export const TRAIN_VARIANTS_PER_EXAMPLE_DEFAULT = 2;
+export const TRAIN_USE_BACK_TRANSLATION_DEFAULT = false;
+export const TRAIN_EPOCHS_DEFAULT = 4;
+export const TRAIN_BATCH_SIZE_DEFAULT = 8;
+export const TRAIN_NUM_WORKERS_DEFAULT = 0;
+export const TRAIN_MAX_LENGTH_DEFAULT = 160;
+export const TRAIN_LEARNING_RATE_DEFAULT = 3e-5;
+export const TRAIN_WEIGHT_DECAY_DEFAULT = 0.01;
+export const TRAIN_WARMUP_RATIO_DEFAULT = 0.1;
+export const TRAIN_DEVICE_DEFAULT = "auto";
 // SCRUM-138 : budgets, log, MCP et flags sont des réglages du module IHM,
 // stockés/chargés depuis MongoDB (déplacés hors de app/config/settings.py).
 export const AGENT_MAX_LLM_ROUNDS_DEFAULT = 6;
@@ -71,6 +83,18 @@ export interface AgentSettings {
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
+  trainMaxPerLang: number | string;
+  trainAugmentFraction: number | string;
+  trainVariantsPerExample: number | string;
+  trainUseBackTranslation: boolean;
+  trainEpochs: number | string;
+  trainBatchSize: number | string;
+  trainNumWorkers: number | string;
+  trainMaxLength: number | string;
+  trainLearningRate: number | string;
+  trainWeightDecay: number | string;
+  trainWarmupRatio: number | string;
+  trainDevice: string;
   // --- Budgets & garde-fous (module IHM / MongoDB) --------------------------
   maxLlmRounds: number | string;
   maxToolCalls: number | string;
@@ -135,6 +159,30 @@ export function agentSettingsPayload(input?: AgentSettingsInput): AgentSettingsP
     out.context_length = src.contextLength;
   if (src.temperature !== undefined && src.temperature !== "")
     out.temperature = src.temperature;
+  if (src.trainMaxPerLang !== undefined && src.trainMaxPerLang !== "")
+    out.train_max_per_lang = src.trainMaxPerLang;
+  if (src.trainAugmentFraction !== undefined && src.trainAugmentFraction !== "")
+    out.train_augment_fraction = src.trainAugmentFraction;
+  if (src.trainVariantsPerExample !== undefined && src.trainVariantsPerExample !== "")
+    out.train_variants_per_example = src.trainVariantsPerExample;
+  if (src.trainUseBackTranslation !== undefined)
+    out.train_use_back_translation = src.trainUseBackTranslation;
+  if (src.trainEpochs !== undefined && src.trainEpochs !== "")
+    out.train_epochs = src.trainEpochs;
+  if (src.trainBatchSize !== undefined && src.trainBatchSize !== "")
+    out.train_batch_size = src.trainBatchSize;
+  if (src.trainNumWorkers !== undefined && src.trainNumWorkers !== "")
+    out.train_num_workers = src.trainNumWorkers;
+  if (src.trainMaxLength !== undefined && src.trainMaxLength !== "")
+    out.train_max_length = src.trainMaxLength;
+  if (src.trainLearningRate !== undefined && src.trainLearningRate !== "")
+    out.train_learning_rate = src.trainLearningRate;
+  if (src.trainWeightDecay !== undefined && src.trainWeightDecay !== "")
+    out.train_weight_decay = src.trainWeightDecay;
+  if (src.trainWarmupRatio !== undefined && src.trainWarmupRatio !== "")
+    out.train_warmup_ratio = src.trainWarmupRatio;
+  if (src.trainDevice !== undefined && src.trainDevice !== "")
+    out.train_device = src.trainDevice;
   // SCRUM-138 : budgets, log, MCP et flags — clés du module IHM (base MongoDB).
   if (src.maxLlmRounds !== undefined && src.maxLlmRounds !== "")
     out.max_llm_rounds = src.maxLlmRounds;
@@ -191,6 +239,43 @@ export function normalizeAgentSettings(input?: Record<string, unknown>): AgentSe
       ((src.contextLength ?? src.context_length) as string | number | undefined) ??
       AGENT_CONTEXT_LENGTH_DEFAULT,
     temperature: (src.temperature as string | number | undefined) ?? AGENT_TEMPERATURE_DEFAULT,
+    trainMaxPerLang:
+      ((src.trainMaxPerLang ?? src.train_max_per_lang) as string | number | undefined) ??
+      TRAIN_MAX_PER_LANG_DEFAULT,
+    trainAugmentFraction:
+      ((src.trainAugmentFraction ?? src.train_augment_fraction) as string | number | undefined) ??
+      TRAIN_AUGMENT_FRACTION_DEFAULT,
+    trainVariantsPerExample:
+      ((src.trainVariantsPerExample ?? src.train_variants_per_example) as string | number | undefined) ??
+      TRAIN_VARIANTS_PER_EXAMPLE_DEFAULT,
+    trainUseBackTranslation: flag(
+      "trainUseBackTranslation",
+      "train_use_back_translation",
+      TRAIN_USE_BACK_TRANSLATION_DEFAULT
+    ),
+    trainEpochs:
+      ((src.trainEpochs ?? src.train_epochs) as string | number | undefined) ??
+      TRAIN_EPOCHS_DEFAULT,
+    trainBatchSize:
+      ((src.trainBatchSize ?? src.train_batch_size) as string | number | undefined) ??
+      TRAIN_BATCH_SIZE_DEFAULT,
+    trainNumWorkers:
+      ((src.trainNumWorkers ?? src.train_num_workers) as string | number | undefined) ??
+      TRAIN_NUM_WORKERS_DEFAULT,
+    trainMaxLength:
+      ((src.trainMaxLength ?? src.train_max_length) as string | number | undefined) ??
+      TRAIN_MAX_LENGTH_DEFAULT,
+    trainLearningRate:
+      ((src.trainLearningRate ?? src.train_learning_rate) as string | number | undefined) ??
+      TRAIN_LEARNING_RATE_DEFAULT,
+    trainWeightDecay:
+      ((src.trainWeightDecay ?? src.train_weight_decay) as string | number | undefined) ??
+      TRAIN_WEIGHT_DECAY_DEFAULT,
+    trainWarmupRatio:
+      ((src.trainWarmupRatio ?? src.train_warmup_ratio) as string | number | undefined) ??
+      TRAIN_WARMUP_RATIO_DEFAULT,
+    trainDevice:
+      ((src.trainDevice ?? src.train_device) as string | undefined) || TRAIN_DEVICE_DEFAULT,
     // SCRUM-138 : budgets, log, MCP et flags du module IHM (base MongoDB).
     maxLlmRounds:
       ((src.maxLlmRounds ?? src.max_llm_rounds) as string | number | undefined) ??
@@ -240,6 +325,23 @@ function loadAgentSettingsFromDefaults(): AgentSettings {
     timeoutSeconds: parseInt(url("VITE_AGENT_TIMEOUT_SECONDS"), 10) || AGENT_TIMEOUT_SECONDS_DEFAULT,
     contextLength: parseInt(url("VITE_AGENT_CONTEXT_LENGTH"), 10) || AGENT_CONTEXT_LENGTH_DEFAULT,
     temperature: parseFloat(url("VITE_AGENT_TEMPERATURE")) || AGENT_TEMPERATURE_DEFAULT,
+    trainMaxPerLang: Number(import.meta.env.VITE_TRAIN_MAX_PER_LANG) || TRAIN_MAX_PER_LANG_DEFAULT,
+    trainAugmentFraction:
+      Number(import.meta.env.VITE_TRAIN_AUGMENT_FRACTION) || TRAIN_AUGMENT_FRACTION_DEFAULT,
+    trainVariantsPerExample:
+      Number(import.meta.env.VITE_TRAIN_VARIANTS_PER_EXAMPLE) || TRAIN_VARIANTS_PER_EXAMPLE_DEFAULT,
+    trainUseBackTranslation: false,
+    trainEpochs: Number(import.meta.env.VITE_TRAIN_EPOCHS) || TRAIN_EPOCHS_DEFAULT,
+    trainBatchSize: Number(import.meta.env.VITE_TRAIN_BATCH_SIZE) || TRAIN_BATCH_SIZE_DEFAULT,
+    trainNumWorkers: Number(import.meta.env.VITE_TRAIN_NUM_WORKERS) || TRAIN_NUM_WORKERS_DEFAULT,
+    trainMaxLength: Number(import.meta.env.VITE_TRAIN_MAX_LENGTH) || TRAIN_MAX_LENGTH_DEFAULT,
+    trainLearningRate:
+      Number(import.meta.env.VITE_TRAIN_LEARNING_RATE) || TRAIN_LEARNING_RATE_DEFAULT,
+    trainWeightDecay:
+      Number(import.meta.env.VITE_TRAIN_WEIGHT_DECAY) || TRAIN_WEIGHT_DECAY_DEFAULT,
+    trainWarmupRatio:
+      Number(import.meta.env.VITE_TRAIN_WARMUP_RATIO) || TRAIN_WARMUP_RATIO_DEFAULT,
+    trainDevice: import.meta.env.VITE_TRAIN_DEVICE || TRAIN_DEVICE_DEFAULT,
     maxLlmRounds: parseInt(url("VITE_AGENT_MAX_LLM_ROUNDS"), 10) || AGENT_MAX_LLM_ROUNDS_DEFAULT,
     maxToolCalls: parseInt(url("VITE_AGENT_MAX_TOOL_CALLS"), 10) || AGENT_MAX_TOOL_CALLS_DEFAULT,
     logLevel: url("VITE_AGENT_LOG_LEVEL") || AGENT_LOG_LEVEL_DEFAULT,
@@ -279,6 +381,18 @@ function loadAgentSettingsFromStorage(): AgentSettings {
       timeoutSeconds: AGENT_TIMEOUT_SECONDS_DEFAULT,
       contextLength: AGENT_CONTEXT_LENGTH_DEFAULT,
       temperature: AGENT_TEMPERATURE_DEFAULT,
+      trainMaxPerLang: TRAIN_MAX_PER_LANG_DEFAULT,
+      trainAugmentFraction: TRAIN_AUGMENT_FRACTION_DEFAULT,
+      trainVariantsPerExample: TRAIN_VARIANTS_PER_EXAMPLE_DEFAULT,
+      trainUseBackTranslation: TRAIN_USE_BACK_TRANSLATION_DEFAULT,
+      trainEpochs: TRAIN_EPOCHS_DEFAULT,
+      trainBatchSize: TRAIN_BATCH_SIZE_DEFAULT,
+      trainNumWorkers: TRAIN_NUM_WORKERS_DEFAULT,
+      trainMaxLength: TRAIN_MAX_LENGTH_DEFAULT,
+      trainLearningRate: TRAIN_LEARNING_RATE_DEFAULT,
+      trainWeightDecay: TRAIN_WEIGHT_DECAY_DEFAULT,
+      trainWarmupRatio: TRAIN_WARMUP_RATIO_DEFAULT,
+      trainDevice: TRAIN_DEVICE_DEFAULT,
       maxLlmRounds: AGENT_MAX_LLM_ROUNDS_DEFAULT,
       maxToolCalls: AGENT_MAX_TOOL_CALLS_DEFAULT,
       logLevel: AGENT_LOG_LEVEL_DEFAULT,

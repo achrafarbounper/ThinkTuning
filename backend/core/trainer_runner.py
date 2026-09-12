@@ -286,6 +286,24 @@ def run_training(job_id: str, req):
             if value is not None:
                 cfg[key] = value
 
+        # Les paramètres persistés dans Settings servent de defaults pour les
+        # clients qui omettent un override explicite dans leur job.
+        from app.application.agent_settings_usecase import get_effective_settings
+        from app.infrastructure.legacy_settings_adapter import build_settings_port
+
+        persisted_training = get_effective_settings(build_settings_port())
+        for request_key, setting_key in (
+            ("epochs", "train_epochs"),
+            ("batch_size", "train_batch_size"),
+            ("num_workers", "train_num_workers"),
+            ("max_length", "train_max_length"),
+            ("learning_rate", "train_learning_rate"),
+            ("weight_decay", "train_weight_decay"),
+            ("warmup_ratio", "train_warmup_ratio"),
+        ):
+            if getattr(req, request_key) is None:
+                cfg[request_key] = persisted_training[setting_key]
+
         # 3) Device logique normale
         if req.device == "auto":
             cfg["device"] = "cuda" if torch.cuda.is_available() else "cpu"
