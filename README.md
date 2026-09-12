@@ -666,6 +666,35 @@ docker compose --profile app up -d
 # API        → http://localhost:8000  (doc interactive : /docs)
 ```
 
+### Déploiement (Render) — persistance MongoDB Atlas
+
+En production, la persistance runtime est **MongoDB Atlas** : variables
+d'environnement `MONGODB_URI` / `MONGODB_DATABASE` (cf. `render.yaml` et
+`backend/app/infrastructure/persistence/mongodb.py`).
+
+Prérequis côté Atlas (une seule fois, ~2 min) :
+
+1. Créer un cluster gratuit (M0/M2) dans [cloud.mongodb.com](https://cloud.mongodb.com).
+2. **Network Access → Add IP Access List Entry → `0.0.0.0/0`** (accès depuis
+   partout). Obligatoire : Render n'expose **aucune** IP sortante fixe. Sans
+   cette entrée, Atlas coupe le handshake TLS pendant le démarrage de `pymongo` :
+   `ServerSelectionTimeoutError: SSL handshake failed … TLSV1_ALERT_INTERNAL_ERROR`
+   (le correctif se fait ici, pas dans le code).
+3. **Database Access** : créer un utilisateur avec privilèges *read/write*.
+4. **Connect → Drivers (Python)** : copier la chaîne **`mongodb+srv://…`**
+   (mot de passe URL-encodé si caractères spéciaux).
+
+Côté Render (dashboard → service → **Environment**), saisir les secrets
+(jamais en clair dans le dépôt — `sync: false` dans `render.yaml`) :
+
+- `MONGODB_URI` : la chaîne `mongodb+srv://…` ci-dessus ;
+- `MONGODB_DATABASE` : `thinktuning` (défaut).
+
+Garde-fous du backend (SCRUM-139) : normalisation automatique en
+`mongodb+srv://` pour tout hôte `*.mongodb.net`, `ping` forcé au démarrage, et
+`AtlasConnectionError` avec un diagnostic actionnable (IP Access List, format
+d'URI) au lieu d'une erreur `pymongo` brute.
+
 ### Scripts npm
 
 | Commande             | Rôle                                  |
