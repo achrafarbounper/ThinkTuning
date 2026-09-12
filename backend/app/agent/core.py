@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.policies.budget import RunBudget
 from app.agent.policies.sandbox_policy import decide_action
+from app.agent.tool_router import ToolRouter
 from app.domain.entities.plan import Action, Decision, Intent, Plan, PlanStep
 from app.domain.entities.run import RunStatus  # noqa: F401  # ré-export domaine
 from app.domain.errors import BudgetExceededError
@@ -528,6 +529,7 @@ class AgentCore:
     ) -> None:
         self._llm = llm
         self._registry = registry
+        self._tool_router = ToolRouter(registry)
         self._approval_gateway = approval_gateway
         self._max_tool_calls = max_tool_calls
         self._on_tool_event = on_tool_event
@@ -848,7 +850,7 @@ class AgentCore:
             self._emit_tool_event({"event": "tool_start", "tool": action.tool, "args": action.args})
             started = time.perf_counter()
             try:
-                value = func(**action.args)
+                value = self._tool_router.execute(action.tool, action.args)
                 duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 # P2 lot 17 : anti-poisoning indirect — la sortie d'outil est
                 # scannée AVANT réinjection au LLM (une sortie suspecte est
