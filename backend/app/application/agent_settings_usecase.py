@@ -46,6 +46,8 @@ DEFAULTS: dict[str, Any] = {
     "timeout_seconds": 600,
     "context_length": 2048,
     "temperature": None,
+    "agent_sse_first_event_timeout": 25,
+    "agent_sse_heartbeat": 10,
     "train_max_per_lang": 500,
     "train_augment_fraction": 0.4,
     "train_variants_per_example": 2,
@@ -190,6 +192,22 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
     train_device = values.get("train_device")
     if train_device is not None and train_device not in ("auto", "cpu", "cuda"):
         errors.append("train_device doit valoir 'auto', 'cpu' ou 'cuda'.")
+
+    for int_key, minimum, maximum in (
+        ("agent_sse_first_event_timeout", 1, 300),
+        ("agent_sse_heartbeat", 1, 120),
+    ):
+        raw = values.get(int_key)
+        if raw is not None and raw != "":
+            try:
+                parsed = int(raw)
+            except (TypeError, ValueError):
+                errors.append(f"{int_key} doit être un entier.")
+            else:
+                if not minimum <= parsed <= maximum:
+                    errors.append(f"{int_key} doit être entre {minimum} et {maximum}.")
+                else:
+                    values[int_key] = parsed
 
     # --- Déplacés de app/config/settings.py (SCRUM-138) : budgets, log,
     # --- surface MCP et feature flags, désormais persistés via l'IHM.

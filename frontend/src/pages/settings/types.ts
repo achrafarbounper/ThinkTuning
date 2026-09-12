@@ -4,10 +4,12 @@ export type DraftShape = {
   baseUrl: string;
   apiKey: string;
   [key: string]: string | number | boolean;
-} & Omit<AgentSettings, "timeoutSeconds" | "contextLength" | "temperature" | "trainMaxPerLang" | "trainAugmentFraction" | "trainVariantsPerExample" | "trainEpochs" | "trainBatchSize" | "trainNumWorkers" | "trainMaxLength" | "trainLearningRate" | "trainWeightDecay" | "trainWarmupRatio" | "maxLlmRounds" | "maxToolCalls"> & {
+} & Omit<AgentSettings, "timeoutSeconds" | "contextLength" | "temperature" | "sseFirstEventTimeout" | "sseHeartbeat" | "trainMaxPerLang" | "trainAugmentFraction" | "trainVariantsPerExample" | "trainEpochs" | "trainBatchSize" | "trainNumWorkers" | "trainMaxLength" | "trainLearningRate" | "trainWeightDecay" | "trainWarmupRatio" | "maxLlmRounds" | "maxToolCalls"> & {
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
+  sseFirstEventTimeout: number | string;
+  sseHeartbeat: number | string;
   trainMaxPerLang: number | string;
   trainAugmentFraction: number | string;
   trainVariantsPerExample: number | string;
@@ -26,6 +28,8 @@ export type NumericDraftKey =
   | "timeoutSeconds"
   | "contextLength"
   | "temperature"
+  | "sseFirstEventTimeout"
+  | "sseHeartbeat"
   | "trainMaxPerLang"
   | "trainAugmentFraction"
   | "trainVariantsPerExample"

@@ -446,6 +446,8 @@ class AgentSettingsUpdate(BaseModel):
     timeout_seconds: float | None = Field(None, ge=10, le=3600)
     context_length: int | None = Field(None, ge=512, le=131072)
     temperature: float | None = Field(None, ge=0, le=2)
+    agent_sse_first_event_timeout: int | None = Field(None, ge=1, le=300)
+    agent_sse_heartbeat: int | None = Field(None, ge=1, le=120)
     # Défauts persistés du formulaire d'entraînement ML.
     train_max_per_lang: int | None = Field(None, ge=1, le=1000000)
     train_augment_fraction: float | None = Field(None, ge=0, le=1)
@@ -1099,8 +1101,9 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     # démarre le flux SSE QUOI QU'IL ARRIVE (prélude immédiat + heartbeats),
     # l'erreur éventuelle voyageant DANS le flux (event error) au lieu d'un
     # 502 tardif qui ne part jamais.
-    FIRST_EVENT_TIMEOUT_S = float(os.getenv("AGENT_SSE_FIRST_EVENT_TIMEOUT", "25"))
-    HEARTBEAT_INTERVAL_S = float(os.getenv("AGENT_SSE_HEARTBEAT", "10"))
+    sse_settings = get_effective_settings(build_settings_port())
+    FIRST_EVENT_TIMEOUT_S = float(sse_settings.get("agent_sse_first_event_timeout", 25))
+    HEARTBEAT_INTERVAL_S = float(sse_settings.get("agent_sse_heartbeat", 10))
     try:
         first_kind, first_payload = events.get(timeout=FIRST_EVENT_TIMEOUT_S)
         first_ready = True
