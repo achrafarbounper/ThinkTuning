@@ -261,10 +261,12 @@ class MongoRunStore:
         self._lock = threading.RLock()
 
     def start_run(self, prompt: str, model: str = "", source: str = "api") -> dict:
+        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+
         d = {
             "_id": uuid.uuid4().hex[:12],
             "id": "",
-            "prompt": prompt or "",
+            "prompt": redact_secrets(prompt or ""),  # P1 : aucun secret en clair
             "model": model or "",
             "source": source,
             "status": "running",
@@ -280,9 +282,13 @@ class MongoRunStore:
         return d
 
     def append_tool_event(self, run_id: str, event: dict[str, Any]) -> None:
+        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+
+        # P1 : les éventuels secrets (args, headers Authorization, …) sont
+        # masqués AVANT persistance — même convention que le store SQLite.
         self.c.update_one(
             {"_id": str(run_id)},
-            {"$push": {"tools": {**event, "at": _utcnow()}}},
+            {"$push": {"tools": {**redact_secrets(event), "at": _utcnow()}}},
         )
 
     def finish_run(
@@ -296,13 +302,15 @@ class MongoRunStore:
 
         if status not in STATUSES:
             raise ValueError(f"Statut de run inconnu : '{status}'")
+        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+
         r = self.c.update_one(
             {"_id": str(run_id)},
             {
                 "$set": {
                     "status": status,
-                    "answer_summary": answer_summary or "",
-                    "error": error,
+                    "answer_summary": redact_secrets(answer_summary or ""),  # P1 : masqué
+                    "error": redact_secrets(error) if error else None,
                     "finished_at": _utcnow(),
                 }
             },
@@ -451,20 +459,20 @@ class MongoApprovalStore:
         d.pop("_id", None)
         return d
 
-    def get(self, rid):
-        return self.c.find_one({"_id": str(rid)}, {"_id": 0})
+    def get(self, request_id):
+        return self.c.find_one({"_id": str(request_id)}, {"_id": 0})
 
     def list(self, status=None):
         q = {"status": status} if status else {}
         return list(self.c.find(q, {"_id": 0}).sort("created_at", -1))
 
-    def _decide(self, rid, status, decided_by):
-        d = self.get(rid)
+    def _decide(self, request_id, status, decided_by):
+        d = self.get(request_id)
         if not d:
             return None
         if d["status"] == "pending":
             self.c.update_one(
-                {"_id": str(rid)},
+                {"_id": str(request_id)},
                 {
                     "$set": {
                         "status": status,
@@ -473,14 +481,13 @@ class MongoApprovalStore:
                     }
                 },
             )
-        return self.get(rid)
+        return self.get(request_id)
 
     def approve(self, request_id, decided_by=None):
-        rid = request_id
-        return self._decide(rid, "approved", decided_by)
+        return self._decide(request_id, "approved", decided_by)
 
-    def reject(self, rid, decided_by=None):
-        return self._decide(rid, "rejected", decided_by)
+    def reject(self, request_id, decided_by=None):
+        return self._decide(request_id, "rejected", decided_by)
 
 
 class MongoAuditStore:
@@ -848,8 +855,16 @@ class MongoToolAuditStore:
     def __init__(self, provider=None):
         self.c = (provider or get_mongo_provider()).collection("tool_audit")
 
-    def log_tool_call(self, tool_name, args, result=None, duration_ms=0.0,
-                      success=True, error_message=None, job_id=None):
+    def log_tool_call(
+        self,
+        tool_name,
+        args,
+        result=None,
+        duration_ms=0.0,
+        success=True,
+        error_message=None,
+        job_id=None,
+    ):
         d = {
             "_id": uuid.uuid4().hex,
             "job_id": job_id,
@@ -916,8 +931,11 @@ class MongoFeedbackStore:
             acc = self.c.count_documents({"tool": tool, "accepted": True})
             rej = self.c.count_documents({"tool": tool, "accepted": False})
             total = acc + rej
-            out[tool] = {"accepts": acc, "rejects": rej,
-                         "accept_rate": round(acc / total, 3) if total else 0.0}
+            out[tool] = {
+                "accepts": acc,
+                "rejects": rej,
+                "accept_rate": round(acc / total, 3) if total else 0.0,
+            }
         return out
 
     def boost(self, tool):
@@ -945,20 +963,36 @@ class MongoServiceAccountStore:
             _audit,
             _hash_secret,
         )
+
         if not name or len(name.strip()) < 3 or role not in ("admin", "read"):
             raise ValueError("nom ou rôle de service account invalide")
         name = name.strip()
         if self.c.find_one({"name": name}):
             raise ValueError(f"nom de service account déjà pris : {name}")
         secret = secrets.token_urlsafe(32)
-        d = {"_id": str(uuid.uuid4()), "name": name, "role": role,
-             "scopes": list(scopes or []), "secret_hash": _hash_secret(secret),
-             "enabled": True, "created_at": _utcnow(), "last_used_at": ""}
+        d = {
+            "_id": str(uuid.uuid4()),
+            "name": name,
+            "role": role,
+            "scopes": list(scopes or []),
+            "secret_hash": _hash_secret(secret),
+            "enabled": True,
+            "created_at": _utcnow(),
+            "last_used_at": "",
+        }
         self.c.insert_one(d)
-        _audit("service_account_created", name, {"account_id": d["_id"], "role": role,
-                                                  "scopes": d["scopes"]})
-        return {"id": d["_id"], "name": name, "role": role, "scopes": d["scopes"],
-                "client_secret": secret}
+        _audit(
+            "service_account_created",
+            name,
+            {"account_id": d["_id"], "role": role, "scopes": d["scopes"]},
+        )
+        return {
+            "id": d["_id"],
+            "name": name,
+            "role": role,
+            "scopes": d["scopes"],
+            "client_secret": secret,
+        }
 
     def register_account(self, *, email, password, role="read", scopes=None):
         from app.infrastructure.security.service_accounts import (
@@ -967,6 +1001,7 @@ class MongoServiceAccountStore:
             EmailAlreadyTakenError,
             RegistrationError,
         )
+
         email = (email or "").strip().lower()
         if "@" not in email:
             raise RegistrationError("adresse email invalide")
@@ -975,9 +1010,17 @@ class MongoServiceAccountStore:
         if self.c.find_one({"name": email}):
             raise EmailAlreadyTakenError(f"un compte existe déjà avec cet email : {email}")
         from app.infrastructure.security.service_accounts import _audit, _hash_secret
-        d = {"_id": str(uuid.uuid4()), "name": email, "role": role,
-             "scopes": list(scopes or []), "secret_hash": _hash_secret(password),
-             "enabled": True, "created_at": _utcnow(), "last_used_at": ""}
+
+        d = {
+            "_id": str(uuid.uuid4()),
+            "name": email,
+            "role": role,
+            "scopes": list(scopes or []),
+            "secret_hash": _hash_secret(password),
+            "enabled": True,
+            "created_at": _utcnow(),
+            "last_used_at": "",
+        }
         self.c.insert_one(d)
         _audit("service_account_registered", email, {"account_id": d["_id"], "role": role})
         return {"id": d["_id"], "email": email, "role": role}
@@ -985,38 +1028,51 @@ class MongoServiceAccountStore:
     def list_accounts(self):
         out = []
         for d in self.c.find({}):
-            out.append({
-                "id": d["_id"],
-                "name": d.get("name", ""),
-                "role": d.get("role", ""),
-                "scopes": d.get("scopes", []),
-                "enabled": bool(d.get("enabled")),
-                "created_at": d.get("created_at", ""),
-                "last_used_at": d.get("last_used_at", ""),
-            })
+            out.append(
+                {
+                    "id": d["_id"],
+                    "name": d.get("name", ""),
+                    "role": d.get("role", ""),
+                    "scopes": d.get("scopes", []),
+                    "enabled": bool(d.get("enabled")),
+                    "created_at": d.get("created_at", ""),
+                    "last_used_at": d.get("last_used_at", ""),
+                }
+            )
         return out
 
     def _get_by_client_id(self, account_id):
-        return self.c.find_one({
-            "$or": [
-                {"_id": str(account_id)},
-                {"name": str(account_id).strip().lower()},
-            ]
-        })
+        return self.c.find_one(
+            {
+                "$or": [
+                    {"_id": str(account_id)},
+                    {"name": str(account_id).strip().lower()},
+                ]
+            }
+        )
 
     def issue_token(self, *, client_id, client_secret, jwt_secret, ttl_seconds=900):
         import secrets
 
         from app.infrastructure.security.service_accounts import _audit, _hash_secret
+
         d = self._get_by_client_id(client_id)
-        if not d or not d.get("enabled") or not secrets.compare_digest(
-            d["secret_hash"], _hash_secret(client_secret)
+        if (
+            not d
+            or not d.get("enabled")
+            or not secrets.compare_digest(d["secret_hash"], _hash_secret(client_secret))
         ):
             _audit("service_account_authenticated", client_id, {"ok": False})
             raise PermissionError("client_id ou secret invalide")
         from app.domain.tokens import create_access_token
-        token = create_access_token(subject=d["name"], secret=jwt_secret, role=d["role"],
-                                    scopes=d.get("scopes", []), ttl_seconds=ttl_seconds)
+
+        token = create_access_token(
+            subject=d["name"],
+            secret=jwt_secret,
+            role=d["role"],
+            scopes=d.get("scopes", []),
+            ttl_seconds=ttl_seconds,
+        )
         self.c.update_one({"_id": d["_id"]}, {"$set": {"last_used_at": _utcnow()}})
         return {"token": token, "role": d["role"]}
 

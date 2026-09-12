@@ -97,7 +97,7 @@ Aucune séparation système/outils observée, pas de validation sortie LLM avant
 
 **F16 — Upload ML [MOYENNE-FAIBLE]** Bornes `PREDICT_*` bonnes (`predict.py:26-30`), chunk 128 anti-OOM, `pyarrow` géré. Reste : CSV `pandas` → formula injection à l'export (`=cmd|...`), modèle `transformers` = désérialisation pickle possible si modèle non fiable. *Correctif :* préfixe `'`, `trust_remote_code=False`, vérif hash modèle.
 
-**F17 — Deps sans scan [MOYENNE]** `transformers==5.15.0` (version future/suspecte à épingler/vérifier), `torch>=2.0`, `starlette==1.0.1`, `onnxruntime`, `psycopg2`, `apscheduler`. Pas de `pip-audit/npm-audit/Dependabot/SBOM`. Dockerfile bon (multi-stage offline, `USER 1000`, `max-requests`) mais base `python:3.13-slim` non pinnée par digest.
+**F17 — Deps sans scan [MOYENNE]** `transformers==5.15.0` (version future/suspecte à épingler/vérifier), `torch>=2.0`, `starlette==1.3.1`, `onnxruntime`, `psycopg2`, `apscheduler`. Pas de `pip-audit/npm-audit/Dependabot/SBOM`. Dockerfile bon (multi-stage offline, `USER 1000`, `max-requests`) mais base `python:3.13-slim` non pinnée par digest.
 *Correctif :* pin + digest, `pip-audit` + `npm audit` en CI, SBOM CycloneDX.
 
 **F18 — Observabilité [FAIBLE]** `metrics.py` log `client_ip+path` en INFO (volume/PII), pas de corrélation `request-id`, audit `agent_audit` existant mais anonymisation à vérifier (RGPD : sessions/messages persistés en SQLite sans TTL/chiffrement).

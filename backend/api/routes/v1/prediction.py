@@ -14,9 +14,8 @@ Différences assumées avec le legacy :
       parse le fichier/les forms, l'appelé fait le reste — parité par
       construction (chunks, ordre des colonnes, formats json/csv/parquet).
 
-Auth : PARITÉ avec le legacy — vérifié dans ``api/routes/predict.py``,
-``/predict``, ``/predict/batch`` et ``/predict/reload`` legacy portent le même
-``Depends(require_api_key)`` (la v1 n'introduit aucune exigence nouvelle).
+Auth : /predict et /predict/batch en scope LECTURE (parité P1) ;
+/predict/reload en action — X-API-Key OU Bearer JWT (variantes ``*_or_jwt``).
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from api.dependencies.auth import require_api_key, require_read_api_key
+from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
 from api.dependencies.composition import get_prediction_port
 from api.routes import predict as legacy_predict
 from api.schemas.health import ReloadResponse
@@ -40,7 +39,7 @@ router = APIRouter(tags=["Prediction v1"])
 @router.post("/predict", response_model=PredictResponse)
 def predict(
     payload: PredictRequest,
-    _: bool = Depends(require_read_api_key),  # P1 : lecture (infra hexagonale)
+    _: bool = Depends(require_read_api_key_or_jwt),  # P1 : lecture (infra hexagonale)
     predictor: PredictionPort = Depends(get_prediction_port),
 ) -> PredictResponse:
     """Prédit le sentiment des phrases fournies (ordre préservé)."""
@@ -58,7 +57,7 @@ async def predict_batch(
     text_column: str = Form("text"),
     response_format: str = Form("json"),
     model: str | None = None,
-    _: bool = Depends(require_read_api_key),  # P1 : lecture
+    _: bool = Depends(require_read_api_key_or_jwt),  # P1 : lecture
 ):
     """Prédit un CSV uploadé et renvoie JSON, CSV ou parquet (délégation legacy)."""
     try:
@@ -71,7 +70,7 @@ async def predict_batch(
 
 @router.post("/predict/reload", response_model=ReloadResponse)
 def reload_model(
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     predictor: PredictionPort = Depends(get_prediction_port),
 ) -> ReloadResponse:
     """Recharge la version active et refuse un modèle non sain (SCRUM-74)."""

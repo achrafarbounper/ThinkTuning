@@ -118,7 +118,10 @@ def test_settings_keep_infrastructure_fields(fresh_settings) -> None:
     from app.config.settings import get_settings
 
     settings = get_settings(env_file=None)
-    assert settings.persistence_backend in ("sqlite", "mongodb")
+    # Persistance : MongoDB est l'unique backend runtime (plus de
+    # PERSISTENCE_BACKEND — les champs porte-manteau sont URI + base).
+    assert settings.mongodb_uri is None or settings.mongodb_uri.startswith("mongodb")
+    assert settings.mongodb_database  # base par défaut ou surchargée par env
     assert settings.effective_ws_token == "secret-key"
     assert settings.train_stream_stall_minutes >= 1
     assert 0.0 <= settings.model_sanity_min_confidence <= 1.0

@@ -167,4 +167,3 @@ class CasbinPDP:
 def build_pdp(policy: PolicyDocument) -> CasbinPDP:
     """Construit une PDP validée (lève si le document est invalide)."""
     return CasbinPDP(policy)
-

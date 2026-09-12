@@ -9,8 +9,8 @@
 | Serveur | `thinktuning-mcp` |
 | Version surface | 2.0.0 |
 | Protocole MCP | 2025-06-18 |
-| Tools | **63** (read-only : **38** · mutation : **25**) |
-| Généré le | 2026-09-09T14:38:26.701Z |
+| Tools | **62** (read-only : **37** · mutation : **25**) |
+| Généré le | 2026-09-11T23:20:45.159Z |
 | Avertissements | 5 |
 
 ## Catalogue
@@ -33,7 +33,7 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `dataset_stats` | read_only | ✅ | — | ✅ | builtin | Profil rapide d'un dataset CSV/TSV/JSONL sous la sandbox : lignes, colonnes, valeurs manquantes, distribution… |
 | `dedupe_lines` | contributor | — | ✅ | — | builtin | Supprime les lignes dupliquÃ©es d'un fichier (dans la sandbox) |
 | `disk_usage` | read_only | ✅ | — | ✅ | builtin | Espace disque libre + taille des enfants directs d'un dossier sandbox (les entraÃ®nements meurent silencieuse… |
-| `docker_exec` | operator | — | ✅ | — | builtin | ExÃ©cute `command` (chaÃ®ne, via `sh -c`) dans le conteneur |
+| `docker_exec` | operator | — | ✅ | — | builtin | ExÃ©cute `command` dans le conteneur autorisÃ© (liste d'arguments, jamais de shell ; allowlist AGENT_DOCKER_A… |
 | `docker_logs` | read_only | ✅ | — | ✅ | builtin | DerniÃ¨res `tail` lignes de logs d'un conteneur (stdout + stderr) |
 | `docker_ps` | read_only | ✅ | — | ✅ | builtin | Liste les conteneurs (un objet JSON par conteneur, format `docker ps`) |
 | `docker_stats` | read_only | ✅ | — | ✅ | builtin | Consommation CPU/RAM par conteneur (`docker stats --no-stream`, un objet JSON par conteneur â€” mÃªme convent… |
@@ -73,7 +73,6 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `run_shell` | admin | — | ✅ | — | builtin | Exécute une commande SÛRE en liste d'arguments (allowlist AGENT_ALLOWED_BINARIES, jamais de shell, timeout pl… |
 | `search_in_files` | read_only | ✅ | — | ✅ | builtin | Cherche `pattern` (regex Python, insensible Ã la casse) dans le contenu des fichiers sous `path` |
 | `split_file` | contributor | — | ✅ | — | builtin | DÃ©coupe un gros fichier en morceaux numÃ©rotÃ©s (max_lines lignes chacun) |
-| `sqlite_query` | read_only | ✅ | — | ✅ | builtin | ExÃ©cute une requÃªte SQL sur une base SQLite situÃ©e dans la sandbox |
 | `start_training` | operator | — | ✅ | — | builtin | Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_… |
 | `stop_training` | operator | — | ✅ | — | builtin | Alias de cancel_training : demande l'arrÃªt propre d'un entraÃ®nement en cours (pending/running) via son job_… |
 | `tail_file` | read_only | ✅ | — | ✅ | builtin | DerniÃ¨res `lines` lignes d'un fichier texte (lecture arriÃ¨re bornÃ©e Ã 256 Ko : adaptÃ© aux logs qui grossi… |
@@ -315,7 +314,7 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
       "description": ""
     },
     "command": {
-      "type": "string",
+      "type": "array",
       "description": ""
     },
     "workdir": {
@@ -1156,36 +1155,6 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
   },
   "required": [
     "path"
-  ]
-}
-```
-
-### `sqlite_query`
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "db_path": {
-      "type": "string",
-      "description": ""
-    },
-    "query": {
-      "type": "string",
-      "description": ""
-    },
-    "readonly": {
-      "type": "boolean",
-      "description": ""
-    },
-    "max_rows": {
-      "type": "integer",
-      "description": ""
-    }
-  },
-  "required": [
-    "db_path",
-    "query"
   ]
 }
 ```

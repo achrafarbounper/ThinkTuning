@@ -268,6 +268,18 @@ describe("SentimentApiClient.train (v1)", () => {
     );
   });
 
+  it("donne la priorité au JWT de session pour l'URL WebSocket", () => {
+    const client = new SentimentApiClient({
+      baseUrl: "http://api",
+      apiKey: "k",
+      bearerToken: "jwt.abc",
+    });
+
+    expect(client.getTrainMetricsStreamUrl("job-1")).toBe(
+      "ws://api/api/v1/train/stream/job-1?token=jwt.abc"
+    );
+  });
+
   it("construit l'URL WebSocket sans query si aucune clé API", () => {
     const client = new SentimentApiClient({ baseUrl: "https://api.example.com" });
 

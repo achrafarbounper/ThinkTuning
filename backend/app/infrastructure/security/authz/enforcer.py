@@ -215,4 +215,3 @@ class RunAuthzGate:
         if decision.allowed or not decision.enforced:
             return None  # allow (strict) ou shadow (legacy) : sandbox décide
         return decision
-

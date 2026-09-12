@@ -158,4 +158,3 @@ def load_policy_document(
         return PolicyDocument.model_validate(raw)
     except Exception as exc:  # pydantic ValidationError -> ValueError métier
         raise ValueError(f"document de politique invalide : {exc}") from exc
-

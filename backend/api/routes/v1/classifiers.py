@@ -4,7 +4,7 @@
 
 Posture d'auth DECLINÉE comme le legacy :
   - GET /classifiers et GET /classifiers/{name} : PUBLICS (parité /health) ;
-  - POST .../predict et POST .../reload : X-API-Key requise.
+  - POST .../predict : scope read ; POST .../reload : action (X-API-Key OU JWT).
 Les 404 « classifieur inconnu » legacy sont convertis en enveloppe v1.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies.auth import require_api_key, require_read_api_key
+from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
 from api.routes import classifiers as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 
@@ -52,13 +52,13 @@ def get_classifier(name: str):
 )
 def predict_classifier(
     name: str, req: legacy.ClassifierPredictRequest,
-    _: bool = Depends(require_read_api_key),  # P1 : lecture
+    _: bool = Depends(require_read_api_key_or_jwt),  # P1 : lecture
 ):
     """Prédiction d'un classifieur sur une liste de textes (ordre préservé)."""
     return _call_guarded(legacy.predict_classifier, name, req)
 
 
 @router.post("/{name}/reload")
-def reload_classifier(name: str, _: bool = Depends(require_api_key)):
+def reload_classifier(name: str, _: bool = Depends(require_api_key_or_jwt)):
     """Recharge le modèle actif d'un classifieur depuis le disque."""
     return _call_guarded(legacy.reload_classifier, name)

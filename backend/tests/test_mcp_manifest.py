@@ -338,7 +338,7 @@ def test_build_manifest_warns_on_unclassified_tools() -> None:
     )
 
 
-# --- 5. Contrat du catalogue RÉEL (tools_config.json, 63 tools) ----------------
+# --- 5. Contrat du catalogue RÉEL (tools_config.json, TOOL_META) ----------------
 
 
 @pytest.fixture(scope="module")
@@ -352,7 +352,7 @@ def test_real_manifest_covers_all_declared_tools(real_manifest: dict) -> None:
 
     names = {entry["name"] for entry in real_manifest["tools"]}
     assert names == set(TOOL_META)
-    assert real_manifest["toolCount"] == len(TOOL_META) == 63
+    assert real_manifest["toolCount"] == len(TOOL_META)
 
 
 def test_real_manifest_tool_count_consistent(real_manifest: dict) -> None:
@@ -560,10 +560,12 @@ def test_markdown_escapes_pipes_and_truncates_long_descriptions() -> None:
 
 
 def test_load_default_discovery_reads_legacy_manifest() -> None:
+    from ia.tools.tool_registry import TOOL_META  # source de vérité legacy
+
     tools = load_tools_config()
     assert "read_file" in tools
     assert "web_search" in tools
-    assert len(tools) == 63
+    assert len(tools) == len(TOOL_META)
 
 
 def test_load_explicit_str_path(tmp_path: Path) -> None:

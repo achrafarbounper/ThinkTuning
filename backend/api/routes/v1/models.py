@@ -14,14 +14,15 @@ Parité legacy (``api/routes/models.py``) :
     - NON migrés (non consommés par le dashboard) : GET /models (liste
       simple), GET /models/{name}/report.
 
-Auth : PARITÉ — mêmes ``Depends(require_api_key)`` que le legacy.
+Auth : GET (details, active) en scope read ; activate/delete en action
+— X-API-Key OU Bearer JWT.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from api.dependencies.auth import require_api_key, require_read_api_key
+from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
 from api.dependencies.composition import get_model_versioning_port
 from app.application.models_usecase import (
     activate_model_version,
@@ -37,7 +38,7 @@ router = APIRouter(tags=["Models v1"])
 
 @router.get("/models/details", response_model=list[ModelVersion])
 def list_model_versions_v1(
-    _: bool = Depends(require_read_api_key),  # P1 : lecture
+    _: bool = Depends(require_read_api_key_or_jwt),  # P1 : lecture
     versioning: ModelVersioningPort = Depends(get_model_versioning_port),
 ) -> list[ModelVersion]:
     """Modèles enregistrés, du plus récent au plus ancien ([] si aucun)."""
@@ -46,7 +47,7 @@ def list_model_versions_v1(
 
 @router.get("/models/active")
 def get_active_model_v1(
-    _: bool = Depends(require_read_api_key),  # P1 : lecture
+    _: bool = Depends(require_read_api_key_or_jwt),  # P1 : lecture
     versioning: ModelVersioningPort = Depends(get_model_versioning_port),
 ) -> dict:
     """Pointeur de la version active ({"activated": False} si aucune)."""
@@ -56,7 +57,7 @@ def get_active_model_v1(
 @router.post("/models/{name}/activate")
 def activate_model_v1(
     name: str,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     versioning: ModelVersioningPort = Depends(get_model_versioning_port),
 ) -> dict:
     """Active une version (422 artefacts invalides, 404 inconnue)."""
@@ -66,7 +67,7 @@ def activate_model_v1(
 @router.delete("/models/{name}")
 def delete_model_v1(
     name: str,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     versioning: ModelVersioningPort = Depends(get_model_versioning_port),
 ) -> dict:
     """Supprime une version défaillante (422 saine, 404 inconnue, 409 active)."""

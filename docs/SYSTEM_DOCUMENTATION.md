@@ -137,10 +137,10 @@ Les composants agentiques sont pilotés par des feature flags (`AGENT_RELIABILIT
 
 ### Worker — Données (SQL)
 
-- **Rôle / mission** : interrogation de bases relationnelles (SQLite, PostgreSQL) en lecture sécurisée.
+- **Rôle / mission** : interrogation de bases relationnelles (PostgreSQL) en lecture sécurisée.
 - **Inputs** : sous-tâche + requête SQL.
 - **Outputs** : résultats de requêtes (lignes, JSON) renvoyés au LLM.
-- **APIs / services** : `sqlite_query`, `postgres_query`.
+- **APIs / services** : `postgres_query`.
 - **Logique de décision** : règles dures — SQL mutant (`INSERT/UPDATE/DELETE/DROP`…) en `REJECT` ; seuls `SELECT/WITH/EXPLAIN/PRAGMA` passent.
 - **Cas d'usage typiques** : explorations analytiques, vérifications de données avant/après entraînement, audits.
 - **Limitations** : aucune écriture possible (par conception) ; pas de requêtes longues paginées ; SQL généré par un petit LLM peut échouer (auto-correction limitée par le budget).

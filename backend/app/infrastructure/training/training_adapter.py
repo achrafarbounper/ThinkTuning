@@ -76,9 +76,7 @@ class ModuleTrainingRunnerAdapter:
         except TrainingBusyError as err:
             # Capacité atteinte : le job PENDING est soldé en FAILED (jamais
             # de zombie) avant la levée — la route legacy/API l'expose en 429.
-            job = TrainJob(
-                job_id=job_id, status=JobStatus.FAILED, error=str(err)
-            )
+            job = TrainJob(job_id=job_id, status=JobStatus.FAILED, error=str(err))
             with _jobs_lock:
                 get_job_store()[job_id] = job
             raise

@@ -26,15 +26,18 @@ Choix assumés (pragmatisme strangler) :
       comme au legacy ; le rate-limit ne scope que /predict* (rien à
       répliquer ici).
 
-Auth : PARITÉ — mêmes ``Depends(require_api_key)`` que le legacy ; le
-WebSocket conserve l'auth par query ``?token=`` du handler partagé.
+Auth : X-API-Key OU Bearer JWT (``require_api_key_or_jwt``) — les GET
+de consultation (status, history, jobs, schedules) en scope read (un
+compte enregistré suit ses entraînements sans lancer d'action), les
+POST/DELETE en action admin. Le WebSocket conserve l'auth par query
+``?token=`` du handler partagé (JWT accepté, cf. ``ws_is_authorized``).
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, WebSocket
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
 from api.dependencies.composition import (
     get_training_jobs_port,
     get_training_runner_port,
@@ -73,7 +76,7 @@ router = APIRouter(tags=["Training v1"])
 @router.post("/train", response_model=TrainJob, status_code=202)
 def start_training(
     req: TrainRequest,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     runner: TrainingRunnerPort = Depends(get_training_runner_port),
 ) -> TrainJob:
     """Démarre un entraînement : job PENDING immédiatement retourné."""
@@ -83,7 +86,7 @@ def start_training(
 @router.get("/train/status/{job_id}", response_model=TrainJob)
 def get_training_status(
     job_id: str,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key_or_jwt),
     jobs: TrainingJobsPort = Depends(get_training_jobs_port),
 ) -> TrainJob:
     """Statut courant d'un job d'entraînement."""
@@ -93,7 +96,7 @@ def get_training_status(
 @router.get("/train/history/{job_id}", response_model=TrainHistoryResponse)
 def get_training_history(
     job_id: str,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key_or_jwt),
     jobs: TrainingJobsPort = Depends(get_training_jobs_port),
 ) -> TrainHistoryResponse:
     """Historique des métriques (loss / F1 / accuracy) par epoch."""
@@ -103,7 +106,7 @@ def get_training_history(
 @router.post("/train/cancel/{job_id}", response_model=TrainJob)
 def cancel_training_endpoint(
     job_id: str,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     runner: TrainingRunnerPort = Depends(get_training_runner_port),
 ) -> TrainJob:
     """Annule un entraînement actif (événement d'annulation + statut)."""
@@ -118,7 +121,7 @@ def list_training_jobs_endpoint(
     ),
     limit: int = Query(default=100, ge=1, le=1000, description="Nombre max de résultats"),
     offset: int = Query(default=0, ge=0, description="Nombre de résultats à ignorer"),
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key_or_jwt),
     jobs: TrainingJobsPort = Depends(get_training_jobs_port),
 ) -> JobListResponse:
     """Liste paginée et filtrée des jobs (tri ``started_at DESC``)."""
@@ -131,7 +134,7 @@ def list_training_jobs_endpoint(
 @router.post("/train/schedule", response_model=ScheduledJob, status_code=202)
 def schedule_training_endpoint(
     req: ScheduleRequest,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     schedules: TrainingSchedulesPort = Depends(get_training_schedules_port),
 ) -> ScheduledJob:
     """Programme un entraînement récurrent (cron 5 champs OU interval_minutes)."""
@@ -140,7 +143,7 @@ def schedule_training_endpoint(
 
 @router.get("/train/schedules", response_model=ScheduleListResponse)
 def list_training_schedules_endpoint(
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_read_api_key_or_jwt),
     schedules: TrainingSchedulesPort = Depends(get_training_schedules_port),
 ) -> ScheduleListResponse:
     """Liste les planifications actives avec leur prochaine exécution."""
@@ -150,7 +153,7 @@ def list_training_schedules_endpoint(
 @router.delete("/train/schedules/{schedule_id}", status_code=204, response_model=None)
 def delete_training_schedule_endpoint(
     schedule_id: str,
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
     schedules: TrainingSchedulesPort = Depends(get_training_schedules_port),
 ) -> None:
     """Supprime une planification récurrente (404 si inconnue)."""

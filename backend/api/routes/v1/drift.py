@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
-from api.dependencies.auth import require_api_key
+from api.dependencies.auth import require_api_key_or_jwt
 from api.routes import drift as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 
@@ -29,7 +29,7 @@ async def drift(
     file_a: UploadFile | None = File(default=None),
     file_b: UploadFile | None = File(default=None),
     text_column: str = Form(default="text"),
-    _: bool = Depends(require_api_key),
+    _: bool = Depends(require_api_key_or_jwt),
 ):
     """Détecte une dérive de distribution entre deux batches (CSV ou JSON)."""
     try:

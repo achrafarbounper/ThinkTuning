@@ -10,7 +10,8 @@
  *       streamés (core_tool) et carte de validation humaine,
  *     · Multi-agents  : orchestration superviseur / workers via
  *       POST /api/v1/agent/multi/ask/stream (SSE nommé agent.*),
- * - l'authentification via l'en-tête X-API-Key (config dashboard ou VITE_API_KEY),
+ * - l'authentification : session JWT (Authorization: Bearer) prioritaire,
+ *   repli X-API-Key (config dashboard ou VITE_API_KEY),
  * - le chargement (spinner + curseur clignotant),
  * - le défilement automatique vers le bas (avec respect du scroll manuel),
  * - l'interruption de la génération (AbortController),
@@ -42,7 +43,9 @@ import type {
 } from './types';
 import './chat.css';
 import { DEFAULT_BASE_URL } from "../../api/clientCore";
+import { readStoredSession, isSessionValid } from "../../api/authSession";
 import { orchestrateViaMcpStream } from "../../api/mcpClient";
+import { useApp } from "../../context/useApp";
 
 /** Endpoint du backend, préfixé de la base URL configurée (Paramètres / VITE_API_URL). */
 const AI_ENDPOINT = '/api/v1/chat/ai';
@@ -148,6 +151,26 @@ function resolveApiKey(): string {
     /* stockage indisponible ou JSON invalide : on utilise le repli ci-dessous */
   }
   return import.meta.env.VITE_API_KEY ?? '';
+}
+
+/**
+ * Résout les EN-TÊTES d'authentification des appels fetch du chat.
+ *
+ * SESSION JWT EN PRIORITÉ (parité avec clientCore._headers et le backend,
+ * qui valide le Bearer avant la clé) : la session persistée par l'écran de
+ * connexion (thinktuning.authSession — cf. api/authSession.ts) est valide →
+ * Authorization: Bearer <jwt>. Sinon repli historique X-API-Key (config
+ * dashboard en mémoire / VITE_API_KEY). Résolu à CHAQUE envoi : login,
+ * expiration du jeton (TTL 15 min–24 h) ou changement de configuration
+ * s'appliquent sans recharger la page.
+ */
+function resolveAuthHeaders(): Record<string, string> {
+  const session = readStoredSession();
+  if (session && isSessionValid(session)) {
+    return { Authorization: `${session.tokenType || 'Bearer'} ${session.token}` };
+  }
+  const apiKey = resolveApiKey();
+  return apiKey ? { 'X-API-Key': apiKey } : {};
 }
 
 /**
@@ -310,6 +333,9 @@ async function apiErrorMessage(response: Response): Promise<string> {
 }
 
 export function ChatWindow() {
+  // Clé API saisie dans les Settings (mémoire de session — AppProvider) :
+  // prioritaire pour le transport MCP (qui exige X-API-Key, jamais Bearer).
+  const { config } = useApp();
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [stickToBottom, setStickToBottom] = useState(true);
@@ -382,11 +408,9 @@ export function ChatWindow() {
       setModelsLoading(true);
       setModelsError('');
       try {
-        // Route protégée par require_api_key côté backend : même en-tête
-        // que POST /api/ai.
-        const headers: Record<string, string> = {};
-        const apiKey = resolveApiKey();
-        if (apiKey) headers['X-API-Key'] = apiKey;
+        // Route protégée côté backend : session JWT prioritaire, repli
+        // X-API-Key (même contrat que le transport clientCore).
+        const headers: Record<string, string> = resolveAuthHeaders();
 
         const base = resolveBaseUrl();
         const response = await fetch(`${base}${MODELS_ENDPOINT}`, { headers });
@@ -416,9 +440,8 @@ export function ChatWindow() {
   useEffect(() => {
     let cancelled = false;
     const loadSessions = async (): Promise<void> => {
-      const headers: Record<string, string> = {};
-      const apiKey = resolveApiKey();
-      if (apiKey) headers['X-API-Key'] = apiKey;
+      // Session JWT prioritaire, repli X-API-Key (cf. resolveAuthHeaders).
+      const headers: Record<string, string> = resolveAuthHeaders();
       try {
         const base = resolveBaseUrl();
         const response = await fetch(`${base}${SESSIONS_ENDPOINT}`, { headers });
@@ -469,9 +492,8 @@ export function ChatWindow() {
   const selectSession = useCallback(
     async (id: string): Promise<void> => {
       abortRef.current?.abort();
-      const headers: Record<string, string> = {};
-      const apiKey = resolveApiKey();
-      if (apiKey) headers['X-API-Key'] = apiKey;
+      // Session JWT prioritaire, repli X-API-Key (cf. resolveAuthHeaders).
+      const headers: Record<string, string> = resolveAuthHeaders();
       try {
         const base = resolveBaseUrl();
         const response = await fetch(`${base}${SESSIONS_ENDPOINT}/${id}/messages`, { headers });
@@ -513,9 +535,10 @@ export function ChatWindow() {
 
   /** Crée une nouvelle conversation vide et la sélectionne (mode « Nouvelle tâche »). */
   const createSession = useCallback(async (): Promise<void> => {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const apiKey = resolveApiKey();
-    if (apiKey) headers['X-API-Key'] = apiKey;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...resolveAuthHeaders(),
+    };
     try {
       const base = resolveBaseUrl();
       const response = await fetch(`${base}${SESSIONS_ENDPOINT}`, {
@@ -883,9 +906,10 @@ export function ChatWindow() {
       controller: AbortController,
       resumeRequestId?: string,
     ): Promise<void> => {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const apiKey = resolveApiKey();
-      if (apiKey) headers['X-API-Key'] = apiKey;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...resolveAuthHeaders(),
+      };
 
       // Contrat backend (schema MultiAskRequest) : champs snake_case.
       // - parallel: true → les sous-tâches INDÉPENDANTES sont parallélisées ;
@@ -1085,9 +1109,10 @@ export function ChatWindow() {
       controller: AbortController,
       resumeRequestId?: string,
     ): Promise<void> => {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const apiKey = resolveApiKey();
-      if (apiKey) headers['X-API-Key'] = apiKey;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...resolveAuthHeaders(),
+      };
 
 const base = resolveBaseUrl();
       /** Applique le statut final (contrat AskResponse du noyau). */
@@ -1273,7 +1298,12 @@ const base = resolveBaseUrl();
         },
         {
           baseUrl: resolveBaseUrl(),
-          apiKey: resolveApiKey(),
+          // Transport MCP (P5) : X-API-Key EXIGÉE côté backend (fail-closed,
+          // cf. mcp_server_sse.py) — le Bearer JWT n'y est pas accepté.
+          // Source PRIORITAIRE : la clé saisie dans les Settings de la session
+          // (config du contexte, mémoire seule — P1 SEC) ; repli config
+          // persistée (legacy) / VITE_API_KEY.
+          apiKey: config.apiKey || resolveApiKey(),
           signal: controller.signal,
         },
       );
@@ -1304,6 +1334,7 @@ const base = resolveBaseUrl();
       appendThinkingDelta,
       appendToolCall,
       completeToolCall,
+      config.apiKey,
       enableThinking,
       flushStreamBuffer,
       patchMessage,
@@ -1373,11 +1404,12 @@ const base = resolveBaseUrl();
         // Le backend déclare le champ en snake_case (« enable_thinking ») : la
         // forme camelCase serait ignorée par Pydantic et le mode ne s'activerait pas.
         if (enableThinking) body.enable_thinking = true;
-        // POST /api/ai est protégé par require_api_key côté backend : on
-        // transmet la clé via X-API-Key quand elle est disponible.
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        const apiKey = resolveApiKey();
-        if (apiKey) headers['X-API-Key'] = apiKey;
+        // POST /api/v1/chat/ai est une route d'ACTION côté backend : session
+        // JWT prioritaire (rôle admin requis), repli X-API-Key.
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...resolveAuthHeaders(),
+        };
 
         const base = resolveBaseUrl();
         const response = await fetch(`${base}${AI_ENDPOINT}`, {
@@ -1449,9 +1481,8 @@ const base = resolveBaseUrl();
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const headers: Record<string, string> = {};
-      const apiKey = resolveApiKey();
-      if (apiKey) headers['X-API-Key'] = apiKey;
+      // Session JWT prioritaire, repli X-API-Key (cf. resolveAuthHeaders).
+      const headers: Record<string, string> = resolveAuthHeaders();
       const base = resolveBaseUrl();
       const response = await fetch(`${base}${APPROVALS_ENDPOINT}/${requestId}/approve`, {
         method: 'POST',
@@ -1523,9 +1554,8 @@ const base = resolveBaseUrl();
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const headers: Record<string, string> = {};
-      const apiKey = resolveApiKey();
-      if (apiKey) headers['X-API-Key'] = apiKey;
+      // Session JWT prioritaire, repli X-API-Key (cf. resolveAuthHeaders).
+      const headers: Record<string, string> = resolveAuthHeaders();
       const base = resolveBaseUrl();
       const response = await fetch(`${base}${APPROVALS_ENDPOINT}/${requestId}/reject`, {
         method: 'POST',

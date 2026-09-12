@@ -91,7 +91,28 @@ def export_model_to_onnx(
 
 
 def softmax_logits(logits: np.ndarray) -> np.ndarray:
-    """Softmax numérique stable sur le dernier axe (shape conservée)."""
+    """Softmax numérique stable sur le dernier axe (shape conservée).
+
+    Les graphes ONNX exportés via ``torch.onnx.export`` (legacy, dynamo=False)
+    contiennent parfois un flux de contrôle dépendant des données d'attention
+    (masking_utils / sdpa_attention) qui peut produire des logits ``NaN`` /
+    ``Inf`` pour certaines entrées — notamment sous ``transformers>=5.x``.
+    Un ``nan`` propagé rend toute la distribution invalide (ex.
+    ``confidence = nan``), ce qui viole le contrat ``0 <= p <= 1`` de
+    ``ONNXClassificationEngine.predict``.
+
+    On neutralise défensivement avant le softmax :
+    - ``NaN`` → ``0.0`` (log-probabilité invalide = probabilité nulle) ;
+    - ``+Inf`` → ``0.0`` (garde la somme finie) ;
+    - ``-Inf`` → ``-1e9`` (classe rejetée, probabilité ≈ 0).
+
+    Après ce nettoyage, les logits sont finis : ``exp`` > 0 donc la somme est
+    toujours > 0 et le softmax renvoie toujours une distribution valide
+    (somme = 1, aucune entrée NaN/Inf). Si une ligne était entièrement NaN,
+    tous ses logits deviennent 0 → distribution uniforme 1/n_labels.
+    """
+    logits = np.asarray(logits, dtype=np.float64)
+    logits = np.nan_to_num(logits, nan=0.0, posinf=0.0, neginf=-1e9)
     shifted = logits - np.max(logits, axis=-1, keepdims=True)
     exp = np.exp(shifted)
     return exp / exp.sum(axis=-1, keepdims=True)

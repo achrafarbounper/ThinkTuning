@@ -14,21 +14,46 @@ import {
 } from "../components/flowmap/events";
 import type { FlowEvent } from "../components/flowmap/types";
 import { DEFAULT_BASE_URL } from "./clientCore";
+import {
+  isSessionValid,
+  readStoredBaseUrl,
+  readStoredSession,
+} from "./authSession";
 
 const MULTI_ASK_STREAM_ENDPOINT = "/api/v1/agent/multi/ask/stream";
 const CORE_ASK_STREAM_ENDPOINT = "/api/v1/agent/ask/core/stream";
 const API_CONFIG_KEY = "thinktuning.apiConfig";
 
-/** Clé API (X-API-Key) persistée localement, si présente. */
+/** Clé API (X-API-Key) : config persistée (champ « API_KEY côté serveur ») puis VITE_API_KEY. */
 function resolveApiKey(): string {
   try {
     const raw = window.localStorage.getItem(API_CONFIG_KEY);
     if (!raw) return "";
     const parsed = JSON.parse(raw) as { apiKey?: string };
-    return parsed.apiKey || "";
+    if (parsed.apiKey) return parsed.apiKey;
   } catch {
-    return "";
+    /* stockage indisponible ou JSON invalide : repli VITE_API_KEY ci-dessous */
   }
+  return import.meta.env.VITE_API_KEY ?? "";
+}
+
+/**
+ * Résout les EN-TÊTES d'authentification des appels de la page Flow Map.
+ *
+ * Parité avec ChatWindow.resolveAuthHeaders et clientCore._headers (le backend
+ * valide le Bearer avant la clé) : la session JWT du dashboard
+ * (thinktuning.authSession) est PRIORITAIRE — Authorization: Bearer <jwt> —
+ * sinon repli historique X-API-Key. Résolu à CHAQUE appel : un login,
+ * l'expiration du jeton ou un changement de configuration s'appliquent sans
+ * recharger la page.
+ */
+function resolveAuthHeaders(): Record<string, string> {
+  const session = readStoredSession();
+  if (session && isSessionValid(session)) {
+    return { Authorization: `${session.tokenType || "Bearer"} ${session.token}` };
+  }
+  const apiKey = resolveApiKey();
+  return apiKey ? { "X-API-Key": apiKey } : {};
 }
 
 /** Modèle LLM choisi dans le sélecteur du chat (persisté), si présent. */
@@ -55,9 +80,10 @@ export interface FlowStreamOptions {
  * d'événement « agent.error » (traduit en erreur HTTP précoce par l'API).
  */
 export async function streamMultiFlow({ prompt, model, signal, onEvent }: FlowStreamOptions): Promise<void> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const apiKey = resolveApiKey();
-  if (apiKey) headers["X-API-Key"] = apiKey;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...resolveAuthHeaders(),
+  };
 
   const controller = new AbortController();
   if (signal) {
@@ -74,7 +100,7 @@ export async function streamMultiFlow({ prompt, model, signal, onEvent }: FlowSt
   if (chosenModel) body.model = chosenModel;
 
   // Base URL du dashboard (proxy Vite en dev, sinon config persistée).
-  const base = DEFAULT_BASE_URL.replace(/\/+$/, "");
+  const base = readStoredBaseUrl(DEFAULT_BASE_URL).replace(/\/+$/, "");
   const response = await fetch(`${base}${MULTI_ASK_STREAM_ENDPOINT}`, {
     method: "POST",
     headers,
@@ -112,9 +138,10 @@ export async function streamMultiFlow({ prompt, model, signal, onEvent }: FlowSt
  * aucun champ `model` n'est transmis (contrairement au flux multi-agents).
  */
 export async function streamCoreFlow({ prompt, signal, onEvent }: FlowStreamOptions): Promise<void> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const apiKey = resolveApiKey();
-  if (apiKey) headers["X-API-Key"] = apiKey;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...resolveAuthHeaders(),
+  };
 
   const controller = new AbortController();
   if (signal) {
@@ -126,7 +153,7 @@ export async function streamCoreFlow({ prompt, signal, onEvent }: FlowStreamOpti
     prompt: prompt && prompt.trim() ? prompt.trim() : "Analyse ce sujet et produis une synthèse structurée.",
   };
 
-  const base = DEFAULT_BASE_URL.replace(/\/+$/, "");
+  const base = readStoredBaseUrl(DEFAULT_BASE_URL).replace(/\/+$/, "");
   const response = await fetch(`${base}${CORE_ASK_STREAM_ENDPOINT}`, {
     method: "POST",
     headers,
@@ -220,14 +247,12 @@ interface FlowListResponse {
 function _apiHeaders(json = false): Record<string, string> {
   const headers: Record<string, string> = {};
   if (json) headers["Content-Type"] = "application/json";
-  const apiKey = resolveApiKey();
-  if (apiKey) headers["X-API-Key"] = apiKey;
-  return headers;
+  return { ...headers, ...resolveAuthHeaders() };
 }
 
 /** Liste les sessions enregistrées (requête authentifiée GET /api/agent/flow). */
 export async function listFlowSessions(): Promise<FlowSessionSummary[]> {
-  const base = DEFAULT_BASE_URL.replace(/\/+$/, "");
+  const base = readStoredBaseUrl(DEFAULT_BASE_URL).replace(/\/+$/, "");
   const response = await fetch(`${base}/api/v1/agent/flow`, { headers: _apiHeaders() });
   if (!response.ok) {
     throw new Error(`Liste des sessions impossible (statut ${response.status}).`);
@@ -238,7 +263,7 @@ export async function listFlowSessions(): Promise<FlowSessionSummary[]> {
 
 /** Récupère une session et la convertit en timeline `FlowEvent` rejouable. */
 export async function getFlowSession(id: string): Promise<FlowEvent[]> {
-  const base = DEFAULT_BASE_URL.replace(/\/+$/, "");
+  const base = readStoredBaseUrl(DEFAULT_BASE_URL).replace(/\/+$/, "");
   const response = await fetch(`${base}/api/v1/agent/flow/${encodeURIComponent(id)}`, {
     headers: _apiHeaders(),
   });
