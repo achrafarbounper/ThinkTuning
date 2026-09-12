@@ -42,6 +42,8 @@ const AGENT_DEFAULTS: AgentSettings = {
   timeoutSeconds: 600,
   contextLength: 2048,
   temperature: 0.2,
+  sseFirstEventTimeout: 25,
+  sseHeartbeat: 10,
   trainMaxPerLang: 500,
   trainAugmentFraction: 0.4,
   trainVariantsPerExample: 2,

@@ -5012,6 +5012,32 @@
             ],
             "title": "Temperature"
           },
+          "agent_sse_first_event_timeout": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 300.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Sse First Event Timeout"
+          },
+          "agent_sse_heartbeat": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 120.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Sse Heartbeat"
+          },
           "train_max_per_lang": {
             "anyOf": [
               {

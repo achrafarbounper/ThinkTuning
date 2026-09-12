@@ -25,6 +25,8 @@ export const AGENT_LM_STUDIO_URL_DEFAULT = "http://192.168.1.184:1234/v1";
 export const AGENT_TIMEOUT_SECONDS_DEFAULT = 600;
 export const AGENT_CONTEXT_LENGTH_DEFAULT = 2048;
 export const AGENT_TEMPERATURE_DEFAULT = 0.2;
+export const AGENT_SSE_FIRST_EVENT_TIMEOUT_DEFAULT = 25;
+export const AGENT_SSE_HEARTBEAT_DEFAULT = 10;
 export const TRAIN_MAX_PER_LANG_DEFAULT = 500;
 export const TRAIN_AUGMENT_FRACTION_DEFAULT = 0.4;
 export const TRAIN_VARIANTS_PER_EXAMPLE_DEFAULT = 2;
@@ -83,6 +85,8 @@ export interface AgentSettings {
   timeoutSeconds: number | string;
   contextLength: number | string;
   temperature: number | string;
+  sseFirstEventTimeout: number | string;
+  sseHeartbeat: number | string;
   trainMaxPerLang: number | string;
   trainAugmentFraction: number | string;
   trainVariantsPerExample: number | string;
@@ -159,6 +163,10 @@ export function agentSettingsPayload(input?: AgentSettingsInput): AgentSettingsP
     out.context_length = src.contextLength;
   if (src.temperature !== undefined && src.temperature !== "")
     out.temperature = src.temperature;
+  if (src.sseFirstEventTimeout !== undefined && src.sseFirstEventTimeout !== "")
+    out.agent_sse_first_event_timeout = src.sseFirstEventTimeout;
+  if (src.sseHeartbeat !== undefined && src.sseHeartbeat !== "")
+    out.agent_sse_heartbeat = src.sseHeartbeat;
   if (src.trainMaxPerLang !== undefined && src.trainMaxPerLang !== "")
     out.train_max_per_lang = src.trainMaxPerLang;
   if (src.trainAugmentFraction !== undefined && src.trainAugmentFraction !== "")
@@ -239,6 +247,12 @@ export function normalizeAgentSettings(input?: Record<string, unknown>): AgentSe
       ((src.contextLength ?? src.context_length) as string | number | undefined) ??
       AGENT_CONTEXT_LENGTH_DEFAULT,
     temperature: (src.temperature as string | number | undefined) ?? AGENT_TEMPERATURE_DEFAULT,
+    sseFirstEventTimeout:
+      ((src.sseFirstEventTimeout ?? src.agent_sse_first_event_timeout) as string | number | undefined) ??
+      AGENT_SSE_FIRST_EVENT_TIMEOUT_DEFAULT,
+    sseHeartbeat:
+      ((src.sseHeartbeat ?? src.agent_sse_heartbeat) as string | number | undefined) ??
+      AGENT_SSE_HEARTBEAT_DEFAULT,
     trainMaxPerLang:
       ((src.trainMaxPerLang ?? src.train_max_per_lang) as string | number | undefined) ??
       TRAIN_MAX_PER_LANG_DEFAULT,
@@ -325,6 +339,11 @@ function loadAgentSettingsFromDefaults(): AgentSettings {
     timeoutSeconds: parseInt(url("VITE_AGENT_TIMEOUT_SECONDS"), 10) || AGENT_TIMEOUT_SECONDS_DEFAULT,
     contextLength: parseInt(url("VITE_AGENT_CONTEXT_LENGTH"), 10) || AGENT_CONTEXT_LENGTH_DEFAULT,
     temperature: parseFloat(url("VITE_AGENT_TEMPERATURE")) || AGENT_TEMPERATURE_DEFAULT,
+    sseFirstEventTimeout:
+      parseInt(import.meta.env.VITE_AGENT_SSE_FIRST_EVENT_TIMEOUT, 10) ||
+      AGENT_SSE_FIRST_EVENT_TIMEOUT_DEFAULT,
+    sseHeartbeat:
+      parseInt(import.meta.env.VITE_AGENT_SSE_HEARTBEAT, 10) || AGENT_SSE_HEARTBEAT_DEFAULT,
     trainMaxPerLang: Number(import.meta.env.VITE_TRAIN_MAX_PER_LANG) || TRAIN_MAX_PER_LANG_DEFAULT,
     trainAugmentFraction:
       Number(import.meta.env.VITE_TRAIN_AUGMENT_FRACTION) || TRAIN_AUGMENT_FRACTION_DEFAULT,
@@ -381,6 +400,8 @@ function loadAgentSettingsFromStorage(): AgentSettings {
       timeoutSeconds: AGENT_TIMEOUT_SECONDS_DEFAULT,
       contextLength: AGENT_CONTEXT_LENGTH_DEFAULT,
       temperature: AGENT_TEMPERATURE_DEFAULT,
+      sseFirstEventTimeout: AGENT_SSE_FIRST_EVENT_TIMEOUT_DEFAULT,
+      sseHeartbeat: AGENT_SSE_HEARTBEAT_DEFAULT,
       trainMaxPerLang: TRAIN_MAX_PER_LANG_DEFAULT,
       trainAugmentFraction: TRAIN_AUGMENT_FRACTION_DEFAULT,
       trainVariantsPerExample: TRAIN_VARIANTS_PER_EXAMPLE_DEFAULT,

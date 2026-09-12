@@ -33,6 +33,8 @@ describe("agentSettingsPayload (mapping camelCase → snake_case)", () => {
       trainWeightDecay: 0.02,
       trainWarmupRatio: 0.2,
       trainDevice: "cuda",
+      sseFirstEventTimeout: 30,
+      sseHeartbeat: 15,
     });
 
     expect(payload.train_max_per_lang).toBe(800);
@@ -47,6 +49,8 @@ describe("agentSettingsPayload (mapping camelCase → snake_case)", () => {
     expect(payload.train_weight_decay).toBe(0.02);
     expect(payload.train_warmup_ratio).toBe(0.2);
     expect(payload.train_device).toBe("cuda");
+    expect(payload.agent_sse_first_event_timeout).toBe(30);
+    expect(payload.agent_sse_heartbeat).toBe(15);
   });
 
   it("mappe les budgets, le log level, MCP et les flags vers le contrat API", () => {
@@ -119,6 +123,8 @@ describe("normalizeAgentSettings (snake_case API → camelCase UI)", () => {
       flag_custom_tools: true,
       flag_new_core: false,
       flag_llm_v2: true,
+      agent_sse_first_event_timeout: 35,
+      agent_sse_heartbeat: 12,
     });
 
     expect(settings.maxLlmRounds).toBe(8);
@@ -138,6 +144,8 @@ describe("normalizeAgentSettings (snake_case API → camelCase UI)", () => {
     expect(settings.flagCustomTools).toBe(true);
     expect(settings.flagNewCore).toBe(false);
     expect(settings.flagLlmV2).toBe(true);
+    expect(settings.sseFirstEventTimeout).toBe(35);
+    expect(settings.sseHeartbeat).toBe(12);
   });
 
   it("accepte aussi les clés camelCase (formulaire / localStorage)", () => {

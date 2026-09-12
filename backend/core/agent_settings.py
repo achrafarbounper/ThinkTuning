@@ -14,6 +14,7 @@ Schéma persisté (clé/valeur JSON, ``SETTING_KEYS``) :
     - connexion LLM : provider, model, ollama_url, openrouter_url,
       openrouter_api_key, hf_url, hf_api_key, lm_studio_url ;
     - réglages d'appel : timeout_seconds, context_length, temperature ;
+    - streaming SSE : agent_sse_first_event_timeout, agent_sse_heartbeat ;
     - budgets & garde-fous : max_llm_rounds, max_tool_calls ;
     - sécurité réseau (bac à sable SSRF) : ssrf_enabled, ssrf_allowlist ;
     - observabilité : log_level ;
@@ -59,6 +60,8 @@ SETTING_KEYS = (
     "timeout_seconds",
     "context_length",
     "temperature",
+    "agent_sse_first_event_timeout",
+    "agent_sse_heartbeat",
     # --- Défauts d'entraînement ML -------------------------------------------
     "train_max_per_lang",
     "train_augment_fraction",
@@ -133,6 +136,8 @@ VALEURS_PAR_DEFAUT: dict[str, Any] = {
     "timeout_seconds": None,
     "context_length": None,
     "temperature": None,
+    "agent_sse_first_event_timeout": 25,
+    "agent_sse_heartbeat": 10,
     "train_max_per_lang": 500,
     "train_augment_fraction": 0.4,
     "train_variants_per_example": 2,
@@ -323,6 +328,8 @@ def env_and_defaults() -> dict[str, Any]:
         "lm_studio_url": "AGENT_LM_STUDIO_URL",
         "timeout_seconds": "AGENT_TIMEOUT_SECONDS",
         "context_length": "AGENT_CONTEXT_LENGTH",
+        "agent_sse_first_event_timeout": "AGENT_SSE_FIRST_EVENT_TIMEOUT",
+        "agent_sse_heartbeat": "AGENT_SSE_HEARTBEAT",
         "max_llm_rounds": "AGENT_MAX_LLM_ROUNDS",
         "max_tool_calls": "AGENT_MAX_TOOL_CALLS",
         "log_level": "AGENT_LOG_LEVEL",
@@ -351,6 +358,8 @@ def env_and_defaults() -> dict[str, Any]:
     for key, cast in (
         ("timeout_seconds", float),
         ("context_length", int),
+        ("agent_sse_first_event_timeout", int),
+        ("agent_sse_heartbeat", int),
         ("max_llm_rounds", int),
         ("max_tool_calls", int),
         ("train_max_per_lang", int),

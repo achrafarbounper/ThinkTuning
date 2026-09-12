@@ -16,19 +16,6 @@ interface Props {
   onSave: () => void;
 }
 
-const numericFields: Array<[NumericDraftKey, string, number, number, number?]> = [
-  ["trainMaxPerLang", "Exemples par langue", 1, 100000],
-  ["trainAugmentFraction", "Fraction augmentation", 0, 1, 0.05],
-  ["trainVariantsPerExample", "Variantes par exemple", 1, 100],
-  ["trainEpochs", "Epochs", 1, 100],
-  ["trainBatchSize", "Batch size", 1, 1024],
-  ["trainNumWorkers", "Workers", 0, 128],
-  ["trainMaxLength", "Longueur maximale", 8, 4096],
-  ["trainLearningRate", "Learning rate", 0.0000001, 1, 0.000001],
-  ["trainWeightDecay", "Weight decay", 0, 1, 0.001],
-  ["trainWarmupRatio", "Warmup ratio", 0, 1, 0.01],
-];
-
 function Field({ id, label, value, onChange, type = "text", min, max, step, placeholder, disabled }: {
   id: string; label: string; value: string | number; onChange: (value: string) => void;
   type?: string; min?: number; max?: number; step?: number; placeholder?: string; disabled?: boolean;
@@ -98,13 +85,12 @@ export function AgentSettingsSection({ draft, updateDraft, loading, error, onTes
         <Field id="settings-hf-key" label="Token API Hugging Face" type="password" value={draft.hfApiKey} onChange={updateText("hfApiKey")} placeholder="hf_xxxxxxxxxxxxxxxx" />
       </>}
 
-      <Section title="Defaults d'entraînement ML" help="Ces valeurs préremplissent les nouveaux jobs. Un override explicite dans la page Entraînement reste prioritaire.">
+      <Section title="Streaming SSE" help="Délais de démarrage et de maintien du flux de l'assistant derrière les proxies.">
         <div className="tt-assistant-grid">
-          {numericFields.map(([key, label, min, max, step]) => <Field key={key} id={`settings-${String(key)}`} label={label} type="number" min={min} max={max} step={step} value={draft[key] as number | string} onChange={updateNumber(key)} />)}
-          <label className="tt-checkbox-label"><input type="checkbox" checked={Boolean(draft.trainUseBackTranslation)} onChange={(event) => updateDraft("trainUseBackTranslation", event.target.checked)} /><span>Activer la back-translation</span></label>
-          <label htmlFor="settings-train-device"><span className="tt-assistant-label">Device</span>
-            <select id="settings-train-device" value={draft.trainDevice} onChange={(event) => updateDraft("trainDevice", event.target.value)} className="tt-select-tt-settings"><option value="auto">Auto</option><option value="cpu">CPU</option><option value="cuda">CUDA</option></select>
-          </label>
+          <Field id="settings-sse-first-event-timeout" label="Premier événement (s)" type="number" min={1} max={300}
+            value={draft.sseFirstEventTimeout} onChange={updateNumber("sseFirstEventTimeout")} />
+          <Field id="settings-sse-heartbeat" label="Heartbeat (s)" type="number" min={1} max={120}
+            value={draft.sseHeartbeat} onChange={updateNumber("sseHeartbeat")} />
         </div>
       </Section>
       <Section title="Budgets & garde-fous"><div className="tt-assistant-grid">
