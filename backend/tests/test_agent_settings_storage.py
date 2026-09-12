@@ -4,9 +4,9 @@ Vérifient le correctif du provider « double-encodé » (``'"openrouter"'`` ave
 guillemets parasites → ``ValueError: Provider LLM inconnu`` à la construction
 de ``LLMClient`` / ``HttpLLMClient``) :
 
-    - ``MongoAgentSettingsStore`` décode les valeurs JSON-encodées migrées
-      depuis SQLite (``'"openrouter"'`` → ``openrouter``) et persiste les
-      nouvelles écritures au MÊME format que le store SQLite ;
+    - ``MongoAgentSettingsStore`` décode puis normalise les valeurs
+      JSON-encodées migrées depuis SQLite (``'"openrouter"'`` →
+      ``openrouter``) et persiste les nouvelles écritures en BSON natif ;
     - ``LegacySettingsAdapter``/``build_settings_port`` résolvent le MÊME
       backend que la lecture runtime (``agent_config``) : une sauvegarde du
       dashboard est immédiatement effective ;
@@ -59,6 +59,35 @@ def test_decode_typed_values_unchanged():
     assert _decode_settings_value(600.0) == 600.0
     assert _decode_settings_value(2048) == 2048
     assert _decode_settings_value(None) is None
+
+
+def test_mongo_store_writes_native_values_and_normalizes_legacy_documents():
+    """Les documents migrés sont réparés et les nouvelles valeurs restent typées."""
+    import mongomock
+
+    from app.infrastructure.persistence.mongodb import (
+        MongoAgentSettingsStore,
+        MongoClientProvider,
+        MongoConfig,
+    )
+
+    provider = MongoClientProvider(
+        MongoConfig(uri="mongodb://localhost/thinktuning"),
+        client=mongomock.MongoClient(),
+    )
+    collection = provider.collection("agent_settings")
+    collection.insert_one({"_id": "legacy", "key": "model", "value": '"qwen3"'})
+    store = MongoAgentSettingsStore(provider=provider)
+
+    assert store.get_all()["model"] == "qwen3"
+    assert collection.find_one({"_id": "legacy"})["value"] == "qwen3"
+
+    store.save_many(
+        {"provider": "lm_studio", "context_length": 2048, "mcp_first": False}
+    )
+    assert collection.find_one({"_id": "provider"})["value"] == "lm_studio"
+    assert collection.find_one({"_id": "context_length"})["value"] == 2048
+    assert collection.find_one({"_id": "mcp_first"})["value"] is False
 
 
 # --- Boucle écriture → lecture (backend partagé) ---------------------------
