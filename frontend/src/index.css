@@ -130,6 +130,13 @@ button:focus-visible {
   margin-top: 0.25rem;
 }
 
+.tt-assistant-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
 .tt-assistant-prop-source {
   font-size: 0.72rem;
   color: var(--tt-accent, #5b8def);
@@ -259,4 +266,3 @@ button:focus-visible {
 .tt-warning {
   color: #d97706;
 }
-
