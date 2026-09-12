@@ -668,10 +668,9 @@ def _decode_settings_value(value: Any) -> Any:
 class MongoAgentSettingsStore:
     """``AgentSettingsPort`` Mongo — symétrique du store SQLite.
 
-    ``save_many`` persiste les valeurs JSON-encodées (MÊME format que le
-    store SQLite) et ``get_all`` les décode via ``_decode_settings_value`` :
-    les deux adaptateurs produisent le même contrat runtime et la migration
-    SQLite→Mongo copie les documents sans divergence (SCRUM-137).
+    MongoDB conserve les valeurs dans leur type BSON natif. ``get_all`` reste
+    compatible avec les anciennes valeurs JSON-encodées issues de la migration
+    SQLite→Mongo et les normalise au passage (SCRUM-137).
     """
 
     def __init__(self, provider=None, *args, **kwargs):
@@ -679,9 +678,18 @@ class MongoAgentSettingsStore:
         self.c = db.collection("agent_settings")
 
     def get_all(self):
-        return {
-            d["key"]: _decode_settings_value(d.get("value")) for d in self.c.find({}, {"_id": 0})
-        }
+        settings = {}
+        for document in self.c.find({}):
+            key = document["key"]
+            raw_value = document.get("value")
+            value = _decode_settings_value(raw_value)
+            settings[key] = value
+            if isinstance(raw_value, str) and value != raw_value:
+                self.c.update_one(
+                    {"_id": document["_id"]},
+                    {"$set": {"value": value}},
+                )
+        return settings
 
     def save_many(self, values):
         from core.agent_settings import SETTING_KEYS
@@ -690,7 +698,7 @@ class MongoAgentSettingsStore:
         for k, v in filtered.items():
             self.c.update_one(
                 {"_id": k},
-                {"$set": {"key": k, "value": json.dumps(v), "updated_at": time.time()}},
+                {"$set": {"key": k, "value": v, "updated_at": time.time()}},
                 upsert=True,
             )
         return filtered
