@@ -5076,6 +5076,31 @@
             "title": "Mcp Auth Required",
             "description": "Auth X-API-Key obligatoire sur POST /mcp/sse."
           },
+          "ssrf_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssrf Enabled",
+            "description": "Blocage des hôtes privés/loopback (anti-SSRF) — actif par défaut."
+          },
+          "ssrf_allowlist": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssrf Allowlist",
+            "description": "CSV d'hôtes privés exemptés (ex. « 127.0.0.1,localhost,searxng »)."
+          },
           "flag_reliability": {
             "anyOf": [
               {

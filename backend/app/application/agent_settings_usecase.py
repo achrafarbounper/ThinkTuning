@@ -49,6 +49,9 @@ DEFAULTS: dict[str, Any] = {
     # Déplacés de app/config/settings.py (SCRUM-138) :
     "max_llm_rounds": 6,
     "max_tool_calls": 20,
+    # Sécurité réseau (bac à sable SSRF) — défauts fail-closed alignés sandbox.
+    "ssrf_enabled": True,
+    "ssrf_allowlist": "",
     "log_level": "INFO",
     "mcp_first": False,
     "mcp_auth_required": True,
@@ -160,9 +163,25 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
         else:
             values["log_level"] = level
 
+    # Sécurité réseau : l'allowlist SSRF est une CSV d'hôtes nettoyée en place
+    # (espaces / entrées vides) et bornée (anti-payload géant).
+    ssrf_allowlist = values.get("ssrf_allowlist")
+    if ssrf_allowlist is not None and ssrf_allowlist != "":
+        if not isinstance(ssrf_allowlist, str):
+            errors.append("ssrf_allowlist doit être une chaîne CSV d'hôtes.")
+        else:
+            cleaned = ", ".join(
+                part.strip() for part in ssrf_allowlist.split(",") if part.strip()
+            )
+            if len(cleaned) > 500:
+                errors.append("ssrf_allowlist ne peut pas dépasser 500 caractères.")
+            else:
+                values["ssrf_allowlist"] = cleaned
+
     for bool_key in (
         "mcp_first",
         "mcp_auth_required",
+        "ssrf_enabled",
         *(
             f"flag_{name}"
             for name in (
@@ -227,6 +246,15 @@ def update_settings(
     if not errors:
         written = port.save_many(filtered)
         written_keys = sorted(written.keys())
+        # Effet IMMÉDIAT côté outils réseau (sans attendre la prochaine lecture
+        # de config ni un redémarrage) : la politique SSRF persistée surclasse
+        # l'env ; les clés non persistées repassent sous contrôle env.
+        try:
+            from ia.tools.sandbox import apply_persisted_network_policy
+
+            apply_persisted_network_policy(port.get_all())
+        except ImportError:  # pragma: no cover — bac à sable facultatif
+            pass
 
     effective = get_effective_settings(port)
     return effective, errors, written_keys

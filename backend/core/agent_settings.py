@@ -15,6 +15,7 @@ Schéma persisté (clé/valeur JSON, ``SETTING_KEYS``) :
       openrouter_api_key, hf_url, hf_api_key, lm_studio_url ;
     - réglages d'appel : timeout_seconds, context_length, temperature ;
     - budgets & garde-fous : max_llm_rounds, max_tool_calls ;
+    - sécurité réseau (bac à sable SSRF) : ssrf_enabled, ssrf_allowlist ;
     - observabilité : log_level ;
     - surface MCP : mcp_first, mcp_auth_required ;
     - feature flags : flag_<nom> (AGENT_<NOM> historique).
@@ -61,6 +62,9 @@ SETTING_KEYS = (
     # --- Budgets & garde-fous (déplacés de app/config/settings.py) -----------
     "max_llm_rounds",
     "max_tool_calls",
+    # --- Sécurité réseau (bac à sable SSRF, page Paramètres) ----------------
+    "ssrf_enabled",
+    "ssrf_allowlist",
     # --- Observabilité -------------------------------------------------------
     "log_level",
     # --- Surface MCP (déplacés de app/config/settings.py) --------------------
@@ -96,7 +100,7 @@ FLAG_NAMES = (
 # Clés booléennes : la valeur persistée (JSON) et la valeur env sont coercées
 # en bool pour que les consommateurs (payload IHM, AgentConfig) reçoivent un
 # booléen réel — jamais la chaîne "true" issue de l'environnement.
-_BOOL_KEYS = ("mcp_first", "mcp_auth_required") + tuple(
+_BOOL_KEYS = ("mcp_first", "mcp_auth_required", "ssrf_enabled") + tuple(
     f"flag_{name}" for name in FLAG_NAMES
 )
 
@@ -120,6 +124,11 @@ VALEURS_PAR_DEFAUT: dict[str, Any] = {
     "max_llm_rounds": None,
     "max_tool_calls": None,
     "log_level": None,
+    # Sécurité réseau (bac à sable SSRF) : protection ACTIVE par défaut
+    # (fail-closed — même sémantique que ``AGENT_BLOCK_PRIVATE_HOSTS``) ;
+    # allowlist vide = suivre l'env ``AGENT_PRIVATE_HOST_ALLOWLIST``.
+    "ssrf_enabled": True,
+    "ssrf_allowlist": "",
     # Surface MCP : read-only désactivé, auth transport obligatoire (fail-closed).
     "mcp_first": False,
     "mcp_auth_required": True,
@@ -292,6 +301,8 @@ def env_and_defaults() -> dict[str, Any]:
         "max_llm_rounds": "AGENT_MAX_LLM_ROUNDS",
         "max_tool_calls": "AGENT_MAX_TOOL_CALLS",
         "log_level": "AGENT_LOG_LEVEL",
+        # Sécurité réseau (bac à sable SSRF) — page Paramètres > env.
+        "ssrf_allowlist": "AGENT_PRIVATE_HOST_ALLOWLIST",
     }
     for key, env_key in _env_keys.items():
         raw = (os.getenv(env_key) or "").strip()
@@ -325,6 +336,14 @@ def env_and_defaults() -> dict[str, Any]:
         flag_value = _env_bool(env_key)
         if flag_value is not None:
             values[key] = flag_value
+
+    # Compatibilité historique : la protection SSRF se désactivait via
+    # ``AGENT_BLOCK_PRIVATE_HOSTS=0`` — repli conservé quand ``SSRF_ENABLED``
+    # (nom canonique de la clé) est absent de l'environnement.
+    if "SSRF_ENABLED" not in os.environ:
+        raw = os.getenv("AGENT_BLOCK_PRIVATE_HOSTS", "").strip().lower()
+        if raw:
+            values["ssrf_enabled"] = raw in _TRUE_VALUES
     return values
 
 
@@ -350,6 +369,23 @@ def _bool_entry(key: str, env_key: str, stored: dict, default: bool) -> dict:
     if flag_value is not None:
         return {"value": flag_value, "source": "env"}
     return {"value": default, "source": "default"}
+
+
+def _ssrf_enabled_entry(stored: dict) -> dict:
+    """Entrée ssrf_enabled : base > env ``SSRF_ENABLED`` > env historique > ON."""
+    if "ssrf_enabled" in stored:
+        raw = stored["ssrf_enabled"]
+        if isinstance(raw, bool):
+            return {"value": raw, "source": "sqlite"}
+        return {"value": str(raw).strip().lower() in _TRUE_VALUES, "source": "sqlite"}
+    flag_value = _env_bool("SSRF_ENABLED")
+    if flag_value is not None:
+        return {"value": flag_value, "source": "env"}
+    # Repli historique : AGENT_BLOCK_PRIVATE_HOSTS (0/false = désactivée).
+    legacy = _env_bool("AGENT_BLOCK_PRIVATE_HOSTS")
+    if legacy is not None:
+        return {"value": legacy, "source": "env"}
+    return {"value": True, "source": "default"}
 
 
 def get_agent_settings() -> dict:
@@ -401,6 +437,9 @@ def get_agent_settings() -> dict:
         "mcp_auth_required": _bool_entry(
             "mcp_auth_required", "MCP_AUTH_REQUIRED", stored, True
         ),
+        # Sécurité réseau (bac à sable SSRF) : base > env > défaut fail-closed.
+        "ssrf_enabled": _ssrf_enabled_entry(stored),
+        "ssrf_allowlist": entry("ssrf_allowlist", "AGENT_PRIVATE_HOST_ALLOWLIST", ""),
     }
     for name in FLAG_NAMES:
         key = f"flag_{name}"
@@ -417,6 +456,14 @@ def get_agent_settings() -> dict:
     for text_key in ("model", "ollama_url", "openrouter_url", "hf_url", "lm_studio_url"):
         raw = settings[text_key]["value"]
         settings[text_key]["value"] = raw.strip() if isinstance(raw, str) else raw
+    # Pilotage runtime du bac à sable (effet immédiat pour les outils réseau,
+    # sans redémarrage) : seules les valeurs PERSISTÉES surclassent l'env.
+    try:
+        from ia.tools.sandbox import apply_persisted_network_policy
+
+        apply_persisted_network_policy(stored)
+    except ImportError:  # pragma: no cover — bac à sable facultatif
+        pass
     return settings
 
 
@@ -530,6 +577,21 @@ def validate_agent_settings(values: dict) -> list[str]:
                 values[bool_key] = bool(raw_flag)
             else:
                 errors.append(f"{bool_key} doit être un booléen.")
+
+    # Sécurité réseau : l'allowlist SSRF est une CSV d'hôtes — nettoyée en
+    # place (espaces / entrées vides) et bornée (anti-payload géant).
+    ssrf_allowlist = values.get("ssrf_allowlist")
+    if ssrf_allowlist is not None and ssrf_allowlist != "":
+        if not isinstance(ssrf_allowlist, str):
+            errors.append("ssrf_allowlist doit être une chaîne CSV d'hôtes.")
+        else:
+            cleaned = ", ".join(
+                part.strip() for part in ssrf_allowlist.split(",") if part.strip()
+            )
+            if len(cleaned) > 500:
+                errors.append("ssrf_allowlist ne peut pas dépasser 500 caractères.")
+            else:
+                values["ssrf_allowlist"] = cleaned
 
     api_key = values.get("openrouter_api_key")
     if (

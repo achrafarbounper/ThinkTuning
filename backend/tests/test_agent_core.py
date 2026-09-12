@@ -288,6 +288,45 @@ def test_malformed_tool_call_is_repaired_directly(registry) -> None:
     second = llm.messages[1]
     assert any("2026-09-02T12:00:00Z" in m["content"] for m in second)
 
+def test_extract_plan_accepts_plan_with_trailing_noise() -> None:
+    """Réponse RÉELLE observée en production (openrouter/free) : le plan JSON
+    est VALIDE mais suivi d'une queue parasite « ]} » (artefact de fermeture).
+    Le plan à 2 étapes (web_fetch + web_search) doit être préservé au lieu
+    d'être jeté en bloc (régression « coupe du monde 2026 »)."""
+    raw = (
+        '{"plan": ['
+        '{"tool": "web_fetch", "args": {"url": "https://www.fifa.com/fifaplus/'
+        'en/tournaments/mens/worldcup/2026qatar/matches"}},'
+        '{"tool": "web_search", "args": {"query": "FIFA World Cup 2026 final '
+        'winner result July 2026"}}'
+        "]}]}"
+    )
+    plan = extract_plan(raw)
+    assert plan is not None
+    assert [step.action.tool for step in plan.steps] == ["web_fetch", "web_search"]
+    assert plan.steps[1].action.args == {
+        "query": "FIFA World Cup 2026 final winner result July 2026"
+    }
+
+
+def test_trailing_noise_plan_executes_end_to_end(registry) -> None:
+    """Boucle complète : une réponse « {"plan": [...]}]} » (queue parasite)
+    doit produire un plan EXÉCUTÉ puis une réponse texte — jamais le JSON
+    brut avalé comme réponse finale."""
+    llm = ScriptedLLM([
+        '{"plan": [{"tool": "now", "args": {}}, {"tool": "now", "args": {}}]}]}',
+        "L'Espagne a gagné la Coupe du monde 2026.",
+    ])
+    result = AgentCore(llm, registry).run(intent())
+    assert result.status is RunStatus.COMPLETED
+    assert result.tool_calls_used == 2
+    assert [action.status for action in result.actions] == ["done", "done"]
+    assert result.answer == "L'Espagne a gagné la Coupe du monde 2026."
+    # Aucune relance de « plan rejeté » : le 2e appel porte les résultats
+    # des deux outils (preuve que le plan a bien été exécuté).
+    second = llm.messages[1]
+    content = " ".join(m.get("content", "") for m in second)
+    assert content.count("2026-09-02T12:00:00Z") == 2
 
 def test_prose_announcement_without_json_is_nudged_then_repaired(registry) -> None:
     """Annonce en prose (« je vais utiliser echo ») SANS JSON du tout : une

@@ -283,3 +283,79 @@ def test_update_persists_moved_settings():
     }
     assert port._persisted["mcp_first"] is True
     assert effective["flag_multi_agent"] is False
+
+
+# --- Sécurité réseau (bac à sable SSRF, SCRUM-139) ------------------------------
+
+
+def test_defaults_include_ssrf_settings(monkeypatch):
+    """Fail-closed : protection SSRF ACTIVE par défaut, allowlist vide."""
+    monkeypatch.delenv("SSRF_ENABLED", raising=False)
+    monkeypatch.delenv("AGENT_BLOCK_PRIVATE_HOSTS", raising=False)
+    result = uc.get_effective_settings(FakeSettingsPort())
+    assert result["ssrf_enabled"] is True
+    assert result["ssrf_allowlist"] == ""
+
+
+def test_env_fallback_block_private_hosts(monkeypatch):
+    """L'env historique ``AGENT_BLOCK_PRIVATE_HOSTS=0`` reste un repli reconnu."""
+    monkeypatch.delenv("SSRF_ENABLED", raising=False)
+    monkeypatch.setenv("AGENT_BLOCK_PRIVATE_HOSTS", "0")
+    result = uc.get_effective_settings(FakeSettingsPort())
+    assert result["ssrf_enabled"] is False
+
+
+def test_ssrf_allowlist_env_and_persisted_overrides(monkeypatch):
+    """L'env ``AGENT_PRIVATE_HOST_ALLOWLIST`` est un repli ; la base surclasse."""
+    monkeypatch.setenv("AGENT_PRIVATE_HOST_ALLOWLIST", "searxng")
+    env_only = uc.get_effective_settings(FakeSettingsPort())
+    assert env_only["ssrf_allowlist"] == "searxng"
+    port = FakeSettingsPort({"ssrf_allowlist": "127.0.0.1,localhost"})
+    result = uc.get_effective_settings(port)
+    assert result["ssrf_allowlist"] == "127.0.0.1,localhost"
+
+
+def test_validate_coerces_and_cleans_ssrf_values():
+    """Booléens coercés + CSV nettoyée (espaces / entrées vides)."""
+    values = {"ssrf_enabled": "true", "ssrf_allowlist": " 127.0.0.1 , searxng , "}
+    errors = uc.validate_settings(values)
+    assert errors == []
+    assert values["ssrf_enabled"] is True
+    assert values["ssrf_allowlist"] == "127.0.0.1, searxng"
+
+
+def test_validate_rejects_bad_ssrf_values():
+    """Type et valeurs hors contrat refusés (booléen invalide, non-chaîne)."""
+    errors = uc.validate_settings({"ssrf_enabled": "maybe", "ssrf_allowlist": 42})
+    assert any("ssrf_enabled" in e for e in errors)
+    assert any("ssrf_allowlist" in e for e in errors)
+
+
+def test_validate_rejects_oversized_ssrf_allowlist():
+    errors = uc.validate_settings({"ssrf_allowlist": "a" * 501})
+    assert any("500" in e for e in errors)
+
+
+def test_update_persists_ssrf_and_applies_runtime(monkeypatch):
+    """La sauvegarde persiste les clés ET pousse l'override runtime du sandbox."""
+    import ia.tools.sandbox as sandbox
+
+    # L'env dit OFF : seule la base (page Paramètres) doit réactiver la
+    # protection — preuve que l'override runtime surclasse l'environnement.
+    monkeypatch.setenv("AGENT_BLOCK_PRIVATE_HOSTS", "0")
+    port = FakeSettingsPort()
+    try:
+        effective, errors, written = uc.update_settings(
+            port, {"ssrf_enabled": True, "ssrf_allowlist": "searxng,127.0.0.1"}
+        )
+        assert errors == []
+        assert "ssrf_enabled" in written
+        assert "ssrf_allowlist" in written
+        assert effective["ssrf_enabled"] is True
+        # L'env dit OFF, la base (page Paramètres) dit ON : l'override runtime
+        # surclasse l'environnement pour les outils réseau.
+        assert sandbox.ssrf_protection_enabled() is True
+        assert sandbox.get_private_host_allowlist() == {"searxng", "127.0.0.1"}
+    finally:
+        # Aucune fuite d'override runtime vers les autres tests.
+        sandbox.reset_runtime_network_policy()

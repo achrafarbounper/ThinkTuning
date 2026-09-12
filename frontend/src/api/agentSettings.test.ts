@@ -26,6 +26,8 @@ describe("agentSettingsPayload (mapping camelCase → snake_case)", () => {
       logLevel: "DEBUG",
       mcpFirst: true,
       mcpAuthRequired: false,
+      ssrfEnabled: false,
+      ssrfAllowlist: "127.0.0.1,localhost,searxng",
       flagReliability: false,
       flagAudit: true,
       flagContext: false,
@@ -38,6 +40,8 @@ describe("agentSettingsPayload (mapping camelCase → snake_case)", () => {
     expect(payload.log_level).toBe("DEBUG");
     expect(payload.mcp_first).toBe(true);
     expect(payload.mcp_auth_required).toBe(false);
+    expect(payload.ssrf_enabled).toBe(false);
+    expect(payload.ssrf_allowlist).toBe("127.0.0.1,localhost,searxng");
     expect(payload.flag_reliability).toBe(false);
     expect(payload.flag_audit).toBe(true);
     expect(payload.flag_context).toBe(false);
@@ -53,6 +57,8 @@ describe("agentSettingsPayload (mapping camelCase → snake_case)", () => {
     }
     expect(payload.mcp_first).toBeUndefined();
     expect(payload.mcp_auth_required).toBeUndefined();
+    expect(payload.ssrf_enabled).toBeUndefined();
+    expect(payload.ssrf_allowlist).toBeUndefined();
   });
 
   it("n'envoie pas les booléens non fournis, mais envoie false explicitement", () => {
@@ -71,6 +77,8 @@ describe("normalizeAgentSettings (snake_case API → camelCase UI)", () => {
       log_level: "WARNING",
       mcp_first: true,
       mcp_auth_required: false,
+      ssrf_enabled: false,
+      ssrf_allowlist: "searxng,127.0.0.1",
       flag_reliability: false,
       flag_audit: true,
       flag_tool_analytics: false,
@@ -88,6 +96,8 @@ describe("normalizeAgentSettings (snake_case API → camelCase UI)", () => {
     expect(settings.logLevel).toBe("WARNING");
     expect(settings.mcpFirst).toBe(true);
     expect(settings.mcpAuthRequired).toBe(false);
+    expect(settings.ssrfEnabled).toBe(false);
+    expect(settings.ssrfAllowlist).toBe("searxng,127.0.0.1");
     expect(settings.flagReliability).toBe(false);
     expect(settings.flagAudit).toBe(true);
     expect(settings.flagToolAnalytics).toBe(false);
@@ -106,12 +116,16 @@ describe("normalizeAgentSettings (snake_case API → camelCase UI)", () => {
       maxToolCalls: 7,
       logLevel: "ERROR",
       mcpFirst: true,
+      ssrfEnabled: true,
+      ssrfAllowlist: "localhost",
       flagLlmV2: false,
     });
     expect(settings.maxLlmRounds).toBe(3);
     expect(settings.maxToolCalls).toBe(7);
     expect(settings.logLevel).toBe("ERROR");
     expect(settings.mcpFirst).toBe(true);
+    expect(settings.ssrfEnabled).toBe(true);
+    expect(settings.ssrfAllowlist).toBe("localhost");
     expect(settings.flagLlmV2).toBe(false);
   });
 
@@ -122,6 +136,8 @@ describe("normalizeAgentSettings (snake_case API → camelCase UI)", () => {
     expect(AGENT_LOG_LEVELS).toContain(settings.logLevel);
     expect(settings.mcpFirst).toBe(false);
     expect(settings.mcpAuthRequired).toBe(true);
+    expect(settings.ssrfEnabled).toBe(true);
+    expect(settings.ssrfAllowlist).toBe("");
     for (const name of AGENT_FLAGS) {
       const key = agentFlagCamelCase(name) as keyof typeof settings;
       expect(settings[key]).toBe(true);
@@ -145,6 +161,8 @@ describe("round-trip payload ↔ normalize", () => {
       logLevel: "INFO",
       mcpFirst: true,
       mcpAuthRequired: true,
+      ssrfEnabled: true,
+      ssrfAllowlist: "searxng",
       flagReliability: true,
       flagAudit: false,
       flagCustomTools: true,
@@ -157,6 +175,8 @@ describe("round-trip payload ↔ normalize", () => {
     expect(normalized.logLevel).toBe("INFO");
     expect(normalized.mcpFirst).toBe(true);
     expect(normalized.mcpAuthRequired).toBe(true);
+    expect(normalized.ssrfEnabled).toBe(true);
+    expect(normalized.ssrfAllowlist).toBe("searxng");
     expect(normalized.flagReliability).toBe(true);
     expect(normalized.flagAudit).toBe(false);
     expect(normalized.flagCustomTools).toBe(true);
