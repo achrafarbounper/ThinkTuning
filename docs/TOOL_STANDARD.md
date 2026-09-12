@@ -8,6 +8,7 @@ ThinkTuning. Tout ce qui est décrit ici est implémenté et testé :
 |---|---|
 | `ia/tools/tool_schema.py` | Standard v1 : validation, conversions, JSON Schema |
 | `ia/tools/registry.py` | `ToolRegistry` — source de vérité unique |
+| `app/agent/tool_router.py` | Frontière d'exécution : validation des arguments, invocation et journalisation |
 | `ia/tools/custom_tools.py` | Tools d'exemple `run_shell` / `call_api` |
 | `ia/agent/plan_validator.py` | Pseudo-rôle `propose_tool` (plans) |
 | `ia/agent/orchestrator.py` | Pipeline proposer → relire (reviewer) |
@@ -152,6 +153,12 @@ plan {role: propose_tool,  ──▶   verdict JSON           ┌─▶ POST /to
 `AGENT_ALLOWED_BINARIES`, jamais de shell, timeout plafonné, `dry_run`) et
 `call_api` (HTTP GET/POST générique, schéma http/https, sortie tronquée)
 sont fournis dans `ia/tools/custom_tools.py` avec leurs définitions v1.
+
+Tous les appels issus d'un plan passent par `app/agent/tool_router.py` avant
+l'invocation de la fonction. Le routeur vérifie les champs obligatoires, les
+types et les valeurs `enum` déclarés dans `TOOL_META`, puis émet un événement
+de journalisation. Les métadonnées legacy incomplètes restent compatibles :
+seules les contraintes effectivement déclarées sont appliquées.
 
 ## 8. Tests
 
