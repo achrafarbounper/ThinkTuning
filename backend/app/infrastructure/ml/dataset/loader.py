@@ -9,11 +9,10 @@ Chargé via les fichiers Parquet auto-convertis par Hugging Face.
 import csv
 import hashlib
 import json
-import json
 import logging
 import random
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -43,7 +42,7 @@ _CORRECTIONS_JSONL_EXTENSIONS = {".jsonl", ".ndjson"}
 # Pondération par défaut de la sélection des exemples à augmenter. La classe
 # neutral (label 1) est surpondérée car typiquement sous-représentée dans le
 # corpus : des exemples neutral sont donc préférentiellement sur-échantillonnés.
-DEFAULT_CLASS_AUGMENT_WEIGHTS: Dict[int, float] = {0: 1.0, 1: 2.0, 2: 1.0}
+DEFAULT_CLASS_AUGMENT_WEIGHTS: dict[int, float] = {0: 1.0, 1: 2.0, 2: 1.0}
 
 _PARQUET_BASE = (
     "https://huggingface.co/datasets/cardiffnlp/tweet_sentiment_multilingual"
@@ -92,8 +91,8 @@ def _normalize_correction_label(raw_label, row_index: int) -> int:
     # 2) Entier direct ou chaîne numérique ("1", " 2 ", 2.0)
     try:
         value = float(str(raw_label).strip())
-    except (TypeError, ValueError):
-        raise _invalid_label_error(raw_label, row_index)
+    except (TypeError, ValueError) as exc:
+        raise _invalid_label_error(raw_label, row_index) from exc
 
     # Garde-fous : 1.5 ne doit pas être tronqué en 1 ; NaN rejeté aussi.
     if not value.is_integer() or int(value) not in LABEL_NAMES:
@@ -107,8 +106,7 @@ def _read_corrections_csv(corrections_path: Path) -> pd.DataFrame:
         return pd.read_csv(corrections_path, encoding="utf-8-sig")
     except Exception as exc:
         raise ValueError(
-            f"Impossible de lire le fichier CSV de corrections "
-            f"{str(corrections_path)!r} : {exc}"
+            f"Impossible de lire le fichier CSV de corrections {str(corrections_path)!r} : {exc}"
         ) from exc
 
 
@@ -180,9 +178,7 @@ def load_local_corrections(path: str) -> Dataset:
             "(CLI) ou local_corrections_path (POST /train)."
         )
     if not corrections_path.is_file():
-        raise ValueError(
-            f"Le chemin des corrections locales {path!r} n'est pas un fichier."
-        )
+        raise ValueError(f"Le chemin des corrections locales {path!r} n'est pas un fichier.")
 
     extension = corrections_path.suffix.lower()
     if extension in _CORRECTIONS_CSV_EXTENSIONS:
@@ -228,11 +224,13 @@ def load_local_corrections(path: str) -> Dataset:
         labels.append(int(_normalize_correction_label(raw_label, row_index)))
         lang_codes.append(lang_code)
 
-    dataset = Dataset.from_dict({
-        "text": texts,
-        "label": labels,
-        "lang_code": lang_codes,
-    })
+    dataset = Dataset.from_dict(
+        {
+            "text": texts,
+            "label": labels,
+            "lang_code": lang_codes,
+        }
+    )
 
     logger.info(
         "load_local_corrections: %s correction(s) chargée(s) depuis %s",
@@ -244,9 +242,9 @@ def load_local_corrections(path: str) -> Dataset:
 
 def load_raw_dataset(
     languages: Iterable[str] = ("fr", "en"),
-    max_per_lang: Optional[int] = 3000,
+    max_per_lang: int | None = 3000,
     seed: int = 42,
-    local_corrections_path: Optional[str] = None,
+    local_corrections_path: str | None = None,
 ) -> Dataset:
     """
     Charge les sous-ensembles de langues demandées depuis les fichiers Parquet HF.
@@ -346,7 +344,7 @@ def coerce_label(value) -> int:
     raise ValueError(f"Label out of range for {LABEL_NAMES}: {value!r}")
 
 
-def _read_records_from_file(path: Path) -> List[dict]:
+def _read_records_from_file(path: Path) -> list[dict]:
     """Lit un fichier CSV, JSON ou JSONL et renvoie une liste de dictionnaires."""
     suffix = path.suffix.lower()
 
@@ -402,9 +400,9 @@ def load_local_dataset(
     if not path.exists():
         raise FileNotFoundError(f"Input file not found: {file_path}")
 
-    texts: List[str] = []
-    labels: List[int] = []
-    langs: List[str] = []
+    texts: list[str] = []
+    labels: list[int] = []
+    langs: list[str] = []
 
     for row in _read_records_from_file(path):
         text_value = next((row[column] for column in _TEXT_COLUMN_ALIASES if row.get(column)), None)
@@ -440,7 +438,7 @@ def augment_dataset(
     seed: int = 42,
     deduplicate: bool = True,
     use_back_translation: bool = False,
-    class_augment_weights: Optional[Dict[int, float]] = None,
+    class_augment_weights: dict[int, float] | None = None,
 ) -> Dataset:
     """
     Applique la recomposition EDA sur une fraction du dataset.
@@ -466,7 +464,7 @@ def augment_dataset(
     Returns:
         Dataset augmenté
     """
-    from src.augmentation.eda import recompose
+    from app.infrastructure.ml.augmentation.eda import recompose
 
     random.seed(seed)
     df = dataset.to_pandas().copy()
@@ -499,7 +497,7 @@ def augment_dataset(
     # Normalise les poids (accepte des clés int ou str issues de YAML/JSON) et
     # bascule sur le surpoids par défaut de la classe neutral si rien n'est fourni.
     if class_augment_weights:
-        weights: Dict[int, float] = {}
+        weights: dict[int, float] = {}
         for key, weight in class_augment_weights.items():
             try:
                 label = int(str(key).strip())
@@ -509,7 +507,7 @@ def augment_dataset(
                     "label de classe entier (ex. 0, 1, 2). Les clés "
                     "'additionalProp1', 'additionalProp2'... sont des placeholders "
                     "Swagger UI envoyés tels quels : fournissez de vrais labels "
-                    "(ex. {\"1\": 3.0}) ou omettez le champ pour utiliser les "
+                    '(ex. {"1": 3.0}) ou omettez le champ pour utiliser les '
                     "poids par défaut."
                 ) from None
             if float(weight) < 0:
@@ -545,11 +543,13 @@ def augment_dataset(
         )
 
         for v in variants:
-            augmented_rows.append({
-                "text": v,
-                "label": row["label"],
-                "lang_code": row["lang_code"],
-            })
+            augmented_rows.append(
+                {
+                    "text": v,
+                    "label": row["label"],
+                    "lang_code": row["lang_code"],
+                }
+            )
 
     augmented_df = pd.DataFrame(augmented_rows)
     full_df = pd.concat([df, augmented_df], ignore_index=True)

@@ -2,7 +2,7 @@ import tempfile
 
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from src.inference.predictor import Predictor
+from app.infrastructure.ml.inference.predictor import Predictor
 
 
 def test_predictor_loads_checkpoint_model_pt():

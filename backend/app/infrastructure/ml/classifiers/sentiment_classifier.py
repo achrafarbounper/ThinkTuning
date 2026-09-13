@@ -21,7 +21,11 @@ import time
 from typing import Any
 
 from app.application.prediction_result_cache import PredictionResultCache
-from app.infrastructure.ml.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
+from app.infrastructure.ml.classifiers.base import (
+    BaseClassifier,
+    ClassifierMetrics,
+    PredictionResult,
+)
 
 logger = logging.getLogger("thinktuning.agent.classifiers.sentiment")
 
@@ -127,9 +131,7 @@ class SentimentClassifier(BaseClassifier):
                 latency_ms = (time.perf_counter() - start) * 1000.0
             except Exception:
                 self._metrics.record(0.0, cached=False, error=True)
-                logger.exception(
-                    "Prédiction sentiment échouée (%d texte(s))", len(misses)
-                )
+                logger.exception("Prédiction sentiment échouée (%d texte(s))", len(misses))
                 raise
             per_item_ms = latency_ms / len(misses)
             for (idx, text), row in zip(misses, raw_results, strict=True):

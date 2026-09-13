@@ -8,19 +8,19 @@ import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from app.application import job_logs
+from app.config.flags import TEST_MODE
+from app.config.training_config import load_config
 from app.domain.entities.models import TRAIN_JOB_STEPS, JobStatus
+from app.infrastructure.ml.dataset.loader import augment_dataset, load_raw_dataset
+from app.infrastructure.ml.dataset.preprocess import create_dataloaders
+from app.infrastructure.ml.model.distilbert import build_model
+from app.infrastructure.ml.model.trainer import Trainer, compute_class_weights
 from app.infrastructure.persistence.job_store import get_job_store
 from app.infrastructure.persistence.model_versioning import (
     MODEL_ROOT,
     resolve_model_dir,
     save_model_version,
 )
-from src.dataset.loader import augment_dataset, load_raw_dataset
-from src.dataset.preprocess import create_dataloaders
-from src.model.distilbert import build_model
-from src.model.trainer import Trainer, compute_class_weights
-from src.utils.config import load_config
-from src.utils.flags import TEST_MODE
 
 logger = logging.getLogger(__name__)
 _job_cancel_events: dict[str, threading.Event] = {}
@@ -365,8 +365,8 @@ def run_training(job_id: str, req):
 
         _set_step(job, store, job_id, "loading_model")
         if TEST_MODE:
-            from src.inference.tiny_tokenizer import TinyTokenizer
-            from src.model.tiny_model import TinyModel
+            from app.infrastructure.ml.inference.tiny_tokenizer import TinyTokenizer
+            from app.infrastructure.ml.model.tiny_model import TinyModel
 
             tokenizer = TinyTokenizer()
             model = TinyModel()

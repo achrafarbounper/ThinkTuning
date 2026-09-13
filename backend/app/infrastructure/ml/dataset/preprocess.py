@@ -2,21 +2,23 @@
 Tokenisation et création des DataLoaders pour l'entraînement.
 """
 
+import torch
+from datasets import Dataset
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, DataCollatorWithPadding
-from datasets import Dataset
-import torch
 
 
 def tokenize_dataset(dataset, tokenizer, max_length=128):
     # --- Correction pour les tests E2E : Dataset peut être un objet HF ou dict-like ---
     if not hasattr(dataset, "column_names"):
         # Convertir en Dataset Hugging Face avec les colonnes attendues
-        dataset = Dataset.from_dict({
-            "text": getattr(dataset, 'text', []),
-            "labels": getattr(dataset, 'label', []),      # conversion correcte
-            "lang_code": getattr(dataset, 'lang_code', []),
-        })
+        dataset = Dataset.from_dict(
+            {
+                "text": getattr(dataset, "text", []),
+                "labels": getattr(dataset, "label", []),  # conversion correcte
+                "lang_code": getattr(dataset, "lang_code", []),
+            }
+        )
 
     if isinstance(tokenizer, str):
         tokenizer = AutoTokenizer.from_pretrained(tokenizer)
@@ -47,9 +49,14 @@ def create_dataloaders(train_ds, val_ds, cfg):
 
     # Vérifier que la colonne 'labels' existe avant de formater
     if "labels" not in train_ds.column_names:
-        raise ValueError(f"Dataset train n'a pas la colonne 'labels'. Colonnes disponibles: {train_ds.column_names}")
+        raise ValueError(
+            f"Dataset train n'a pas la colonne 'labels'. "
+            f"Colonnes disponibles: {train_ds.column_names}"
+        )
     if "labels" not in val_ds.column_names:
-        raise ValueError(f"Dataset val n'a pas la colonne 'labels'. Colonnes disponibles: {val_ds.column_names}")
+        raise ValueError(
+            f"Dataset val n'a pas la colonne 'labels'. Colonnes disponibles: {val_ds.column_names}"
+        )
 
     # IMPORTANT: Inclure 'labels' dans les colonnes à convertir en torch tensor
     # Cela garantit que le collator recevra bien cette clé dans le batch dictionary
@@ -61,9 +68,15 @@ def create_dataloaders(train_ds, val_ds, cfg):
 
     # Vérifier que les datasets ont bien la colonne 'labels' après formatage
     if "labels" not in train_ds.column_names:
-        raise ValueError(f"Dataset train n'a pas la colonne 'labels' après with_format. Colonnes: {train_ds.column_names}")
+        raise ValueError(
+            f"Dataset train n'a pas la colonne 'labels' après with_format. "
+            f"Colonnes: {train_ds.column_names}"
+        )
     if "labels" not in val_ds.column_names:
-        raise ValueError(f"Dataset val n'a pas la colonne 'labels' après with_format. Colonnes: {val_ds.column_names}")
+        raise ValueError(
+            f"Dataset val n'a pas la colonne 'labels' après with_format. "
+            f"Colonnes: {val_ds.column_names}"
+        )
 
     # Custom collation function that explicitly includes labels.
     # NOTE: with recent transformers versions, DataCollatorWithPadding only
@@ -73,20 +86,22 @@ def create_dataloaders(train_ds, val_ds, cfg):
     def custom_collate(batch):
         result = DataCollatorWithPadding(tokenizer=tokenizer)(batch)
         if "labels" not in result:
-            result["labels"] = torch.tensor(
-                [item["labels"] for item in batch], dtype=torch.long
-            )
+            result["labels"] = torch.tensor([item["labels"] for item in batch], dtype=torch.long)
         return result
-    
+
     collator = custom_collate
 
     train_loader = DataLoader(
-        train_ds, batch_size=cfg["batch_size"], shuffle=True,
+        train_ds,
+        batch_size=cfg["batch_size"],
+        shuffle=True,
         num_workers=cfg.get("num_workers", 0),
         collate_fn=collator,
     )
     val_loader = DataLoader(
-        val_ds, batch_size=cfg["batch_size"], shuffle=False,
+        val_ds,
+        batch_size=cfg["batch_size"],
+        shuffle=False,
         num_workers=cfg.get("num_workers", 0),
         collate_fn=collator,
     )

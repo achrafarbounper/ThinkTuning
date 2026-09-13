@@ -36,7 +36,7 @@ def test_classify_path_risk_sensitive() -> None:
 
 def test_classify_path_risk_benign() -> None:
     assert not classify_path_risk("data/dataset.csv")
-    assert not classify_path_risk("src/model/trainer.py")
+    assert not classify_path_risk("app/infrastructure/ml/model/trainer.py")
     assert not classify_path_risk("outputs/run_1/metrics.json")
 
 

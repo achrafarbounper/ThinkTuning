@@ -263,7 +263,7 @@ def create_distilbert_runner(
     model_path: str, device: str, batch_size: int
 ) -> Callable[[List[str]], List[dict]]:
     """Fabrique la fonction d'inférence utilisant Predictor (DistilBERT)."""
-    from src.inference.predictor import Predictor
+    from app.infrastructure.ml.inference.predictor import Predictor
 
     predictor = Predictor(model_path)
     if hasattr(predictor, "model"):

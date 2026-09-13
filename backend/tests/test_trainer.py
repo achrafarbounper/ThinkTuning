@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 
 import app.api as api
-from src.model.trainer import Trainer
+from app.infrastructure.ml.model.trainer import Trainer
 
 
 class TinyTextModel(torch.nn.Module):
@@ -138,7 +138,7 @@ def test_mixup_enabled_combines_two_criterion_calls():
     )
     trainer.criterion = criterion
 
-    with patch.dict("src.model.trainer.np.random.__dict__",
+    with patch.dict("app.infrastructure.ml.model.trainer.np.random.__dict__",
                     {"beta": lambda a, b: 0.7}):
         trainer._train_epoch(loader)
 

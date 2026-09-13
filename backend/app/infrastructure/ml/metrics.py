@@ -1,4 +1,4 @@
-﻿from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score
 
 # Ordre canonique des classes, aligné sur src/dataset/loader.py::LABEL_NAMES.
 LABEL_ORDER = ["negative", "neutral", "positive"]
@@ -17,10 +17,11 @@ def compute_metrics(preds, labels):
     }
 
     try:
-        per_class = f1_score(labels, preds, average=None, labels=list(range(len(LABEL_ORDER))), zero_division=0)
+        per_class = f1_score(
+            labels, preds, average=None, labels=list(range(len(LABEL_ORDER))), zero_division=0
+        )
         metrics["f1_per_class"] = {
-            name: float(per_class[idx])
-            for idx, name in enumerate(LABEL_ORDER)
+            name: float(per_class[idx]) for idx, name in enumerate(LABEL_ORDER)
         }
     except Exception:
         # Un dataset sans toutes les classes présente ne doit jamais casser l'entraînement.

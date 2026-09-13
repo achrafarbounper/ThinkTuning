@@ -18,10 +18,10 @@ import torch
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from tqdm import tqdm
 
-from src.dataset.loader import load_raw_dataset
-from src.dataset.preprocess import tokenize_dataset
-from src.utils.config import load_config
-from src.utils.metrics import compute_metrics
+from app.infrastructure.ml.dataset.loader import load_raw_dataset
+from app.infrastructure.ml.dataset.preprocess import tokenize_dataset
+from app.config.training_config import load_config
+from app.infrastructure.ml.metrics import compute_metrics
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
 
 logger = logging.getLogger(__name__)

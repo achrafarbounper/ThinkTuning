@@ -2,10 +2,11 @@ import json
 import os
 
 import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from src.dataset.loader import LABEL_NAMES
-from src.utils.flags import TEST_MODE
+from app.config.flags import TEST_MODE
+from app.infrastructure.ml.dataset.loader import LABEL_NAMES
+
 _DEFAULT_MAX_LENGTH = 128
 # Taille de chunk d'inférence : au-delà, on découpe pour éviter de tokenizer
 # tout un lot géant en mémoire (OOM sur /predict/batch avec 100k lignes).
@@ -23,9 +24,7 @@ def _resolve_device() -> torch.device:
         return torch.device("cpu")
     if requested == "cuda":
         if not torch.cuda.is_available():
-            raise RuntimeError(
-                "PREDICT_DEVICE=cuda mais CUDA est indisponible sur cette machine."
-            )
+            raise RuntimeError("PREDICT_DEVICE=cuda mais CUDA est indisponible sur cette machine.")
         return torch.device("cuda")
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -52,7 +51,7 @@ def _is_valid_model_dir(path: str) -> bool:
     config_path = os.path.join(path, "config.json")
     if os.path.isfile(config_path):
         try:
-            with open(config_path, "r", encoding="utf-8") as fh:
+            with open(config_path, encoding="utf-8") as fh:
                 config = json.load(fh)
             if isinstance(config, dict) and config:
                 return True
@@ -108,8 +107,12 @@ def _check_head_trained(model):
     silencieux avec un modèle inexploitable (qui renverrait du `neutral`
     universel, softmax ≈ uniforme)."""
     try:
-        from app.infrastructure.persistence.model_head_check import _classifier_std, _load_head_state
-        import tempfile, os as _os
+        import tempfile
+
+        from app.infrastructure.persistence.model_head_check import (
+            _classifier_std,
+            _load_head_state,
+        )
 
         # On sauvegarde temporairement pour réutiliser le check basé sur fichiers.
         tmp = tempfile.mkdtemp(prefix="tt_headcheck_")
@@ -117,9 +120,7 @@ def _check_head_trained(model):
             model.save_pretrained(tmp)
             state = _load_head_state(tmp)
             if not state:
-                raise RuntimeError(
-                    "Impossible de lire la tête de classification du modèle chargé."
-                )
+                raise RuntimeError("Impossible de lire la tête de classification du modèle chargé.")
             std = _classifier_std(state)
             import logging as _logging
 
@@ -144,6 +145,7 @@ def _check_head_trained(model):
                 )
         finally:
             import shutil as _shutil
+
             _shutil.rmtree(tmp, ignore_errors=True)
     except RuntimeError:
         raise
@@ -159,7 +161,8 @@ def _resolve_default_max_length():
     128 si le fichier de config est introuvable ou illisible.
     """
     try:
-        from src.utils.config import load_config
+        from app.config.training_config import load_config
+
         cfg = load_config("configs/default.yaml")
         return cfg.get("max_length", _DEFAULT_MAX_LENGTH)
     except Exception:
@@ -187,8 +190,8 @@ class Predictor:
             verify_model_signature(resolved_model_path)
         # MODE TEST : TinyModel + TinyTokenizer (toujours sur CPU).
         if TEST_MODE:
-            from src.inference.tiny_tokenizer import TinyTokenizer
-            from src.model.tiny_model import TinyModel
+            from app.infrastructure.ml.inference.tiny_tokenizer import TinyTokenizer
+            from app.infrastructure.ml.model.tiny_model import TinyModel
 
             state_dict_path = os.path.join(resolved_model_path, "model.pt")
             if not os.path.exists(state_dict_path):
@@ -213,7 +216,7 @@ class Predictor:
                 self.model = AutoModelForSequenceClassification.from_pretrained(
                     resolved_model_path, trust_remote_code=False
                 )
-            except Exception:
+            except Exception as exc:
                 # Fallback : cherche un fichier de poids torch pur (.pt / .bin /
                 # model_state_dict.pt) et le charge dans un modèle HF neuf.
                 fallback_state_dict: str | None = None
@@ -224,13 +227,13 @@ class Predictor:
                         break
                 if fallback_state_dict is None:
                     # EXACTEMENT ce que le test attend
-                    raise FileNotFoundError("model.pt")
+                    raise FileNotFoundError("model.pt") from exc
 
                 state = torch.load(fallback_state_dict, map_location="cpu")
                 if not isinstance(state, dict):
                     raise RuntimeError(
                         f"Fichier de poids illisible (pas un state_dict) : {fallback_state_dict}"
-                    )
+                    ) from exc
                 # Le try initial a échoué (ex. tokenizer absent du dossier) :
                 # tokenizer + modèle doivent être (re)chargés ICI, avant toute
                 # référence à self.model, sinon AttributeError garanti.
@@ -254,14 +257,12 @@ class Predictor:
                         f"{sorted(unexpected)[:10]} dans {fallback_state_dict}. "
                         "La version du modèle est probablement corrompue ; "
                         "ré-entraînez (POST /train) ou activez une autre version."
-                    )
+                    ) from exc
 
                 self.model.load_state_dict(state)
 
         elif os.path.isfile(resolved_model_path):
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name, trust_remote_code=False
-            )
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=False)
             self.model = AutoModelForSequenceClassification.from_pretrained(
                 self.model_name,
                 num_labels=3,
@@ -330,7 +331,7 @@ class Predictor:
                 "sentiment": LABEL_NAMES[pred.item()],
                 "confidence": round(prob[pred].item(), 3),
             }
-            for text, pred, prob in zip(texts, preds, probs)
+            for text, pred, prob in zip(texts, preds, probs, strict=False)
         ]
 
     def predict_batch(self, texts):

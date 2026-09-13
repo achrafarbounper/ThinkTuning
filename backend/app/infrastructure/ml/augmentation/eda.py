@@ -12,10 +12,10 @@ Opérations :
 Compatible FR + EN via WordNet Open Multilingual (OMW).
 """
 
+import logging
 import random
 import re
-import logging
-from typing import Any, List
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +32,12 @@ def _ensure_nltk_data():
 
     for pkg in ["wordnet", "omw-1.4", "punkt", "punkt_tab"]:
         try:
-            nltk.data.find(
-                f"corpora/{pkg}" if "punkt" not in pkg else f"tokenizers/{pkg}"
-            )
+            nltk.data.find(f"corpora/{pkg}" if "punkt" not in pkg else f"tokenizers/{pkg}")
         except LookupError:
             nltk.download(pkg, quiet=True)
 
     return nltk, wordnet
+
 
 # Codes langue WordNet Open Multilingual (OMW)
 LANG_MAP = {
@@ -48,12 +47,42 @@ LANG_MAP = {
 
 STOPWORDS = {
     "fr": {
-        "le", "la", "les", "un", "une", "des", "de", "du", "et", "à", "est",
-        "que", "qui", "dans", "pour", "sur", "avec", "ce", "cet", "cette"
+        "le",
+        "la",
+        "les",
+        "un",
+        "une",
+        "des",
+        "de",
+        "du",
+        "et",
+        "à",
+        "est",
+        "que",
+        "qui",
+        "dans",
+        "pour",
+        "sur",
+        "avec",
+        "ce",
+        "cet",
+        "cette",
     },
     "en": {
-        "the", "a", "an", "and", "of", "to", "is", "that", "which", "in",
-        "for", "on", "with", "this", "that"
+        "the",
+        "a",
+        "an",
+        "and",
+        "of",
+        "to",
+        "is",
+        "that",
+        "which",
+        "in",
+        "for",
+        "on",
+        "with",
+        "this",
     },
 }
 
@@ -69,7 +98,8 @@ NEGATION_WORDS = {
 # Synonym extraction
 # ---------------------------------------------------------------------------
 
-def _get_synonyms(word: str, lang: str) -> List[str]:
+
+def _get_synonyms(word: str, lang: str) -> list[str]:
     """Récupère des synonymes via WordNet dans la langue donnée.
     Robuste : ne plante jamais si WordNet est absent ou corrompu.
     """
@@ -92,12 +122,12 @@ def _get_synonyms(word: str, lang: str) -> List[str]:
         return []
 
 
-
 # ---------------------------------------------------------------------------
 # EDA operations
 # ---------------------------------------------------------------------------
 
-def synonym_replacement(words: List[str], lang: str, n: int = 1) -> List[str]:
+
+def synonym_replacement(words: list[str], lang: str, n: int = 1) -> list[str]:
     """Remplace n mots (hors stopwords et négations) par un de leurs synonymes."""
     logger.debug(f"synonym_replacement : début | lang={lang}, n={n}")
     new_words = words.copy()
@@ -119,16 +149,14 @@ def synonym_replacement(words: List[str], lang: str, n: int = 1) -> List[str]:
     return new_words
 
 
-def random_insertion(words: List[str], lang: str, n: int = 1) -> List[str]:
+def random_insertion(words: list[str], lang: str, n: int = 1) -> list[str]:
     """Insère n synonymes de mots existants à des positions aléatoires."""
     logger.debug(f"random_insertion : début | lang={lang}, n={n}")
     new_words = words.copy()
     protected = STOPWORDS.get(lang, set()) | NEGATION_WORDS.get(lang, set())
 
     for _ in range(n):
-        candidates = [
-            w for w in new_words if w.lower() not in protected
-        ]
+        candidates = [w for w in new_words if w.lower() not in protected]
         if not candidates:
             continue
 
@@ -150,7 +178,7 @@ def random_insertion(words: List[str], lang: str, n: int = 1) -> List[str]:
     return new_words
 
 
-def random_swap(words: List[str], lang: str = "en", n: int = 1) -> List[str]:
+def random_swap(words: list[str], lang: str = "en", n: int = 1) -> list[str]:
     """
     Permute n paires de mots aléatoirement, en évitant de déplacer les
     mots de négation (ex: "pas", "not") pour ne pas casser leur portée
@@ -176,7 +204,7 @@ def random_swap(words: List[str], lang: str = "en", n: int = 1) -> List[str]:
     return new_words
 
 
-def random_deletion(words: List[str], lang: str = "en", p: float = 0.1) -> List[str]:
+def random_deletion(words: list[str], lang: str = "en", p: float = 0.1) -> list[str]:
     """
     Supprime chaque mot avec une probabilité p (garde au moins 1 mot).
     Les mots de négation sont protégés pour ne pas inverser le sentiment.
@@ -186,10 +214,7 @@ def random_deletion(words: List[str], lang: str = "en", p: float = 0.1) -> List[
         return words
 
     protected = NEGATION_WORDS.get(lang, set())
-    new_words = [
-        w for w in words
-        if w.lower() in protected or random.random() > p
-    ]
+    new_words = [w for w in words if w.lower() in protected or random.random() > p]
     if not new_words:
         return [random.choice(words)]
 
@@ -245,14 +270,10 @@ def _get_translation_pipeline(src_lang: str, tgt_lang: str):
             """Mini-pipeline compatible avec l'API pipe(text)[0]['translation_text']."""
 
             def __call__(self, text: str, **kwargs) -> list:
-                inputs = tokenizer(
-                    text, return_tensors="pt", truncation=True, max_length=512
-                )
+                inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
                 with __import__("torch").no_grad():
                     output_ids = model.generate(**inputs)
-                translated = tokenizer.decode(
-                    output_ids[0], skip_special_tokens=True
-                )
+                translated = tokenizer.decode(output_ids[0], skip_special_tokens=True)
                 return [{"translation_text": translated}]
 
         _TRANSLATION_PIPELINES[key] = _TranslationPipeline()
@@ -288,9 +309,7 @@ def back_translation(text: str, lang: str = "fr") -> str:
 
     num_words = len(re.findall(r"\w+", text, re.UNICODE))
     if num_words < 3:
-        logger.debug(
-            f"back_translation : texte trop court ({num_words} mots) -> inchangé"
-        )
+        logger.debug(f"back_translation : texte trop court ({num_words} mots) -> inchangé")
         return text
 
     try:
@@ -299,9 +318,7 @@ def back_translation(text: str, lang: str = "fr") -> str:
         elif lang == "en":
             src, pivot = "en", "fr"
         else:
-            logger.warning(
-                f"back_translation : langue non supportée '{lang}' -> inchangé"
-            )
+            logger.warning(f"back_translation : langue non supportée '{lang}' -> inchangé")
             return text
 
         had_negation_src = _has_negation(text, src)
@@ -315,9 +332,7 @@ def back_translation(text: str, lang: str = "fr") -> str:
         # Protection inversion de sentiment : la négation doit être préservée.
         has_negation_back = _has_negation(back, src)
         if had_negation_src != has_negation_back:
-            logger.debug(
-                "back_translation : négation non préservée -> texte original retenu"
-            )
+            logger.debug("back_translation : négation non préservée -> texte original retenu")
             return text
 
         # Sécurité supplémentaire : résultat vide ou identique -> texte original
@@ -329,8 +344,7 @@ def back_translation(text: str, lang: str = "fr") -> str:
 
     except Exception:
         logger.warning(
-            "back_translation : échec (modèle indisponible, offline, ...) -> "
-            "texte original retenu",
+            "back_translation : échec (modèle indisponible, offline, ...) -> texte original retenu",
             exc_info=True,
         )
         return text
@@ -340,13 +354,14 @@ def back_translation(text: str, lang: str = "fr") -> str:
 # Main recomposition function
 # ---------------------------------------------------------------------------
 
+
 def recompose(
     text: str,
     lang: str = "fr",
     num_variants: int = 4,
     alpha: float = 0.1,
     use_back_translation: bool = False,
-) -> List[str]:
+) -> list[str]:
     """
     Recompose un texte en `num_variants` nouvelles versions.
 

@@ -12,7 +12,7 @@ from transformers import AutoTokenizer
 import app.api as api
 from app.api import JobStatus, TrainJob, TrainRequest, _jobs, _run_training, cancel_training
 from evaluate import evaluate
-from src.dataset.preprocess import create_dataloaders, tokenize_dataset
+from app.infrastructure.ml.dataset.preprocess import create_dataloaders, tokenize_dataset
 
 api.TEST_MODE = True
 

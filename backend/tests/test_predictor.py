@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from src.inference.predictor import Predictor
+from app.infrastructure.ml.inference.predictor import Predictor
 
 
 def test_predictor_loads_and_predicts():
@@ -54,7 +54,7 @@ def test_predictor_predicts_multiple_texts():
 
 
 def test_predictor_falls_back_when_tokenizer_missing(tmp_path, monkeypatch):
-    import src.inference.predictor as predictor_module
+    import app.infrastructure.ml.inference.predictor as predictor_module
 
     class DummyModel:
         def eval(self):

@@ -21,8 +21,8 @@ ThinkTuning/
 │   │   ├── application/       # Use cases, runners/caches/registres réabsorbés (ex-legacy/core)
 │   │   ├── config/            # Settings (pydantic-settings) + logging_setup
 │   │   ├── domain/            # Entités, ports (Protocol), erreurs, utilitaires purs (utils/)
-│   │   └── infrastructure/    # Adaptateurs : persistence, ml, llm, tools (sandboxés), mcp, events
-│   ├── src/             # ML : dataset, augmentation (EDA : SR/RI/RS/RD), entraînement, inférence
+│   │   └── infrastructure/    # Adaptateurs : persistence, ml (ex-src/ : dataset, augmentation EDA,
+│   │                          #   model Trainer, inference Predictor), llm, tools (sandboxés), mcp
 │   ├── train.py         # Fine-tuning de XLM-RoBERTa sur le dataset augmenté
 │   ├── predict.py       # Inférence sur de nouveaux textes
 │   └── requirements.txt
@@ -238,7 +238,7 @@ Comportement de `merge_reviewed_data.py` :
 
 - seules les lignes avec un `manual_label` valide (`negative` / `neutral` /
   `positive`, alias français acceptés) sont conservées ;
-- le label est converti en entier selon `LABEL_NAMES` de `src/dataset/loader.py`
+- le label est converti en entier selon `LABEL_NAMES` de `app/infrastructure/ml/dataset/loader.py`
   ({0: negative, 1: neutral, 2: positive}) ;
 - la déduplication se fait sur le texte normalisé (trim + minuscules) : un
   texte déjà présent dans la source voit son label **mis à jour** avec la
@@ -257,7 +257,7 @@ python predict.py "Ce produit est fantastique, je recommande !"
 ### Comment l'utiliser
 
 L'API FastAPI vit dans le module `app.api.main` (au même niveau que `train.py`,
-`configs/`, `src/`). Installez les dépendances, puis lancez le serveur :
+`configs/`, `app/`). Installez les dépendances, puis lancez le serveur :
 
 ```bash
 pip install fastapi "uvicorn[standard]"

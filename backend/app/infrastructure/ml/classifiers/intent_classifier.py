@@ -5,7 +5,8 @@ message « action » (demande d'exécution d'un outil : entraîner, chercher,
 lister…). L'architecture :
 
   - modèle HuggingFace ``AutoModelForSequenceClassification`` chargé depuis une
-    version valide de ``experiments/intent_models`` (voir ``app/infrastructure/persistence/intent_store``) ;
+    version valide de ``experiments/intent_models`` (voir
+    ``app/infrastructure/persistence/intent_store``) ;
   - point de bascule : si AUCUN modèle entraîné n'est disponible (ou si son
     chargement échoue), les RÈGLES métier de ``ia/agent/classifiers/fallback``
     prennent le relais — continuité de service garantie ;
@@ -23,9 +24,16 @@ import os
 import time
 from typing import Any
 
-from app.infrastructure.persistence.intent_store import default_intent_labels, resolve_intent_model_dir
-from app.infrastructure.ml.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
+from app.infrastructure.ml.classifiers.base import (
+    BaseClassifier,
+    ClassifierMetrics,
+    PredictionResult,
+)
 from app.infrastructure.ml.classifiers.fallback import fallback_intent
+from app.infrastructure.persistence.intent_store import (
+    default_intent_labels,
+    resolve_intent_model_dir,
+)
 
 logger = logging.getLogger("thinktuning.agent.classifiers.intent")
 
@@ -52,9 +60,7 @@ def resolve_intent_model_optional(model_name: str | None = None) -> str | None:
         return None
 
 
-def apply_safety_threshold(
-    label: str, confidence: float, threshold: float
-) -> tuple[str, float]:
+def apply_safety_threshold(label: str, confidence: float, threshold: float) -> tuple[str, float]:
     """Seuil de sécurité partagé : une ``action`` sous ``threshold`` → ``chat``.
 
     Règle de décision unique des trois moteurs (règles / torch / onnx) — ne
@@ -105,7 +111,7 @@ class IntentClassifier(BaseClassifier):
         self.quantize_int8 = quantize_int8
         self.threshold = threshold
 
-        self._model: Any = None          # PyTorch chargé (paresseux)
+        self._model: Any = None  # PyTorch chargé (paresseux)
         self._tokenizer: Any = None
         self._onnx: Any = None
         self._metrics = ClassifierMetrics()
@@ -155,18 +161,14 @@ class IntentClassifier(BaseClassifier):
                         path,
                     )
                 self._model.eval()
-            logger.info(
-                "IntentClassifier : modèle chargé (%s, engine=%s)", path, self.engine
-            )
+            logger.info("IntentClassifier : modèle chargé (%s, engine=%s)", path, self.engine)
         except Exception as exc:
             self._load_error = f"échec chargement ({exc}) -> règles"
             logger.warning("IntentClassifier : %s", self._load_error)
 
     @property
     def _use_rules(self) -> bool:
-        return (
-            self.engine == "rules" or self._model is None and self._onnx is None
-        )
+        return self.engine == "rules" or self._model is None and self._onnx is None
 
     @staticmethod
     def _find_onnx(model_dir: str) -> str:
@@ -204,13 +206,9 @@ class IntentClassifier(BaseClassifier):
             label, confidence = fallback_intent(text)
             distribution = {
                 label: float(confidence),
-                next(lab for lab in _INTENT_LABELS if lab != label): round(
-                    1.0 - confidence, 3
-                ),
+                next(lab for lab in _INTENT_LABELS if lab != label): round(1.0 - confidence, 3),
             }
-            results.append(
-                self._to_result(text, label, confidence, probabilities=distribution)
-            )
+            results.append(self._to_result(text, label, confidence, probabilities=distribution))
         return results
 
     def _predict_torch(self, texts: list[str]) -> list[PredictionResult]:
@@ -218,7 +216,10 @@ class IntentClassifier(BaseClassifier):
 
         start = time.perf_counter()
         inputs = self._tokenizer(
-            texts, padding=True, truncation=True, max_length=128,
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=128,
             return_tensors="pt",
         )
         with torch.inference_mode():
@@ -236,9 +237,7 @@ class IntentClassifier(BaseClassifier):
             }
             label = _INTENT_LABELS[int(pred)]
             conf = float(probs[i, pred])
-            results.append(
-                self._to_result(text, label, conf, latency, probabilities=distribution)
-            )
+            results.append(self._to_result(text, label, conf, latency, probabilities=distribution))
         self._metrics.record(latency, cached=False)
         return results
 
@@ -267,9 +266,7 @@ class IntentClassifier(BaseClassifier):
         # retombe en ``chat``. La distribution reflète alors la DÉCISION
         # rendue : l'invariant ``probabilities[label] == confidence`` reste
         # vrai après bascule.
-        new_label, new_confidence = apply_safety_threshold(
-            label, confidence, self.threshold
-        )
+        new_label, new_confidence = apply_safety_threshold(label, confidence, self.threshold)
         if new_label != label and probabilities is not None:
             other = next(lab for lab in _INTENT_LABELS if lab != new_label)
             probabilities = {
@@ -278,7 +275,10 @@ class IntentClassifier(BaseClassifier):
             }
         label, confidence = new_label, new_confidence
         return PredictionResult(
-            text=text, label=label, confidence=confidence, latency_ms=latency,
+            text=text,
+            label=label,
+            confidence=confidence,
+            latency_ms=latency,
             model_name=self.model_name or "",
             probabilities=probabilities,
         )

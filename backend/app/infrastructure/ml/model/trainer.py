@@ -1,15 +1,14 @@
-import os
 import logging
+import os
 
+import numpy as np
 import torch
 from torch import nn
 from torch.optim import AdamW
-from transformers import get_scheduler
 from tqdm import tqdm
+from transformers import get_scheduler
 
-from src.utils.metrics import compute_metrics
-
-import numpy as np
+from app.infrastructure.ml.metrics import compute_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +70,7 @@ class Trainer:
         )
 
         self.scheduler = None
-        
+
         # Label smoothing (régularisation) : epsilon configurable dans
         # default.yaml. 0.0 = désactivé. Passé directement à la CrossEntropyLoss
         # (compatible avec weight=... pour l'équilibrage des classes).
@@ -79,9 +78,7 @@ class Trainer:
         # Utiliser les poids de classe si fournis
         if class_weights is not None:
             class_weights = class_weights.to(self.device)
-        self.criterion = nn.CrossEntropyLoss(
-            weight=class_weights, label_smoothing=label_smoothing
-        )
+        self.criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=label_smoothing)
 
         # Mixup (régularisation) : alpha de la distribution Beta (0.0 = désactivé).
         # Combiné avec les token IDs discrets, on applique un "mixup au niveau de
@@ -89,8 +86,9 @@ class Trainer:
         # batch permuté, puis pondérée par lam ~ Beta(alpha, alpha).
         self.mixup_alpha = float(cfg.get("mixup_alpha", 0.0))
 
-    def train(self, train_loader, val_loader, cancel_event=None, on_epoch_end=None,
-              on_progress=None):
+    def train(
+        self, train_loader, val_loader, cancel_event=None, on_epoch_end=None, on_progress=None
+    ):
         """Exécute la boucle d'entraînement complète.
 
         ``on_epoch_end`` : callback optionnel appelé après chaque epoch avec
@@ -107,9 +105,7 @@ class Trainer:
         (équivalent JSON de la ligne tqdm ``1/2 [00:07<00:07, 7.73s/it]``).
         Toute exception est avalée : jamais de crash d'entraînement.
         """
-        logger.debug(
-            f"Trainer.train : début | epochs={self.cfg['epochs']}, device={self.device}"
-        )
+        logger.debug(f"Trainer.train : début | epochs={self.cfg['epochs']}, device={self.device}")
         # Le nombre de "vrais" pas d'optimisation tient compte de l'accumulation
         steps_per_epoch = -(-len(train_loader) // self.grad_accum_steps)  # ceil division
         total_steps = steps_per_epoch * self.cfg["epochs"]
@@ -125,7 +121,9 @@ class Trainer:
         self.epoch_metrics = []
         self.final_metrics = {}
         self.training_duration_seconds = None
-        self.train_examples = len(train_loader.dataset) if hasattr(train_loader, "dataset") else None
+        self.train_examples = (
+            len(train_loader.dataset) if hasattr(train_loader, "dataset") else None
+        )
         self.val_examples = len(val_loader.dataset) if hasattr(val_loader, "dataset") else None
 
         start_time = __import__("time").time()
@@ -147,7 +145,7 @@ class Trainer:
         for epoch in range(self.cfg["epochs"]):
             if cancel_event is not None and cancel_event.is_set():
                 raise TrainingCancelledError("Training cancelled by user")
-            logger.info(f"\n=== Epoch {epoch+1}/{self.cfg['epochs']} ===")
+            logger.info(f"\n=== Epoch {epoch + 1}/{self.cfg['epochs']} ===")
             self._train_epoch(
                 train_loader,
                 cancel_event=cancel_event,
@@ -189,9 +187,7 @@ class Trainer:
                 try:
                     on_epoch_end(epoch_record)
                 except Exception:
-                    logger.exception(
-                        "on_epoch_end callback a échoué à l'epoch %s", epoch + 1
-                    )
+                    logger.exception("on_epoch_end callback a échoué à l'epoch %s", epoch + 1)
 
             f1 = metrics["f1_macro"]
             if f1 > best_f1 + min_delta:
@@ -199,9 +195,7 @@ class Trainer:
                 best_epoch = epoch + 1
                 best_epoch_record = epoch_record.copy()
                 epochs_without_improvement = 0
-                best_state = {
-                    k: v.detach().clone() for k, v in self.model.state_dict().items()
-                }
+                best_state = {k: v.detach().clone() for k, v in self.model.state_dict().items()}
                 self.save("experiments/checkpoints/best_model.pt")
                 logger.info(f"✔ Nouveau meilleur modèle (F1={f1:.4f}) sauvegardé.")
             else:
@@ -227,13 +221,9 @@ class Trainer:
         if best_state is not None:
             self.model.load_state_dict(best_state)
             self.final_metrics = best_epoch_record
-            logger.info(
-                f"↩ Meilleur checkpoint restauré (epoch {best_epoch}, F1={best_f1:.4f})."
-            )
+            logger.info(f"↩ Meilleur checkpoint restauré (epoch {best_epoch}, F1={best_f1:.4f}).")
         else:
-            self.final_metrics = (
-                self.epoch_metrics[-1].copy() if self.epoch_metrics else {}
-            )
+            self.final_metrics = self.epoch_metrics[-1].copy() if self.epoch_metrics else {}
 
         # État d'early stopping exposé pour le rapport (API / dashboard)
         self.early_stopped = early_stopped
@@ -252,8 +242,7 @@ class Trainer:
             "early_stopped": early_stopped,
         }
 
-    def _emit_progress(self, on_progress, phase, epoch, epochs_total, step, total,
-                       t0, last_emit):
+    def _emit_progress(self, on_progress, phase, epoch, epochs_total, step, total, t0, last_emit):
         """Construit et déclenche le callback ``on_progress`` (throttle 1×/s).
 
         Retourne le nouveau timestamp de dernier envoi (pour le throttle).
@@ -262,6 +251,7 @@ class Trainer:
         if on_progress is None or total <= 0:
             return last_emit
         import time as _time
+
         now = _time.time()
         elapsed = max(now - t0, 1e-9)
         is_last = step >= total
@@ -285,12 +275,14 @@ class Trainer:
             logger.exception("on_progress callback a échoué (phase=%s)", phase)
         return now
 
-    def _train_epoch(self, loader, cancel_event=None, on_progress=None,
-                     epoch=None, epochs_total=None):
+    def _train_epoch(
+        self, loader, cancel_event=None, on_progress=None, epoch=None, epochs_total=None
+    ):
         logger.debug(f"_train_epoch : début | {len(loader)} batch(s)")
         self.model.train()
         self.optimizer.zero_grad(set_to_none=True)
         import time as _time
+
         t0 = _time.time()
         last_emit = 0.0
 
@@ -305,9 +297,7 @@ class Trainer:
             attention_mask = batch["attention_mask"]
             labels = batch["labels"]
 
-            with torch.autocast(
-                device_type="cpu", dtype=torch.bfloat16, enabled=self.bf16
-            ):
+            with torch.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=self.bf16):
                 # On NE passe PAS labels au modèle : sinon HF calcule en
                 # interne une CrossEntropyLoss non pondérée dans outputs.loss,
                 # et self.criterion (qui porte les poids de classe) n'est
@@ -346,20 +336,28 @@ class Trainer:
                 self.optimizer.zero_grad(set_to_none=True)
 
             last_emit = self._emit_progress(
-                on_progress, "train", epoch, epochs_total,
-                step + 1, len(loader), t0, last_emit,
+                on_progress,
+                "train",
+                epoch,
+                epochs_total,
+                step + 1,
+                len(loader),
+                t0,
+                last_emit,
             )
 
         logger.debug("_train_epoch : terminé")
 
-    def _eval_epoch(self, loader, cancel_event=None, on_progress=None,
-                    epoch=None, epochs_total=None):
+    def _eval_epoch(
+        self, loader, cancel_event=None, on_progress=None, epoch=None, epochs_total=None
+    ):
         logger.debug(f"_eval_epoch : début | {len(loader)} batch(s)")
         self.model.eval()
         preds, labels = [], []
         total_loss = 0.0
         n_examples = 0
         import time as _time
+
         t0 = _time.time()
         last_emit = 0.0
 
@@ -371,9 +369,7 @@ class Trainer:
                     k: (v.to(self.device) if isinstance(v, torch.Tensor) else v)
                     for k, v in batch.items()
                 }
-                with torch.autocast(
-                    device_type="cpu", dtype=torch.bfloat16, enabled=self.bf16
-                ):
+                with torch.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=self.bf16):
                     outputs = self.model(
                         input_ids=batch["input_ids"],
                         attention_mask=batch["attention_mask"],
@@ -386,8 +382,14 @@ class Trainer:
                 total_loss += float(batch_loss.item()) * batch["labels"].size(0)
                 n_examples += batch["labels"].size(0)
                 last_emit = self._emit_progress(
-                    on_progress, "eval", epoch, epochs_total,
-                    step + 1, len(loader), t0, last_emit,
+                    on_progress,
+                    "eval",
+                    epoch,
+                    epochs_total,
+                    step + 1,
+                    len(loader),
+                    t0,
+                    last_emit,
                 )
 
         metrics = compute_metrics(preds, labels)
