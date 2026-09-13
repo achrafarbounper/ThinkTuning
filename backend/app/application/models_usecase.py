@@ -15,7 +15,7 @@ from app.domain.ports.model_versioning_ports import (
     EvaluationPort,
     ModelVersioningPort,
 )
-from core.models import ModelVersion
+from app.legacy.core.models import ModelVersion
 
 
 def list_model_details(*, versioning: ModelVersioningPort) -> list[ModelVersion]:

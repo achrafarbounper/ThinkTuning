@@ -7,7 +7,7 @@ chaque session porte un titre (auto-dérivé du premier message utilisateur),
 un modèle LLM et une liste ordonnée de messages (rôle, contenu, appels
 d'outils éventuels en JSON pour le mode Agent).
 
-Mêmes conventions que ``core/approval_store.py`` / ``core/run_store.py`` :
+Mêmes conventions que ``app/legacy/core/approval_store.py`` / ``app/legacy/core/run_store.py`` :
 base SQLite dédiée (experiments/agent_sessions.db, surchargeable via
 AGENT_SESSION_PATH) et store thread-safe.
 """
@@ -124,7 +124,7 @@ class SessionStore:
                          "tool_calls_json", "created_at"), row))
         # P2 lot 16 : déchiffrement transparent au repos (préfixe ``enc:`` si
         # STORE_ENCRYPTION_KEY est posée — valeurs legacy en clair inchangées).
-        from core.store_crypto import decrypt_text
+        from app.legacy.core.store_crypto import decrypt_text
 
         data["content"] = repair_utf8_mojibake(decrypt_text(data.get("content") or ""))
         data["thinking"] = repair_utf8_mojibake(decrypt_text(data.get("thinking") or ""))
@@ -242,7 +242,7 @@ class SessionStore:
             raise ValueError(f"Rôle inconnu : '{role}'. Attendus : {', '.join(_ROLES)}")
         payload = json.dumps(tool_calls or [], ensure_ascii=False)
         # P2 lot 16 : chiffrement au repos (content/thinking/tool_calls).
-        from core.store_crypto import encrypt_text
+        from app.legacy.core.store_crypto import encrypt_text
 
         stored_content = encrypt_text(content or "")
         stored_thinking = encrypt_text(thinking or "")

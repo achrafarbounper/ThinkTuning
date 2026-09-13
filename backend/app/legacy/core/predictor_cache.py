@@ -6,7 +6,7 @@ from collections import OrderedDict
 
 from fastapi import HTTPException
 
-from core.model_versioning import resolve_model_dir
+from app.legacy.core.model_versioning import resolve_model_dir
 from src.inference.predictor import Predictor
 
 # Nombre maximal de versions de modèles gardées en mémoire (LRU).

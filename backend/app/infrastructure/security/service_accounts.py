@@ -40,7 +40,7 @@ def _hash_secret(secret: str) -> str:
 
 def _audit(action: str, subject: str, detail: dict) -> None:
     try:
-        from core.audit_store import get_audit_store
+        from app.legacy.core.audit_store import get_audit_store
 
         get_audit_store().log(
             action=action,

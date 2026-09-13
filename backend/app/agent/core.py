@@ -19,7 +19,7 @@ Décisions de policy intégrées au flux :
     - ``AUTO_APPROVE`` → exécution immédiate ;
     - ``APPROVE``      → l'action est mise en attente : le run se termine avec
       ``status=pending_approval`` et l'action en ``awaiting`` (le flux
-      d'approbation humaine passe par ``core/approval_store`` côté legacy, ou
+      d'approbation humaine passe par ``app/legacy/core/approval_store`` côté legacy, ou
       un ``ApprovalStorePort`` injecté côté nouveau noyau) ;
     - ``REJECT``       → l'action est refusée, le LLM est informé (il peut
       reformuler) ; répétition d'un rejet identique → arrêt immédiat
@@ -563,7 +563,7 @@ class AgentCore:
     def _resolve_authz_gate(self) -> Any | None:
         """Résout le gate PDP du run (None si inactif — flag off, défaut)."""
         if self._authz_enforcer is None:
-            from core.feature_flags import flag  # import paresseux (anti-cycle)
+            from app.legacy.core.feature_flags import flag  # import paresseux (anti-cycle)
 
             if not flag("security_authz_casbin"):
                 return None
@@ -990,7 +990,7 @@ class AgentCore:
         """
         import json as _json
 
-        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+        from app.legacy.core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
 
         if isinstance(value, (dict, list)):
             try:

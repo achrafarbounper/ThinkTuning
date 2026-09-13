@@ -42,15 +42,15 @@ def main() -> int:
     days_sessions = args.days_sessions or _parse_int_env("RETENTION_SESSIONS_DAYS", 90)
     days_audit = args.days_audit or _parse_int_env("RETENTION_AUDIT_DAYS", 365)
 
-    from core.audit_store import get_audit_store
-    from core.session_store import get_session_store
+    from app.legacy.core.audit_store import get_audit_store
+    from app.legacy.core.session_store import get_session_store
 
     if args.dry_run:
         # En dry-run, on simule sur un store jetable sans déranger le store partagé.
         import tempfile
 
-        from core.audit_store import AuditStore
-        from core.session_store import SessionStore
+        from app.legacy.core.audit_store import AuditStore
+        from app.legacy.core.session_store import SessionStore
 
         tmp = tempfile.mkdtemp(prefix="tt_retention_dry_")
         audit = AuditStore(str(Path(tmp) / "audit.db"))

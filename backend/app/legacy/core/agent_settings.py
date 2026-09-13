@@ -2,7 +2,7 @@
 
 """Paramètres persistants de l'agent IA — module de configuration de l'IHM.
 
-Même schéma de code que ``core/job_store.py`` : une base dédiée
+Même schéma de code que ``app/legacy/core/job_store.py`` : une base dédiée
 (experiments/agent_settings.db en SQLite, surchargeable via AGENT_SETTINGS_PATH)
 ou, en mode ``PERSISTENCE_BACKEND=mongodb``, la collection ``agent_settings`` de
 MongoDB (``MongoAgentSettingsStore``) — le MÊME backend que tous les autres
@@ -124,7 +124,7 @@ _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 VALEURS_PAR_DEFAUT: dict[str, Any] = {
     # Connexion LLM : défauts vides — le consommateur applique le défaut
-    # dépendant du provider (cf. core/agent_cache.agent_config).
+    # dépendant du provider (cf. app/legacy/core/agent_cache.agent_config).
     "provider": "ollama",
     "model": "",
     "ollama_url": "",
@@ -265,7 +265,7 @@ def get_settings_store() -> AgentSettingsStore:
     """Store persistant des paramètres (SQLite ou MongoDB selon PERSISTENCE_BACKEND).
 
     Point d'accès PUBLIC unique (SCRUM-137) : la lecture
-    (``get_agent_settings``, consommée par ``core/agent_cache.agent_config``)
+    (``get_agent_settings``, consommée par ``app/legacy/core/agent_cache.agent_config``)
     et les adaptateurs d'écriture (``LegacySettingsAdapter``) doivent résoudre
     le MÊME backend — sans quoi une sauvegarde du dashboard reste invisible du
     runtime et le rechargement de l'agent s'appuie sur des valeurs périmées.

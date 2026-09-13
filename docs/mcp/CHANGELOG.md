@@ -468,7 +468,7 @@
   `app/api/middlewares/rate_limit.py` — une seule implémentation, deux
   consommateurs (REST : clé IP + limite globale ; MCP : clé client_id + limite
   du scope). L'enforceur n'importe JAMAIS `api` (la suite MCP reste légère).
-- **Résolution paresseuse** : le `MCPClientStore` (`core/mcp_client_store`) est
+- **Résolution paresseuse** : le `MCPClientStore` (`app/legacy/core/mcp_client_store`) est
   résolu via `default_scope_resolver` au moment de l'appel — aucun import
   lourd, aucune base créée au module import.
 

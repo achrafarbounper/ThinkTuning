@@ -3,9 +3,9 @@
 Couvre :
     - LLMClient : valeur par défaut (2048) et transmission `options.num_ctx`
       au payload envoyé à Ollama, y compris l'override via `context_length` ;
-    - core.agent_cache.agent_config : défaut 2048 et surcharge via env
+    - app.legacy.core.agent_cache.agent_config : défaut 2048 et surcharge via env
       AGENT_CONTEXT_LENGTH ;
-    - core.agent_cache._build_runner : le contexte est bien transmis au LLMClient.
+    - app.legacy.core.agent_cache._build_runner : le contexte est bien transmis au LLMClient.
 
 Aucun appel réseau : `requests.post` est simulé (du côté LLMClient) et le
 runner est construit sans LLM réel. Comment lancer :
@@ -16,7 +16,7 @@ import os
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-from core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 
 class FakeResp:
@@ -73,7 +73,7 @@ def test_llm_client_sends_custom_context_length(monkeypatch):
     assert captured["json"]["options"]["num_ctx"] == 4096
 
 
-# --- core.agent_cache ------------------------------------------------------------
+# --- app.legacy.core.agent_cache ------------------------------------------------------------
 
 
 def test_agent_config_context_length_defaults_to_2048(monkeypatch):

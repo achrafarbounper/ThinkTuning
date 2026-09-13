@@ -21,7 +21,7 @@ SÉCURITÉ (orchestrate n'est JAMAIS un bypass de la policy de sandbox) :
         - APPROVE (write/delete/exec/UNKNOWN = mutation) -> run en
           ``pending_approval`` avec l'action en attente (``awaiting_action``),
           surfacee par le tool via ``awaiting_approval: true`` — la validation
-          humaine suit le flux ``core/approval_store`` existant ;
+          humaine suit le flux ``app/legacy/core/approval_store`` existant ;
         - REJECT (règle dure : cible sensible…) -> refus audité, jamais exécuté ;
     - le tool ``orchestrate`` est déclaré MUTATION (``MUTATING_ANNOTATIONS``)
       et exige un rôle ``CONTRIBUTOR``+ : il peut déclencher des écritures,

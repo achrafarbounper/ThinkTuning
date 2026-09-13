@@ -1,11 +1,16 @@
 # Architecture — ThinkTuning
 
+> **Statut (septembre 2026)** — État actuel : backend FastAPI (Python 3.11 en
+> développement/CI, image Python 3.13) et frontend React 19 + TypeScript 6 +
+> Vite 8 séparés. Les sections « migration », « backlog » et « réalisé »
+> décrivent l'historique et ne sont pas des composants actifs supplémentaires.
+
 > Backend ML d'analyse de sentiments FR/EN avec couche agentique
 > (API FastAPI + agent **Intent → Plan → Action**).
 
 Ce document décrit l'architecture cible en cours de mise en place
 (architecture hexagonale), la coexistence avec le code historique
-(`api/`, `core/`, `ia/`, `src/`), et les conventions à respecter
+(`api/`, `app/legacy/core/`, `ia/`, `src/`), et les conventions à respecter
 pour toute évolution.
 
 ---
@@ -30,12 +35,12 @@ pour toute évolution.
           ┌──────────────▼──────────┐  ┌────────▼──────────────────┐
           │  app/domain/            │  │  app/infrastructure/      │
           │  entités, erreurs, ports│  │  adaptateurs vers le      │
-          │  (aucune dépendance)    │  │  legacy (ia/, core/)      │
+          │  (aucune dépendance)    │  │  legacy (ia/, legacy/core)│
           └─────────────────────────┘  └────────┬──────────────────┘
                                                 │
                               ┌─────────────────▼──────────────────┐
                               │  legacy : ia/ (LLM, outils, sandbox)│
-                              │  core/ (stores SQLite, scheduler)   │
+                              │  app/legacy/core (stores SQLite)    │
                               │  src/ (ML : dataset, model, infer)  │
                               └────────────────────────────────────┘
 ```
@@ -82,7 +87,7 @@ pour toute évolution.
 5. **Action** — exécution via `ToolRegistryPort` ; erreur outil → renvoyée au
    LLM (auto-correction, jusqu'à épuisement du budget).
 6. **Approbation** — action `APPROVE` sans gateway → `PENDING_APPROVAL` +
-   demande persistée (`core/approval_store`) ; le client approuve via
+   demande persistée (`app/legacy/core/approval_store`) ; le client approuve via
    `POST /api/agent/approvals/{id}/approve` puis relance avec
    `resume_request_id`. La reprise n'accorde que l'action dont l'empreinte
    SHA-256 des arguments correspond **exactement** à la demande approuvée.
@@ -117,13 +122,13 @@ app/
 │   └── factory.py                # composition root + flag AGENT_NEW_CORE
 └── infrastructure/
     ├── legacy_registry.py        # ia/tools/tool_registry → ToolRegistryPort
-    └── legacy_approval_store.py  # core/approval_store → ApprovalStorePort
+    └── legacy_approval_store.py  # app/legacy/core/approval_store → ApprovalStorePort
 
 api/routes/agent.py               # POST /ask/core (flag AGENT_NEW_CORE)
                                   # @deprecated (tâche 20) : read-only MCP_FIRST
 app/infrastructure/mcp/           # SURFACE MCP (S7) : serveur SSE (POST /mcp/sse),
                                   # tools/ (bootstrap, orchestrate), manifest, security
-core/ ia/ src/                    # legacy — migré progressivement
+app/legacy/core/ ia/ src/         # legacy — migré progressivement
 ```
 
 ### Les 7 ports (`app/domain/ports/ports.py`)
@@ -132,10 +137,10 @@ core/ ia/ src/                    # legacy — migré progressivement
 |---|---|
 | `LLMClientPort` | `ia/agent/llm_client.py` (retry + circuit breaker + streaming) |
 | `ToolRegistryPort` | `ia/tools/tool_registry.py` (manifeste `tools_config.json`) |
-| `SessionStorePort` | `core/session_store.py` (messages + mémoire long-term) |
-| `AuditStorePort` | `core/audit_store.py` |
-| `RunStorePort` | `core/run_store.py` |
-| `ApprovalStorePort` | `core/approval_store.py` |
+| `SessionStorePort` | `app/legacy/core/session_store.py` (messages + mémoire long-term) |
+| `AuditStorePort` | `app/legacy/core/audit_store.py` |
+| `RunStorePort` | `app/legacy/core/run_store.py` |
+| `ApprovalStorePort` | `app/legacy/core/approval_store.py` |
 | `ContextPort` | `ia/agent/context.py` — wrapper `app/infrastructure/context/` |
 
 Les tests de conformité (`tests/test_domain_ports.py`, `tests/test_context_port.py`)
@@ -162,7 +167,7 @@ aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
   UNIQUEMENT `API_KEY`, `CORS_ALLOWED_ORIGINS`, `DASHBOARD_WS_TOKEN`,
   `PERSISTENCE_BACKEND` / `MONGODB_*`, `TRAIN_STREAM_STALL_MINUTES`,
   `MODEL_SANITY_MIN_CONFIDENCE`. AUCUNE configuration d'agent n'y réside.
-- **Agent (module de configuration de l'IHM)** : `core/agent_settings.py`
+- **Agent (module de configuration de l'IHM)** : `app/legacy/core/agent_settings.py`
   (store persistant — collection MongoDB `agent_settings` en mode
   `PERSISTENCE_BACKEND=mongodb`, SQLite sinon) + modèle typé
   `app/agent/settings.py` (`AgentConfig`, `get_agent_config()`). Toute la
@@ -175,7 +180,7 @@ aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
   `OPENROUTER_API_KEY` ; `hf` exige `HF_API_KEY`/`HF_TOKEN`.
 - Feature flags agent : `AGENT_<NOM>` = 1/true/yes/on
   (`reliability`, `audit`, `tool_analytics`, `context`, `copilot`,
-  `websocket`, `multi_agent`) — même convention que `core/feature_flags.py`.
+  `websocket`, `multi_agent`) — même convention que `app/legacy/core/feature_flags.py`.
 - Bascule du noyau : **v2 activé par défaut depuis la bascule en production** ;
   `AGENT_NEW_CORE=0` force le repli legacy (`/ask/core` répond alors 503).
 - Bascule du client LLM : **`HttpLLMClient` activé par défaut** ;
@@ -227,15 +232,15 @@ permettent au runner de distinguer retry / recovery / rejet.
 
 1. ~~Migration physique des stores legacy vers `app/infrastructure/persistence/`
    (SQLAlchemy + Alembic pour le schéma SQLite)~~ **Annulé (décision projet)** :
-   les stores restent dans `core/` ; les wrappers `app/infrastructure/persistence/`
+   les stores restent dans `app/legacy/core/` ; les wrappers `app/infrastructure/persistence/`
    demeurent des délégations permanentes (ports + adaptateurs, sans remplacement
    physique du stockage).
 2. ~~Suppression progressive des hacks `sys.path`~~ **FAIT (Phase 2)** :
    tous les imports passent par les paquets réels (`ia.agent.*`, `ia.tools.*`,
    `ia.copilot.*`, `ia.logging_setup`) — plus aucun insert `sys.path` dans
-   `api/`, `core/`, `app/` ni les tests. Garde-fous CI :
+   `api/`, `app/legacy/core/`, `app/` ni les tests. Garde-fous CI :
    `tests/test_sys_path_guard.py` (statique AST + dynamique sous-processus).
-3. Étendre ruff/mypy à `api/`, `core/`, `ia/`, `tests/`.
+3. Étendre ruff/mypy à `api/`, `app/legacy/core/`, `ia/`, `tests/`.
 4. ~~Streaming SSE de `/ask/core` (événements tool_start/tool_result
    réutilisant l'event bus legacy)~~ **Port `EventBusPort` câblé sur le SSE** :
    le port pub/sub est en place (`app/infrastructure/events/`) et le flux
@@ -255,7 +260,7 @@ permettent au runner de distinguer retry / recovery / rejet.
    `/ws` passe toujours par le noyau v2), use-case `run_legacy_ask` et ponts
    `ask_agent_decision` / `ask_agent_decision_streaming` supprimés ; tests
    portés sur le noyau v2 à contrat SSE/WS/sessions inchangé.
-8. **Reste v1** : chat `/api/ai` (`core.agent_cache.ask_agent_detailed_streaming`),
+8. **Reste v1** : chat `/api/ai` (`app.legacy.core.agent_cache.ask_agent_detailed_streaming`),
    `/complete` + summarizer de session (v1 `AgentRunner`), coordinateur
    multi-agents (`MultiAgentCoordinator`) — tous construits sur
    `ia/agent/agent_core.py` + `ia/agent/llm_client.py` ; leur migration vers le
@@ -285,7 +290,7 @@ permettent au runner de distinguer retry / recovery / rejet.
   par défaut (`flag_llm_v2=True`, repli legacy via `AGENT_LLM_V2=0` ;
   `tests/test_llm_v2.py`, `tests/test_agent_factory.py`).
   **Reste à faire** : décommissionner `ia/agent/llm_client.py` — il reste
-  importé par le chemin v1 résiduel (`core/agent_cache.py` : coordinateur
+  importé par le chemin v1 résiduel (`app/legacy/core/agent_cache.py` : coordinateur
   multi-agents + runners du chat `/api/ai`, cf. backlog item 8).
 - **Port `EventBusPort` (8e) ajouté puis câblé sur le SSE** : contrat pub/sub
   aligné sur `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` (wrapper

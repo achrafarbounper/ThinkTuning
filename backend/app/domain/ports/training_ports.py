@@ -3,8 +3,8 @@
 
 Kernel partagé assumé : les modèles métier du training (``TrainJob``,
 ``JobStatus``, ``EpochMetric``, ``ScheduledJob``, ...) vivent dans
-``core.models`` — ils sont la source de vérité partagée avec le worker
-``core.trainer_runner`` (qui écrit le store) et le store SQLite persistant.
+``app.legacy.core.models`` — ils sont la source de vérité partagée avec le worker
+``app.legacy.core.trainer_runner`` (qui écrit le store) et le store SQLite persistant.
 Les dupliquer en « entités domaine » créerait un risque de divergence à
 chaque évolution du contrat (``kind``, ``regression``, ``progress``...) sans
 aucun bénéfice : l'isolation est assurée par les PORTS (interfaces), pas par
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from core.models import IntentTrainRequest, TrainJob, TrainRequest
+from app.legacy.core.models import IntentTrainRequest, TrainJob, TrainRequest
 
 # Alias de contrat : lignes de métriques par epoch (dicts JSON du store).
 # Indispensable : dans le corps de classe, ``list`` est masqué par la méthode
@@ -90,7 +90,7 @@ class IntentTrainingRunnerPort(Protocol):
     """Cycle de vie d'un entraînement d'intention (SCRUM-95).
 
     Le runner d'intention possède ses PROPRES events d'annulation
-    (``core.intent_trainer``) et ses validations défensives : distincts du
+    (``app.legacy.core.intent_trainer``) et ses validations défensives : distincts du
     runner sentiment (``TrainingRunnerPort``).
     """
 

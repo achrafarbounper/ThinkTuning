@@ -5,14 +5,14 @@
 Refactor du script ``scripts/train_intent.py`` en module importable : la
 logique d'entraînement est exécutée dans un thread daemon par la route
 ``POST /train/intent`` (api/routes/intent_train.py) et suit le même contrat de
-job que l'entraînement sentiment (``core/trainer_runner.py``) :
+job que l'entraînement sentiment (``app/legacy/core/trainer_runner.py``) :
 
-  - job persisté dans le store partagé (core/job_store.py) avec ``kind="intent"`` ;
+  - job persisté dans le store partagé (app/legacy/core/job_store.py) avec ``kind="intent"`` ;
   - étapes canoniques ``INTENT_TRAIN_JOB_STEPS`` reflétées dans ``job.step`` et
     ``job.progress`` (même structure que le sentiment) ;
   - métriques par epoch persistées dans la table ``train_metrics`` existante
     (le WebSocket /train/stream les diffuse sans changement) ;
-  - logs du thread capturés par core/job_logs.py (événements ``log``) ;
+  - logs du thread capturés par app/legacy/core/job_logs.py (événements ``log``) ;
   - annulation coopérative : un ``threading.Event`` par job, vérifié entre les
     étapes et à chaque batch via un callback HF ``TrainerCallback``.
 
@@ -21,7 +21,7 @@ Différences assumées avec l'entraînement sentiment :
   - encodeur ``AutoModelForSequenceClassification`` entraîné avec le ``Trainer``
     Hugging Face (pas le ``Trainer`` maison de src/model/trainer.py) ;
   - versions dans ``experiments/intent_models/<horodatage>`` via
-    core/intent_store.py (activation = pointeur ``active.json``) ;
+    app/legacy/core/intent_store.py (activation = pointeur ``active.json``) ;
   - métriques : accuracy + confiance moyenne + F1 macro/par-classe
     (classification_report diagnostic chat↔action, cf. §13).
 
@@ -47,16 +47,16 @@ import threading
 import time
 from pathlib import Path
 
-from core import job_logs
-from core.intent_store import (
+from app.legacy.core import job_logs
+from app.legacy.core.intent_store import (
     INTENT_MODEL_ROOT,
     default_intent_labels,
     list_intent_model_versions,
     resolve_intent_model_dir,
     set_active_intent_version,
 )
-from core.job_store import get_job_store
-from core.models import (
+from app.legacy.core.job_store import get_job_store
+from app.legacy.core.models import (
     INTENT_TRAIN_JOB_STEPS,
     IntentTrainRequest,
     JobStatus,
@@ -672,7 +672,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         top = probs[np.arange(preds.shape[0]), preds]
 
         diag = _intent_classification_report(preds, labels_true, labels)
-        # Diagnostic loggué dans le flux du job (capturé par core/job_logs) :
+        # Diagnostic loggué dans le flux du job (capturé par app/legacy/core/job_logs) :
         # rend visible la matrice de confusion chat↔action + F1 par classe.
         logger.info(
             "Classification report (chat↔action) :\n%s",

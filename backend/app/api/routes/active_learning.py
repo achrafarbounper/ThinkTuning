@@ -19,10 +19,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies.auth import require_api_key
-from core.annotation_store import get_annotation_store
-from core.cycle_runner import run_cycle
-from core.job_store import get_job_store
-from core.models import (
+from app.legacy.core.annotation_store import get_annotation_store
+from app.legacy.core.cycle_runner import run_cycle
+from app.legacy.core.job_store import get_job_store
+from app.legacy.core.models import (
     ActiveLearningRequest,
     AnnotateListResponse,
     AnnotateRequest,

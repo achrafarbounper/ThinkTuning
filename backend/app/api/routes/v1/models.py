@@ -31,7 +31,7 @@ from app.application.models_usecase import (
     list_model_details,
 )
 from app.domain.ports.model_versioning_ports import ModelVersioningPort
-from core.models import ModelVersion
+from app.legacy.core.models import ModelVersion
 
 router = APIRouter(tags=["Models v1"])
 

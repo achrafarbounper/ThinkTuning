@@ -21,7 +21,7 @@ from app.api import app
 from app.api.dependencies.composition import get_model_versioning_port
 from app.domain.errors import ConflictError, NotFoundError, ValidationError
 from app.infrastructure.ml.model_versioning_adapter import ModuleModelVersioningAdapter
-from core.models import ModelVersion
+from app.legacy.core.models import ModelVersion
 
 client = TestClient(app)
 

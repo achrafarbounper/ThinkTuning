@@ -19,8 +19,8 @@ import sys
 import threading
 import time
 
-from core.models import PipelineRequest, TrainJob, JobStatus
-from core.job_store import get_job_store
+from app.legacy.core.models import PipelineRequest, TrainJob, JobStatus
+from app.legacy.core.job_store import get_job_store
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ def run_labeling(params: PipelineRequest, labeled_output: str):
     ``min_confidence`` avant l'export JSONL Alpaca. Retourne la liste des
     records conservés (écrits dans ``labeled_output``).
     """
-    from core.model_versioning import resolve_model_path
+    from app.legacy.core.model_versioning import resolve_model_path
     from label_dataset import label_dataset
 
     model_dir = resolve_model_path(params.model_path)

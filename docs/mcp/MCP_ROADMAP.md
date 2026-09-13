@@ -1,5 +1,8 @@
 # MCP Roadmap — Versionnée (SemVer)
 
+> **Statut (septembre 2026)** — Trajectoire et backlog MCP 2.0. Les éléments
+> planifiés ci-dessous ne sont pas tous actifs dans l'API actuelle.
+
 > **Trajectoire** : `v0.1.0` → `v3.0.0`  
 > **Target** : MCP = surface principale de ThinkTuning
 

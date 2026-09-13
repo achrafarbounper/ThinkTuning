@@ -18,7 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from core.job_store import get_job_store
+from app.legacy.core.job_store import get_job_store
 
 logger = logging.getLogger("scheduler")
 
@@ -42,8 +42,8 @@ def _execute_scheduled_training(schedule: dict):
     dans le store + thread daemon sur ``run_training``.
     """
     # Imports locaux pour éviter tout cycle au chargement du module.
-    from core.trainer_runner import run_training
-    from core.models import TrainJob, JobStatus, TrainRequest
+    from app.legacy.core.trainer_runner import run_training
+    from app.legacy.core.models import TrainJob, JobStatus, TrainRequest
 
     job_id = str(uuid.uuid4())
     store = get_job_store()

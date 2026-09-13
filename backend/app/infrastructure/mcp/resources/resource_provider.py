@@ -483,15 +483,15 @@ def _lazy_legacy_tool(name: str) -> Callable[[], Callable[..., dict]]:
 
 
 def _lazy_agent_config() -> Callable[[], Callable[..., dict]]:
-    """Résout ``core.agent_cache.agent_config`` au premier appel.
+    """Résout ``app.legacy.core.agent_cache.agent_config`` au premier appel.
 
-    Import paresseux VOLONTAIRE : ``core.agent_cache`` tire fastapi/requests
+    Import paresseux VOLONTAIRE : ``app.legacy.core.agent_cache`` tire fastapi/requests
     et la pile agentique — seules ``thinktuning://config`` et
     ``thinktuning://health`` paient ce coût, les autres lectures non.
     """
 
     def _resolve() -> Callable[..., dict]:
-        from core.agent_cache import agent_config  # import paresseux (lourd)
+        from app.legacy.core.agent_cache import agent_config  # import paresseux (lourd)
 
         return agent_config
 
@@ -499,7 +499,7 @@ def _lazy_agent_config() -> Callable[[], Callable[..., dict]]:
 
 
 def _lazy_job_logs() -> Callable[[], Callable[..., dict]]:
-    """Résout ``core.job_logs.get_logs`` au premier appel (buffer mémoire).
+    """Résout ``app.legacy.core.job_logs.get_logs`` au premier appel (buffer mémoire).
 
     Même source que le WebSocket ``/train/stream`` : les lignes sont celles
     capturées par le thread du job. Elles sont PERDUES au redémarrage de
@@ -508,7 +508,7 @@ def _lazy_job_logs() -> Callable[[], Callable[..., dict]]:
     """
 
     def _resolve() -> Callable[..., dict]:
-        from core.job_logs import get_logs  # import paresseux (léger, stdlib)
+        from app.legacy.core.job_logs import get_logs  # import paresseux (léger, stdlib)
 
         def _fetch(job_id: str) -> dict:
             entries = get_logs(str(job_id))
@@ -522,7 +522,7 @@ def _lazy_job_logs() -> Callable[[], Callable[..., dict]]:
 def _lazy_job_metrics() -> Callable[[], Callable[..., dict]]:
     """Résout la lecture des métriques par epoch au premier appel.
 
-    Miroir LECTURE SEULE de ``core/job_store.py::get_job_metrics`` (même
+    Miroir LECTURE SEULE de ``app/legacy/core/job_store.py::get_job_metrics`` (même
     SELECT paramétré, mêmes colonnes) sur la connexion ``mode=ro`` +
     ``PRAGMA query_only`` déléguée de ``ia/tools/ml_tools`` : la resource ne
     crée JAMAIS la base ni n'écrit (le store applicatif fait ``_ensure_db``).
@@ -586,7 +586,7 @@ def _read_model_version_info(version: str) -> dict:
     """Métadonnées d'une version de modèle (délégation scan + lecture sandbox).
 
     La PRÉSENCE et le drapeau ``active`` viennent du scan délégué
-    (``model_versions`` — mêmes conventions que ``core/model_versioning``) ;
+    (``model_versions`` — mêmes conventions que ``app/legacy/core/model_versioning``) ;
     les artefacts et le rapport d'entraînement sont lus sous la racine
     renvoyée par ce scan (déjà confinée par ``safe_resolve``), revalidée une
     seconde fois par ``safe_resolve(must_exist=True)`` (défense en profondeur).
@@ -723,8 +723,8 @@ class LegacyResourceProvider(MCPResourceRegistryPort):
         dataset_stats / dataset_preview / agent_config / job_metrics /
         system_health: implémentations injectables (tests, déploiements
             spécifiques) ; ``None`` → résolution PARESSEUSE au premier appel
-            (``ia.tools.tool_registry.TOOLS``, ``core.job_logs``,
-            ``core.agent_cache``, use case santé v1 + adaptateurs legacy).
+            (``ia.tools.tool_registry.TOOLS``, ``app.legacy.core.job_logs``,
+            ``app.legacy.core.agent_cache``, use case santé v1 + adaptateurs legacy).
             ``model_info`` et ``system_health`` remplacent ENTIÈREMENT la
             composition par défaut de leur resource (signature ``version``
             et ``()`` respectivement).

@@ -275,7 +275,7 @@ def test_notify_uses_default_client_store(monkeypatch: pytest.MonkeyPatch) -> No
     fake_store = MagicMock()
     fake_store.list.return_value = _make_clients("dev@corp.com")
     monkeypatch.setattr(
-        "core.mcp_client_store.get_mcp_client_store", lambda: fake_store
+        "app.legacy.core.mcp_client_store.get_mcp_client_store", lambda: fake_store
     )
     email = _FakeEmailNotifier()
     service = NotificationService(email_notifier=email)
@@ -315,7 +315,7 @@ def test_compose_slack_blocks_structure() -> None:
 # ============================================================================
 
 def test_get_mcp_client_store_is_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
-    import core.mcp_client_store as store_module
+    import app.legacy.core.mcp_client_store as store_module
 
     monkeypatch.setattr(store_module, "_client_store_singleton", None)
     first = store_module.get_mcp_client_store()

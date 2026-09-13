@@ -29,7 +29,7 @@ from typing import Any
 
 # Imports relatifs : fonctionnent à la fois sous le paquet « ia.tools » (tests :
 # from ia.agent.agent_core import ...) et sous la racine « tools » (runtime :
-# core/agent_cache.py ajoute ia/ au sys.path puis importe tools.tool_registry).
+# app/legacy/core/agent_cache.py ajoute ia/ au sys.path puis importe tools.tool_registry).
 from .math_tools import add
 from .file_tools import (
     count_lines,

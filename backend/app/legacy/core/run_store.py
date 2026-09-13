@@ -8,7 +8,7 @@ statut final, résumé de la réponse, erreur éventuelle et TRAÇABILITÉ de la
 chaîne d'outils appelée (un événement JSON par outil : arguments tronqués,
 statut ok/error, aperçu du résultat, durée).
 
-Mêmes conventions que ``core/approval_store.py`` :
+Mêmes conventions que ``app/legacy/core/approval_store.py`` :
     - base SQLite dédiée (experiments/agent_runs.db, surchargeable via
       AGENT_RUN_PATH pour isoler les tests) ;
     - store thread-safe (l'API FastAPI appelle depuis plusieurs threads).
@@ -113,7 +113,7 @@ class RunStore:
         source: str = "api",
     ) -> dict:
         """Crée un run ``running`` et retourne la ligne complète."""
-        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+        from app.legacy.core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
 
         run_id = uuid.uuid4().hex[:12]
         with self._lock:
@@ -148,7 +148,7 @@ class RunStore:
         le flux d'exécution. P1 : les éventuels secrets contenus dans les
         arguments/résultats sont masqués AVANT persistance.
         """
-        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+        from app.legacy.core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
 
         entry = {**redact_secrets(event), "at": _utcnow_iso()}
         with self._lock:
@@ -180,7 +180,7 @@ class RunStore:
         error: str | None = None,
     ) -> dict | None:
         """Clôture un run : statut final, résumé de réponse ou erreur."""
-        from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+        from app.legacy.core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
 
         if status not in STATUSES:
             raise ValueError(f"Statut de run inconnu : '{status}'")

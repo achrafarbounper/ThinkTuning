@@ -202,7 +202,7 @@ def test_full_app_bearer_flow(tmp_path, monkeypatch) -> None:
         get_service_account_store,
         reset_service_account_store,
     )
-    from core.session_store import reset_session_store  # noqa: E402
+    from app.legacy.core.session_store import reset_session_store  # noqa: E402
 
     reset_service_account_store(str(tmp_path / "sa-e2e.db"))
     reset_session_store(str(tmp_path / "sessions-e2e.db"))

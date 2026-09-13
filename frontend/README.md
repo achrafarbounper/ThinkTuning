@@ -61,11 +61,11 @@ venv\Scripts\python scripts\mock_ai_backend.py        # mini-serveur de test aut
 # ou la vraie API : uvicorn app.api.main:app --port 8000 --reload
 
 # Terminal 2 — frontend :
-cd dashboard && npm run dev                            # http://localhost:5173
+cd frontend && npm run dev                             # http://localhost:5173
 ```
 
 Le proxy Vite transfère `/api/*` vers `http://localhost:8000`
-(voir `vite.config.js`), donc `fetch("/api/ai")` fonctionne tel quel.
+(voir `vite.config.ts`), donc `fetch("/api/ai")` fonctionne tel quel.
 
 ### Scripts utiles
 
@@ -82,4 +82,3 @@ Remplacez `_build_reply()` dans `app/api/routes/ai_chat.py` par l'appel à votre
 modèle. Le contrat est simple : émettre des événements SSE
 `data: {"delta": "fragment"}` puis `data: [DONE]`. Le frontend gère aussi un
 repli JSON non streamé (`{"content": "..."}`).
-

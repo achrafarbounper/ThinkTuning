@@ -1,4 +1,4 @@
-"""Adaptateur : file d'approbation legacy (core/approval_store.py) -> port.
+"""Adaptateur : file d'approbation legacy (app/legacy/core/approval_store.py) -> port.
 
 Encapsule le store SQLite historique derrière ``ApprovalStorePort`` sans
 aucune logique nouvelle. Conventions legacy conservées :
@@ -15,10 +15,10 @@ from typing import Any
 from app.domain.ports import ApprovalStorePort
 
 try:
-    from core.approval_store import get_approval_store as _get_store
+    from app.legacy.core.approval_store import get_approval_store as _get_store
 except ImportError as _exc:  # sécurité : le module legacy est requis (fail-fast)
     raise ImportError(
-        "core.approval_store introuvable : adaptateur d'approbation inutilisable."
+        "app.legacy.core.approval_store introuvable : adaptateur d'approbation inutilisable."
     ) from _exc
 
 

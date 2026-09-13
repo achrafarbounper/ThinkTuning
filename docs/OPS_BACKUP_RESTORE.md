@@ -66,3 +66,6 @@ Si `STORE_ENCRYPTION_KEY` est compromise :
 python scripts/retention.py --dry-run   # simulation
 python scripts/retention.py             # application réelle
 ```
+> **Statut (septembre 2026)** — Procédure d'exploitation actuelle : backend
+> conteneurisé non-root, MongoDB Atlas comme persistance principale et SQLite
+> comme fallback local. Toute procédure marquée historique est informative.

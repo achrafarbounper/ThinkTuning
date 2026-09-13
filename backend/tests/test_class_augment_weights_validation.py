@@ -14,7 +14,7 @@ import pytest
 from datasets import Dataset
 from pydantic import ValidationError
 
-from core.models import TrainRequest
+from app.legacy.core.models import TrainRequest
 from src.dataset.loader import augment_dataset
 
 

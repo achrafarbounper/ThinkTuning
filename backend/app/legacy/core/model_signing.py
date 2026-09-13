@@ -21,7 +21,7 @@ Garanties :
       altéré (poids modifiés, fichier injecté ou supprimé) est REFUSÉ
       (``ModelSignatureError``) — fail-closed si le manifeste existe ;
     - ``write_signature_manifest(model_dir)`` est appelé après la publication
-      d'une version (``core/model_versioning._save_trained_model``) ;
+      d'une version (``app/legacy/core/model_versioning._save_trained_model``) ;
     - vérification déterministe et hors-ligne (aucun appel réseau) ;
     - ``trust_remote_code=False`` est appliqué systématiquement aux appels
       ``from_pretrained`` (interdiction d'exécuter du code téléchargé).

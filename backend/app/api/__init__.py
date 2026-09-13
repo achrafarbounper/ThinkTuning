@@ -14,15 +14,15 @@ API_KEY = os.getenv("API_KEY", "dev-local-api-key")
 from .main import app
 
 # === Expose models ===
-from core.models import JobStatus, TrainJob, TrainRequest, ModelVersion, JobListResponse
+from app.legacy.core.models import JobStatus, TrainJob, TrainRequest, ModelVersion, JobListResponse
 
 # === Expose job store ===
-from core.job_store import get_job_store, PersistentJobStore, cleanup_old_jobs
+from app.legacy.core.job_store import get_job_store, PersistentJobStore, cleanup_old_jobs
 
 _jobs = get_job_store()
 
 # === Expose training runner ===
-from core.trainer_runner import run_training as _run_training, cancel_training
+from app.legacy.core.trainer_runner import run_training as _run_training, cancel_training
 
 # === Expose predictor ===
 # Seule la FONCTION est ré-exportée : elle est monkeypatchée par les tests
@@ -30,13 +30,13 @@ from core.trainer_runner import run_training as _run_training, cancel_training
 # Les variables privées `_predictor` / `_predictor_lock` ne sont PAS
 # ré-exportées : importées « par valeur », elles devenaient des références
 # obsolètes dès que predictor_cache rechargeait un modèle (état fantôme).
-from core.predictor_cache import get_predictor as _get_predictor
+from app.legacy.core.predictor_cache import get_predictor as _get_predictor
 
 # === Expose config loader ===
 from src.utils.config import load_config
 
 # === Expose model roots ===
-from core.model_versioning import MODEL_ROOT, MODELS_ROOT
+from app.legacy.core.model_versioning import MODEL_ROOT, MODELS_ROOT
 
 # === Expose rate limit ===
 from app.api.middlewares.rate_limit import (
@@ -61,7 +61,7 @@ from src.model.trainer import Trainer, compute_class_weights
 from transformers import AutoTokenizer
 from src.model.distilbert import build_model
 from src.inference.predictor import Predictor
-from core.model_versioning import save_model_version
+from app.legacy.core.model_versioning import save_model_version
 
 # === Surface publique de la façade =========================================
 # Déclarée explicitement pour ruff (F401) : chaque nom ci-dessous est un

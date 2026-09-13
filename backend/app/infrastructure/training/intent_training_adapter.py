@@ -1,9 +1,9 @@
 # project/app/infrastructure/training/intent_training_adapter.py
 """Adaptateurs legacy du domaine intention (Phase 3d-2 — SCRUM-95).
 
-Enveloppent ``core.intent_trainer`` (thread worker + events d'annulation
-DÉDIÉS à l'intention — distincts de ``core.trainer_runner``) et
-``core.intent_store`` (versions + pointeur ``active.json``), par attribut
+Enveloppent ``app.legacy.core.intent_trainer`` (thread worker + events d'annulation
+DÉDIÉS à l'intention — distincts de ``app.legacy.core.trainer_runner``) et
+``app.legacy.core.intent_store`` (versions + pointeur ``active.json``), par attribut
 de module (convention du projet : monkeypatchs préservés). Conversions
 d'erreurs legacy -> domaine concentrées ICI :
 
@@ -23,9 +23,9 @@ from app.domain.ports.training_ports import (
     IntentTrainingRunnerPort,
     IntentVersioningPort,
 )
-from core import intent_store, intent_trainer
-from core.job_store import get_job_store
-from core.models import IntentTrainRequest, JobStatus, TrainJob
+from app.legacy.core import intent_store, intent_trainer
+from app.legacy.core.job_store import get_job_store
+from app.legacy.core.models import IntentTrainRequest, JobStatus, TrainJob
 
 # Verrou d'écriture du store (réplique le comportement du handler legacy).
 _jobs_lock = threading.Lock()
@@ -68,7 +68,7 @@ class ModuleIntentTrainingRunnerAdapter:
 
 
 class ModuleIntentVersioningAdapter:
-    """Versions d'intention + pointeur actif (core.intent_store)."""
+    """Versions d'intention + pointeur actif (app.legacy.core.intent_store)."""
 
     def list_versions(self) -> list[str]:
         return intent_store.list_intent_model_versions()

@@ -231,7 +231,7 @@ import IntentTrainJobTracker from "../components/IntentTrainJobTracker";
 
 - **Barre de progression** — affiche `job.progress.global_pct` (pourcentage
   global pondéré côté serveur : préparation 20 %, entraînement 70 %,
-  sauvegarde 10 %), alimenté par le runner `core/intent_trainer.py`.
+  sauvegarde 10 %), alimenté par le runner `app/legacy/core/intent_trainer.py`.
 - **Types dédiés** — `IntentTrainJob` / `IntentTrainJobTrackerProps` dans
   `src/components/types.ts` ; façade d'appels dans `src/api/intentTrainApi.ts`.
 

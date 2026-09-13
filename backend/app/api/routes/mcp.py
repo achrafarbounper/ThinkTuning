@@ -3,9 +3,9 @@
 
 Dashboard interne (docs/mcp/MCP_SECURITY.md, « Observabilité MCP ») :
 
-    - MCP error rate    → ``core/audit_store`` (table agent_audit) ;
-    - MCP call volume   → ``core/audit_store`` (répartition par action) ;
-    - Revoked clients   → ``core/mcp_client_store``.
+    - MCP error rate    → ``app/legacy/core/audit_store`` (table agent_audit) ;
+    - MCP call volume   → ``app/legacy/core/audit_store`` (répartition par action) ;
+    - Revoked clients   → ``app/legacy/core/mcp_client_store``.
 
 Surface historique NON versionnée : consommée via le délégué v1
 (``app/api/routes/v1/mcp.py`` — strangler, même handler = parité garantie).
@@ -25,7 +25,7 @@ router = APIRouter(tags=["MCP"])
 
 def _client_store():
     """Resolve the Mongo-backed MCP client store at call time."""
-    from core.mcp_client_store import get_mcp_client_store
+    from app.legacy.core.mcp_client_store import get_mcp_client_store
 
     return get_mcp_client_store()
 
@@ -72,7 +72,7 @@ def mcp_metrics() -> dict:
     entrées d'audit marquées ``is_error`` (échecs journalisés ET marqués par
     le serveur MCP — voir ``app/infrastructure/mcp/mcp_server.py``).
     """
-    from core.audit_store import get_audit_store
+    from app.legacy.core.audit_store import get_audit_store
 
     audit = get_audit_store().mcp_metrics()
     clients = [_client_view(client) for client in _client_store().list()]

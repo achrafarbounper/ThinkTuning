@@ -34,3 +34,5 @@ Ton rôle :
    - Ne pas lire les fichiers listés dans les sections d’ignore (`.gitignore`, config d’ignore, etc.).
    - Lire et analyser **tous les fichiers Markdown** (`*.md`) du projet.
    - S’appuyer sur la structure réelle du code, des schémas de données et des documents Markdown pour proposer les solutions.
+> **Statut (septembre 2026)** — Instructions valides pour l'architecture
+> backend/frontend découplée. Les notes historiques sont signalées comme telles.

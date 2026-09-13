@@ -5,7 +5,7 @@ Verrouille l'alignement entre la couche application (``app/application``),
 les ports typés (``app/domain/ports``) et le legacy (``core/``), par
 introspection des constantes et signatures — sans ouvrir aucune base :
 
-    - chaînes d'audit figées == constantes de ``core/audit_store.py`` ;
+    - chaînes d'audit figées == constantes de ``app/legacy/core/audit_store.py`` ;
     - mappings de statuts == constantes du ``run_store`` legacy, couverture
       exhaustive des ``RunStatus`` et cohérence croisée API <-> store ;
     - signatures des stores legacy == signatures typées des ports (un
@@ -32,8 +32,8 @@ from app.domain.ports.ports import ApprovalStorePort, RunStorePort
 
 def test_audit_action_strings_match_legacy() -> None:
     """Les chaînes d'audit figées côté application restent alignées sur le legacy."""
-    from core.audit_store import ACT_APPROVAL as LEGACY_APPROVAL
-    from core.audit_store import ACT_RUN as LEGACY_RUN
+    from app.legacy.core.audit_store import ACT_APPROVAL as LEGACY_APPROVAL
+    from app.legacy.core.audit_store import ACT_RUN as LEGACY_RUN
 
     assert rl.ACT_RUN == LEGACY_RUN
     assert rl.ACT_APPROVAL == LEGACY_APPROVAL
@@ -43,7 +43,7 @@ def test_audit_action_strings_match_legacy() -> None:
 
 
 def test_core_status_maps_cover_all_run_statuses() -> None:
-    from core import run_store as legacy
+    from app.legacy.core import run_store as legacy
 
     assert set(rl.RUN_STATUS_TO_API) == set(RunStatus)
     assert set(rl.RUN_STATUS_TO_STORE) == set(RunStatus)
@@ -53,7 +53,7 @@ def test_core_status_maps_cover_all_run_statuses() -> None:
 
 def test_core_status_maps_api_and_store_are_consistent() -> None:
     """Cohérence croisée : statut API « error » <=> statut store ERROR, etc."""
-    from core import run_store as legacy
+    from app.legacy.core import run_store as legacy
 
     api_to_store = {
         "completed": legacy.COMPLETED,
@@ -69,13 +69,13 @@ def test_core_status_maps_api_and_store_are_consistent() -> None:
 
 
 def test_legacy_run_store_signatures_match_typed_port() -> None:
-    from core.run_store import RunStore
+    from app.legacy.core.run_store import RunStore
 
     _assert_signature_subset(RunStorePort, RunStore)
 
 
 def test_legacy_approval_store_signatures_match_typed_port() -> None:
-    from core.approval_store import ApprovalStore
+    from app.legacy.core.approval_store import ApprovalStore
 
     _assert_signature_subset(ApprovalStorePort, ApprovalStore)
 

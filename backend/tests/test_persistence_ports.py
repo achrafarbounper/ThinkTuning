@@ -197,8 +197,8 @@ def test_default_factories_delegate_to_shared_singletons():
     """Les accès par défaut renvoient des singletons partagés (même base) —
     les getters legacy restent l'unique porte d'entrée des stores (le module
     ``persistence.sqlite`` est un passthrough vers MongoDB)."""
-    from core.approval_store import get_approval_store as legacy_approvals
-    from core.run_store import get_run_store as legacy_runs
+    from app.legacy.core.approval_store import get_approval_store as legacy_approvals
+    from app.legacy.core.run_store import get_run_store as legacy_runs
 
     assert legacy_runs() is legacy_runs()
     assert legacy_approvals() is legacy_approvals()

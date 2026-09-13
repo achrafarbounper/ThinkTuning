@@ -1,5 +1,8 @@
 # RFC MCP — {{TITLE}}
 
+> **Statut** : modèle documentaire pour les RFC MCP 2.0 ; il ne décrit pas
+> une fonctionnalité déployée.
+
 > **Statut** : `Draft` | `Review` | `Accepted` | `Rejected` | `Deprecated`
 >
 > **Auteur** : {{AUTHOR}}

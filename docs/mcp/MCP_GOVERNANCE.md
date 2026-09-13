@@ -1,5 +1,9 @@
 # MCP Governance — Product Council + Processus
 
+> **Statut (septembre 2026)** — Processus de gouvernance actif pour les
+> changements MCP ; les artefacts de réunions mentionnés peuvent être
+> historiques ou à créer.
+
 > **Document de gouvernance** (versionné en parallèle du code MCP)
 
 ---

@@ -1,5 +1,10 @@
 # Architecture & Découplage Backend ↔ Frontend
 
+> **Statut (septembre 2026)** — Architecture actuelle et contrat de référence :
+> backend FastAPI indépendant (`backend/`) + frontend React 19/Vite 8
+> indépendant (`frontend/`). Les tableaux « réalisé » et « restant » sont
+> historiques/backlog et ne doivent pas être lus comme des services actifs.
+
 > Document de référence de la migration « strangler » du projet ThinkTuning.
 > Il consolide l'état d'entrée, l'architecture cible, la mécanique de
 > migration appliquée, les verrous de contrat et la dette technique restante.
@@ -62,7 +67,7 @@ l'infrastructure, pas du domaine :
 | `predictor_cache`, `model_*`    | Infrastructure ML    | adaptateurs `app/infrastructure` |
 | `scheduler`, `job_store`, `*_store` | Infrastructure persistance | partagé tel quel (kernel) |
 | `trainer_runner`, `cycle_runner`, `pipeline_runner` | Orchestration legacy | appelé via handlers/delegation |
-| `core/models.py` (TrainJob, enums, DTO) | Modèle partagé        | réutilisé tel quel (zéro dérive) |
+| `app/legacy/core/models.py` (TrainJob, enums, DTO) | Modèle partagé        | réutilisé tel quel (zéro dérive) |
 
 ---
 
@@ -113,14 +118,14 @@ Codes usités : `bad_request` (400), `validation_error` (422), `not_found`
 | 0/1 | Socle hexagonal (domain/application/infrastructure), composition root, handler `DomainError`, montage `v1_router` | convention + infra |
 | 2 | `GET /health` | 1 |
 | 3a | `GET /health/model-sanity` + couche erreur unifiée + `SanityCaseResult` | 1 |
-| 3b | `POST /predict` + rate-limit `/api/v1/predict` | 1 |
-| 3c | `POST /predict/reload` | 1 |
+| 3b | `POST /api/v1/predict` + rate-limit | 1 |
+| 3c | `POST /api/v1/predict/reload` | 1 |
 | 3d-1 | `POST /train*` (jobs, status, history, cancel, schedules, WS `/train/stream/{id}`) | 10 |
 | 3d-2 | `/train/intent*` (start, status, cancel, jobs, versions, activate) | 6 |
 | 3d-3 | `/models/*` (details, active, activate, delete) + `/evaluate/confusion` | 5 |
 | 3d-4 | `/agent/*` (settings, ask/core±stream, multi/ask/stream, approvals, flow) + `/sessions*` + `/chat/*` | 17 |
 | 3d-5 | `/metrics*`, `/drift`, `/explain`, `/pipeline*`, `/active_learning*`, `/annotate*`, `/classifiers*` | 17 |
-| complétion | `/predict/batch` (dernier résidu réel — multipart CSV, délégation legacy) | 1 |
+| complétion | `/api/v1/predict/batch` (multipart CSV, délégation legacy interne) | 1 |
 
 **Total** : 58 routes v1 enregistrées (57 HTTP + 1 WS). **Épuration faite** :
 la surface legacy (80 routes HTTP) n'est **plus montée** — `app/api/main.py` ne

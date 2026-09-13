@@ -5,8 +5,8 @@
   ``MCPResourceRegistryPort``, tâche 3) — 10 resources (4 statiques + 6
   paramétrées) résolues par délégation aux sources internes read-only :
   ``job_list``, ``job_get``, ``model_versions``, ``dataset_stats``,
-  ``head_file`` (legacy) + ``core.job_logs`` (logs mémoire),
-  ``core.agent_cache.agent_config`` (config) et le use case santé v1
+  ``head_file`` (legacy) + ``app.legacy.core.job_logs`` (logs mémoire),
+  ``app.legacy.core.agent_cache.agent_config`` (config) et le use case santé v1
   ``run_health_check`` (adaptateurs legacy par défaut).
   Sécurité : parsing strict des URI (anti-traversée, anti double-encodage),
   ``safe_resolve`` porté par délégation (``ia/tools/sandbox.py``), SQLite

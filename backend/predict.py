@@ -7,7 +7,7 @@ Usage :
 
 import logging
 import sys
-from core.model_versioning import resolve_model_path
+from app.legacy.core.model_versioning import resolve_model_path
 from src.inference.predictor import Predictor
 
 logger = logging.getLogger(__name__)

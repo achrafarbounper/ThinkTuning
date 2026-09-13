@@ -6,14 +6,14 @@ métier : elles migrent ici, et la route n'en conserve que des délégations
 minces (compatibilité monkeypatch des tests préservée).
 
 Note de migration : les imports legacy (``ia.agent.context``,
-``core.session_store``) seront absorbés par des ports dédiés (``ContextPort``,
+``app.legacy.core.session_store``) seront absorbés par des ports dédiés (``ContextPort``,
 ``SessionStorePort``) lors de la fusion du legacy dans Core v2.
 """
 
 from __future__ import annotations
 
 from app.agent.settings import agent_flag
-from core.session_store import get_session_store
+from app.legacy.core.session_store import get_session_store
 from ia.agent.context import (
     DEFAULT_HISTORY_BUDGET_TOKENS,
     format_memory_note,
@@ -79,7 +79,7 @@ def load_session_history(
     try:
         import os as _os
 
-        from core.agent_cache import get_agent_runner
+        from app.legacy.core.agent_cache import get_agent_runner
 
         budget = int(_os.getenv("AGENT_CONTEXT_BUDGET_TOKENS", "0")) or (
             DEFAULT_HISTORY_BUDGET_TOKENS

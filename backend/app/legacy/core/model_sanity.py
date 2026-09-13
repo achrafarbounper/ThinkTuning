@@ -78,7 +78,7 @@ def _is_head_trained(predictor) -> bool | None:
     if not model_dir or not os.path.isdir(model_dir):
         return None
     try:
-        from core.model_head_check import is_model_version_trained
+        from app.legacy.core.model_head_check import is_model_version_trained
 
         return is_model_version_trained(model_dir)
     except Exception:

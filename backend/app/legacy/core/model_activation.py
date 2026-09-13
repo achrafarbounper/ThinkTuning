@@ -1,4 +1,4 @@
-﻿"""Activation explicite d'une version de modele (SCRUM-55).
+"""Activation explicite d'une version de modele (SCRUM-55).
 
 Un pointeur experiments/models/active.json (env ACTIVE_MODEL_POINTER) designe la
 version active parmi les versions valides. /predict et resolve_model_dir(None)
@@ -11,8 +11,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from core.model_versioning import MODEL_ROOT, list_model_versions, resolve_model_dir
-from core.model_head_check import is_model_version_trained
+from app.legacy.core.model_versioning import MODEL_ROOT, list_model_versions, resolve_model_dir
+from app.legacy.core.model_head_check import is_model_version_trained
 
 logger = logging.getLogger(__name__)
 

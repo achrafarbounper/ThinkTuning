@@ -25,7 +25,7 @@ from app.domain.ports.model_versioning_ports import (
     ModelVersioningPort,
 )
 from app.infrastructure.legacy_errors import convert_legacy_http_error
-from core.models import ModelVersion
+from app.legacy.core.models import ModelVersion
 
 # Le 503 legacy de ce domaine signifie « aucun modèle exploitable »
 # (même contrat que /predict) — override du mapping commun.

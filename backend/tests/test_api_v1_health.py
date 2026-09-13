@@ -36,8 +36,8 @@ def no_models(monkeypatch, tmp_path):
     """
     empty_root = tmp_path / "no-models"
     empty_root.mkdir()
-    monkeypatch.setattr("core.model_versioning.MODEL_ROOT", str(empty_root))
-    monkeypatch.setattr("core.job_store.get_job_store", lambda: {})
+    monkeypatch.setattr("app.legacy.core.model_versioning.MODEL_ROOT", str(empty_root))
+    monkeypatch.setattr("app.legacy.core.job_store.get_job_store", lambda: {})
     return empty_root
 
 
@@ -48,8 +48,8 @@ def one_model(monkeypatch, tmp_path):
     version_dir = root / "20260101T000000Z"
     version_dir.mkdir(parents=True)
     (version_dir / "model.pt").write_bytes(b"fake-weights")
-    monkeypatch.setattr("core.model_versioning.MODEL_ROOT", str(root))
-    monkeypatch.setattr("core.job_store.get_job_store", lambda: {})
+    monkeypatch.setattr("app.legacy.core.model_versioning.MODEL_ROOT", str(root))
+    monkeypatch.setattr("app.legacy.core.job_store.get_job_store", lambda: {})
     return version_dir
 
 
@@ -84,14 +84,14 @@ def test_v1_health_with_model(one_model):
 
 def test_v1_health_counts_only_running_jobs(monkeypatch):
     """Comptage des jobs actifs : seuls les RUNNING comptent (règle legacy)."""
-    from core.models import JobStatus, TrainJob
+    from app.legacy.core.models import JobStatus, TrainJob
 
     store = {
         "job-running": TrainJob(job_id="job-running", status=JobStatus.RUNNING),
         "job-pending": TrainJob(job_id="job-pending", status=JobStatus.PENDING),
         "job-completed": TrainJob(job_id="job-completed", status=JobStatus.COMPLETED),
     }
-    monkeypatch.setattr("core.job_store.get_job_store", lambda: store)
+    monkeypatch.setattr("app.legacy.core.job_store.get_job_store", lambda: store)
 
     response = client.get("/api/v1/health")
 

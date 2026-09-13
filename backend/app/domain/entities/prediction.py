@@ -3,7 +3,7 @@
 Modèle de domaine PUR : aucune I/O, aucune dépendance FastAPI/legacy. Les
 adapters d'infrastructure (app/infrastructure/ml/) construisent ces objets
 depuis les structures legacy (dicts retournés par ``Predictor.predict``,
-rapports de ``core.model_sanity``) ; les use-cases (app/application/) les
+rapports de ``app.legacy.core.model_sanity``) ; les use-cases (app/application/) les
 consomment et les routes HTTP (api/routes/v1/) les sérialisent.
 
 Convention ``ok`` : un ``SanityReport`` porte un booléen ``ok`` calculé par
@@ -38,7 +38,7 @@ class PredictionResult:
 class SanityCaseResult:
     """Issue du sanity check pour UNE phrase de référence.
 
-    Aligné sur le shape legacy (``core.model_sanity``) et sur le type TS
+    Aligné sur le shape legacy (``app.legacy.core.model_sanity``) et sur le type TS
     ``SanityResult`` du dashboard : le panel liste les phrases mal classées
     (``correct=False``) dans la vue « Détails » d'un modèle défaillant.
     """

@@ -8,7 +8,7 @@ Ce module est la SOURCE DE VÉRITÉ des clients MCP inscrits. Il stocke :
 - les métriques d'usage (call_count, error_count, scope_usage JSON)
 
 Conventions :
-- thread-safe (RLock comme core/session_store.py)
+- thread-safe (RLock comme app/legacy/core/session_store.py)
 - base SQLite dédiée, surchargeable via MCP_CLIENT_STORE_PATH
 - secrets : hash SHA-256 (pas bcrypt ici — le domaine ne gère pas le crypto,
   l'infrastructure fait le hash/salt à l'entrée ; ce store reste simple pour S4)

@@ -2,7 +2,7 @@
 
 Singleton thread-safe : un classifieur par nom (``sentiment``, ``intention``,
 ...). Le registre ne possède pas les modèles — chaque classifieur encapsule
-son moteur d'inférence (ex. ``core.predictor_cache``) — mais garantit qu'une
+son moteur d'inférence (ex. ``app.legacy.core.predictor_cache``) — mais garantit qu'une
 seule instance sert toutes les requêtes : compteurs d'activité cohérents et
 verrouillage d'inférence partagé.
 """

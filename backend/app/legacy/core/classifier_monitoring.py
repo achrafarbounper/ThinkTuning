@@ -16,7 +16,7 @@ import logging
 import time
 from typing import Any
 
-from core.classifier_registry import ClassifierRegistry
+from app.legacy.core.classifier_registry import ClassifierRegistry
 
 logger = logging.getLogger("thinktuning.core.classifier_monitoring")
 
@@ -34,7 +34,7 @@ def _safe(call, *args, **kwargs) -> dict[str, Any]:
 def _warmup_status(name: str) -> dict[str, Any] | None:
     """État du warmup de ``name`` (None si jamais réchauffé / non suivi)."""
     try:
-        from core.model_warmup import get_warmup
+        from app.legacy.core.model_warmup import get_warmup
 
         return get_warmup().status(name)
     except Exception:  # pragma: no cover - défensif

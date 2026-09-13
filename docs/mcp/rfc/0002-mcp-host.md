@@ -1,5 +1,9 @@
 # RFC 0002 — Optional outbound MCP Host
 
+> **Statut (septembre 2026)** — RFC acceptée pour l'hôte MCP optionnel,
+> désactivé par défaut ; elle décrit une capacité agentique et non un service
+> obligatoire du déploiement.
+
 ThinkTuning may act as an MCP client using JSON-RPC 2.0, MCP `2025-06-18`,
 and one-request-per-line stdio. The host is disabled by default
 (`AGENT_MCP_HOST` must be explicitly enabled) and never invents `npx`/`uvx`

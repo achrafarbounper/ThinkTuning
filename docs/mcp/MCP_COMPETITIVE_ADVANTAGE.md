@@ -1,5 +1,8 @@
 # MCP Competitive Advantage — Pourquoi ThinkTuning MCP ?
 
+> **Statut (septembre 2026)** — Positionnement produit et capacités prévues
+> ou réalisées ; ce document ne remplace pas la documentation opérationnelle.
+
 > ThinkTuning n’est pas un serveur MCP générique.  
 > ThinkTuning est **le seul serveur MCP avec un orchestrateur ML agentique + fail-closed + sandbox**.
 

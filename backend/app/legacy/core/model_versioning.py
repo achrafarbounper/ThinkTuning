@@ -52,7 +52,7 @@ def resolve_model_dir(model_name: str | None = None) -> str:
     # Import paresseux pour eviter une dependance circulaire (model_activation
     # importe MODEL_ROOT / list_model_versions depuis ce module).
     try:
-        from core.model_activation import get_active_model_dir
+        from app.legacy.core.model_activation import get_active_model_dir
 
         active_dir = get_active_model_dir()
         if active_dir and os.path.isdir(active_dir):
@@ -146,8 +146,8 @@ def _validate_saved_model(model_dir, trainer=None):
 
     # 2. Tête de classification réellement entraînée ? (heuristique std OU
     #    attestation d'entraînement — une tête DistilBERT fine-tunée sur un
-    #    petit dataset garde std ≈ 0.02, cf. core/model_head_check.py.)
-    from core.model_head_check import is_model_version_trained
+    #    petit dataset garde std ≈ 0.02, cf. app/legacy/core/model_head_check.py.)
+    from app.legacy.core.model_head_check import is_model_version_trained
 
     if not is_model_version_trained(model_dir):
         raise RuntimeError(
@@ -162,7 +162,7 @@ def _validate_saved_model(model_dir, trainer=None):
     #    persistance (le poids sur disque ne correspondrait plus au modèle
     #    réellement entraîné).
     if trainer is not None:
-        from core.model_head_check import head_matches_reference
+        from app.legacy.core.model_head_check import head_matches_reference
 
         model = getattr(trainer, "model", None)
         try:
@@ -170,7 +170,7 @@ def _validate_saved_model(model_dir, trainer=None):
         except Exception:
             reference_state = None
         if reference_state:
-            from core.model_head_check import load_head_tensors
+            from app.legacy.core.model_head_check import load_head_tensors
 
             saved_head = load_head_tensors(model_dir)
             if saved_head and not head_matches_reference(model_dir, reference_state):
@@ -312,7 +312,7 @@ def _save_trained_model(trainer, model_dir):
     # sha256.json liste l'empreinte de CHAQUE fichier ; vérifié au chargement
     # par src/inference/predictor.py (MODEL_SIGNING_REQUIRED=1 en prod).
     try:
-        from core.model_signing import write_signature_manifest
+        from app.legacy.core.model_signing import write_signature_manifest
 
         write_signature_manifest(model_dir)
     except Exception as exc:  # pragma: no cover - défensif, ne rompt pas le run
@@ -414,7 +414,7 @@ def validate_model_version(version_dir: str) -> dict:
         except Exception as exc:
             errors.append(f"mappings illisibles : {exc}")
 
-    from core.model_head_check import is_model_version_trained
+    from app.legacy.core.model_head_check import is_model_version_trained
 
     if not is_model_version_trained(version_dir):
         errors.append("tete de classification non entrainee (ecart-type <= 0.03) ou poids illisibles")

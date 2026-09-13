@@ -6,11 +6,11 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api.middlewares.maintenance import is_maintenance_mode
 from app.infrastructure.ml.model_repository_adapter import mask_model_dir
-from core.job_store import get_job_store
-from core.model_sanity import VERDICT_OK, run_model_sanity
-from core.model_versioning import MODEL_ROOT, list_model_versions
-from core.models import JobStatus
-from core.predictor_cache import get_predictor
+from app.legacy.core.job_store import get_job_store
+from app.legacy.core.model_sanity import VERDICT_OK, run_model_sanity
+from app.legacy.core.model_versioning import MODEL_ROOT, list_model_versions
+from app.legacy.core.models import JobStatus
+from app.legacy.core.predictor_cache import get_predictor
 
 router = APIRouter(tags=["Health"])
 

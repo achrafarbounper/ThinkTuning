@@ -157,3 +157,6 @@ Les endpoints `/predict` et `/predict/batch` continuent de fonctionner exactemen
 
 **Dernière mise à jour** : 2026-08-17  
 **Version** : 1.0
+> **Statut (septembre 2026)** — Historique de prédictions et de migration.
+> L'exécution actuelle passe par l'API FastAPI versionnée `/api/v1`; ce fichier
+> ne définit pas une surface d'API active.
