@@ -80,7 +80,7 @@ def load_session_history(
     try:
         import os as _os
 
-        from app.application.agent_cache import get_agent_runner
+        from app.agent.factory import build_llm_client
 
         budget = int(_os.getenv("AGENT_CONTEXT_BUDGET_TOKENS", "0")) or (
             DEFAULT_HISTORY_BUDGET_TOKENS
@@ -88,7 +88,7 @@ def load_session_history(
 
         def summarize_fn(transcript: str) -> str:
             return summarize_conversation(
-                get_agent_runner().agent.llm, transcript
+                build_llm_client(), transcript
             )  # injection paresseuse, jamais appelée si pas de débordement
 
         optimized, _meta = optimize_history(kept, max_tokens=budget, summarize_fn=summarize_fn)

@@ -18,7 +18,8 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import app.api as api# noqa: E402, F401
+import app.api as api  # noqa: E402, F401
+from app.agent.settings import AgentConfig  # noqa: E402
 from app.api import app  # noqa: E402
 
 client = TestClient(app)
@@ -258,8 +259,8 @@ def test_ask_core_default_model_falls_back_to_server_config(monkeypatch):
 
     monkeypatch.setattr("app.api.routes.agent.new_core_enabled", lambda: True)
     monkeypatch.setattr("app.api.routes.agent.run_ask_core", _fake_run_ask_core)
-    monkeypatch.setattr("app.api.routes.agent.agent_config",
-                        lambda: {"model": "server-default"})
+    monkeypatch.setattr("app.api.routes.agent.get_agent_config",
+                        lambda: AgentConfig(model_name="server-default"))
 
     response = client.post(
         "/api/v1/agent/ask/core", json={"prompt": "salut"}, headers=AUTH

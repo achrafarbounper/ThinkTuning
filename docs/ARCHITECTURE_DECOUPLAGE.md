@@ -55,7 +55,7 @@ et la migration de la surface consommée s'est faite par **strangler pattern**
                                 │
      ┌────────────┬─────────────┼──────────────┬────────────┐
      ▼            ▼             ▼              ▼            ▼
-  core/ (infra  ia/ (agents)  src/ (ML)     stores      scheduler
+  infrastructure/ml  agent/legacy  stores    scheduler   MCP
   persist, ML)
 ```
 

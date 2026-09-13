@@ -34,23 +34,26 @@ bonne direction. Cible à consolider :
 
 ```
 thinktuning/
-├── api/                        # Couche HTTP — MINCE (routes, middlewares, schémas)
-│   ├── main.py                 # Câblage app (aucune logique métier)
-│   ├── dependencies/           # auth, DI
-│   ├── middlewares/            # maintenance, rate_limit, metrics
-│   └── routes/                 # 1 fichier par ressource, délégation pure
-├── core/                       # Services applicatifs (job_store, runners, caches, stores)
-├── app/                        # Noyau hexagonal v2 (domain, application, infrastructure, ports)
-├── src/                        # ML : dataset, model, inference (Predictor)
-├── ia/                         # Agent IA : outils, prompt, registre (→ à absorber dans app/ à terme)
-├── scripts/                    # CLI opérationnels (dump_tool_manifest, mock_ai_backend…)
-├── tests/                      # pytest, 1 fichier par module, sandbox tmp_path obligatoire
-└── configs/, data/, docs/
+├── backend/
+│   ├── app/                    # API, domaine, cas d'usage et adaptateurs
+│   │   ├── api/                # FastAPI, middleware et routes /api/v1
+│   │   ├── agent/              # noyau agentique et runtime legacy encapsulé
+│   │   ├── application/        # services applicatifs et runners
+│   │   ├── domain/             # entités, ports et erreurs purs
+│   │   └── infrastructure/     # persistance, ML, outils et MCP
+│   ├── tests/                  # pytest, avec sandbox tmp_path obligatoire
+│   ├── configs/                # configuration YAML
+│   └── requirements.txt
+├── frontend/
+│   ├── src/api/                # transport et clients métier
+│   ├── src/components/         # composants et domaines UI
+│   └── src/pages/              # composition des écrans
+└── docs/
 ```
 
 Règles d'interface :
 
-1. **Flux unique** : `route → service (core/ ou app/application) → infrastructure`.
+1. **Flux unique** : `route → service (app/application) → infrastructure`.
    Une route ne touche jamais directement SQLite, torch ou un fichier.
 2. **Seams de test explicites** : les tests monkeypatchent `app.api._get_predictor`
    (fonction) — jamais des variables privées. Si un test a besoin d'un état,

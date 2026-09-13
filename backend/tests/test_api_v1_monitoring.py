@@ -12,7 +12,7 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import app.api as api# noqa: E402, F401
+import app.api as api  # noqa: E402, F401
 from app.api import app  # noqa: E402
 
 client = TestClient(app)
@@ -118,7 +118,7 @@ def test_explain_requires_key():
 def test_explain_happy(monkeypatch):
     monkeypatch.setattr("app.api._get_predictor", lambda: _FakePredictor())
     monkeypatch.setattr(
-        "app.api.routes.explain.agent_cache.ask_agent_openrouter",
+        "app.api.routes.explain.ask_agent_openrouter",
         lambda prompt, model=None: "Ce texte est positif car il exprime de la joie.",
     )
     response = client.post("/api/v1/explain", json={"text": "Super journée"}, headers=AUTH)

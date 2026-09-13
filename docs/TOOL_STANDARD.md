@@ -13,7 +13,7 @@ ThinkTuning. Tout ce qui est décrit ici est implémenté et testé :
 | `ia/agent/plan_validator.py` | Pseudo-rôle `propose_tool` (plans) |
 | `ia/agent/orchestrator.py` | Pipeline proposer → relire (reviewer) |
 | `ia/agent/approvals.py` | Gate : approval dérivé de `safety` |
-| `app/api/routes/agent.py` | `GET/POST/DELETE /api/agent/tools/custom` |
+| `backend/app/api/routes/v1/agent.py` | `GET/POST/DELETE /api/v1/agent/tools/custom` |
 | `app/application/feature_flags.py` | Flag `AGENT_CUSTOM_TOOLS_API` |
 
 ---
@@ -121,7 +121,7 @@ plan {role: propose_tool,  ──▶   verdict JSON           ┌─▶ POST /to
 - **L'orchestrateur n'enregistre jamais un tool.** Une proposition relue
   « approve » est retournée à l'humain dans `outcome["tool_proposals"]` ;
   l'enregistrement effectif (définition + code exécutable) passe par
-  `POST /api/agent/tools/custom`, derrière le flag `AGENT_CUSTOM_TOOLS_API`
+  `POST /api/v1/agent/tools/custom`, derrière le flag `AGENT_CUSTOM_TOOLS_API`
   et l'authentification API, avec audit. Codes de traçabilité :
   `ToolProposalRejected`, `ToolProposalLimited` (bucket `failed` : le plan
   continue sans le tool).
@@ -130,12 +130,12 @@ plan {role: propose_tool,  ──▶   verdict JSON           ┌─▶ POST /to
 
 ## 5. API (phase 1, flag `AGENT_CUSTOM_TOOLS_API`)
 
-- `GET /api/agent/tools/custom` — tools dynamiques + état runtime ;
-- `POST /api/agent/tools/custom` — corps : `{definition, code, owner,
+- `GET /api/v1/agent/tools/custom` — tools dynamiques + état runtime ;
+- `POST /api/v1/agent/tools/custom` — corps : `{definition, code, owner,
   overwrite, allow_auto_approval}` ; le `code` Python doit définir une
   fonction du même nom que le tool ; erreurs : 422 (définition/code),
   409 (natif / duplicata sans `overwrite`), 400 (plafond) ;
-- `DELETE /api/agent/tools/custom/{name}` — retrait d'un dynamique
+- `DELETE /api/v1/agent/tools/custom/{name}` — retrait d'un dynamique
   uniquement (409 pour un natif).
 
 ## 6. Rôles dédiés

@@ -23,6 +23,7 @@ from starlette.testclient import TestClient  # noqa: E402
 
 import app.api.routes.agent as agent_routes  # noqa: E402
 from app.agent.core import AgentRunResult, RunStatus  # noqa: E402
+from app.agent.settings import AgentConfig  # noqa: E402
 from app.infrastructure.persistence import flow_store as fs  # noqa: E402
 
 API_KEY = "test-flow-key"
@@ -254,7 +255,11 @@ def test_core_stream_persists_flow(client, monkeypatch):
     session « Flow Map » : événements core.start / core.tool / core.done
     enregistrés puis session clôturée en ``completed``."""
     monkeypatch.setattr(agent_routes, "new_core_enabled", lambda: True)
-    monkeypatch.setattr(agent_routes, "agent_config", lambda: {"model": "fake-model"})
+    monkeypatch.setattr(
+        agent_routes,
+        "get_agent_config",
+        lambda: AgentConfig(model_name="fake-model"),
+    )
 
     class _FakeApprovalStore:
         def get(self, request_id):
@@ -321,7 +326,11 @@ def test_core_stream_forwards_requested_model(client, monkeypatch):
     session de flux et trame ``final`` (sans quoi le sélecteur du modèle du
     chat était silencieusement ignoré en mode Agent)."""
     monkeypatch.setattr(agent_routes, "new_core_enabled", lambda: True)
-    monkeypatch.setattr(agent_routes, "agent_config", lambda: {"model": "fake-model"})
+    monkeypatch.setattr(
+        agent_routes,
+        "get_agent_config",
+        lambda: AgentConfig(model_name="fake-model"),
+    )
 
     captured: dict = {}
 
