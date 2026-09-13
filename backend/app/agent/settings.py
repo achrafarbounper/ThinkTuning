@@ -36,6 +36,7 @@ __all__ = [
     "AgentConfig",
     "DEFAULT_HF_URL",
     "DEFAULT_LM_STUDIO_URL",
+    "DEFAULT_OPENROUTER_MODEL_NAME",
     "DEFAULT_OPENROUTER_URL",
     "agent_flag",
     "get_agent_config",
@@ -103,6 +104,13 @@ _RENAMES = {"model": "model_name"}
 DEFAULT_OPENROUTER_URL = _DEFAULTS["openrouter_url"]
 DEFAULT_HF_URL = _DEFAULTS["hf_url"]
 DEFAULT_LM_STUDIO_URL = _DEFAULTS["lm_studio_url"]
+
+# Modèle OpenRouter par défaut (IDs au format « vendor/model »). Source
+# canonique S3 : le use-case ``app.application.explain_agent`` (explication LLM
+# forcée OpenRouter) le consomme ; l'ancienne constante legacy
+# ``app.application.agent_cache.DEFAULT_OPENROUTER_MODEL_NAME`` porte la même
+# valeur tant que la façade vit.
+DEFAULT_OPENROUTER_MODEL_NAME = _DEFAULTS["model_name"]
 
 
 def normalize_chat_url(url: str | None, *, default: str) -> str:

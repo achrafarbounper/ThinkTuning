@@ -98,7 +98,6 @@ __all__ = [
     "TOOLS",
     "agent_config",
     "ask_agent",
-    "ask_agent_openrouter",
     "ask_agent_detailed",
     "ask_agent_detailed_streaming",
     "ask_multi_agent",
@@ -298,43 +297,6 @@ def _build_runner(model_name: str | None = None, enable_thinking: bool = False) 
         think=enable_thinking,
         context_length=cfg["context_length"],
         provider=cfg["provider"],
-        api_key=api_key,
-    )
-    return AgentRunner(AgentCore(llm, enable_thinking=enable_thinking))
-
-
-def _build_openrouter_runner(
-    model_name: str | None = None, enable_thinking: bool = False
-) -> AgentRunner:
-    """Fabrique un runner de l'agent FORCÉ sur le provider OpenRouter.
-
-    Distingue du chemin historique contrôlé par la config globale
-    (``AGENT_PROVIDER`` / base SQLite) : utilisé par POST /explain pour
-    garantir une explication via OpenRouter même quand le provider par défaut
-    reste Ollama.
-
-    La clé OpenRouter provient de la config effective (base SQLite puis env
-    ``OPENROUTER_API_KEY``) et une HTTPException 500 est levée quand elle
-    manque (mauvaise configuration serveur) — même comportement qu'``_llm_endpoint``.
-    Le modèle par défaut est ``DEFAULT_OPENROUTER_MODEL_NAME`` ; un ``model_name``
-    explicite (ex. un ID OpenRouter « vendor/model ») le remplace.
-    """
-    cfg = agent_config()
-    effective_model = (model_name or "").strip() or DEFAULT_OPENROUTER_MODEL_NAME
-    url, api_key = _llm_endpoint(
-        {
-            **cfg,
-            "provider": "openrouter",
-        }
-    )
-    llm = LLMClient(
-        url,
-        effective_model,
-        timeout=cfg["timeout"],
-        temperature=cfg["temperature"],
-        think=enable_thinking,
-        context_length=cfg["context_length"],
-        provider="openrouter",
         api_key=api_key,
     )
     return AgentRunner(AgentCore(llm, enable_thinking=enable_thinking))
@@ -726,24 +688,6 @@ def ask_agent(prompt: str, model: str | None = None) -> str:
     """
     effective_model = (model or "").strip() or agent_config()["model"]
     runner = get_agent_runner(effective_model)
-    return _ask_runner_with_http_errors(runner, prompt, effective_model).answer
-
-
-def ask_agent_openrouter(prompt: str, model: str | None = None) -> str:
-    """Envoie le prompt à l'agent via un runner FORCÉ sur le provider OpenRouter.
-
-    Utilisé par POST /explain pour garantir une explication en langage naturel
-    via OpenRouter, indépendamment du provider par défaut de l'agent (Ollama).
-
-    ``model`` : ID OpenRouter explicite (ex. « vendor/model ») ; absent ou
-    vide, c'est ``DEFAULT_OPENROUTER_MODEL_NAME`` (= « openrouter/free ») qui
-    est utilisé.
-
-    Erreurs traduites en HTTPException : Timeout -> 504, LLM injoignable ou
-    erreur HTTP -> 502, clé OpenRouter manquante -> 500.
-    """
-    effective_model = (model or "").strip() or DEFAULT_OPENROUTER_MODEL_NAME
-    runner = _build_openrouter_runner(effective_model)
     return _ask_runner_with_http_errors(runner, prompt, effective_model).answer
 
 
