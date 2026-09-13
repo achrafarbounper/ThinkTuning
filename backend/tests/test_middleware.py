@@ -10,7 +10,7 @@ Vérifie :
 
 import unittest
 
-from ia.agent.middleware import (
+from app.agent.legacy.middleware import (
     ToolContext,
     clear_middlewares,
     get_middlewares,

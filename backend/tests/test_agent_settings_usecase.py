@@ -364,7 +364,7 @@ def test_validate_rejects_oversized_ssrf_allowlist():
 
 def test_update_persists_ssrf_and_applies_runtime(monkeypatch):
     """La sauvegarde persiste les clés ET pousse l'override runtime du sandbox."""
-    import ia.tools.sandbox as sandbox
+    import app.infrastructure.tools.sandbox as sandbox
 
     # L'env dit OFF : seule la base (page Paramètres) doit réactiver la
     # protection — preuve que l'override runtime surclasse l'environnement.

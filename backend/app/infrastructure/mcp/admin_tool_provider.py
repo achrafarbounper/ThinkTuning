@@ -5,13 +5,14 @@ La surface v1.0.0 (``LegacyRegistryToolProvider``, tâche 7) n'expose QUE des
 tools read-only et la v2.1.0 (``WriteExecToolProvider``, tâche 17) QUE du
 write/exec filtré (35 tools legacy). La tâche 19 (S7, roadmap v2.2.0 — compte
 roadmap v3.0.0 « 40 tools ») ouvre les **5 derniers tools mutatifs** du
-registre legacy (``ia/tools/tools_config.json`` + ``ia/tools/tool_registry.py``)
+registre des tools (``app/infrastructure/tools/tools_config.json`` +
+``app/infrastructure/tools/tool_registry.py``)
 via un provider COMPLÉMENTAIRE, même mécanique de fail-closed INVERSÉ :
 
-    tools_config.json (meta legacy)
+    tools_config.json (méta déclarative)
         → ``compile_tool``            entrée manifeste (inputSchema, annotations)
         → ``entry_to_mcp_tool``       entité domaine ``MCPTool`` (+ scope ADMIN)
-        → handler délégué             ``ia.tools.tool_registry.TOOLS[name](**args)``
+        → handler délégué             ``app.infrastructure.tools.tool_registry.TOOLS[name](**args)``
 
 SÉLECTION v2.2.0 (``V220_ADMIN_TOOLS``) — checklist de la tâche 19
 (docs/mcp/IMPLEMENTATION_PLAN.md) :

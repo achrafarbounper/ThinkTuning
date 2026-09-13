@@ -17,9 +17,9 @@ import pytest
 
 from app.application.classifier_registry import get_registry, reset_registry
 from app.application.prediction_result_cache import PredictionResultCache
-from ia.agent.classifiers import sentiment_classifier as sc_module
-from ia.agent.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
-from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
+from app.infrastructure.ml.classifiers import sentiment_classifier as sc_module
+from app.infrastructure.ml.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
+from app.infrastructure.ml.classifiers.sentiment_classifier import SentimentClassifier
 
 
 class FakePredictor:

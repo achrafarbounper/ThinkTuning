@@ -33,9 +33,9 @@ from typing import Any
 import httpx
 
 from app.infrastructure.llm.errors import ErrorClass, classify_llm_error
-from ia.agent.encoding import repair_utf8_mojibake
-from ia.agent.reliability import CircuitBreaker, retry
-from ia.agent.thinking import extract_thinking
+from app.domain.utils.encoding import repair_utf8_mojibake
+from app.infrastructure.llm.reliability import CircuitBreaker, retry
+from app.domain.utils.thinking import extract_thinking
 
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())

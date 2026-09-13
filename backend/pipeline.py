@@ -144,11 +144,8 @@ def merge_params(args: argparse.Namespace) -> PipelineRequest:
 
 def main() -> int:
     # Même convention que app/api/main.py : on branche le handler console coloré
-    # (rich, cf. ia/logging_setup.py) pour afficher les logs du pipeline.
-    _ia_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ia")
-    if _ia_dir not in sys.path:
-        sys.path.insert(0, _ia_dir)
-    from logging_setup import setup_logging
+    # (rich, cf. app/config/logging_setup.py) pour afficher les logs du pipeline.
+    from app.config.logging_setup import setup_logging
     setup_logging()
 
     args = build_parser().parse_args()

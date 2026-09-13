@@ -9,8 +9,8 @@ Vérifie :
 
 import unittest
 
-from ia.agent.event_bus import on, reset_event_bus
-from ia.agent.middleware import clear_middlewares, process_tool_call, register_middleware
+from app.infrastructure.events.event_bus import on, reset_event_bus
+from app.agent.legacy.middleware import clear_middlewares, process_tool_call, register_middleware
 
 
 class TestEventEmission(unittest.TestCase):
@@ -32,7 +32,7 @@ class TestEventEmission(unittest.TestCase):
 
     def test_tool_call_event_emitted(self):
         """Vérifie que tool_call est émis."""
-        from ia.agent.event_bus import get_event_bus
+        from app.infrastructure.events.event_bus import get_event_bus
         bus = get_event_bus()
         bus.emit("tool_call", tool_name="test_tool", args={"x": 1}, job_id="j1")
         call_events = [e for e in self.events if e[0] == "call"]
@@ -40,7 +40,7 @@ class TestEventEmission(unittest.TestCase):
 
     def test_run_lifecycle_events(self):
         """Vérifie les événements de cycle de vie."""
-        from ia.agent.event_bus import get_event_bus
+        from app.infrastructure.events.event_bus import get_event_bus
         bus = get_event_bus()
         bus.emit("run_start", job_id="j1")
         bus.emit("run_end", job_id="j1", result="done", rounds_used=1)
@@ -59,7 +59,7 @@ class TestMiddlewareIntegration(unittest.TestCase):
     def tearDown(self):
         # Indispensable : les middlewares enregistrés ici sont globaux —
         # sans nettoyage, ils fuient dans les tests suivants (l'identité
-        # unique ia.agent.middleware partage l'état avec agent_core).
+        # unique app.agent.legacy.middleware partage l'état avec agent_core).
         clear_middlewares()
 
     def test_middleware_modifies_result(self):

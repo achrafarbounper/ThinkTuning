@@ -36,7 +36,7 @@ class FakeResp:
 
 
 def test_llm_client_default_context_is_2048_and_sent_to_ollama(monkeypatch):
-    from ia.agent.llm_client import LLMClient
+    from app.infrastructure.llm.legacy_client import LLMClient
 
     captured = {}
 
@@ -55,7 +55,7 @@ def test_llm_client_default_context_is_2048_and_sent_to_ollama(monkeypatch):
 
 
 def test_llm_client_sends_custom_context_length(monkeypatch):
-    from ia.agent.llm_client import LLMClient
+    from app.infrastructure.llm.legacy_client import LLMClient
 
     captured = {}
 

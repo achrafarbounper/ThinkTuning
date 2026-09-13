@@ -12,7 +12,7 @@ Vérifie :
 import time
 import unittest
 
-from ia.agent.circuit_breaker import (
+from app.infrastructure.llm.circuit_breaker import (
     CircuitBreaker,
     get_circuit_breaker,
     get_registry,

@@ -946,7 +946,7 @@ class MongoMCPClientStore:
 
 
 class MongoToolAuditStore:
-    """Compatibility adapter for ``ia.agent.audit``'s tool-call contract."""
+    """Compatibility adapter for ``app.agent.legacy.audit``'s tool-call contract."""
 
     def __init__(self, provider=None):
         self.c = (provider or get_mongo_provider()).collection("tool_audit")

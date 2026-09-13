@@ -45,11 +45,11 @@ import requests
 
 # Extraction des balises <think> inline : repli quand le serveur Ollama ne
 # sépare pas lui-même la réflexion dans le champ « message.thinking ».
-from .thinking import ThinkingStreamSplitter, extract_thinking
+from app.domain.utils.thinking import ThinkingStreamSplitter, extract_thinking
 # Réparation conservatrice des doubles-encodages UTF-8 → Latin-1 → UTF-8
-# (voir ia/agent/encoding.py). Appliquée en dernier recours sur le contenu
+# (voir app/domain/utils/encoding.py). Appliquée en dernier recours sur le contenu
 # final quand un provider renvoie du texte déjà relu en Latin-1.
-from .encoding import repair_utf8_mojibake
+from app.domain.utils.encoding import repair_utf8_mojibake
 
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
@@ -256,7 +256,7 @@ class LLMClient:
             name = f"{self.provider}:{self.model}"
             cooldown = float(os.getenv("AGENT_LLM_CIRCUIT_COOLDOWN", "30"))
             failures_max = int(os.getenv("AGENT_LLM_CIRCUIT_FAILURES", "5"))
-            from .reliability import CircuitBreaker  # import local (flag-gated)
+            from app.infrastructure.llm.reliability import CircuitBreaker  # import local (flag-gated)
 
             self._circuit_breaker = CircuitBreaker(
                 name=name, failures_max=failures_max, cooldown_seconds=cooldown
@@ -292,7 +292,7 @@ class LLMClient:
         if not self._reliability_enabled():
             return self._open_stream_once(payload)
 
-        from .reliability import classify_llm_error, retry
+        from app.infrastructure.llm.reliability import classify_llm_error, retry
 
         cb = self._get_circuit_breaker()
 
@@ -352,7 +352,7 @@ class LLMClient:
         try:
             resp = self._open_stream(payload)
         except BaseException as exc:  # noqa: BLE001 - re-levée après classification
-            from .reliability import classify_llm_error  # import local, flag-driven
+            from app.infrastructure.llm.reliability import classify_llm_error  # import local, flag-driven
 
             self.last_error = exc
             self.last_error_class = classify_llm_error(exc)

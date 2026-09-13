@@ -21,7 +21,7 @@ import time
 from typing import Any
 
 from app.application.prediction_result_cache import PredictionResultCache
-from ia.agent.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
+from app.infrastructure.ml.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
 
 logger = logging.getLogger("thinktuning.agent.classifiers.sentiment")
 

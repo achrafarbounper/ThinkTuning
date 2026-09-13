@@ -136,7 +136,7 @@ def drill_plans(results: list) -> None:
 
 def drill_docker_allowlist(results: list) -> None:
     """La surface docker exec reste fermée par défaut (fail-closed)."""
-    from ia.tools.docker_tools import DEFAULT_ALLOWED_CONTAINERS, _allowed_docker_containers
+    from app.infrastructure.tools.docker_tools import DEFAULT_ALLOWED_CONTAINERS, _allowed_docker_containers
 
     allowed = _allowed_docker_containers()
     _check(

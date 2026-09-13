@@ -39,7 +39,7 @@ def test_legacy_client_is_llm_client_port():
     Vérifie la CLASSE (pas l'instanciation) : éviter de dépendre des Settings
     (provider/API key) — la conformité structurelle ne requiert aucun réseau.
     """
-    from ia.agent.llm_client import LLMClient
+    from app.infrastructure.llm.legacy_client import LLMClient
 
     assert issubclass(LLMClient, LLMClientPort)
 

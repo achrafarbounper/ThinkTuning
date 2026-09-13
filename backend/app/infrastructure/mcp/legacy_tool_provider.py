@@ -1,15 +1,15 @@
 # project/app/infrastructure/mcp/legacy_tool_provider.py
-"""Provider MCP des tools read-only — projection du registre legacy (S2, tâche 6).
+"""Provider MCP des tools read-only — projection du registre des tools (S2, tâche 6).
 
 Rec. 2 du mapping (docs/mcp/MCP_IMPLEMENTATION_MAPPING.md) : la surface MCP
-remplace « GET /tools » — ce module projette le registre legacy
-``ia/tools/tool_registry.py`` (TOOLS + TOOL_META depuis ``tools_config.json``)
+remplace « GET /tools » — ce module projette le registre des tools
+``app/infrastructure/tools/tool_registry.py`` (TOOLS + TOOL_META depuis ``tools_config.json``)
 sur le port domaine ``MCPToolRegistryPort`` (tâche 3), SANS rien réinventer :
 
-    tools_config.json (meta legacy)
+    tools_config.json (méta déclarative)
         → ``compile_tool``            entrée manifeste (inputSchema, annotations)
         → ``entry_to_mcp_tool``       entité domaine ``MCPTool`` (couture tâche 4)
-        → handler délégué             ``ia.tools.tool_registry.TOOLS[name](**args)``
+        → handler délégué             ``app.infrastructure.tools.tool_registry.TOOLS[name](**args)``
 
 SÉLECTION v0.1.0 (``V010_READ_ONLY_TOOLS``) — checklist de la tâche 6 :
     ``add``, ``calc``, ``web_search``, ``web_fetch``, ``web_read``, ``http_get``,
@@ -71,7 +71,7 @@ from app.domain.entities.mcp import MCPTool
 from app.domain.ports.mcp_ports import MCPToolRegistryPort
 from app.infrastructure.mcp.manifest_generator import compile_tool, entry_to_mcp_tool
 from app.infrastructure.mcp.mcp_server import ToolError
-from ia.tools import tool_registry as _legacy_registry
+from app.infrastructure.tools import tool_registry as _legacy_registry
 
 logger = logging.getLogger("thinktuning.mcp.tools")
 

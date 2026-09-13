@@ -124,18 +124,12 @@ def _utcnow() -> str:
     return _timestamp()
 
 
-# --- Accès sandbox & registre (convention d'import duale de agent_core) ---------------
+# --- Accès sandbox & registre (imports absolus, paquet app.infrastructure.tools) -------
 
-try:  # paquet « ia.tools » (imports racinés sur le projet / tests)
-    from ..tools.sandbox import (
-        get_sandbox_root as _get_sandbox_root,
-        safe_resolve as _sandbox_safe_resolve,
-    )
-except ImportError:  # racine « agent » / « tools » (app/application/agent_cache.py ajoute ia/)
-    from tools.sandbox import (  # type: ignore[no-redef]
-        get_sandbox_root as _get_sandbox_root,
-        safe_resolve as _sandbox_safe_resolve,
-    )
+from app.infrastructure.tools.sandbox import (
+    get_sandbox_root as _get_sandbox_root,
+    safe_resolve as _sandbox_safe_resolve,
+)
 
 
 def _sandbox_root() -> Path:
@@ -219,10 +213,7 @@ def _config_approval(tool: str) -> Optional[Decision]:
     Valeurs reconnues : ``auto`` | ``manual`` | ``blocked``. Absent ou invalide
     → None (la classification par défaut s'applique).
     """
-    try:  # même convention duale que agent_core.py
-        from ..tools.tool_registry import get_tool_meta
-    except ImportError:
-        from tools.tool_registry import get_tool_meta  # type: ignore[no-redef]
+    from app.infrastructure.tools.tool_registry import get_tool_meta
     raw = str(get_tool_meta(tool).get("approval", "")).strip().lower()
     return _APPROVAL_OVERRIDE_MAP.get(raw)
 
@@ -329,12 +320,9 @@ def _registry_approval(tool: str) -> Optional[Decision]:
     reste celle du manifeste / des listes statiques ci-dessous).
     """
     try:  # import tardif : approvals doit rester léger et ne jamais casser le gate
-        from ..tools.registry import get_global_registry
+        from app.infrastructure.tools.registry import get_global_registry
     except ImportError:
-        try:
-            from tools.registry import get_global_registry  # type: ignore[no-redef]
-        except ImportError:
-            return None
+        return None
     try:
         registered = get_global_registry().get_tool(tool)
     except Exception:  # noqa: BLE001 — le gate ne doit jamais planter ici

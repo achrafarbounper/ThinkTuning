@@ -7,15 +7,16 @@ TOOL_META   : les MÉTADONNÉES (description, paramètres, args requis) chargée
               depuis tools_config.json — source unique déclarative des outils.
 
 Deux parties bien distinctes :
-  1. La DÉFINITION déclarative -> ia/tools/tools_config.json
+  1. La DÉFINITION déclarative -> app/infrastructure/tools/tools_config.json
      (name, description, required_args, parameters). C'est le seul endroit que
      l'on édite pour décrire un outil au LLM / à l'API.
-  2. L'IMPLÉMENTATION exécutable -> les fonctions Python de ia/tools/*.py,
+  2. L'IMPLÉMENTATION exécutable -> les fonctions Python de
+     app/infrastructure/tools/*.py,
      référencées ci-dessous dans TOOLS (un JSON ne contient pas de logique :
      on décrit un outil en JSON, mais on l'exécute en code).
 
 Ajouter un outil :
-  - créer sa fonction dans un module de ia/tools/
+  - créer sa fonction dans un module de app/infrastructure/tools/
   - l'enregistrer dans TOOLS ci-dessous
   - ajouter son entrée dans tools_config.json (description, required_args,
     parameters). Un test anti-divergence vérifie la cohérence entre le JSON,
@@ -27,9 +28,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-# Imports relatifs : fonctionnent à la fois sous le paquet « ia.tools » (tests :
-# from ia.agent.agent_core import ...) et sous la racine « tools » (runtime :
-# app/application/agent_cache.py ajoute ia/ au sys.path puis importe tools.tool_registry).
+# Imports relatifs dans le paquet « app.infrastructure.tools » (migré du
+# legacy « ia/tools » — l'ancien hack sys.path est supprimé).
 from .math_tools import add
 from .file_tools import (
     count_lines,

@@ -1,7 +1,7 @@
 """Machine à états de l'ORCHESTRATION multi-agents (pure, sans aucune I/O).
 
-Vie à côté du moteur ``ia/agent/orchestrator.py`` (ia n'importe PAS app/ —
-règle d'or des dépendances du projet) : mêmes conventions que
+Vie à côté du moteur ``orchestrator.py`` (même paquet ``app.agent.legacy``) :
+mêmes conventions que
 ``app/domain/entities/run.py`` (machine à états du run mono-agent), pure et
 testable sans I/O.
 

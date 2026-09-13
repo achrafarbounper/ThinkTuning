@@ -14,7 +14,7 @@ Lance avec : pytest tests/test_web_tools.py -v
 
 import pytest
 
-from ia.tools import sandbox, web_tools
+from app.infrastructure.tools import sandbox, web_tools
 
 # --- Fakes HTTP ----------------------------------------------------------------------
 
@@ -458,7 +458,7 @@ def test_web_fetch_returns_structured_page(monkeypatch):
 
 
 def test_web_fetch_and_read_block_bad_scheme():
-    from ia.tools.web_tools import web_fetch, web_read
+    from app.infrastructure.tools.web_tools import web_fetch, web_read
 
     with pytest.raises(ValueError, match="Schéma interdit"):
         web_fetch("ftp://example.test/f")

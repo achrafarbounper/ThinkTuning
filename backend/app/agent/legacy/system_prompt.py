@@ -188,10 +188,7 @@ def _resolve_description(name, func) -> str:
     est vide, on retombe sur la 1re phrase de la docstring pour ne jamais
     perdre de description.
     """
-    try:  # paquet « ia.tools » (tests)
-        from ..tools.tool_registry import get_tool_meta
-    except ImportError:  # racine « tools » (app/application/agent_cache.py)
-        from tools.tool_registry import get_tool_meta  # type: ignore[no-redef]
+    from app.infrastructure.tools.tool_registry import get_tool_meta
 
     desc = (get_tool_meta(name).get("description") or "").strip()
     if desc:
@@ -287,12 +284,8 @@ def build_system_prompt(tools=None, required_args=None) -> str:
     aussi injecter des dicts de test.
     """
     if tools is None or required_args is None:
-        try:  # paquet « ia.tools » (tests)
-            from ..tools.tool_registry import REQUIRED_ARGS as _REQUIRED
-            from ..tools.tool_registry import TOOLS as _TOOLS
-        except ImportError:  # racine « tools » (app/application/agent_cache.py)
-            from tools.tool_registry import REQUIRED_ARGS as _REQUIRED  # type: ignore[no-redef]
-            from tools.tool_registry import TOOLS as _TOOLS  # type: ignore[no-redef]
+        from app.infrastructure.tools.tool_registry import REQUIRED_ARGS as _REQUIRED
+        from app.infrastructure.tools.tool_registry import TOOLS as _TOOLS
         tools = _TOOLS if tools is None else tools
         required_args = _REQUIRED if required_args is None else required_args
     return SYSTEM_PROMPT + build_tools_section(tools, required_args)

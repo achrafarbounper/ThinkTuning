@@ -163,7 +163,7 @@ def test_v100_metier_tools_are_declared_safe(name: str) -> None:
     ``safety: safe`` (tools_config.json) lève le gap sans toucher au classifieur.
     """
     from app.infrastructure.mcp.manifest_generator import compile_tool
-    from ia.tools.tool_registry import TOOL_META
+    from app.infrastructure.tools.tool_registry import TOOL_META
 
     entry, _ = compile_tool(name, TOOL_META[name])
     assert entry["safety"] == {

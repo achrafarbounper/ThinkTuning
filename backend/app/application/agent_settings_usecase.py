@@ -325,7 +325,7 @@ def update_settings(
         # de config ni un redémarrage) : la politique SSRF persistée surclasse
         # l'env ; les clés non persistées repassent sous contrôle env.
         try:
-            from ia.tools.sandbox import apply_persisted_network_policy
+            from app.infrastructure.tools.sandbox import apply_persisted_network_policy
 
             apply_persisted_network_policy(port.get_all())
         except ImportError:  # pragma: no cover — bac à sable facultatif

@@ -27,7 +27,7 @@ SÉCURITÉ (checklists tâches 8 et 13) — défense en profondeur, fail-closed 
        interdits, segments ``''`` / ``'.'`` / ``'..'`` interdits, longueur
        plafonnée — la traversée de chemin est refusée AVANT toute I/O ;
     3. chemins : ``dataset_stats`` / ``head_file`` réappliquent
-       ``ia.tools.sandbox.safe_resolve`` et la lecture des métadonnées de
+       ``app.infrastructure.tools.sandbox.safe_resolve`` et la lecture des métadonnées de
        modèle aussi (aucun chemin ne sort de ``AGENT_SANDBOX_ROOT``) — porté
        PAR DÉLÉGATION (deuxième ligne de défense derrière la validation d'URI) ;
     4. SQL : ``job_list`` / ``job_get`` ET la lecture des métriques ouvrent
@@ -469,14 +469,14 @@ def _match_route(uri: str) -> tuple[_Route, dict[str, str]]:
 
 
 def _lazy_legacy_tool(name: str) -> Callable[[], Callable[..., dict]]:
-    """Résout un tool legacy ``ia.tools`` au PREMIER appel (zéro I/O avant)."""
+    """Résout un tool legacy ``app.infrastructure.tools`` au PREMIER appel (zéro I/O avant)."""
 
     def _resolve() -> Callable[..., dict]:
-        from ia.tools.tool_registry import TOOLS  # import paresseux (délégation)
+        from app.infrastructure.tools.tool_registry import TOOLS  # import paresseux (délégation)
 
         func = TOOLS.get(name)
         if func is None:
-            raise RuntimeError(f"Tool legacy « {name} » introuvable dans ia.tools.tool_registry.")
+            raise RuntimeError(f"Tool legacy « {name} » introuvable dans app.infrastructure.tools.tool_registry.")
         return func
 
     return _resolve
@@ -529,8 +529,8 @@ def _lazy_job_metrics() -> Callable[[], Callable[..., dict]]:
     """
 
     def _resolve() -> Callable[..., dict]:
-        from ia.tools.ml_tools import JOBS_DB_RELATIVE, _connect_readonly
-        from ia.tools.sandbox import safe_resolve
+        from app.infrastructure.tools.ml_tools import JOBS_DB_RELATIVE, _connect_readonly
+        from app.infrastructure.tools.sandbox import safe_resolve
 
         def _fetch(job_id: str) -> dict:
             db_path = safe_resolve(JOBS_DB_RELATIVE)
@@ -592,8 +592,8 @@ def _read_model_version_info(version: str) -> dict:
     renvoyée par ce scan (déjà confinée par ``safe_resolve``), revalidée une
     seconde fois par ``safe_resolve(must_exist=True)`` (défense en profondeur).
     """
-    from ia.tools.ml_tools import model_versions as _model_versions_tool
-    from ia.tools.sandbox import safe_resolve
+    from app.infrastructure.tools.ml_tools import model_versions as _model_versions_tool
+    from app.infrastructure.tools.sandbox import safe_resolve
 
     listing = _model_versions_tool()
     entry = next(
@@ -724,7 +724,7 @@ class LegacyResourceProvider(MCPResourceRegistryPort):
         dataset_stats / dataset_preview / agent_config / job_metrics /
         system_health: implémentations injectables (tests, déploiements
             spécifiques) ; ``None`` → résolution PARESSEUSE au premier appel
-            (``ia.tools.tool_registry.TOOLS``, ``app.application.job_logs``,
+            (``app.infrastructure.tools.tool_registry.TOOLS``, ``app.application.job_logs``,
             ``app.application.agent_cache``, use case santé v1 + adaptateurs legacy).
             ``model_info`` et ``system_health`` remplacent ENTIÈREMENT la
             composition par défaut de leur resource (signature ``version``
@@ -831,7 +831,7 @@ class LegacyResourceProvider(MCPResourceRegistryPort):
             # Même règle de format que dataset_stats (constante déléguée) :
             # un aperçu n'ouvre que les datasets déclarés — un .env est refusé
             # AVANT toute lecture (fail-closed, message actionable).
-            from ia.tools.ml_tools import _DATASET_SUFFIXES
+            from app.infrastructure.tools.ml_tools import _DATASET_SUFFIXES
 
             suffix = PurePosixPath(params["path"]).suffix.lower()
             if suffix not in _DATASET_SUFFIXES:

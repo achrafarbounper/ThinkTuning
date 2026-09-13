@@ -2,7 +2,7 @@
 
 CONTRAT « SOURCE DE VÉRITÉ UNIQUE » :
     Avant SCRUM-99, les dicts ``TOOLS`` / ``TOOL_META`` / ``REQUIRED_ARGS``
-    (``ia/tools/tool_registry.py``) étaient la vérité, mutés en direct par
+    (``tool_registry.py``, même paquet) étaient la vérité, mutés en direct par
     qui voulait (plugin.py…). Désormais :
 
     1. la ``ToolRegistry`` hydrate sa collection depuis les dicts statiques au
@@ -11,14 +11,14 @@ CONTRAT « SOURCE DE VÉRITÉ UNIQUE » :
        ``remove_tool`` sont les SEULES voies de mutation, et elles PROJETTENT
        l'état dans les dicts historiques (mutés par référence) pour que toute
        l'intégration existante (system_prompt, API /tools, AgentCore,
-       app/application/agent_cache — qui importe ``ia.tools.tool_registry``) voie
+       app/application/agent_cache) voie
        immédiatement les tools dynamiques sans aucune modification ;
     3. personne d'autre n'écrit dans les dicts (``plugin.py`` est refondu
        pour enregistrer via la registry).
 
 SÉPARATION DESIGN-TIME / RUNTIME :
     - design-time : la définition standard ``thinktuning.tool/v1``
-      (``ia/tools/tool_schema.py``) — schéma, description, ``safety``,
+      (``tool_schema.py``, même paquet) — schéma, description, ``safety``,
       ``allowed_binaries`` ;
     - runtime : état d'exploitation porté par ``RegisteredTool`` — ``enabled``,
       ``experimental``, ``deprecated``, ``owner``, ``source_file``,
@@ -55,8 +55,8 @@ from .tool_schema import (
 )
 
 # Vue bootstrap : dicts historiques du registre statique (mêmes objets — la
-# projection ci-dessous les mute PAR RÉFÉRENCE). Import relatif : fonctionne
-# sous « ia.tools » (tests) comme sous le paquet racine « tools » (runtime).
+# projection ci-dessous les mute PAR RÉFÉRENCE). Import relatif dans le
+# paquet « app.infrastructure.tools » (migré du legacy « ia/tools »).
 from .tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS
 
 logger = logging.getLogger("thinktuning.tools.registry")

@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ia.agent.classifiers.base import BaseClassifier
+    from app.infrastructure.ml.classifiers.base import BaseClassifier
 
 
 class ClassifierRegistry:

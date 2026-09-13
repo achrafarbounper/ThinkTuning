@@ -1,7 +1,8 @@
-"""Wrapper strangler : ``ContextPort`` par délégation au module legacy.
+"""Wrapper strangler : ``ContextPort`` par délégation au module de contexte.
 
-Sous-classe les fonctions pures de ``ia/agent/context.py`` (mêmes signatures)
-en les présentant comme méthodes — manière de déplacer le contrat côté domaine
+Délègue aux fonctions pures de ``context.py`` (même paquet — ex-legacy
+``ia/agent/context.py``, mêmes signatures) en les présentant comme
+méthodes — manière de déplacer le contrat côté domaine
 SANS réécrire l'implémentation (coexistence Core v1 / v2). Le comportement est
 strictement identique au v1 ; un adaptateur « propre » pourra le remplacer plus
 tard sans toucher aux use-cases.
@@ -12,11 +13,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.domain.ports import ContextPort, Message
-from ia.agent import context as _legacy
+from app.infrastructure.context import context as _legacy
 
 
 class LegacyContextProvider:
-    """Adapter ``ContextPort`` aligné sur ``ia/agent/context.py`` (mode étrangler)."""
+    """Adapter ``ContextPort`` aligné sur ``context.py`` (mode étrangler)."""
 
     def estimate_tokens(self, text: str) -> int:
         return _legacy.estimate_tokens(text)

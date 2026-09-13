@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ia.agent.classifiers.fallback import (
+from app.infrastructure.ml.classifiers.fallback import (
     fallback_intent,  # noqa: E402  # règle de repli (marqueurs)
 )
 
@@ -53,7 +53,7 @@ def build_dataset(texts: list[str], min_action: int = 1) -> list[dict[str, str]]
         # ``fallback_intent`` déclenche ``action`` dès 1 marqueur ; on permet
         # d'exiger un minimum de marqueurs pour désamorcer les faux positifs.
         if label == "action":
-            from ia.agent.classifiers.fallback import _ACTION_MARKERS, _hits
+            from app.infrastructure.ml.classifiers.fallback import _ACTION_MARKERS, _hits
 
             if _hits(text.lower(), _ACTION_MARKERS) < min_action:
                 label = "chat"

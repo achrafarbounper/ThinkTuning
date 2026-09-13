@@ -7,22 +7,22 @@ chaque classifieur, afin que les tests et les environnements sans modèle
 restent légers.
 """
 
-from ia.agent.classifiers.base import (
+from app.infrastructure.ml.classifiers.base import (
     BaseClassifier,
     ClassifierMetrics,
     PredictionResult,
 )
-from ia.agent.classifiers.fallback import (
+from app.infrastructure.ml.classifiers.fallback import (
     FallbackClassifier,
     ResilientClassifier,
     fallback_intent,
     fallback_sentiment,
 )
-from ia.agent.classifiers.intent_classifier import (
+from app.infrastructure.ml.classifiers.intent_classifier import (
     IntentClassifier,
     resolve_intent_model_optional,
 )
-from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
+from app.infrastructure.ml.classifiers.sentiment_classifier import SentimentClassifier
 
 __all__ = [
     "BaseClassifier",

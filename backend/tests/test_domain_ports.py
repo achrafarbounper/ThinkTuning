@@ -34,7 +34,7 @@ def test_legacy_stores_satisfy_ports() -> None:
 
 
 def test_legacy_llm_client_satisfies_port() -> None:
-    from ia.agent.llm_client import LLMClient
+    from app.infrastructure.llm.legacy_client import LLMClient
 
     assert issubclass(LLMClient, LLMClientPort)
 

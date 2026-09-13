@@ -114,7 +114,7 @@ python_version = "3.11"
 ignore_missing_imports = true
 # NB : regex avec classe séparateur multi-OS (os.sep = \ sur Windows).
 # app/legacy absorbé : les stores vivent désormais dans app/infrastructure/persistence/.
-exclude = ["venv", ".agent_tmp", "experiments", "outputs", "src", "ia", "app/api"]
+exclude = ["venv", ".agent_tmp", "experiments", "outputs", "src", "app/api"]
 # Phase 3 : retirer les exclusions à mesure que les modules migrent sous app/.
 
 [tool.pytest.ini_options]

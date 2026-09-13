@@ -17,7 +17,7 @@ import json
 import pytest
 
 from app.domain.security import DENIED_EXTENSIONS, DENIED_PATH_PARTS, classify_path_risk
-from ia.tools import docker_tools, file_tools, sandbox, search_tools, shell_tools, system_tools
+from app.infrastructure.tools import docker_tools, file_tools, sandbox, search_tools, shell_tools, system_tools
 
 # --- app/domain/security.py ------------------------------------------------------
 

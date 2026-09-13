@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from app.api.dependencies.auth import require_api_key
 from app.application.agent_cache import ask_agent_detailed_streaming, list_llm_models
 from app.infrastructure.persistence.session_store import get_session_store
-from ia.agent.encoding import repair_utf8_mojibake
+from app.domain.utils.encoding import repair_utf8_mojibake
 
 router = APIRouter(prefix="/api", tags=["AI Chat"])
 

@@ -11,7 +11,7 @@ et dont chaque fonction publique devient un outil enregistré dans le registre
 ``TOOL_META`` est rejeté (fail-closed, cohérent avec la config JSON).
 
 SCRUM-99 : l'enregistrement passe désormais par la ``ToolRegistry``
-(source de vérité unique — cf. ``ia/tools/registry.py``) au lieu de muter
+(source de vérité unique — cf. ``registry.py``, même paquet) au lieu de muter
 directement les dicts statiques. Les métadonnées du plugin sont converties
 au standard ``thinktuning.tool/v1`` (``from_meta_format``) puis validées.
 

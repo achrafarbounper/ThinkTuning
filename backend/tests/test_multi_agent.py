@@ -20,9 +20,9 @@ import os
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-from ia.agent.agent_core import AgentCore  # noqa: E402
-from ia.agent.chat_messages import ensure_strict_alternance  # noqa: E402
-from ia.agent.orchestrator import (  # noqa: E402
+from app.agent.legacy.agent_core import AgentCore  # noqa: E402
+from app.agent.legacy.chat_messages import ensure_strict_alternance  # noqa: E402
+from app.agent.legacy.orchestrator import (  # noqa: E402
     EV_DONE,
     EV_PLAN,
     EV_SYNTHESIZING,

@@ -170,7 +170,7 @@ def is_destructive_tool(name: str) -> bool:
     cached = _destructive_cache.get(name)
     if cached is not None:
         return cached
-    from ia.tools import tool_registry as _legacy_registry
+    from app.infrastructure.tools import tool_registry as _legacy_registry
 
     try:
         compiled, _ = compile_tool(name, _legacy_registry.TOOL_META.get(name))

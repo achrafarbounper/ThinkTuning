@@ -21,8 +21,8 @@ import re
 import threading
 from typing import Any
 
-from ia.agent.circuit_breaker import CircuitBreaker
-from ia.agent.classifiers.base import BaseClassifier, PredictionResult
+from app.infrastructure.llm.circuit_breaker import CircuitBreaker
+from app.infrastructure.ml.classifiers.base import BaseClassifier, PredictionResult
 
 logger = logging.getLogger("thinktuning.agent.classifiers.fallback")
 

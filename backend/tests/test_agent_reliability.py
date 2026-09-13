@@ -16,8 +16,8 @@ pilotés par monkeypatch. Lance avec : pytest tests/test_agent_reliability.py -v
 import pytest  # noqa: E402
 import requests  # noqa: E402
 
-from ia.agent import reliability as rel  # noqa: E402
-from ia.agent.llm_client import LLMClient  # noqa: E402
+from app.infrastructure.llm import reliability as rel  # noqa: E402
+from app.infrastructure.llm.legacy_client import LLMClient  # noqa: E402
 
 # --- Classification des erreurs ------------------------------------------------------
 

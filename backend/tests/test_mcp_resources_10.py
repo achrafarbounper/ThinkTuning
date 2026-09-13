@@ -582,8 +582,8 @@ def test_real_metrics_connection_is_query_only(sandbox_root) -> None:
     (``ia/tools/ml_tools._connect_readonly``) : toute écriture est refusée
     par SQLite (``sqlite3.OperationalError``).
     """
-    from ia.tools.ml_tools import _connect_readonly
-    from ia.tools.sandbox import safe_resolve
+    from app.infrastructure.tools.ml_tools import _connect_readonly
+    from app.infrastructure.tools.sandbox import safe_resolve
 
     _seed_jobs_db(sandbox_root)
     conn = _connect_readonly(safe_resolve(Path("experiments") / "jobs.db"))

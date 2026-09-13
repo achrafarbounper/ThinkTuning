@@ -19,11 +19,10 @@ from .errors import (
     PLAN_CYCLE,
     PLAN_EMPTY,
     PLAN_VALIDATION_FAILED,
-    TASK_DUPLICATE,
     TASK_INVALID,
     TASK_UNDEFINED,
 )
-from .json_parser import extract_json_blocks
+from app.domain.utils.json_parser import extract_json_blocks
 
 
 class PlanTask:

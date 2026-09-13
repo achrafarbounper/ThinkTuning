@@ -15,7 +15,7 @@ Aucun réseau : tout est scripté. Lance : pytest tests/test_multi_agent_resume.
 
 import pytest
 
-from ia.agent.orchestrator import (
+from app.agent.legacy.orchestrator import (
     EV_RESUMING,
     EV_WORKER_THINKING,
     MultiAgentCoordinator,

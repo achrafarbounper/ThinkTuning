@@ -9,9 +9,9 @@ Lance : pytest tests/test_custom_tools.py -v
 
 import pytest
 
-from ia.tools.custom_tools import EXAMPLE_TOOL_DEFINITIONS, call_api, run_shell
-from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META
-from ia.tools.tool_schema import validate_tool_definition
+from app.infrastructure.tools.custom_tools import EXAMPLE_TOOL_DEFINITIONS, call_api, run_shell
+from app.infrastructure.tools.tool_registry import REQUIRED_ARGS, TOOL_META
+from app.infrastructure.tools.tool_schema import validate_tool_definition
 
 # --- run_shell -----------------------------------------------------------------
 

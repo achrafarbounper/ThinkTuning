@@ -14,7 +14,7 @@ Lance : pytest tests/test_multi_run_fsm.py -v
 
 import pytest
 
-from ia.agent.multi_run_fsm import (
+from app.agent.legacy.multi_run_fsm import (
     IllegalMultiRunTransition,
     MultiRunFSM,
     MultiRunState,

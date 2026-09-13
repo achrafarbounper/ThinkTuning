@@ -17,7 +17,7 @@ import pytest
 from app.application.dynamic_batcher import DynamicBatcher
 from app.application.inference_executor import InferenceExecutor
 from app.application.model_warmup import ModelWarmup
-from ia.agent.classifiers.base import BaseClassifier, PredictionResult
+from app.infrastructure.ml.classifiers.base import BaseClassifier, PredictionResult
 
 
 class _FakeInference:

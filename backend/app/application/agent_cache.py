@@ -6,11 +6,12 @@ Même schéma que `app/application/predictor_cache.py` : une instance unique con
 paresseusement au premier appel puis mise en cache (accès protégé par un
 verrou), avec rechargement explicite via `reload_agent_runner()`.
 
-Les modules de l'agent sont importés via l'identité de PAQUET réel
-(``ia.agent.*``, ``ia.tools.*``) : plus aucun hack ``sys.path`` (Phase 2 de
-la migration, cf. tests/test_sys_path_guard.py). Ce module reste le point
-d'entrée unique : le reste de l'API n'accède à l'agent que via ce module,
-jamais par un import direct de ``ia.agent.*``.
+Les modules de l'agent (runtime v1) sont importés depuis leurs paquets
+hexagonaux (``app.agent.legacy.*``, ``app.infrastructure.llm.legacy_client``,
+``app.infrastructure.tools.*``) : plus aucun hack ``sys.path`` (cf.
+tests/test_sys_path_guard.py). Ce module reste le point d'entrée unique :
+le reste de l'API n'accède à l'agent que via ce module, jamais par un
+import direct du runtime.
 """
 
 import threading
@@ -34,11 +35,11 @@ from app.infrastructure.persistence.run_store import (
 from app.infrastructure.persistence.run_store import (
     get_run_store,
 )
-from ia.agent.agent_core import AgentCore  # noqa: E402
-from ia.agent.llm_client import LLMClient  # noqa: E402
-from ia.agent.orchestrator import MultiAgentCoordinator  # noqa: E402
-from ia.agent.runner import AgentRunner  # noqa: E402
-from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
+from app.agent.legacy.agent_core import AgentCore  # noqa: E402
+from app.infrastructure.llm.legacy_client import LLMClient  # noqa: E402
+from app.agent.legacy.orchestrator import MultiAgentCoordinator  # noqa: E402
+from app.agent.legacy.runner import AgentRunner  # noqa: E402
+from app.infrastructure.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
 
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
 __all__ = [
@@ -876,7 +877,7 @@ def _get_shared_intent_classifier():
     """
     global _intent_classifier_shared
     if _intent_classifier_shared is None:
-        from ia.agent.classifiers.intent_classifier import IntentClassifier
+        from app.infrastructure.ml.classifiers.intent_classifier import IntentClassifier
 
         _intent_classifier_shared = IntentClassifier()
     return _intent_classifier_shared

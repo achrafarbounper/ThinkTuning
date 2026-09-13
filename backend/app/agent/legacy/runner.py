@@ -23,7 +23,7 @@ class AgentRunner:
         >>> runner.get_event_bus().on("tool_call", my_handler)
         """
         try:
-            from .event_bus import get_event_bus as _get_bus
+            from app.infrastructure.events.event_bus import get_event_bus as _get_bus
             return _get_bus()
         except ImportError:
             return None

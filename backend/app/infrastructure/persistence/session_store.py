@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 # Réparation des doubles-encodages UTF-8 → Latin-1 → UTF-8 à la lecture des
 # contenus persistés (voir ia/agent/encoding.py). Fonction impure, sans autres
 # imports que la stdlib, donc aucun risque d'import circulaire avec ``ia.*``.
-from ia.agent.encoding import repair_utf8_mojibake
+from app.domain.utils.encoding import repair_utf8_mojibake
 
 logger = logging.getLogger(__name__)
 

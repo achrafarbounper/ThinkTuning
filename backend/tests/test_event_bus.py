@@ -11,7 +11,7 @@ Vérifie :
 import threading
 import unittest
 
-from ia.agent.event_bus import (
+from app.infrastructure.events.event_bus import (
     EventBus,
     emit,
     get_event_bus,

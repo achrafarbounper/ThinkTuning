@@ -4,13 +4,14 @@
 La surface v1.0.0 (``LegacyRegistryToolProvider``, tâche 7) n'expose QUE des
 tools read-only : sa construction exclut structurellement toute posture
 mutation. La tâche 17 ouvre la surface **write/exec filtrée** du registre
-legacy (``ia/tools/tools_config.json`` + ``ia/tools/tool_registry.py``) via un
+des tools (``app/infrastructure/tools/tools_config.json`` +
+``app/infrastructure/tools/tool_registry.py``) via un
 provider COMPLÉMENTAIRE, avec un fail-closed INVERSÉ :
 
-    tools_config.json (meta legacy)
+    tools_config.json (méta déclarative)
         → ``compile_tool``            entrée manifeste (inputSchema, annotations)
         → ``entry_to_mcp_tool``       entité domaine ``MCPTool`` (+ scope OPERATOR)
-        → handler délégué             ``ia.tools.tool_registry.TOOLS[name](**args)``
+        → handler délégué             ``app.infrastructure.tools.tool_registry.TOOLS[name](**args)``
 
 SÉLECTION v2.1.0 (``V210_WRITE_EXEC_TOOLS``) — checklist de la tâche 17
 (docs/mcp/IMPLEMENTATION_PLAN.md) :

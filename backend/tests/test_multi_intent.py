@@ -25,20 +25,20 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from ia.agent.multi_run_fsm import (  # noqa: E402
+from app.agent.legacy.multi_run_fsm import (  # noqa: E402
     IllegalMultiRunTransition,
     MultiRunFSM,
     MultiRunState,
 )
-from ia.agent.orchestrator import (  # noqa: E402
+from app.agent.legacy.orchestrator import (  # noqa: E402
     EV_FALLBACK,
     EV_INTENT,
     EV_PLAN,
     EV_WORKER_SKIPPED,
     MultiAgentCoordinator,
 )
-from ia.agent.plan_validator import PlanTask  # noqa: E402
-from ia.agent.roles import intent_decision_for  # noqa: E402
+from app.agent.legacy.plan_validator import PlanTask  # noqa: E402
+from app.agent.legacy.roles import intent_decision_for  # noqa: E402
 
 # --- Fakes (mêmes conventions que test_multi_agent.py) -----------------------
 

@@ -1,7 +1,7 @@
 """Classification des erreurs HTTP pour le client LLM v2 (httpx).
 
 Réutilise ``ErrorClass`` / ``ErrorCategory`` du module legacy
-``ia.agent.reliability`` pour garder les sérialisations (``to_dict()``)
+``app.infrastructure.llm.reliability`` pour garder les sérialisations (``to_dict()``)
 alignées avec le v1 — même sémantique de log, même payload d'API.
 
 ``retry()`` et ``CircuitBreaker`` de ``ia/agent/reliability.py`` sont des
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import httpx
 
-from ia.agent.reliability import CircuitBreaker, ErrorCategory, ErrorClass
+from app.infrastructure.llm.reliability import CircuitBreaker, ErrorCategory, ErrorClass
 
 # Statuts HTTP considérés comme éphémères / idempotents à re-tenter (aligné
 # sur la valeur du module legacy ``ia/agent/reliability.py``).

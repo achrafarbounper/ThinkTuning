@@ -24,8 +24,8 @@ import time
 from typing import Any
 
 from app.infrastructure.persistence.intent_store import default_intent_labels, resolve_intent_model_dir
-from ia.agent.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
-from ia.agent.classifiers.fallback import fallback_intent
+from app.infrastructure.ml.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
+from app.infrastructure.ml.classifiers.fallback import fallback_intent
 
 logger = logging.getLogger("thinktuning.agent.classifiers.intent")
 

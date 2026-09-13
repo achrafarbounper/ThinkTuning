@@ -274,8 +274,8 @@ class MultiAgentCoordinator:
             tools_map, required_map = self._tool_registry.merged_registry()
         else:
             # Identité de paquet réel uniquement (plus de double identité d'import).
-            from ..tools.tool_registry import REQUIRED_ARGS as _RA
-            from ..tools.tool_registry import TOOLS as _T
+            from app.infrastructure.tools.tool_registry import REQUIRED_ARGS as _RA
+            from app.infrastructure.tools.tool_registry import TOOLS as _T
             tools_map, required_map = _T, _RA
         return build_role_agent(
             role_name, self._llm_client, tools_map, required_map,
@@ -578,7 +578,7 @@ class MultiAgentCoordinator:
         except Exception as exc:  # pragma: no cover - chemin défensif
             logger.warning("Review de tool impossible : %s", exc)
             return False, f"review indisponible : {exc}"
-        from .json_parser import extract_json_blocks
+        from app.domain.utils.json_parser import extract_json_blocks
         verdict, reason = "", ""
         for block in extract_json_blocks(raw or ""):
             if isinstance(block, dict) and "verdict" in block:
@@ -698,7 +698,7 @@ class MultiAgentCoordinator:
         })
 
         # Budget de jetons (estimation déterministe) avant tout appel LLM.
-        from .context import estimate_tokens
+        from app.infrastructure.context.context import estimate_tokens
         if estimate_tokens(worker_prompt) > self._max_worker_tokens:
             return self._worker_error(
                 task, TOKEN_BUDGET_EXCEEDED,

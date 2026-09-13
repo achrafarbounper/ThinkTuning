@@ -9,12 +9,12 @@ import json
 
 import pytest
 
-from ia.agent.approvals import Decision, classify
-from ia.agent.errors import TOOL_PROPOSAL_LIMITED, TOOL_PROPOSAL_REJECTED, bucket_of
-from ia.agent.plan_validator import TOOL_PROPOSAL_ROLE, validate_plan
-from ia.agent.prompts import build_planner_prompt
-from ia.tools.registry import get_global_registry
-from ia.tools.tool_registry import TOOLS
+from app.agent.legacy.approvals import Decision, classify
+from app.agent.legacy.errors import TOOL_PROPOSAL_LIMITED, TOOL_PROPOSAL_REJECTED, bucket_of
+from app.agent.legacy.plan_validator import TOOL_PROPOSAL_ROLE, validate_plan
+from app.agent.legacy.prompts import build_planner_prompt
+from app.infrastructure.tools.registry import get_global_registry
+from app.infrastructure.tools.tool_registry import TOOLS
 
 ROLES = ["web", "files", "ml", "data", "math", "ops", "shell", "docker",
          "operator", "developer", "reviewer"]
@@ -159,13 +159,13 @@ def cleanup_tool():
 
 
 def test_registry_approval_ignores_native_tools():
-    from ia.agent.approvals import _registry_approval
+    from app.agent.legacy.approvals import _registry_approval
     assert _registry_approval("run_command") is None
     assert _registry_approval("outil_absent") is None
 
 
 def test_dynamic_tool_manual_by_default(cleanup_tool):
-    from ia.agent.approvals import _registry_approval
+    from app.agent.legacy.approvals import _registry_approval
     get_global_registry().add_tool(
         lambda **kw: "ok",
         {
@@ -182,7 +182,7 @@ def test_dynamic_tool_manual_by_default(cleanup_tool):
 
 
 def test_dynamic_tool_blocked_when_dangerous(cleanup_tool):
-    from ia.agent.approvals import _registry_approval
+    from app.agent.legacy.approvals import _registry_approval
     get_global_registry().add_tool(
         lambda **kw: "ok",
         {
@@ -196,7 +196,7 @@ def test_dynamic_tool_blocked_when_dangerous(cleanup_tool):
 
 
 def test_dynamic_tool_auto_only_for_human_source(cleanup_tool):
-    from ia.agent.approvals import _registry_approval
+    from app.agent.legacy.approvals import _registry_approval
     get_global_registry().add_tool(
         lambda **kw: "ok",
         {

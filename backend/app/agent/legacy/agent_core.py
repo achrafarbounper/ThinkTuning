@@ -26,11 +26,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
-# Import relatif : fonctionne à la fois sous le paquet `ia.agent` (tests)
-# et sous le paquet racine `agent` (app/application/agent_cache.py ajoute ia/ au sys.path).
+# Imports absolus : le runtime v1 vit désormais dans « app.agent.legacy » et
+# s'appuie sur les modules migrés (domaine pur, infrastructure, tools).
 from .system_prompt import THINKING_PROMPT_SECTION, build_system_prompt
-from .json_parser import extract_json_blocks as _parse_json_blocks
-from .thinking import extract_thinking
+from app.domain.utils.json_parser import extract_json_blocks as _parse_json_blocks
+from app.domain.utils.thinking import extract_thinking
 # Garde STRUCTURELLE d'alternance des rôles : appliquée au point de passage
 # unique (_call_llm) avant chaque appel LLM. Les templates Jinja de certains
 # serveurs (Ollama / LM Studio, familles Mistral) rejettent en 400 toute
@@ -41,7 +41,7 @@ from .chat_messages import ensure_strict_alternance
 # Imports best-effort : ces modules sont optionnels et ne doivent pas bloquer
 # le démarrage de l'agent s'ils sont absents.
 try:
-    from .event_bus import get_event_bus
+    from app.infrastructure.events.event_bus import get_event_bus
 except ImportError:
     get_event_bus = None  # type: ignore[assignment]
 try:
@@ -156,15 +156,13 @@ def _stringify(result: Any) -> str:
 
 ToolFunc = Callable[..., Any]
 
-try:  # paquet « ia.tools » (imports racinés sur le projet / tests)
-    from ..tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: F401
-except ImportError:  # racine « agent » / « tools » (app/application/agent_cache.py)
-    from tools.tool_registry import REQUIRED_ARGS, TOOLS  # type: ignore[no-redef]  # noqa: F401
+from app.infrastructure.tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: F401
 
-try:  # Phase B : analytique d'usage des outils (best-effort, jamais bloquant)
-    from ..tools.tool_analytics import record_usage
+# Phase B : analytique d'usage des outils (best-effort, jamais bloquant)
+try:
+    from app.infrastructure.tools.tool_analytics import record_usage
 except ImportError:
-    from tools.tool_analytics import record_usage  # type: ignore[no-redef]
+    record_usage = None  # type: ignore[assignment]
 
 # .approvals est un module frère du paquet « ia.agent » : l'import relatif
 # fonctionne dans les deux contextes (« ia.agent » tests ET « agent » runtime).

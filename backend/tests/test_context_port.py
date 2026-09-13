@@ -5,7 +5,7 @@ sans ouvrir de base ni appeler le réseau.
 
 - conformité structurelle : adaptateurs satisfont ``ContextPort`` (signatures) ;
 - équivalence comportementale : le wrapper legacy se comporte exactement comme
-  le module legacy ``ia.agent.context`` (délégation réelle) ;
+  le module legacy ``app.infrastructure.context.context`` (délégation réelle) ;
 - profil ``AGENT_CONTEXT=0`` : ``NullContextProvider`` ne mute ni ne résume ;
 - intégration : le fournisseur par défaut bascule selon la valeur du flag.
 """
@@ -54,7 +54,7 @@ def test_adapter_implements_full_port_signature(adapter_cls):
 
 def test_legacy_wrapper_delegates_to_legacy_module():
     """Le wrapper legacy === les fonctions pures de ia/agent/context (v1)."""
-    from ia.agent import context as _legacy
+    from app.infrastructure.context import context as _legacy
 
     wrapper = LegacyContextProvider()
     history = [{"role": "user", "content": "salut"}] * 100

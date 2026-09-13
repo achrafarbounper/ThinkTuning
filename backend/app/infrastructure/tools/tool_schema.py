@@ -2,7 +2,7 @@
 
 Format versionné ``thinktuning.tool/v1`` — source unique pour DÉCLARER un tool
 (nom, description, schéma de paramètres) avant de l'ENREGISTRER dans la
-``ToolRegistry`` (``ia/tools/registry.py``) et de l'exposer aux agents.
+``ToolRegistry`` (``registry.py``, même paquet) et de l'exposer aux agents.
 
 SÉPARATION DESIGN-TIME / RUNTIME (règle du standard) :
 
@@ -24,7 +24,7 @@ Règles de validation (déterministes, aucune dépendance LLM) :
     - ``safety``      : ``level`` borné ; ``restricted``/``dangerous`` exigent
       ``requires_approval=true``. ``to_meta_format`` en dérive l'override
       ``approval`` (``auto``/``manual``/``blocked``) consommé par
-      ``ia/agent/approvals.py`` — branchement propre sur les gates existants.
+      ``app/agent/legacy/approvals.py`` — branchement propre sur les gates existants.
 
 Conversions :
     - ``to_meta_format``   : vers le format historique de tools_config.json

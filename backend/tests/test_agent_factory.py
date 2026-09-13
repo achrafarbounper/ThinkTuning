@@ -57,7 +57,7 @@ def test_build_agent_core_legacy_opt_out(monkeypatch) -> None:
     monkeypatch.setenv("AGENT_LLM_V2", "0")
     core = factory.build_agent_core()
     # Le client legacy historique reste disponible comme repli.
-    from ia.agent.llm_client import LLMClient
+    from app.infrastructure.llm.legacy_client import LLMClient
 
     assert isinstance(core._llm, LLMClient)
     assert core._llm.model == get_agent_config().model_name
