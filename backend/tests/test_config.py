@@ -1,7 +1,7 @@
 import os
 import uuid
 
-from src.utils.config import load_config
+from app.config.training_config import load_config
 
 
 def test_load_config_coerces_numeric_strings():

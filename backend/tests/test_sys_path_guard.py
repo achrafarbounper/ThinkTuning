@@ -1,23 +1,23 @@
 # project/tests/test_sys_path_guard.py
 """Garde-fous CI contre les hacks ``sys.path`` (roadmap 🔥#3).
 
-Contexte : le legacy vit avec une double identité d'import (``ia.tools`` /
-``tools``, ``ia.agent`` / ``agent``) maintenue par des inserts de ``ia/``
-dans ``sys.path`` (``app/api/main.py``, ``app/application/agent_cache.py``, conftest, tests).
-Le nouveau noyau (``app/``) ne doit JAMAIS dépendre de ces hacks.
+Contexte historique : le legacy vivait avec une double identité d'import
+(``tools``, ``agent``) maintenue par des inserts de ``ia/`` dans ``sys.path``.
+Depuis la migration ``backend/ia`` → ``backend/app`` (runtime v1 dans
+``app/agent/legacy`` + adaptateurs ``app/infrastructure``), ces identités
+n'existent plus ; le noyau (``app/``) ne doit JAMAIS dépendre de ces hacks.
 
-Trois gardes :
+Quatre gardes :
     1. statique : aucun ``sys.path`` manipulé dans ``app/**.py`` ;
     2. statique : aucune identité legacy nue (``import tools``, ``from agent…``)
        dans ``app/**.py`` — uniquement des imports de paquets réels
-       (``ia.agent.context``, ``app.infrastructure.persistence.run_store``…) ;
+       (``app.agent.legacy.orchestrator``, ``app.infrastructure.persistence.run_store``…) ;
     3. dynamique : tous les modules du noyau v2 s'importent dans un
        sous-processus dont le ``sys.path`` ne contient que la racine du
-       projet (PYTHONPATH purgé), et aucun import n'ajoute ``ia/`` au chemin.
-
-Le garde 3 est le test de garde à proprement parler : si quelqu'un réintroduit
-un hack nécessaire à l'import du noyau v2, la CI échoue ici. Un quatrième test
-marque la dette restante (identité ``tools`` nue) à retourner en Phase 2.
+       projet (PYTHONPATH purgé), et aucun import n'ajoute un dossier
+       étranger au chemin ;
+    4. dynamique : les identités legacy nues (``tools``, ``agent``,
+       ``copilot``, ``logging_setup``) restent NON importables.
 
 Comment lancer : pytest tests/test_sys_path_guard.py -v
 """
@@ -131,7 +131,7 @@ def test_app_layer_never_uses_bare_legacy_identities() -> None:
     """Garde statique : pas d'``import tools`` / ``from agent …`` nus dans app/.
 
     Ces identités n'existent que grâce aux inserts de ``ia/`` dans
-    ``sys.path`` ; le noyau v2 importe les paquets réels (``ia.tools…``,
+    ``sys.path`` ; le noyau v2 importe les paquets réels (``app.infrastructure.tools…``,
     ``ia.agent…``) ou dépend des ports du domaine.
     """
     offenders = []
@@ -172,8 +172,8 @@ def test_core_v2_imports_without_ia_sys_path_hack() -> None:
 def test_bare_legacy_identities_are_gone_without_the_hack() -> None:
     """Garde dynamique (Phase 2 réalisée) : les identités legacy nues
     (``tools``, ``agent``, ``copilot``, ``logging_setup``) ne doivent plus
-    exister — seuls les paquets réels ``ia.tools``, ``ia.agent``, ``ia.copilot``
-    et ``ia.logging_setup`` sont importables, sans aucun hack ``sys.path``.
+    exister — seuls les paquets réels ``app.infrastructure.tools``, ``ia.agent``, ``ia.copilot``
+    et ``app.config.logging_setup`` sont importables, sans aucun hack ``sys.path``.
 
     Historique : avant la Phase 2, ``import tools`` ne réussissait qu'avec
     ``ia/`` ajouté au chemin (par ``app/api/main.py``, ``app/application/agent_cache.py``,

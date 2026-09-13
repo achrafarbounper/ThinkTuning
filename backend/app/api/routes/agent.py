@@ -128,6 +128,11 @@ def _active_features() -> list[str]:
     return [name for name, active in get_agent_config().active_flags().items() if active]
 
 
+from app.application.copilot.suggestions import (  # Phase D (copilot)
+    complete_text,
+    suggest_for_context,
+)
+from app.infrastructure.persistence.feedback_store import get_feedback_store  # Phase D (copilot)
 from app.infrastructure.persistence.flow_store import (
     AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
 )
@@ -155,19 +160,14 @@ from app.infrastructure.persistence.run_store import (
 from app.infrastructure.persistence.run_store import (
     get_run_store,
 )
-from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
-from ia.copilot.suggestions import (  # Phase D (copilot)
-    complete_text,
-    suggest_for_context,
-)
-from ia.tools.plugin import loaded_plugins  # Phase B (plugins)
-from ia.tools.registry import (  # SCRUM-99 (tools personnalisés)
+from app.infrastructure.tools.plugin import loaded_plugins  # Phase B (plugins)
+from app.infrastructure.tools.registry import (  # SCRUM-99 (tools personnalisés)
     ToolRegistryError,
     get_global_registry,
 )
-from ia.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
-from ia.tools.tool_discovery import suggest_tools  # Phase B (découverte)
-from ia.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard v1)
+from app.infrastructure.tools.tool_analytics import get_stats, record_call  # Phase B (analytique)
+from app.infrastructure.tools.tool_discovery import suggest_tools  # Phase B (découverte)
+from app.infrastructure.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard v1)
 
 # --- Dépréciation de la surface HTTP legacy (S7 — MCP-First, tâche 20) -------
 
@@ -720,7 +720,7 @@ def create_custom_tool(
         },
     )
     try:
-        from ia.agent.event_bus import emit as _emit
+        from app.infrastructure.events.event_bus import emit as _emit
 
         _emit(
             ENV_TOOL_REGISTERED,
@@ -767,7 +767,7 @@ def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
         detail={"action": "unregister"},
     )
     try:
-        from ia.agent.event_bus import emit as _emit
+        from app.infrastructure.events.event_bus import emit as _emit
 
         _emit(ENV_TOOL_REMOVED, name=name)
     except Exception:  # noqa: BLE001

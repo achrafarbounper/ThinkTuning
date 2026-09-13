@@ -8,7 +8,7 @@ pytest tests/test_tool_schema.py -v
 
 import pytest
 
-from ia.tools.tool_schema import (
+from app.infrastructure.tools.tool_schema import (
     DEFAULT_SAFETY,
     approval_from_safety,
     check_args_against_definition,

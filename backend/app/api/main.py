@@ -3,18 +3,19 @@
 import os
 
 # --- Configuration logging ----------------------------------------------------
-# Sans cette configuration, les loggers de l'agent (`ia.agent.*`, cf. paquet
-# ia/) n'ont AUCUN handler : Python n'affiche alors que les WARNING+ sur stderr
+# Sans cette configuration, les loggers de l'agent (``thinktuning.agent.*`` —
+# ``app.agent.legacy``, ``app.infrastructure.*``) n'ont AUCUN handler : Python
+# n'affiche alors que les WARNING+ sur stderr
 # via son handler « last resort », et uvicorn ne configure que ses propres
 # loggers (`uvicorn`, `uvicorn.error`, `uvicorn.access`) — jamais ceux de votre
 # app.
 #
-# On branche ici un handler CONSOLE COLORÉ (rich, cf. ia/logging_setup.py) sur
+# On branche ici un handler CONSOLE COLORÉ (rich, cf. app/config/logging_setup.py) sur
 # la racine : tous les logs de l'API ET de l'agent s'affichent lisiblement dans
 # le terminal (niveaux en couleur, durées, tracebacks riches). Idempotent :
 # aucun doublon même si uvicorn recharge le module. Niveau réglable via la
 # variable d'environnement AGENT_LOG_LEVEL (DEBUG/INFO/...).
-from ia.logging_setup import setup_agent_logging  # noqa: E402
+from app.config.logging_setup import setup_agent_logging  # noqa: E402
 
 setup_agent_logging(os.getenv("AGENT_LOG_LEVEL", "INFO"))
 
@@ -69,7 +70,7 @@ def _run_startup_classifier_warmup() -> None:
     try:
         from app.application.classifier_registry import get_registry
         from app.application.model_warmup import get_warmup
-        from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
+        from app.infrastructure.ml.classifiers.sentiment_classifier import SentimentClassifier
 
         classifier = get_registry().get_or_create(SentimentClassifier.name, SentimentClassifier)
         get_warmup().warm_in_background(classifier)

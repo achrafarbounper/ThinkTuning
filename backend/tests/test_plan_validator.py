@@ -19,13 +19,13 @@ import os
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-from ia.agent.errors import (  # noqa: E402
+from app.agent.legacy.errors import (  # noqa: E402
     PLAN_CYCLE,
     PLAN_EMPTY,
     PLAN_VALIDATION_FAILED,
     TASK_INVALID,
 )
-from ia.agent.plan_validator import validate_plan  # noqa: E402
+from app.agent.legacy.plan_validator import validate_plan  # noqa: E402
 
 ROLES = ["web", "files", "data", "math"]
 

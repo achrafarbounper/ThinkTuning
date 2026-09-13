@@ -11,7 +11,7 @@ Vérifie :
 
 import unittest
 
-from ia.agent.observability import (
+from app.agent.legacy.observability import (
     clear_metrics,
     get_error_rate,
     get_metrics_summary,

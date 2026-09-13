@@ -19,7 +19,7 @@ os.environ.setdefault("API_KEY", "test-key")  # avant l'import de l'app
 from app.api import app as api_app  # noqa: E402
 from app.application.feature_flags import flag  # noqa: E402
 from app.infrastructure.persistence.session_store import reset_session_store  # noqa: E402
-from ia.agent.context import (  # noqa: E402
+from app.infrastructure.context.context import (  # noqa: E402
     estimate_messages_tokens,
     estimate_tokens,
     format_memory_note,

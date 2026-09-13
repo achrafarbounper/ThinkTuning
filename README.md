@@ -15,12 +15,14 @@ en français et anglais.
 ```
 ThinkTuning/
 ├── backend/             # Racine du projet Python (API + ML) — les chemins relatifs (configs/, data/, experiments/) y résolvent
-│   ├── api/             # API FastAPI (routes v1, middlewares, auth par clé)
 │   ├── app/             # Noyau hexagonal : domain / application / infrastructure
-│   │   ├── application/       # Runners/caches/registres réabsorbés (ex-legacy/core)
-│   │   └── infrastructure/    # Adaptateurs : persistence (stores), ml, mcp, events
-│   ├── ia/              # Agent IA (Ollama/OpenRouter/HF/LM Studio) + outils sandboxés
-│   ├── src/             # ML : dataset, augmentation (EDA : SR/RI/RS/RD), entraînement, inférence
+│   │   ├── agent/             # Boucle agentique v2 (core.py) + runtime v1 historique (legacy/)
+│   │   ├── api/               # API FastAPI (routes v1, middlewares, auth par clé)
+│   │   ├── application/       # Use cases, runners/caches/registres réabsorbés (ex-legacy/core)
+│   │   ├── config/            # Settings (pydantic-settings) + logging_setup
+│   │   ├── domain/            # Entités, ports (Protocol), erreurs, utilitaires purs (utils/)
+│   │   └── infrastructure/    # Adaptateurs : persistence, ml (ex-src/ : dataset, augmentation EDA,
+│   │                          #   model Trainer, inference Predictor), llm, tools (sandboxés), mcp
 │   ├── train.py         # Fine-tuning de XLM-RoBERTa sur le dataset augmenté
 │   ├── predict.py       # Inférence sur de nouveaux textes
 │   └── requirements.txt
@@ -236,7 +238,7 @@ Comportement de `merge_reviewed_data.py` :
 
 - seules les lignes avec un `manual_label` valide (`negative` / `neutral` /
   `positive`, alias français acceptés) sont conservées ;
-- le label est converti en entier selon `LABEL_NAMES` de `src/dataset/loader.py`
+- le label est converti en entier selon `LABEL_NAMES` de `app/infrastructure/ml/dataset/loader.py`
   ({0: negative, 1: neutral, 2: positive}) ;
 - la déduplication se fait sur le texte normalisé (trim + minuscules) : un
   texte déjà présent dans la source voit son label **mis à jour** avec la
@@ -255,7 +257,7 @@ python predict.py "Ce produit est fantastique, je recommande !"
 ### Comment l'utiliser
 
 L'API FastAPI vit dans le module `app.api.main` (au même niveau que `train.py`,
-`configs/`, `src/`). Installez les dépendances, puis lancez le serveur :
+`configs/`, `app/`). Installez les dépendances, puis lancez le serveur :
 
 ```bash
 pip install fastapi "uvicorn[standard]"
@@ -423,8 +425,10 @@ est séparée de la réponse finale et affichée dans une bulle repliable du cha
   les arguments du tool MCP `orchestrate` (désactivé par défaut).
 - **Deux mécanismes complémentaires** :
   - *induit par le prompt* : la section `THINKING_PROMPT_SECTION`
-    (`ia/agent/system_prompt.py`) demande au modèle d'encadrer son raisonnement
-    par des balises `<think>…</think>`, extraites par `ia/agent/thinking.py`
+    (`app/agent/legacy/system_prompt.py`) demande au modèle d'encadrer son raisonnement
+    par des balises `<think>…</think>`  - *induit par le prompt* : la section `THINKING_PROMPT_SECTION`
+    (`app/agent/legacy/system_prompt.py`) demande au modèle d'encadrer son raisonnement
+    par des balises `</think><tool_call>editor<arg_key>new_text</arg_key><arg_value>, extraites par `app/domain/utils/thinking.py`
     avant le parsing JSON des outils — fonctionne avec n'importe quel modèle,
     y compris `llama3.1:8b` ;
   - *natif Ollama* : avec un modèle de raisonnement (`deepseek-r1`, `qwen3`,
@@ -458,7 +462,7 @@ est séparée de la réponse finale et affichée dans une bulle repliable du cha
   exigeant le JSON strict ; l'outil est alors réellement exécuté avant toute
   conclusion. Le parsing a aussi été re-rendu tolérant : un JSON d'appel
   entouré de prose ou de fences markdown est de nouveau détecté et exécuté
-  (`AgentCore.extract_json_blocks` délègue à `ia/agent/json_parser.py`).
+  (`AgentCore.extract_json_blocks` délègue à `app/domain/utils/json_parser.py`).
 - **Tests** : `pytest tests/test_agent_thinking.py -v` (tests offline).
 
 ### Provider LLM : Ollama, OpenRouter, Hugging Face ou LM Studio
@@ -580,7 +584,7 @@ docker compose --profile search up -d searxng
 
 - **Tests** : `pytest tests/test_web_tools.py -v` (offline, HTTP simulé).
 
-### Sécurité (`ia/tools/sandbox.py`)
+### Sécurité (`app/infrastructure/tools/sandbox.py`)
 
 - **Confinement des chemins** : tout chemin est résolu sous `AGENT_SANDBOX_ROOT` ;
   `../`, chemins absolus externes et évasions sont refusés.

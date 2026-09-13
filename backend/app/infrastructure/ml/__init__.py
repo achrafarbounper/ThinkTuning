@@ -2,7 +2,8 @@
 """Adaptateurs ML — implémentations des ports de prédiction / dépôt de modèles.
 
 Les adaptateurs délègent au legacy (``app.application.predictor_cache``,
-``app.infrastructure.persistence.model_versioning``, ``src.inference.predictor``) par attribut de
+``app.infrastructure.persistence.model_versioning``,
+``app.infrastructure.ml.inference.predictor``) par attribut de
 MODULE (jamais import « par valeur ») : les monkeypatchs des tests
 (``monkeypatch.setattr("app.infrastructure.persistence.model_versioning.MODEL_ROOT", ...)``) et les
 rechargements runtime restent effectifs.

@@ -15,7 +15,7 @@ from datasets import Dataset
 from pydantic import ValidationError
 
 from app.domain.entities.models import TrainRequest
-from src.dataset.loader import augment_dataset
+from app.infrastructure.ml.dataset.loader import augment_dataset
 
 
 def test_train_request_accepts_string_label_keys():

@@ -6,11 +6,11 @@ import os
 import torch
 from transformers import AutoTokenizer
 
-from src.dataset.loader import load_raw_dataset, load_local_dataset, augment_dataset
-from src.dataset.preprocess import create_dataloaders
-from src.model.distilbert import build_model
-from src.model.trainer import Trainer, compute_class_weights
-from src.utils.config import load_config
+from app.infrastructure.ml.dataset.loader import load_raw_dataset, load_local_dataset, augment_dataset
+from app.infrastructure.ml.dataset.preprocess import create_dataloaders
+from app.infrastructure.ml.model.distilbert import build_model
+from app.infrastructure.ml.model.trainer import Trainer, compute_class_weights
+from app.config.training_config import load_config
 from app.api import TEST_MODE
 
 logger = logging.getLogger(__name__)

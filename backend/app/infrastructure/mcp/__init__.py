@@ -8,7 +8,7 @@
   de tools bootstrap) et transports :
   - ``mcp_server_sse.py``   → ``POST /mcp/sse`` (flux SSE, tâche 2) ;
   - ``mcp_server_stdio.py`` → entry point ``thinktuning-mcp`` (tâche 2) ;
-- ``manifest_generator`` (tâche 4) : compile ``ia/tools/tools_config.json``
+- ``manifest_generator`` (tâche 4) : compile ``app/infrastructure/tools/tools_config.json``
   (standard ``thinktuning.tool/v1``) → manifeste MCP (``inputSchema`` réutilisant
   ``to_json_schema``, ``safety`` → annotations) + catalogue ``docs/mcp/MANIFEST.md`` ;
 - ``policy_adapter`` (tâche 5) : projection RUNTIME de la policy de sandbox
@@ -19,8 +19,8 @@
   ``PolicyGateToolProvider`` : MCP n'est pas un bypass de la security interne).
 - ``legacy_tool_provider`` (tâches 6/7) : projection de la SÉLECTION read-only
   v0.1.0 (``V010_READ_ONLY_TOOLS``, 13 tools) étendue en v1.0.0
-  (``V100_READ_ONLY_TOOLS``, 25 tools — checklist tâche 7) du registre legacy
-  ``ia/tools`` sur le port ``MCPToolRegistryPort`` — compilation REUSE
+  (``V100_READ_ONLY_TOOLS``, 25 tools — checklist tâche 7) du registre des
+  tools (``app/infrastructure/tools``) sur le port ``MCPToolRegistryPort`` — compilation REUSE
   (``compile_tool`` → ``entry_to_mcp_tool``), handlers délégués aux
   implémentations legacy (garde-fous sandbox/SSRF portés par délégation),
   erreurs → ``ToolError``, fail-closed à la construction (jamais de tool

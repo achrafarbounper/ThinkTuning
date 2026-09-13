@@ -6,8 +6,8 @@ from collections import OrderedDict
 
 from fastapi import HTTPException
 
+from app.infrastructure.ml.inference.predictor import Predictor
 from app.infrastructure.persistence.model_versioning import resolve_model_dir
-from src.inference.predictor import Predictor
 
 # Nombre maximal de versions de modèles gardées en mémoire (LRU).
 # Un cache multi-slots évite le « thrashing » : avec l'ancien cache mono-slot,

@@ -4,7 +4,7 @@ Tests du chargement des corrections locales dans le pipeline d'entraînement
 rétrocompatibilité sans le paramètre, erreurs explicites sur fichier manquant
 ou mal formé, et propagation depuis TrainRequest via app.application.trainer_runner.
 
-Le hub Hugging Face est stubé (patch de src.dataset.loader.load_dataset) pour
+Le hub Hugging Face est stubé (patch de app.infrastructure.ml.dataset.loader.load_dataset) pour
 que les tests restent offline et déterministes — même approche que
 tests/test_preprocess.py qui patche load_raw_dataset côté runner.
 """
@@ -15,8 +15,8 @@ from unittest.mock import Mock, patch
 import pytest
 from datasets import ClassLabel, Dataset, Value
 
-from src.dataset import loader as loader_module
-from src.dataset.loader import (
+from app.infrastructure.ml.dataset import loader as loader_module
+from app.infrastructure.ml.dataset.loader import (
     CORRECTIONS_REQUIRED_COLUMNS,
     load_local_corrections,
     load_raw_dataset,

@@ -9,9 +9,9 @@
 > (API FastAPI + agent **Intent → Plan → Action**).
 
 Ce document décrit l'architecture cible en cours de mise en place
-(architecture hexagonale), la coexistence avec le code historique
-(`api/`, `ia/`, `src/`), et les conventions à respecter
-pour toute évolution.
+(architecture hexagonale), l'absorption du code historique
+(`api/`, `ia/`, `core/`, `src/` — désormais intégrés sous `app/`), et
+les conventions à respecter pour toute évolution.
 
 ---
 
@@ -35,14 +35,14 @@ pour toute évolution.
           ┌──────────────▼──────────┐  ┌────────▼──────────────────┐
           │  app/domain/            │  │  app/infrastructure/      │
           │  entités, erreurs, ports│  │  adaptateurs vers le      │
-          │  (aucune dépendance)    │  │  legacy (ia/, src/)│
+          │  (aucune dépendance)    │  │  legacy (absorbé sous app/)│
           └─────────────────────────┘  └────────┬──────────────────┘
                                                 │
                               ┌─────────────────▼──────────────────┐
-                              │  legacy : ia/ (LLM, outils, sandbox)│
+                              │  legacy absorbé sous app/ : agent/legacy (LLM, outils)│
                               │  app/infrastructure/persistence     │
                               │    (stores, versionnage, crypto)    │
-                              │  src/ (ML : dataset, model, infer)  │
+                              │  app/infrastructure/ml (ex-src/ ML)  │
                               └────────────────────────────────────┘
 ```
 
@@ -129,7 +129,7 @@ api/routes/agent.py               # POST /ask/core (flag AGENT_NEW_CORE)
                                   # @deprecated (tâche 20) : read-only MCP_FIRST
 app/infrastructure/mcp/           # SURFACE MCP (S7) : serveur SSE (POST /mcp/sse),
                                   # tools/ (bootstrap, orchestrate), manifest, security
-ia/ src/                        # legacy — migré progressivement
+app/infrastructure/ml/           # ML (ex-src/) : dataset, model, inference — migré
 ```
 
 ### Les 7 ports (`app/domain/ports/ports.py`)
@@ -231,50 +231,73 @@ permettent au runner de distinguer retry / recovery / rejet.
 
 ## 6. Migration restante (backlog)
 
-1. ~~Migration physique des stores legacy vers `app/infrastructure/persistence/`
-   (SQLAlchemy + Alembic pour le schéma SQLite)~~ **Annulé (décision projet)** :
-   les stores (réabsorbés de `app/legacy/core`, **supprimé**) vivent dans
-   `app/infrastructure/persistence/` et demeurent les adaptateurs permanents
-   (ports, sans remplacement physique du stockage).
-2. ~~Suppression progressive des hacks `sys.path`~~ **FAIT (Phase 2)** :
-   tous les imports passent par les paquets réels (`ia.agent.*`, `ia.tools.*`,
-   `ia.copilot.*`, `ia.logging_setup`) — plus aucun insert `sys.path` dans
-   `api/`, `app/` ni les tests. Garde-fous CI :
-   `tests/test_sys_path_guard.py` (statique AST + dynamique sous-processus).
-3. Étendre ruff/mypy à `api/`, `ia/`, `tests/` (`app/application/` et
-   `app/infrastructure/` sont désormais couverts — `app/legacy/` supprimé).
-4. ~~Streaming SSE de `/ask/core` (événements tool_start/tool_result
-   réutilisant l'event bus legacy)~~ **Port `EventBusPort` câblé sur le SSE** :
-   le port pub/sub est en place (`app/infrastructure/events/`) et le flux
-   `/ask/core/stream` s'y appuie — le noyau publie, la route s'abonne via un
-   bus PAR RUN (`InMemoryEventBus`) ; see `tests/test_event_bus_wiring.py`.
-5. Baseline GPU : `gpu_info` et `nvidia-smi` restent hors sandbox Windows CI.
-6. **Machine à états du run (domaine)** : `RunStatus` déplacé de `app/agent/core.py`
-   vers `app/domain/entities/run.py` (source de vérité unique, ré-exporté par le
-   moteur pour rétro-compatibilité) ; `RunStateMachine` valide PUREMENT les
-   transitions de la durée de vie persistée — dont l'invariant central : la
-   reprise `awaiting_approval -> running` (empreinte validée) est la SEULE façon
-   de relancer un run, jamais depuis un état terminal. `run_lifecycle.finish_run_status`
-   passe par la FSM avant chaque `run_store.finish_run` (`tests/test_run_state_machine.py`).
-7. ~~Décommission du chemin v1 HTTP/WS~~ **FAIT (bascule `AGENT_NEW_CORE` par
-   défaut)** : routes `/ask` et `/ask/stream` supprimées (remplacées par
-   `/ask/core` et `/ask/core/stream`), worker WebSocket legacy retiré (le canal
-   `/ws` passe toujours par le noyau v2), use-case `run_legacy_ask` et ponts
-   `ask_agent_decision` / `ask_agent_decision_streaming` supprimés ; tests
-   portés sur le noyau v2 à contrat SSE/WS/sessions inchangé.
-8. **Reste v1** : chat `/api/ai` (`app.application.agent_cache.ask_agent_detailed_streaming`),
-   `/complete` + summarizer de session (v1 `AgentRunner`), coordinateur
-   multi-agents (`MultiAgentCoordinator`) — tous construits sur
-   `ia/agent/agent_core.py` + `ia/agent/llm_client.py` ; leur migration vers le
-   client/noyau v2 conditionne la suppression de `ia/agent/llm_client.py`.
-9. **MCP-First (S7 — tâche 20) FAIT** : surface MCP (`POST /mcp/sse`, JSON-RPC
-   2.0 ⇄ SSE, serveur `app/infrastructure/mcp/mcp_server_sse.py`) ; module
-   legacy `api/routes/agent.py` marqué `@deprecated` (DeprecationWarning à
-   l'import + en-têtes `Deprecation`/`Sunset`/`Warning: 299` sur chaque
-   réponse) ; feature flag **`MCP_FIRST=true`** → HTTP legacy read-only (405
-   `mcp_first_read_only`, approbations humaines whitelistées) ; dashboard
-   migré vers MCP-over-SSE (mode « MCP » du chat, `mcpClient.ts`) ;
-   verrouillage par `tests/test_mcp_first.py` (HTTP + MCP actifs ensemble).
+1. ~~Migration physique des stores legacy vers `app/infrastructure/persistence/`~~
+   **Conservée comme adaptation permanente** : les stores sont réabsorbés dans
+   `app/infrastructure/persistence/` et demeurent des adaptateurs de ports, sans
+   remplacement physique du stockage. Le schéma SQLite reste géré par le mode
+   legacy-compatible (pas de migration Alembic de la base historique).
+2. ~~Suppression progressive des hacks `sys.path`~~ **FAIT** : les imports passent
+   par les paquets réels (`ia.agent.*`, `ia.tools.*`, `ia.copilot.*`,
+   `ia.logging_setup`) ; aucun `sys.path` n'est plus injecté par `api/`, `app/`
+   ou les tests. Gardes-fous CI : `tests/test_sys_path_guard.py`.
+3. **Qualité statique et CI** : étendre `ruff`/`mypy` à `api/`, `ia/`, `tests/`
+   pour compléter la couverture actuelle de `app/` (avec `app/legacy/` supprimé).
+4. ~~Décommission du chemin v1 HTTP/WS~~ **FAIT** : routes `/ask` et
+   `/ask/stream` retirées, WebSocket legacy supprimé, use-cases de pontage
+   `run_legacy_ask` / `ask_agent_decision` / `ask_agent_decision_streaming`
+   éliminés ; le noyau v2 est désormais le chemin actif pour le contrat
+   SSE/WS/sessions.
+5. **Machine à états du run (domaine)** : finaliser la centralisation du cycle
+   de vie dans `app/domain/entities/run.py`, en faisant de `RunStateMachine` la
+   source de vérité unique pour les transitions persistées. L'invariant critique
+   reste : la reprise `awaiting_approval -> running` (empreinte validée) est la
+   seule manière de relancer un run, jamais depuis un état terminal.
+6. **Reste v1 résiduel** : chat `/api/ai`, `/complete` + summarizer de session,
+   coordinateur multi-agents (`MultiAgentCoordinator`) et tout le runner v1
+   construit sur `ia/agent/agent_core.py` + `ia/agent/llm_client.py` ; leur
+   migration vers le client/noyau v2 conditionne la suppression finale de
+   `ia/agent/llm_client.py`.
+7. **Bascule LLM v2** : terminer la décommission du client legacy une fois le
+   reste du flux v1 coupé ; conserver `StubLLMClient` et `HttpLLMClient` sous le
+   bon port (`LLMClientPort`) avec repli stable via `AGENT_LLM_V2`.
+8. **Baselines d'environnement** : `gpu_info` et `nvidia-smi` restent hors
+   sandbox Windows CI ; la validation GPU ne doit pas bloquer les builds
+   non-ML/CI standard.
+9. ~~MCP-First (S7 — tâche 20)~~ **FAIT** : surface MCP (`POST /mcp/sse`,
+   JSON-RPC 2.0 ⇄ SSE, serveur `app/infrastructure/mcp/mcp_server_sse.py`),
+   module legacy `api/routes/agent.py` marqué `@deprecated`, feature flag
+   **`MCP_FIRST=true`** en read-only pour le HTTP legacy, approbations humaines
+   whitelistées, dashboard migré vers MCP-over-SSE ; verrouillage par
+   `tests/test_mcp_first.py`.
+
+### Avancée Phase 3 (client LLM v2 + contexte)
+
+- **Port `ContextPort` absorbé** : `ia/agent/context.py` → wrapper
+  `app/infrastructure/context/legacy_context.py`, faux déterministe
+  `null_context.py`, bascule `AGENT_CONTEXT` (`tests/test_context_port.py`).
+- **`HttpLLMClient` (v2) implémenté** : client HTTP httpx propre derrière
+  `LLMClientPort` — streaming NDJSON/SSE, payloads `ollama`/`openrouter`/`hf`,
+  retry + circuit breaker réutilisés de `ia/agent/reliability.py` (classifieur
+  d'erreurs httpx dans `errors.py`), thinking + réparation d'encodage.
+  Bascule via `AGENT_LLM_V2` → `build_llm_client()` (`tests/test_llm_http_client.py`,
+  transport `httpx.MockTransport` hors réseau). Le stub déterministe
+  (`StubLLMClient`) reste disponible pour les tests de use-cases.
+  **Bascule en production réalisée** : `HttpLLMClient` est l'implémentation
+  par défaut (`flag_llm_v2=True`, repli legacy via `AGENT_LLM_V2=0` ;
+  `tests/test_llm_v2.py`, `tests/test_agent_factory.py`).
+  **Reste à faire** : décommissionner `ia/agent/llm_client.py` — il reste
+  importé par le chemin v1 résiduel (`app/application/agent_cache.py` :
+  coordinateur multi-agents + runners du chat `/api/ai`, cf. backlog item 6).
+- **Port `EventBusPort` (8e) ajouté puis câblé sur le SSE** : contrat pub/sub
+  aligné sur `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` et
+  `InMemoryEventBus` — dans `app/infrastructure/events/` (`tests/test_event_bus_port.py`).
+  **Câblage** : le noyau (`AgentCore`) accepte un `EventBusPort` optionnel et
+  publie son cycle de vie (`agent.run_start`, `agent.tool_start` / `tool_end`,
+  `agent.thinking`, `agent.approval_pending`, `agent.run_finished`) via
+  `_safe_emit` ; `/ask/core/stream` injecte un bus PAR RUN (`InMemoryEventBus`)
+  et s'abonne pour régénérer les frames SSE `core_tool` / `thinking_delta` à
+  l'identique — aucun cross-talk entre flux concurrents, et la route n'est plus
+  qu'un abonné (`tests/test_event_bus_wiring.py`).
 
 ### Avancée Phase 3 (client LLM v2 + contexte)
 

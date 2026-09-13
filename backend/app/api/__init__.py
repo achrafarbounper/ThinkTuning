@@ -3,10 +3,10 @@
 import os
 
 # === Global flags expected by tests ===
-# Définis dans src.utils.flags (source unique) pour éviter les imports
-# circulaires : les modules bas niveau (src.*, core.*) lisent ce module
+# Définis dans app.config.flags (source unique) pour éviter les imports
+# circulaires : les modules bas niveau (app.config, app/infrastructure/ml/*) lisent ce module
 # au lieu d'importer le package api.
-from src.utils.flags import TEST_MODE
+from app.config.flags import TEST_MODE
 
 API_KEY = os.getenv("API_KEY", "dev-local-api-key")
 
@@ -43,7 +43,7 @@ from app.application.trainer_runner import run_training as _run_training, cancel
 from app.application.predictor_cache import get_predictor as _get_predictor
 
 # === Expose config loader ===
-from src.utils.config import load_config
+from app.config.training_config import load_config
 
 # === Expose model roots ===
 from app.infrastructure.persistence.model_versioning import MODEL_ROOT, MODELS_ROOT
@@ -65,12 +65,12 @@ from app.api.middlewares.maintenance import (
 # === Expose API key getter ===
 from app.api.dependencies.auth import _get_api_key
 
-from src.dataset.loader import load_raw_dataset, augment_dataset
-from src.dataset.preprocess import create_dataloaders
-from src.model.trainer import Trainer, compute_class_weights
+from app.infrastructure.ml.dataset.loader import load_raw_dataset, augment_dataset
+from app.infrastructure.ml.dataset.preprocess import create_dataloaders
+from app.infrastructure.ml.model.trainer import Trainer, compute_class_weights
 from transformers import AutoTokenizer
-from src.model.distilbert import build_model
-from src.inference.predictor import Predictor
+from app.infrastructure.ml.model.distilbert import build_model
+from app.infrastructure.ml.inference.predictor import Predictor
 from app.infrastructure.persistence.model_versioning import save_model_version
 
 # === Surface publique de la façade =========================================

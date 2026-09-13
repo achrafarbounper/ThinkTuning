@@ -5,7 +5,7 @@ d'un échange vivaient dans la couche ``api/``. Ce sont des responsabilités
 métier : elles migrent ici, et la route n'en conserve que des délégations
 minces (compatibilité monkeypatch des tests préservée).
 
-Note de migration : les imports legacy (``ia.agent.context``,
+Note de migration : les imports legacy (``app.infrastructure.context.context``,
 ``app.infrastructure.persistence.session_store``) seront absorbés par des ports dédiés
 (``ContextPort``,
 ``SessionStorePort``) lors de la fusion du legacy dans Core v2.
@@ -14,14 +14,14 @@ Note de migration : les imports legacy (``ia.agent.context``,
 from __future__ import annotations
 
 from app.agent.settings import agent_flag
-from app.infrastructure.persistence.session_store import get_session_store
-from ia.agent.context import (
+from app.infrastructure.context.context import (
     DEFAULT_HISTORY_BUDGET_TOKENS,
     format_memory_note,
     optimize_history,
     summarize_conversation,
     update_memory_summary,
 )
+from app.infrastructure.persistence.session_store import get_session_store
 
 # Nombre maximal de paires user/assistant rejouées comme contexte de session
 # (mémoire de conversation en mode Agent). Borné pour ne pas exploser la

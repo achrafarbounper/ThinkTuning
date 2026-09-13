@@ -22,8 +22,8 @@ from benchmark import (
 
 
 def _install_predictor_stub(monkeypatch):
-    """Installe un stub pour src.inference.predictor.Predictor (CPU-safe)."""
-    module = types.ModuleType("src.inference.predictor")
+    """Installe un stub pour app.infrastructure.ml.inference.predictor.Predictor (CPU-safe)."""
+    module = types.ModuleType("app.infrastructure.ml.inference.predictor")
 
     class DummyPredictor:
         def __init__(self, *args, **kwargs):
@@ -41,7 +41,7 @@ def _install_predictor_stub(monkeypatch):
             ]
 
     module.Predictor = DummyPredictor
-    monkeypatch.setitem(sys.modules, "src.inference.predictor", module)
+    monkeypatch.setitem(sys.modules, "app.infrastructure.ml.inference.predictor", module)
 
 
 def _install_llm_stub(monkeypatch):

@@ -57,9 +57,9 @@ import evaluate
 # MODEL_ROOT = experiments/models, list_model_versions() filtre les versions
 # VALIDES (présence de poids) triées de la plus récente à la plus ancienne.
 from app.infrastructure.persistence.model_versioning import MODEL_ROOT, list_model_versions
-from src.dataset.loader import load_raw_dataset
-from src.dataset.preprocess import tokenize_dataset
-from src.utils.config import load_config
+from app.infrastructure.ml.dataset.loader import load_raw_dataset
+from app.infrastructure.ml.dataset.preprocess import tokenize_dataset
+from app.config.training_config import load_config
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
 
 logger = logging.getLogger(__name__)

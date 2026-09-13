@@ -5,19 +5,19 @@ import sys
 import tempfile
 import types
 
-# Stub du module feuille src.inference.predictor AVANT d'importer
+# Stub du module feuille app.infrastructure.ml.inference.predictor AVANT d'importer
 # label_dataset, exactement comme dans tests/test_active_learning.py, pour
 # éviter de charger un vrai modèle DistilBERT pendant les tests.
 #
-# IMPORTANT : on n'injecte QUE le nom feuille (« src.inference.predictor »),
-# jamais de faux modules parents (« src », « src.inference »). Un module nu
+# IMPORTANT : on n'injecte QUE le nom feuille (« app.infrastructure.ml.inference.predictor »),
+# jamais de faux modules parents (« app », « app.infrastructure.ml.inference »). Un module nu
 # créé via types.ModuleType() n'a pas de __path__ : s'il se retrouve dans
-# sys.modules sous le nom « src », tout import ultérieur d'un sous-module
-# (ex. app/api/__init__.py -> from src.utils.flags import TEST_MODE) échoue avec
-# « No module named 'src.utils'; 'src' is not a package » pour le reste de
+# sys.modules sous le nom « app », tout import ultérieur d'un sous-module
+# (ex. app/api/__init__.py -> from app.config.flags import TEST_MODE) échoue avec
+# « No module named 'app.config.flags'; 'app' is not a package » pour le reste de
 # la session pytest. setdefault garantit en plus qu'on n'écrase jamais un
 # vrai module déjà importé par un autre test.
-predictor_stub = types.ModuleType("src.inference.predictor")
+predictor_stub = types.ModuleType("app.infrastructure.ml.inference.predictor")
 
 
 class DummyPredictor:
@@ -29,7 +29,7 @@ class DummyPredictor:
 
 
 predictor_stub.Predictor = DummyPredictor
-sys.modules.setdefault("src.inference.predictor", predictor_stub)
+sys.modules.setdefault("app.infrastructure.ml.inference.predictor", predictor_stub)
 
 from label_dataset import build_alpaca_record, load_texts_from_file, main
 
@@ -78,7 +78,7 @@ def test_cli_accepts_min_confidence_flag(monkeypatch, tmp_path, caplog):
       experiments/models (absent en CI, dossier gitignore) -> on court-circuite
       la résolution ;
     - le stub sys.modules ci-dessus ne suffit pas en suite complète :
-      app/api/__init__.py importe déjà le VRAI src.inference.predictor, donc on
+      app/api/__init__.py importe déjà le VRAI app.infrastructure.ml.inference.predictor, donc on
       patche Predictor dans le namespace du module label_dataset.
     Le message « Exported » passe par logging (stderr), pas par stdout : on
     l'assertion via caplog, et on écrit l'entrée/sortie dans tmp_path.

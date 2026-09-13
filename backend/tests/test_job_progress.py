@@ -24,7 +24,7 @@ from app.application import job_logs, trainer_runner
 from app.infrastructure.persistence.job_store import get_job_store
 from app.domain.entities.models import TRAIN_JOB_STEPS, JobStatus, TrainJob
 from app.infrastructure.persistence.training_events import MongoPollingEventsSource
-from src.model.trainer import Trainer
+from app.infrastructure.ml.model.trainer import Trainer
 
 # ---------------------------------------------------------------------------
 # app/application/job_logs

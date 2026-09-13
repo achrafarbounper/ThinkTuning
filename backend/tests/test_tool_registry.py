@@ -8,13 +8,13 @@ et anti-divergence des trois dicts. Lance : pytest tests/test_tool_registry.py -
 
 import pytest
 
-from ia.tools.registry import (
+from app.infrastructure.tools.registry import (
     RegisteredTool,
     ToolRegistry,
     ToolRegistryError,
     get_global_registry,
 )
-from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS
+from app.infrastructure.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS
 
 DEF = {
     "name": "test_helper_tool",

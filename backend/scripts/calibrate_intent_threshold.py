@@ -48,8 +48,8 @@ from app.application.intent_trainer import (  # noqa: E402
     _intent_classification_report,
     _split_records,
 )
-from ia.agent.classifiers.fallback import fallback_intent  # noqa: E402
-from ia.agent.classifiers.intent_classifier import (  # noqa: E402
+from app.infrastructure.ml.classifiers.fallback import fallback_intent  # noqa: E402
+from app.infrastructure.ml.classifiers.intent_classifier import (  # noqa: E402
     IntentClassifier,
     apply_safety_threshold,
 )

@@ -5,7 +5,7 @@ historique ``ia/tools/tool_registry.py`` (TOOLS + TOOL_META chargés depuis
 tools_config.json) derrière le port du domaine. AUCUNE logique nouvelle :
 l'adaptateur délègue et normalise les types.
 
-L'import passe par l'identité de PAQUET réel (``ia.tools``) — jamais par
+L'import passe par l'identité de PAQUET réel (``app.infrastructure.tools``) — jamais par
 l'identité nue ``tools`` qui n'existe que via un hack ``sys.path``
 (cf. tests/test_sys_path_guard.py). Un échec d'import lève immédiatement
 (fail-fast : un registre indisponible n'est jamais silencieux).
@@ -18,7 +18,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.domain.ports import ToolRegistryPort
-from ia.tools import tool_registry as _legacy
+from app.infrastructure.tools import tool_registry as _legacy
 
 logger = logging.getLogger("thinktuning.agent.registry")
 

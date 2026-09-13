@@ -12,7 +12,7 @@ import os
 import tempfile
 import unittest
 
-from ia.agent.audit import (
+from app.agent.legacy.audit import (
     clear_audit_log,
     get_audit_db_path,
     get_audit_trail,

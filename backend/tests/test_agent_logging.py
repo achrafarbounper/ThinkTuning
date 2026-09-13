@@ -110,7 +110,7 @@ def test_agentcore_logs_auto_correction_warning(caplog):
 # --- LLMClient -----------------------------------------------------------------------
 
 def test_llm_client_logs_request_and_response(caplog, monkeypatch):
-    from ia.agent.llm_client import LLMClient
+    from app.infrastructure.llm.legacy_client import LLMClient
 
     class FakeResp:
         status_code = 200
@@ -160,7 +160,7 @@ def test_llm_client_parses_bytes_lines_when_no_charset(monkeypatch):
     L'appel ne doit plus lever
     `TypeError: startswith first arg must be bytes or a tuple of bytes, not str`.
     """
-    from ia.agent.llm_client import LLMClient
+    from app.infrastructure.llm.legacy_client import LLMClient
 
     class FakeResp:
         status_code = 200
@@ -190,7 +190,7 @@ def test_llm_client_repairs_latin1_mojibake_str_lines(monkeypatch):
     final. Avant la correction, ce texte sortait cassé (« tÃªte ») et partait
     tel quel au dashboard ET en base.
     """
-    from ia.agent.llm_client import LLMClient
+    from app.infrastructure.llm.legacy_client import LLMClient
 
     # Contenu français correct, puis son mojibake Latin-1 (comme si requests
     # avait choisi iso-8859-1) : « Bonjour, tête désolée. À l'aide ! »
@@ -216,7 +216,7 @@ def test_llm_client_repairs_latin1_mojibake_str_lines(monkeypatch):
 
 
 def test_llm_client_logs_timeout_as_error(caplog, monkeypatch):
-    from ia.agent import llm_client as llm_module
+    from app.infrastructure.llm import legacy_client as llm_module
 
     def slow_post(url, json=None, timeout=None, stream=False):
         raise llm_module.requests.exceptions.Timeout("too slow")

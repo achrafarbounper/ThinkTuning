@@ -1,6 +1,6 @@
 # Vue d'ensemble du système
 
-ThinkTuning est un backend ML d'analyse de sentiments FR/EN (FastAPI, DistilBERT/LLM) augmenté d'une couche agentique. Le système suit une architecture hexagonale progressive : un nouveau noyau agentique (« core v2 », activé par le flag `AGENT_NEW_CORE=1`) coexiste avec le code historique (`ia/`, `core/`, `src/`), auquel il accède via des adaptateurs.
+ThinkTuning est un backend ML d'analyse de sentiments FR/EN (FastAPI, DistilBERT/LLM) augmenté d'une couche agentique. Le système suit une architecture hexagonale progressive : un noyau agentique (« core v2 », activé par le flag `AGENT_NEW_CORE=1`) a absorbé le code historique (`ia/`, `core/`, `src/` — désormais intégrés sous `app/`) auquel il accède via des adaptateurs.
 
 ```
 HTTP/WS/SSE ─▶ api/ (FastAPI — adapters d'entrée, aucune logique métier)
@@ -11,9 +11,10 @@ HTTP/WS/SSE ─▶ api/ (FastAPI — adapters d'entrée, aucune logique métier)
         ┌────────────┴────────────────┐
    app/domain/ (entités, erreurs, ports)   app/infrastructure/ (adaptateurs legacy)
                      │
-   legacy : ia/ (LLM, outils, sandbox, orchestrateur multi-agents, copilote)
-            core/ (stores SQLite, scheduler, runners ML)
-            src/  (ML : dataset, model, inference)
+   legacy absorbé sous app/ : agent/legacy (LLM, outils, sandbox,
+            orchestrateur multi-agents, copilote), infrastructure/persistence
+            (stores SQLite, scheduler, runners ML), infrastructure/ml
+            (ML : dataset, model, inference)
 ```
 
 **Règle d'or des dépendances** : `app/domain/**` ne dépend de rien ; `app/agent/**` ne dépend que du domaine ; `app/infrastructure/**` implémente les ports en déléguant au legacy ; `api/**` assemble et expose.

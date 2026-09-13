@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import threading
 
-from ia.agent.agent_core import AgentCore
-from ia.agent.budget_pool import BudgetPool, build_budget_pool
-from ia.agent.errors import TOKEN_BUDGET_EXCEEDED
-from ia.agent.orchestrator import MultiAgentCoordinator, build_role_agent
+from app.agent.legacy.agent_core import AgentCore
+from app.agent.legacy.budget_pool import BudgetPool, build_budget_pool
+from app.agent.legacy.errors import TOKEN_BUDGET_EXCEEDED
+from app.agent.legacy.orchestrator import MultiAgentCoordinator, build_role_agent
 
 # --- Fakes (mêmes conventions que test_multi_agent.py) -----------------------
 

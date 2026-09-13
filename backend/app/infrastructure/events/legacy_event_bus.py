@@ -1,6 +1,7 @@
-"""Wrapper strangler du bus d'événements legacy derrière ``EventBusPort``.
+"""Wrapper strangler du bus d'événements derrière ``EventBusPort``.
 
-Délègue au singleton ``ia.agent.event_bus`` — la mémoire du bus et son
+Délègue au singleton ``app.infrastructure.events.event_bus`` (ex-legacy
+``ia/agent/event_bus.py``) — la mémoire du bus et son
 isolation d'erreurs restent celles du legacy, qu'on n'a pas besoin de
 réécrire : ``emit``/``emit_async`` ne remontent jamais d'exception (isolées
 dans le legacy).
@@ -15,7 +16,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from app.domain.ports import EventBusPort
-from ia.agent.event_bus import get_event_bus
+from app.infrastructure.events.event_bus import get_event_bus
 
 
 class LegacyEventBus(EventBusPort):

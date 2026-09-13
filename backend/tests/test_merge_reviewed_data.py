@@ -15,7 +15,7 @@ from merge_reviewed_data import (
     write_merged_csv,
     write_merged_jsonl,
 )
-from src.dataset.loader import LABEL_NAMES, load_local_dataset
+from app.infrastructure.ml.dataset.loader import LABEL_NAMES, load_local_dataset
 
 
 class TestExtractValidCorrections(unittest.TestCase):
@@ -40,7 +40,7 @@ class TestExtractValidCorrections(unittest.TestCase):
         ]
         corrections = extract_valid_corrections(rows)
         self.assertEqual([c["label"] for c in corrections], [0, 1, 2])
-        # Cohérence avec LABEL_NAMES de src/dataset/loader.py.
+        # Cohérence avec LABEL_NAMES de app/infrastructure/ml/dataset/loader.py.
         for correction in corrections:
             self.assertEqual(LABEL_NAMES[correction["label"]], {
                 0: "negative", 1: "neutral", 2: "positive",

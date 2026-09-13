@@ -54,12 +54,7 @@ ThinkTuning/
 │   │   │   └── policies/       # Budget, SandboxPolicy
 │   │   ├── infrastructure/     # Adapters (SQLite, LLM, ML, Events)
 │   │   └── config/             # Settings (pydantic-settings)
-│   ├── core/                   # Stores legacy (SQLite) — audit, run, session, approval, flow
-│   ├── ia/                     # Agent IA legacy (orchestrator, tools, classifiers)
-│   │   ├── agent/              # Orchestrator, AgentCore, FSM, roles, plan_validator
-│   │   ├── tools/              # Tool registry, sandbox, plugins (shell, web, ML, file...)
-│   │   └── copilot/            # Suggestions, feedback
-│   ├── src/                    # ML : dataset, augmentation, inference, model
+│   ├── app/infrastructure/ml/  # ML (ex-src/) : dataset, augmentation, model, inference
 │   └── train.py, predict.py    # Scripts CLI
 ├── frontend/
 │   ├── src/

@@ -30,7 +30,7 @@ def test_classify_path_risk() -> None:
     assert classify_path_risk("certs/server.key")
     assert classify_path_risk("id_rsa")
     assert not classify_path_risk("data/dataset.csv")
-    assert not classify_path_risk("src/model/trainer.py")
+    assert not classify_path_risk("app/infrastructure/ml/model/trainer.py")
 
 
 def test_is_private_host() -> None:

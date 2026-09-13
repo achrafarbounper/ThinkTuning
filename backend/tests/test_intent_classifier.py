@@ -24,7 +24,7 @@ from app.infrastructure.persistence.intent_store import (
     resolve_intent_model_dir,
     set_active_intent_version,
 )
-from ia.agent.classifiers.intent_classifier import (
+from app.infrastructure.ml.classifiers.intent_classifier import (
     IntentClassifier,
     apply_safety_threshold,
     resolve_intent_model_optional,
@@ -44,7 +44,7 @@ class TestIntentClassifierRules:
     def test_engine_auto_sans_modele_bascule_sur_regles(self, monkeypatch, tmp_path) -> None:
         monkeypatch.setattr("app.infrastructure.persistence.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
         monkeypatch.setattr(
-            "ia.agent.classifiers.intent_classifier._MODEL_MISSING_WARNED", False
+            "app.infrastructure.ml.classifiers.intent_classifier._MODEL_MISSING_WARNED", False
         )
         classifier = IntentClassifier(engine="auto")
         results = classifier.predict(["Peux-tu lancer l'entraînement du modèle ?"])

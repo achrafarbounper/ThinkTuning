@@ -111,7 +111,7 @@ def test_append_tool_event_redacts_args(tmp_path) -> None:
 
 
 def test_approval_summary_redacts_value_secrets() -> None:
-    from ia.agent.approvals import _summary
+    from app.agent.legacy.approvals import _summary
 
     out = _summary({"path": "x", "dsn": "postgresql://u:p@h/db", "n": 2})
     assert "u:p@" not in out["dsn"]

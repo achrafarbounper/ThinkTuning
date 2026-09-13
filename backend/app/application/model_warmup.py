@@ -17,7 +17,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from ia.agent.classifiers.base import BaseClassifier
+from app.infrastructure.ml.classifiers.base import BaseClassifier
 
 logger = logging.getLogger("thinktuning.core.model_warmup")
 

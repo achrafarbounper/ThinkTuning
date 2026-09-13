@@ -48,12 +48,12 @@ def build_legacy_llm_client(model: str | None = None, *, think: bool = False):
     ``think`` : active la réflexion native du provider (Ollama ``think`` —
     sans effet sur les autres providers).
 
-    Retourne l'instance ``ia.agent.llm_client.LLMClient``. L'import passe par
-    l'identité de PAQUET réel (``ia.agent``) — jamais par l'identité nue
-    ``agent`` qui n'existe que via un hack ``sys.path``
+    Retourne l'instance ``app.infrastructure.llm.legacy_client.LLMClient``.
+    L'import passe par le paquet hexagonal réel (``app.infrastructure.llm``) ;
+    l'identité nue ``agent`` (hack ``sys.path`` historique) est interdite
     (cf. tests/test_sys_path_guard.py)."""
     config = get_agent_config()
-    from ia.agent import llm_client as _llm_mod
+    from app.infrastructure.llm import legacy_client as _llm_mod
 
     url, api_key = config.endpoint()
 

@@ -2,7 +2,7 @@
 possible (P2 Lot A).
 
 Principe : on ne peut refuser « l'action non déclarée » que si chaque outil
-porté par ``ia/tools/tools_config.json`` est rattaché à UNE catégorie de risque
+porté par ``app/infrastructure/tools/tools_config.json`` est rattaché à UNE catégorie de risque
 canonique. La source de vérité est ``sandbox_policy.classify_tool`` (déjà
 audité, déjà testé, cache LRU) — ce module NE DUPLIQUE PAS le classement, il le
 projette en requêtes d'autorisation :
@@ -27,9 +27,10 @@ from app.domain.entities.plan import ActionCategory
 
 logger = logging.getLogger("thinktuning.security.authz")
 
-# tools_config.json est à backend/ia/tools/ ; ce module à backend/app/infra/
-# .../authz/ — soit 4 niveaux parents jusqu'à backend/.
-_TOOLS_CONFIG_PATH = Path(__file__).resolve().parents[4] / "ia" / "tools" / "tools_config.json"
+# tools_config.json est à backend/app/infrastructure/tools/ ; ce module à
+# backend/app/infrastructure/security/authz/ — soit 2 niveaux parents jusqu'à
+# infrastructure/.
+_TOOLS_CONFIG_PATH = Path(__file__).resolve().parents[2] / "tools" / "tools_config.json"
 
 _ACTION_UNKNOWN = "tool.execute:unknown"
 

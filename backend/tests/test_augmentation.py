@@ -4,14 +4,14 @@ import pandas as pd
 import pytest
 from datasets import Dataset
 
-import src.augmentation.eda as eda
-from src.augmentation.eda import (
+import app.infrastructure.ml.augmentation.eda as eda
+from app.infrastructure.ml.augmentation.eda import (
     back_translation,
     random_deletion,
     random_swap,
     recompose,
 )
-from src.dataset.loader import augment_dataset
+from app.infrastructure.ml.dataset.loader import augment_dataset
 
 # Synonymes déterministes injectés par la fixture `fake_synonyms` : rend les
 # tests de recompose indépendants des corpus NLTK (WordNet/OMW), qui sont

@@ -9,7 +9,7 @@ Couvre ``ia/agent/encoding.repair_utf8_mojibake`` :
 """
 
 
-from ia.agent.encoding import _has_ctrl, repair_utf8_mojibake
+from app.domain.utils.encoding import _has_ctrl, repair_utf8_mojibake
 
 
 def _mojibake_once(s: str) -> str:

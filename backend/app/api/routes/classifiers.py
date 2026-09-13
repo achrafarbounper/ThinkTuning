@@ -30,8 +30,8 @@ from app.application.classifier_monitoring import (
     health_summary,
 )
 from app.application.classifier_registry import get_registry
-from ia.agent.classifiers.intent_classifier import IntentClassifier
-from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
+from app.infrastructure.ml.classifiers.intent_classifier import IntentClassifier
+from app.infrastructure.ml.classifiers.sentiment_classifier import SentimentClassifier
 
 logger = logging.getLogger(__name__)
 

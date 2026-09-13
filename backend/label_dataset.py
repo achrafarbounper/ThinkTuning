@@ -9,7 +9,7 @@ from typing import Iterable, List, Optional
 logger = logging.getLogger(__name__)
 
 from app.infrastructure.persistence.model_versioning import resolve_model_path
-from src.inference.predictor import Predictor
+from app.infrastructure.ml.inference.predictor import Predictor
 
 DEFAULT_INSTRUCTION = (
     "Classify the sentiment of the following text as negative, neutral, or positive."

@@ -16,9 +16,9 @@ Aucun réseau : tout est déterministe. Lance : pytest tests/test_plan_correct.p
 
 import pytest
 
-from ia.agent.plan_correct import PlanRejected, correct_plan, note_auto_approved
-from ia.agent.prompts import build_planner_prompt
-from ia.agent.roles import ROLES, role_tools
+from app.agent.legacy.plan_correct import PlanRejected, correct_plan, note_auto_approved
+from app.agent.legacy.prompts import build_planner_prompt
+from app.agent.legacy.roles import ROLES, role_tools
 
 # --- Diagnostics → ops --------------------------------------------------------
 

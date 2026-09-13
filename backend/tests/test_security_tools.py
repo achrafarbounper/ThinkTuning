@@ -17,7 +17,7 @@ import json
 import pytest
 
 from app.domain.security import DENIED_EXTENSIONS, DENIED_PATH_PARTS, classify_path_risk
-from ia.tools import docker_tools, file_tools, sandbox, search_tools, shell_tools, system_tools
+from app.infrastructure.tools import docker_tools, file_tools, sandbox, search_tools, shell_tools, system_tools
 
 # --- app/domain/security.py ------------------------------------------------------
 
@@ -36,7 +36,7 @@ def test_classify_path_risk_sensitive() -> None:
 
 def test_classify_path_risk_benign() -> None:
     assert not classify_path_risk("data/dataset.csv")
-    assert not classify_path_risk("src/model/trainer.py")
+    assert not classify_path_risk("app/infrastructure/ml/model/trainer.py")
     assert not classify_path_risk("outputs/run_1/metrics.json")
 
 

@@ -56,7 +56,7 @@ from app.infrastructure.mcp.protocol import (
     empty_input_schema,
 )
 from app.infrastructure.mcp.version_loader import load_mcp_version
-from ia.tools.tool_schema import (
+from app.infrastructure.tools.tool_schema import (
     DEFAULT_CATEGORY,
     DEFAULT_VERSION,
     SAFETY_LEVELS,
@@ -68,7 +68,7 @@ from ia.tools.tool_schema import (
 logger = logging.getLogger("thinktuning.mcp.manifest")
 
 _MANIFEST_FILENAME = "tools_config.json"
-_DEFAULT_SOURCE_LABEL = "ia/tools/tools_config.json"
+_DEFAULT_SOURCE_LABEL = "app/infrastructure/tools/tools_config.json"
 _CATALOG_RELPATH = Path("docs") / "mcp" / "MANIFEST.md"
 
 # Annotations MCP (spec « annotations » de tools/list) — les deux postures.
@@ -344,12 +344,18 @@ def entry_to_mcp_tool(
 def _default_candidates() -> list[Path]:
     """Chemins de ``tools_config.json`` sondés sans chemin explicite.
 
-    ``parents[3]`` remonte de ``app/infrastructure/mcp/manifest_generator.py``
-    à la racine ``backend/`` (même résolution que ``version_loader``).
+    Premier candidat : le dossier du module lui-même (``app/infrastructure/``,
+    là où vit le registre migré). Repli : ``<racine backend>/app/infrastructure/
+    tools`` (même résolution que ``version_loader`` via ``parents[3]``) et le
+    CWD (lancement depuis un autre répertoire de travail).
     """
+    module_dir = Path(__file__).resolve().parent
+    candidates = [module_dir / _MANIFEST_FILENAME]
     package_root = Path(__file__).resolve().parents[3]
-    candidates = [package_root / "ia" / "tools" / _MANIFEST_FILENAME]
-    cwd_candidate = Path.cwd() / "ia" / "tools" / _MANIFEST_FILENAME
+    rooted_candidate = package_root / "app" / "infrastructure" / "tools" / _MANIFEST_FILENAME
+    if rooted_candidate not in candidates:
+        candidates.append(rooted_candidate)
+    cwd_candidate = Path.cwd() / "app" / "infrastructure" / "tools" / _MANIFEST_FILENAME
     if cwd_candidate not in candidates:
         candidates.append(cwd_candidate)
     return candidates

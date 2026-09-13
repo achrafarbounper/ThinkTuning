@@ -10,11 +10,12 @@ hexagonale qui permet :
     - de brancher le client LLM réel OU un mock déterministe.
 
 Alignement : chaque Protocol reprend les signatures réelles des modules
-legacy qu'il encapsulera à la migration (app/infrastructure/persistence/session_store.py,
+qu'il encapsule (app/infrastructure/persistence/session_store.py,
 app/infrastructure/persistence/audit_store.py, app/infrastructure/persistence/run_store.py,
 app/infrastructure/persistence/approval_store.py,
-ia/agent/llm_client.py, ia/tools/tool_registry.py). Les stores legacy
-implémentent déjà ces signatures : un simple adaptateur suffira.
+app/infrastructure/llm/legacy_client.py,
+app/infrastructure/tools/tool_registry.py). Les adaptateurs correspondants
+sont en place : les use-cases dépendent des ports, jamais des implémentations.
 """
 
 from __future__ import annotations

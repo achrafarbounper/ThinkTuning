@@ -12,7 +12,7 @@ complété à la main), ne conserve que les lignes où ``manual_label`` est
 renseigné avec une valeur valide (negative / neutral / positive — les alias
 français négatif/neutre/positif sont acceptés, comme dans
 score_manual_review.py), convertit ce label en entier cohérent avec
-``LABEL_NAMES`` de ``src/dataset/loader.py``
+``LABEL_NAMES`` de ``app/infrastructure/ml/dataset/loader.py``
 ({0: negative, 1: neutral, 2: positive}), puis fusionne ces exemples corrigés
 avec le jeu d'entraînement source :
 
@@ -39,7 +39,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from src.dataset.loader import LABEL_NAMES, load_local_dataset, load_raw_dataset
+from app.infrastructure.ml.dataset.loader import LABEL_NAMES, load_local_dataset, load_raw_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ LABEL_ALIASES = {
 }
 
 # Mapping label textuel -> entier, cohérent avec LABEL_NAMES de
-# src/dataset/loader.py : {0: negative, 1: neutral, 2: positive}.
+# app/infrastructure/ml/dataset/loader.py : {0: negative, 1: neutral, 2: positive}.
 LABEL_TO_INT = {name: index for index, name in LABEL_NAMES.items()}
 
 # Valeur spéciale de --source : dataset Hugging Face chargé via

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from ia.tools import sandbox
+from app.infrastructure.tools import sandbox
 
 
 @pytest.fixture(autouse=True)

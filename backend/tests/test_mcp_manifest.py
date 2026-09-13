@@ -43,7 +43,7 @@ from app.infrastructure.mcp.manifest_generator import (
 )
 from app.infrastructure.mcp.mcp_server import InMemoryToolProvider
 from app.infrastructure.mcp.version_loader import load_mcp_version
-from ia.tools.tool_schema import to_json_schema
+from app.infrastructure.tools.tool_schema import to_json_schema
 
 _LOADER_LOGGER = "thinktuning.mcp.manifest"
 
@@ -238,7 +238,7 @@ def test_build_manifest_sorted_and_counted() -> None:
     assert manifest["readOnlyCount"] == 1  # read_file seulement
     assert manifest["manifestVersion"] == "0.1.0"
     assert manifest["generatedAt"] == _FIXED_TS
-    assert manifest["source"] == "ia/tools/tools_config.json"
+    assert manifest["source"] == "app/infrastructure/tools/tools_config.json"
     assert manifest["warnings"] == []
 
 
@@ -348,7 +348,7 @@ def real_manifest() -> dict:
 
 
 def test_real_manifest_covers_all_declared_tools(real_manifest: dict) -> None:
-    from ia.tools.tool_registry import TOOL_META  # source de vérité legacy
+    from app.infrastructure.tools.tool_registry import TOOL_META  # source de vérité legacy
 
     names = {entry["name"] for entry in real_manifest["tools"]}
     assert names == set(TOOL_META)
@@ -560,7 +560,7 @@ def test_markdown_escapes_pipes_and_truncates_long_descriptions() -> None:
 
 
 def test_load_default_discovery_reads_legacy_manifest() -> None:
-    from ia.tools.tool_registry import TOOL_META  # source de vérité legacy
+    from app.infrastructure.tools.tool_registry import TOOL_META  # source de vérité legacy
 
     tools = load_tools_config()
     assert "read_file" in tools

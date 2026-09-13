@@ -7,14 +7,14 @@ enregistrement automatique). Lance : pytest tests/test_multi_agent_tools.py -v
 
 import json
 
-from ia.agent.orchestrator import (
+from app.agent.legacy.orchestrator import (
     EV_TOOL_PROPOSED,
     EV_TOOL_REVIEWED,
     MultiAgentCoordinator,
     build_role_agent,
 )
-from ia.tools.registry import ToolRegistry
-from ia.tools.tool_registry import TOOLS
+from app.infrastructure.tools.registry import ToolRegistry
+from app.infrastructure.tools.tool_registry import TOOLS
 
 PLAN_WITH_PROPOSAL = json.dumps({
     "tasks": [
@@ -192,7 +192,7 @@ def test_registry_injection_extends_workers(monkeypatch):
         return FakeAgent(role_name, [f"réponse {role_name}"])
 
     monkeypatch.setattr(
-        "ia.agent.orchestrator.build_role_agent", fake_build_role_agent,
+        "app.agent.legacy.orchestrator.build_role_agent", fake_build_role_agent,
     )
     registry = ToolRegistry()
     registry.add_tool(

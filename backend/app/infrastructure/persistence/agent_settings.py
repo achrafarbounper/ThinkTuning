@@ -524,7 +524,7 @@ def get_agent_settings() -> dict:
     # Pilotage runtime du bac à sable (effet immédiat pour les outils réseau,
     # sans redémarrage) : seules les valeurs PERSISTÉES surclassent l'env.
     try:
-        from ia.tools.sandbox import apply_persisted_network_policy
+        from app.infrastructure.tools.sandbox import apply_persisted_network_policy
 
         apply_persisted_network_policy(stored)
     except ImportError:  # pragma: no cover — bac à sable facultatif

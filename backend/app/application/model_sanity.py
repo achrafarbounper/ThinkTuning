@@ -94,7 +94,7 @@ def resolve_min_confidence() -> float:
                 env_value,
             )
     try:
-        from src.utils.config import load_config
+        from app.config.training_config import load_config
 
         cfg = load_config("configs/default.yaml")
         return float(cfg.get("model_sanity_min_confidence", DEFAULT_MIN_CONFIDENCE))

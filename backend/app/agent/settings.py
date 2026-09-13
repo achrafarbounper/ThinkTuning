@@ -264,9 +264,9 @@ def get_agent_config(port: AgentSettingsPort | None = None) -> AgentConfig:
     config = AgentConfig(**mapped)
     # Pilotage runtime du bac à sable : seules les valeurs PERSISTÉES (page
     # Paramètres) surclassent l'env — les clés absentes de la base repassent
-    # sous contrôle env côté ``ia.tools.sandbox`` (env relue à chaque appel).
+    # sous contrôle env côté ``app.infrastructure.tools.sandbox`` (env relue à chaque appel).
     try:
-        from ia.tools.sandbox import apply_persisted_network_policy
+        from app.infrastructure.tools.sandbox import apply_persisted_network_policy
 
         apply_persisted_network_policy(port.get_all())
     except ImportError:  # pragma: no cover — bac à sable facultatif

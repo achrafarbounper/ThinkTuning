@@ -3,7 +3,7 @@
 Ensures the project root is importable no matter HOW pytest is launched
 (`pytest.exe`, `python -m pytest`, VS Code Test Explorer, ...) or from
 which working directory. Without this, top-level imports used across the
-codebase (`api`, `core`, `src.*`) only resolve when the CWD happens to be
+codebase (`app.*`) only resolve when the CWD happens to be
 the repository root.
 """
 

@@ -1,6 +1,6 @@
-"""Bootstrap : génère ia/tools/tools_config.json depuis le registre réel.
+"""Bootstrap : génère app/infrastructure/tools/tools_config.json depuis le registre réel.
 
-Pour chaque outil enregistré (tools.tool_registry.TOOLS) on extrait :
+Pour chaque outil enregistré (app.infrastructure.tools.tool_registry.TOOLS) on extrait :
   - description  : 1re phrase de la docstring (même règle que system_prompt)
   - required_args : REQUIRED_ARGS du registre
   - parameters    : {nom -> {type (si annoté), required, default (si optionnel)}}
@@ -11,14 +11,12 @@ Usage : venv\\Scripts\\python.exe scripts\\dump_tool_manifest.py
 import inspect
 import json
 import logging
+import sys
 from pathlib import Path
 
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ia"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: E402
+from app.infrastructure.tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +39,7 @@ def short_description(func) -> str:
     paragraph = doc.split("\n\n", 1)[0].replace("\n", " ").strip()
     sentence = paragraph.split(". ", 1)[0].strip().rstrip(".")
     if len(sentence) > _DESC_MAX_CHARS:
-        sentence = sentence[: _DESC_MAX_CHARS - 1].rstrip() + "…"
+        sentence = sentence[: _DESC_MAX_CHARS - 1].rstrip() + "\u2026"
     return sentence
 
 
@@ -92,11 +90,12 @@ def build_manifest() -> dict:
 
 
 if __name__ == "__main__":
-    import inspect
-
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
 
-    out = Path(__file__).resolve().parents[1] / "ia" / "tools" / "tools_config.json"
+    out = (
+        Path(__file__).resolve().parents[1]
+        / "app" / "infrastructure" / "tools" / "tools_config.json"
+    )
     data = build_manifest()
     out.write_text(
         json.dumps({"tools": data}, ensure_ascii=False, indent=2) + "\n",

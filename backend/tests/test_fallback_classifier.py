@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from ia.agent.circuit_breaker import CircuitBreaker
-from ia.agent.classifiers.base import BaseClassifier, PredictionResult
-from ia.agent.classifiers.fallback import (
+from app.infrastructure.llm.circuit_breaker import CircuitBreaker
+from app.infrastructure.ml.classifiers.base import BaseClassifier, PredictionResult
+from app.infrastructure.ml.classifiers.fallback import (
     FallbackClassifier,
     ResilientClassifier,
     fallback_intent,
