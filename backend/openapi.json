@@ -2320,6 +2320,288 @@
         }
       }
     },
+    "/api/v1/agent/providers": {
+      "get": {
+        "tags": [
+          "Agent IA (v1)"
+        ],
+        "summary": "List Agent Providers",
+        "description": "Providers LLM enregistrés, avec secrets masqués.",
+        "operationId": "list_agent_providers_api_v1_agent_providers_get",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Agent IA (v1)"
+        ],
+        "summary": "Save Agent Provider",
+        "description": "Crée ou met à jour un document provider.",
+        "operationId": "save_agent_provider_api_v1_agent_providers_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentProviderPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/providers/{provider_id}": {
+      "delete": {
+        "tags": [
+          "Agent IA (v1)"
+        ],
+        "summary": "Delete Agent Provider",
+        "description": "Supprime un document provider.",
+        "operationId": "delete_agent_provider_api_v1_agent_providers__provider_id__delete",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/providers/{provider_id}/activate": {
+      "post": {
+        "tags": [
+          "Agent IA (v1)"
+        ],
+        "summary": "Activate Agent Provider",
+        "description": "Active un provider et applique sa clé côté serveur.",
+        "operationId": "activate_agent_provider_api_v1_agent_providers__provider_id__activate_post",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agent/ask/core": {
       "post": {
         "tags": [
@@ -4875,6 +5157,69 @@
         "title": "ActiveLearningRequest",
         "description": "Requete POST /active_learning : selection d'exemples incertains.\n\nFournir ``texts`` (liste explicite) et/ou ``dataset_path`` (JSONL/CSV avec\ncolonne ``text``). Par defaut, le dataset enrichi data/train_enriched.jsonl."
       },
+      "AgentProviderPayload": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "assistant": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Assistant"
+          },
+          "provider": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provider"
+          },
+          "budgets": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Budgets"
+          },
+          "logging": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Logging"
+          },
+          "mcp": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Mcp"
+          },
+          "network_security": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Network Security"
+          },
+          "features": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Features"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider"
+        ],
+        "title": "AgentProviderPayload",
+        "description": "Document Mongo complet d'une configuration provider."
+      },
       "AgentSettingsUpdate": {
         "properties": {
           "provider": {
@@ -5609,7 +5954,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -5621,7 +5966,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "format": "binary"
               },
               {
                 "type": "null"
@@ -5642,7 +5987,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File"
           },
           "text_column": {
@@ -7343,13 +7688,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",

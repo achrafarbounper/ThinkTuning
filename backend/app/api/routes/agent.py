@@ -111,6 +111,7 @@ from app.infrastructure.persistence.audit_store import (  # Phase A (audit / con
     ACT_TOOL,
     get_audit_store,
 )
+from app.infrastructure.persistence.mongodb import MongoAgentProviderStore
 from app.infrastructure.tools.tool_registry import (
     REQUIRED_ARGS,
     TOOL_META,
@@ -521,6 +522,124 @@ class ConnectivityTestRequest(BaseModel):
     hf_url: str | None = None
     hf_api_key: str | None = None
     lm_studio_url: str | None = None
+
+
+class AgentProviderPayload(BaseModel):
+    """Document Mongo complet d'une configuration provider."""
+
+    id: str | None = Field(None, max_length=80)
+    assistant: dict[str, str] = Field(
+        default_factory=lambda: {"name": "Assistant IA", "status": "prêt"}
+    )
+    provider: dict[str, Any]
+    budgets: dict[str, int] = Field(
+        default_factory=lambda: {
+            "max_llm_rounds_per_run": 6,
+            "max_tool_calls_per_run": 20,
+        }
+    )
+    logging: dict[str, str] = Field(default_factory=lambda: {"level": "INFO"})
+    mcp: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "surface": "MCP-First",
+            "http_legacy_read_only": True,
+            "auth_required": True,
+        }
+    )
+    network_security: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "ssrf_protection_enabled": True,
+            "allowed_private_hosts": [],
+        }
+    )
+    features: dict[str, Any] = Field(default_factory=dict)
+
+
+def _provider_public(document):
+    result = dict(document)
+    provider = dict(result.get("provider", {}))
+    key = provider.pop("api_key", "") or ""
+    provider["has_api_key"] = bool(key)
+    provider["api_key_masked"] = _mask_key(key)
+    result["provider"] = provider
+    if "_id" in result:
+        result["id"] = str(result.pop("_id"))
+    return result
+
+
+@router.get("/providers")
+def list_agent_providers(_: bool = Depends(require_api_key)):
+    return {"providers": [_provider_public(item) for item in MongoAgentProviderStore().list_all()]}
+
+
+@router.post("/providers")
+@writable_endpoint
+def save_agent_provider(provider: AgentProviderPayload, _: bool = Depends(require_api_key)):
+    document = provider.model_dump(exclude_none=True)
+    document.pop("id", None)
+    document["provider"].pop("has_api_key", None)
+    document["provider"].pop("api_key_masked", None)
+    document["provider"].setdefault(
+        "streaming_sse",
+        {"first_event_seconds": 60, "heartbeat_seconds": 10},
+    )
+    if not document["provider"].get("api_key"):
+        document["provider"].pop("api_key", None)
+    saved = MongoAgentProviderStore().upsert(document)
+    return {"provider": _provider_public(saved)}
+
+
+@router.delete("/providers/{provider_id}")
+@writable_endpoint
+def delete_agent_provider(provider_id: str, _: bool = Depends(require_api_key)):
+    if not MongoAgentProviderStore().delete(provider_id):
+        raise HTTPException(status_code=404, detail="Provider introuvable.")
+    return {"deleted": True}
+
+
+@router.post("/providers/{provider_id}/activate")
+@writable_endpoint
+def activate_agent_provider(provider_id: str, _: bool = Depends(require_api_key)):
+    from bson import ObjectId
+
+    selector = (
+        {"_id": ObjectId(provider_id)} if ObjectId.is_valid(provider_id) else {"id": provider_id}
+    )
+    document = MongoAgentProviderStore().c.find_one(selector)
+    if not document:
+        raise HTTPException(status_code=404, detail="Provider introuvable.")
+    provider_config = document["provider"]
+    base_url = provider_config["base_url"]
+    provider = (
+        "openrouter"
+        if "openrouter" in base_url
+        else "hf"
+        if "huggingface" in base_url
+        else "lm_studio"
+        if "lmstudio" in base_url or "192.168." in base_url
+        else "ollama"
+    )
+    values = {
+        "provider": provider,
+        "model": provider_config["model_id"],
+        "timeout_seconds": provider_config["timeout_seconds"],
+        "context_length": provider_config["context_length_tokens"],
+        "temperature": provider_config["temperature"],
+    }
+    if provider == "openrouter":
+        values.update(
+            {
+                "openrouter_url": base_url,
+                "openrouter_api_key": provider_config.get("api_key", ""),
+            }
+        )
+    elif provider == "hf":
+        values.update({"hf_url": base_url, "hf_api_key": provider_config.get("api_key", "")})
+    elif provider == "lm_studio":
+        values["lm_studio_url"] = base_url
+    else:
+        values["ollama_url"] = base_url
+    return update_agent_settings(AgentSettingsUpdate(**values), True)
 
 
 # --- Endpoints ----------------------------------------------------------------------

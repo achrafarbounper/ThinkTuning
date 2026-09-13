@@ -60,6 +60,9 @@ V1_PATHS = {
     # des paths OpenAPI ; leur comportement est verrouillé par tests.
     "/api/v1/agent/settings": {"get", "put"},
     "/api/v1/agent/settings/test": {"post"},
+    "/api/v1/agent/providers": {"get", "post"},
+    "/api/v1/agent/providers/{provider_id}": {"delete"},
+    "/api/v1/agent/providers/{provider_id}/activate": {"post"},
     "/api/v1/agent/ask/core": {"post"},
     "/api/v1/agent/ask/core/stream": {"post"},
     "/api/v1/agent/multi/ask/stream": {"post"},

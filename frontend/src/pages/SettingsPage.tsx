@@ -30,39 +30,23 @@ export default function SettingsPage() {
     }
   }, [draft, pushLog, testAgentConnection]);
 
-  const saveAgent = useCallback(async () => {
+  const saveAgent = useCallback(async (overrides: Partial<typeof draft> = {}) => {
+    const values = { ...draft, ...overrides };
     try {
       await updateAgentSettings({
-        provider: draft.provider,
-        model: draft.model,
-        ollamaUrl: draft.ollamaUrl,
-        openrouterUrl: draft.openrouterUrl,
-        openrouterApiKey: draft.openrouterApiKey,
-        hfUrl: draft.hfUrl,
-        hfApiKey: draft.hfApiKey,
-        lmStudioUrl: draft.lmStudioUrl,
-        timeoutSeconds: draft.timeoutSeconds,
-        contextLength: draft.contextLength,
-        temperature: draft.temperature,
-        sseFirstEventTimeout: draft.sseFirstEventTimeout,
-        sseHeartbeat: draft.sseHeartbeat,
-        maxLlmRounds: draft.maxLlmRounds,
-        maxToolCalls: draft.maxToolCalls,
-        logLevel: draft.logLevel,
-        mcpFirst: draft.mcpFirst,
-        mcpAuthRequired: draft.mcpAuthRequired,
-        ssrfEnabled: draft.ssrfEnabled,
-        ssrfAllowlist: draft.ssrfAllowlist,
-        flagReliability: draft.flagReliability,
-        flagAudit: draft.flagAudit,
-        flagToolAnalytics: draft.flagToolAnalytics,
-        flagContext: draft.flagContext,
-        flagCopilot: draft.flagCopilot,
-        flagWebsocket: draft.flagWebsocket,
-        flagMultiAgent: draft.flagMultiAgent,
-        flagCustomTools: draft.flagCustomTools,
-        flagNewCore: draft.flagNewCore,
-        flagLlmV2: draft.flagLlmV2,
+        provider: values.provider, model: values.model, ollamaUrl: values.ollamaUrl,
+        openrouterUrl: values.openrouterUrl, openrouterApiKey: values.openrouterApiKey,
+        hfUrl: values.hfUrl, hfApiKey: values.hfApiKey, lmStudioUrl: values.lmStudioUrl,
+        timeoutSeconds: values.timeoutSeconds, contextLength: values.contextLength,
+        temperature: values.temperature, sseFirstEventTimeout: values.sseFirstEventTimeout,
+        sseHeartbeat: values.sseHeartbeat, maxLlmRounds: values.maxLlmRounds,
+        maxToolCalls: values.maxToolCalls, logLevel: values.logLevel, mcpFirst: values.mcpFirst,
+        mcpAuthRequired: values.mcpAuthRequired, ssrfEnabled: values.ssrfEnabled,
+        ssrfAllowlist: values.ssrfAllowlist, flagReliability: values.flagReliability,
+        flagAudit: values.flagAudit, flagToolAnalytics: values.flagToolAnalytics,
+        flagContext: values.flagContext, flagCopilot: values.flagCopilot,
+        flagWebsocket: values.flagWebsocket, flagMultiAgent: values.flagMultiAgent,
+        flagCustomTools: values.flagCustomTools, flagNewCore: values.flagNewCore, flagLlmV2: values.flagLlmV2,
       });
       pushLog("success", "Paramètres de l'assistant IA enregistrés.");
     } catch (error) {

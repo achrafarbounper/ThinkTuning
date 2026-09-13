@@ -10,7 +10,7 @@
 
 import { createContext } from "react";
 import type { SentimentApiClient } from "../api/sentimentApiClient";
-import type { AgentSettings } from "../api/agentSettings";
+import type { AgentProviderDocument, AgentProviderInput, AgentSettings } from "../api/agentSettings";
 import type { ApiHealth, ModelVersion, PredictionResult } from "../api/sentimentApiClient";
 
 /** Entrée du journal d'activité. */
@@ -64,6 +64,11 @@ export interface AppState {
   agentLoading: boolean;
   agentError: string | null;
   setAgentError: (error: string | null) => void;
+  agentProviders: AgentProviderDocument[];
+  refreshAgentProviders: () => Promise<void>;
+  saveAgentProvider: (provider: AgentProviderInput) => Promise<AgentProviderDocument>;
+  deleteAgentProvider: (id: string) => Promise<void>;
+  activateAgentProvider: (id: string) => Promise<void>;
   // --- Journal d'activité --------------------------------------------------
   logs: ActivityLog[];
   pushLog: (type: ActivityLog["type"], text: string) => void;

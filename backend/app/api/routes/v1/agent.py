@@ -80,6 +80,32 @@ def test_agent_connectivity(
     return _call_guarded(legacy.test_agent_connectivity, request)
 
 
+@router.get("/providers")
+def list_agent_providers(_: bool = Depends(require_read_api_key_or_jwt)):
+    """Providers LLM enregistrés, avec secrets masqués."""
+    return _call_guarded(legacy.list_agent_providers)
+
+
+@router.post("/providers")
+def save_agent_provider(
+    provider: legacy.AgentProviderPayload, _: bool = Depends(require_api_key_or_jwt)
+):
+    """Crée ou met à jour un document provider."""
+    return _call_guarded(legacy.save_agent_provider, provider)
+
+
+@router.delete("/providers/{provider_id}")
+def delete_agent_provider(provider_id: str, _: bool = Depends(require_api_key_or_jwt)):
+    """Supprime un document provider."""
+    return _call_guarded(legacy.delete_agent_provider, provider_id)
+
+
+@router.post("/providers/{provider_id}/activate")
+def activate_agent_provider(provider_id: str, _: bool = Depends(require_api_key_or_jwt)):
+    """Active un provider et applique sa clé côté serveur."""
+    return _call_guarded(legacy.activate_agent_provider, provider_id)
+
+
 @router.post("/ask/core", response_model=legacy.AskResponse)
 def ask_core(request: legacy.AskRequest, _: bool = Depends(require_api_key_or_jwt)):
     """Prompt libre via le noyau agentique (réponse bloquante)."""
