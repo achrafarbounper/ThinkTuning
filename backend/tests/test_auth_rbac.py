@@ -1,5 +1,5 @@
 """Tests P1 SEC — RBAC minimal (clé de lecture), rotation de clé avec grâce
-et auth WebSocket (``api/dependencies/auth.py`` + ``security/api_key.py``).
+et auth WebSocket (``app/api/dependencies/auth.py`` + ``security/api_key.py``).
 
 Lance avec : pytest tests/test_auth_rbac.py -v
 """
@@ -7,7 +7,7 @@ Lance avec : pytest tests/test_auth_rbac.py -v
 import pytest
 from fastapi import HTTPException
 
-from api.dependencies.auth import require_api_key, require_read_api_key, ws_is_authorized
+from app.api.dependencies.auth import require_api_key, require_read_api_key, ws_is_authorized
 from app.infrastructure.security.api_key import (
     DEV_FALLBACK_KEY,
     is_valid_api_key,

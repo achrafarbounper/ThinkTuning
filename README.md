@@ -247,7 +247,7 @@ python predict.py "Ce produit est fantastique, je recommande !"
 
 ### Comment l'utiliser
 
-L'API FastAPI vit dans le module `api.main` (au même niveau que `train.py`,
+L'API FastAPI vit dans le module `app.api.main` (au même niveau que `train.py`,
 `configs/`, `src/`). Installez les dépendances, puis lancez le serveur :
 
 ```bash
@@ -258,7 +258,7 @@ export RATE_LIMIT_PER_MINUTE="60"
 # Windows PowerShell
 # $env:API_KEY="change-me-super-secret"
 # $env:RATE_LIMIT_PER_MINUTE="60"
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 La doc interactive s'ouvre sur http://localhost:8000/docs.
@@ -360,7 +360,7 @@ préfixe `/api/agent` (l'ancien serveur autonome `ia/api_server.py` a été reti
 `core/agent_cache.py` est le point d'entrée unique vers l'agent) :
 
 ```bash
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Variables d'environnement dédiées (relues à chaque appel) :
@@ -639,7 +639,7 @@ Pages disponibles (navigation par hachage `#/…`) :
 ```bash
 # Terminal 1 — API FastAPI (depuis backend/ : les imports et .env y résolvent)
 cd backend
-..\venv\Scripts\python -m uvicorn api.main:app --reload --port 8000
+..\venv\Scripts\python -m uvicorn app.api.main:app --reload --port 8000
 
 # Terminal 2 — frontend (Vite dev server)
 cd frontend

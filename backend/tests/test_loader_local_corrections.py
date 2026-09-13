@@ -227,7 +227,7 @@ def test_load_raw_dataset_with_empty_corrections_file_keeps_base(tmp_path, patch
 # Propagation TrainRequest -> run_training -> load_raw_dataset        #
 # ------------------------------------------------------------------ #
 def test_run_training_propagates_local_corrections_to_loader():
-    from api import JobStatus, TrainJob, TrainRequest, _jobs
+    from app.api import JobStatus, TrainJob, TrainRequest, _jobs
     from core import trainer_runner as _runner
 
     raw = Dataset.from_dict({

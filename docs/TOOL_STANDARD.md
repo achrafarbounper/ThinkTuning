@@ -13,7 +13,7 @@ ThinkTuning. Tout ce qui est décrit ici est implémenté et testé :
 | `ia/agent/plan_validator.py` | Pseudo-rôle `propose_tool` (plans) |
 | `ia/agent/orchestrator.py` | Pipeline proposer → relire (reviewer) |
 | `ia/agent/approvals.py` | Gate : approval dérivé de `safety` |
-| `api/routes/agent.py` | `GET/POST/DELETE /api/agent/tools/custom` |
+| `app/api/routes/agent.py` | `GET/POST/DELETE /api/agent/tools/custom` |
 | `core/feature_flags.py` | Flag `AGENT_CUSTOM_TOOLS_API` |
 
 ---

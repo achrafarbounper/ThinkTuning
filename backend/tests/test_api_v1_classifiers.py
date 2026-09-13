@@ -11,8 +11,8 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402, F401
-from api import app  # noqa: E402
+import app.api as api# noqa: E402, F401
+from app.api import app  # noqa: E402
 
 client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
@@ -50,14 +50,14 @@ class _FakeClassifier:
 
 def test_list_classifiers_public(monkeypatch):
     monkeypatch.setattr(
-        "api.routes.classifiers.classifier_snapshots",
+        "app.api.routes.classifiers.classifier_snapshots",
         lambda registry: [{"name": "sentiment", "status": "healthy"}],
     )
     monkeypatch.setattr(
-        "api.routes.classifiers.health_summary",
+        "app.api.routes.classifiers.health_summary",
         lambda snapshots: {"total": 1, "healthy": 1, "status": "ok"},
     )
-    monkeypatch.setattr("api.routes.classifiers.get_registry", lambda: object())
+    monkeypatch.setattr("app.api.routes.classifiers.get_registry", lambda: object())
     response = client.get("/api/v1/classifiers")
     assert response.status_code == 200
     body = response.json()
@@ -67,16 +67,16 @@ def test_list_classifiers_public(monkeypatch):
 
 def test_get_classifier_public_and_missing(monkeypatch):
     monkeypatch.setattr(
-        "api.routes.classifiers.classifier_snapshot",
+        "app.api.routes.classifiers.classifier_snapshot",
         lambda name, classifier: {"name": name, "status": "healthy"},
     )
-    monkeypatch.setattr("api.routes.classifiers._resolve_classifier", lambda name: object())
+    monkeypatch.setattr("app.api.routes.classifiers._resolve_classifier", lambda name: object())
     response = client.get("/api/v1/classifiers/sentiment")
     assert response.status_code == 200
     assert response.json()["name"] == "sentiment"
 
     # Classifieur inconnu : registry réel vide + aucune fabrique pour « bogus ».
-    monkeypatch.setattr("api.routes.classifiers._resolve_classifier", lambda name: _missing(name))
+    monkeypatch.setattr("app.api.routes.classifiers._resolve_classifier", lambda name: _missing(name))
     missing = client.get("/api/v1/classifiers/bogus")
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "not_found"
@@ -98,7 +98,7 @@ def test_predict_requires_key():
 
 def test_predict_classifier_happy(monkeypatch):
     monkeypatch.setattr(
-        "api.routes.classifiers._resolve_classifier", lambda name: _FakeClassifier()
+        "app.api.routes.classifiers._resolve_classifier", lambda name: _FakeClassifier()
     )
     response = client.post(
         "/api/v1/classifiers/sentiment/predict",
@@ -117,7 +117,7 @@ def test_predict_failure_is_500(monkeypatch):
         def predict(self, texts):
             raise RuntimeError("panne interne")
 
-    monkeypatch.setattr("api.routes.classifiers._resolve_classifier", lambda name: _Exploding())
+    monkeypatch.setattr("app.api.routes.classifiers._resolve_classifier", lambda name: _Exploding())
     response = client.post(
         "/api/v1/classifiers/sentiment/predict",
         json={"texts": ["x"]},
@@ -132,7 +132,7 @@ def test_reload_requires_key():
 
 def test_reload_classifier_happy(monkeypatch):
     monkeypatch.setattr(
-        "api.routes.classifiers._resolve_classifier", lambda name: _FakeClassifier()
+        "app.api.routes.classifiers._resolve_classifier", lambda name: _FakeClassifier()
     )
     response = client.post("/api/v1/classifiers/sentiment/reload", headers=AUTH)
     assert response.status_code == 200
@@ -141,7 +141,7 @@ def test_reload_classifier_happy(monkeypatch):
 
 
 def test_reload_unknown_is_404(monkeypatch):
-    monkeypatch.setattr("api.routes.classifiers._resolve_classifier", _missing)
+    monkeypatch.setattr("app.api.routes.classifiers._resolve_classifier", _missing)
     response = client.post("/api/v1/classifiers/bogus/reload", headers=AUTH)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"

@@ -25,9 +25,9 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-import api  # noqa: F401
-from api import app
-from api.dependencies.composition import (
+import app.api as api# noqa: F401
+from app.api import app
+from app.api.dependencies.composition import (
     get_training_jobs_port,
     get_training_runner_port,
     get_training_schedules_port,

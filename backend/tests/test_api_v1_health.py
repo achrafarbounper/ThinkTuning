@@ -19,8 +19,8 @@ os.environ.setdefault("API_KEY", "test-key")
 import pytest
 from fastapi.testclient import TestClient
 
-import api  # noqa: F401  (initialise MODEL_ROOT/job store avant le routage)
-from api import app
+import app.api as api# noqa: F401  (initialise MODEL_ROOT/job store avant le routage)
+from app.api import app
 
 client = TestClient(app)
 
@@ -29,7 +29,7 @@ client = TestClient(app)
 def no_models(monkeypatch, tmp_path):
     """Premier lancement Docker : aucune version de modèle valide.
 
-    ``api.routes.health.get_job_store`` est aussi patché : la route legacy a
+    ``app.api.routes.health.get_job_store`` est aussi patché : la route legacy a
     capturé la fonction PAR VALEUR à l'import, tandis que l'adaptateur v1
     l'appelle par attribut de module — les deux surfaces doivent observer le
     même store pour la comparaison de contrat.
@@ -107,7 +107,7 @@ def test_v1_health_reflects_maintenance_mode(monkeypatch):
     ``/api/v1/health`` permet au healthcheck de signaler l'état au lieu d'être
     bloqué en 503.
     """
-    monkeypatch.setattr("api.middlewares.maintenance._MAINTENANCE_MODE", True)
+    monkeypatch.setattr("app.api.middlewares.maintenance._MAINTENANCE_MODE", True)
 
     response = client.get("/api/v1/health")
 
@@ -119,7 +119,7 @@ def test_v1_health_exempt_from_middleware_block(monkeypatch):
     """Exemption symétrique : pendant la maintenance, /api/v1/health reste
     répondant (un healthcheck bloqué est un healthcheck inutile), tandis qu'un
     endpoint métier v1 est bien bloqué par le middleware."""
-    monkeypatch.setattr("api.middlewares.maintenance._MAINTENANCE_MODE", True)
+    monkeypatch.setattr("app.api.middlewares.maintenance._MAINTENANCE_MODE", True)
 
     assert client.get("/api/v1/health").status_code == 200
     # Un endpoint métier v1 est bloqué pendant la maintenance :
@@ -132,7 +132,7 @@ def test_v1_health_exempt_from_middleware_block(monkeypatch):
 # dependency_overrides (pattern officiel FastAPI), fakes déterministes.
 # ---------------------------------------------------------------------------
 
-from api.dependencies.composition import get_prediction_port  # noqa: E402
+from app.api.dependencies.composition import get_prediction_port  # noqa: E402
 
 
 def test_v1_model_sanity_requires_model():

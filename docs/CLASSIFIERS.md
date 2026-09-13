@@ -223,7 +223,7 @@ L'entraînement du classifieur d'intention n'est plus réservé au CLI
 dashboard (page « Classification d'intention »), en réutilisant le même
 pattern de jobs que l'entraînement sentiment.
 
-### Routes (`api/routes/intent_train.py`)
+### Routes (`app/api/routes/intent_train.py`)
 
 | Méthode | Route | Clé API | Description |
 |---|---|---|---|

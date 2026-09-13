@@ -10,7 +10,7 @@
 | Recommandation MCP | Composant existant | Action MCP |
 |---|---|---|
 | 1. Capabilities platform | `app/agent/core.py` (AgentCore) | Expose comme `orchestrate` tool MCP |
-| 2. MCP = surface principale | `api/routes/agent.py` (`GET /tools`) | Remplace par `ListTools` MCP |
+| 2. MCP = surface principale | `app/api/routes/agent.py` (`GET /tools`) | Remplace par `ListTools` MCP |
 | 3. Protocol interne = config | `ia/tools/tools_config.json` + `tool_schema.py` | Source de configuration → génère le manifeste MCP |
 | 4. Product Council | `core/audit_store.py` + `core/mcp_client_store.py` (nouveau) | Gouvernance + tracking clients |
 | 5. Versioning | `app/config/settings.py` (Pydantic Settings) | Ajouter `MCP_VERSION` |
@@ -32,7 +32,7 @@
 - **Sécurité** : passe par `decide_action()` → `APPROVE` (mutation → validation humaine)
 
 ### Rec. 2 : MCP = surface principale
-- **Existant** : `api/routes/agent.py` → `GET /tools` (liste 25 tools)
+- **Existant** : `app/api/routes/agent.py` → `GET /tools` (liste 25 tools)
 - **Nouveau** : `app/infrastructure/mcp/mcp_server_sse.py` → `ListToolsRequest` → interroge `MCPToolRegistryPort` (port domaine, tâche 3)
 
 ### Rec. 3 : Protocol interne = configuration

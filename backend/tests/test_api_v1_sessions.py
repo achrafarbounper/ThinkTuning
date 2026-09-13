@@ -13,8 +13,8 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402, F401
-from api import app  # noqa: E402
+import app.api as api# noqa: E402, F401
+from app.api import app  # noqa: E402
 
 client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
@@ -77,7 +77,7 @@ class FakeSessionStore:
 
 def _install_fake(monkeypatch) -> FakeSessionStore:
     fake = FakeSessionStore()
-    monkeypatch.setattr("api.routes.sessions.get_session_store", lambda: fake)
+    monkeypatch.setattr("app.api.routes.sessions.get_session_store", lambda: fake)
     return fake
 
 

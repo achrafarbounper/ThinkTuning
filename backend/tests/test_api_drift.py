@@ -18,7 +18,7 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402
+import app.api as api# noqa: E402
 
 
 class FakePredictor:

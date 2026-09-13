@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import torch
 from torch.utils.data import DataLoader
 
-import api
+import app.api as api
 from src.model.trainer import Trainer
 
 

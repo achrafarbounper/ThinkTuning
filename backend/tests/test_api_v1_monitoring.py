@@ -12,8 +12,8 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402, F401
-from api import app  # noqa: E402
+import app.api as api# noqa: E402, F401
+from app.api import app  # noqa: E402
 
 client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
@@ -69,7 +69,7 @@ def test_drift_requires_key():
 
 
 def test_drift_json_kl_happy(monkeypatch):
-    monkeypatch.setattr("api._get_predictor", lambda model=None: _FakePredictor())
+    monkeypatch.setattr("app.api._get_predictor", lambda model=None: _FakePredictor())
     response = client.post(
         "/api/v1/drift",
         json={"texts_a": ["t1", "t2"], "texts_b": ["t3", "t4"]},
@@ -84,7 +84,7 @@ def test_drift_json_kl_happy(monkeypatch):
 
 
 def test_drift_bad_threshold_is_400(monkeypatch):
-    monkeypatch.setattr("api._get_predictor", lambda model=None: _FakePredictor())
+    monkeypatch.setattr("app.api._get_predictor", lambda model=None: _FakePredictor())
     response = client.post(
         "/api/v1/drift",
         json={"texts_a": ["a"], "texts_b": ["b"], "threshold": 0},
@@ -97,7 +97,7 @@ def test_drift_bad_threshold_is_400(monkeypatch):
 def test_drift_multipart_status_ok(monkeypatch):
     """Le multipart (fichiers CSV) est accepté — validation montée en erreur
     400 « Deux fichiers CSV » avant prédiction (un fichier manquant)."""
-    monkeypatch.setattr("api._get_predictor", lambda model=None: _FakePredictor())
+    monkeypatch.setattr("app.api._get_predictor", lambda model=None: _FakePredictor())
     response = client.post(
         "/api/v1/drift",
         data={"text_column": "text"},
@@ -116,9 +116,9 @@ def test_explain_requires_key():
 
 
 def test_explain_happy(monkeypatch):
-    monkeypatch.setattr("api._get_predictor", lambda: _FakePredictor())
+    monkeypatch.setattr("app.api._get_predictor", lambda: _FakePredictor())
     monkeypatch.setattr(
-        "api.routes.explain.agent_cache.ask_agent_openrouter",
+        "app.api.routes.explain.agent_cache.ask_agent_openrouter",
         lambda prompt, model=None: "Ce texte est positif car il exprime de la joie.",
     )
     response = client.post("/api/v1/explain", json={"text": "Super journée"}, headers=AUTH)

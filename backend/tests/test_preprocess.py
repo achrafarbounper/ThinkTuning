@@ -9,8 +9,8 @@ import torch
 from datasets import Dataset
 from transformers import AutoTokenizer
 
-import api
-from api import JobStatus, TrainJob, TrainRequest, _jobs, _run_training, cancel_training
+import app.api as api
+from app.api import JobStatus, TrainJob, TrainRequest, _jobs, _run_training, cancel_training
 from evaluate import evaluate
 from src.dataset.preprocess import create_dataloaders, tokenize_dataset
 

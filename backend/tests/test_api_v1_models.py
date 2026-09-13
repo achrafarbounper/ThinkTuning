@@ -5,7 +5,7 @@ Deux niveaux :
     - routes : ports substitués via ``app.dependency_overrides`` — AUCUNE
       infrastructure, statuts + enveloppe domaine {error:{code,message}} ;
     - adaptateur : handlers legacy enveloppés avec monkeypatchs ciblés
-      (``api.routes.models.*``) pour vérifier la conversion HTTPException ->
+      (``app.api.routes.models.*``) pour vérifier la conversion HTTPException ->
       erreurs de domaine (422/404/409) sans toucher au disque réel.
 """
 
@@ -16,9 +16,9 @@ os.environ.setdefault("API_KEY", "test-key")
 import pytest
 from fastapi.testclient import TestClient
 
-import api  # noqa: F401
-from api import app
-from api.dependencies.composition import get_model_versioning_port
+import app.api as api# noqa: F401
+from app.api import app
+from app.api.dependencies.composition import get_model_versioning_port
 from app.domain.errors import ConflictError, NotFoundError, ValidationError
 from app.infrastructure.ml.model_versioning_adapter import ModuleModelVersioningAdapter
 from core.models import ModelVersion
@@ -211,7 +211,7 @@ def test_v1_models_delete_unknown_404(fake_versioning):
 # ---------------------------------------------------------------------------
 def test_adapter_activate_invalid_valueerror_422(monkeypatch):
     """validate_model_version ValueError => HTTPException 422 => ValidationError."""
-    import api.routes.models as models_module
+    import app.api.routes.models as models_module
 
     def _invalid(path: str) -> None:
         raise ValueError("config.json illisible")
@@ -225,7 +225,7 @@ def test_adapter_activate_invalid_valueerror_422(monkeypatch):
 
 def test_adapter_delete_active_conflict_409(monkeypatch, tmp_path):
     """Version active => HTTPException 409 => ConflictError."""
-    import api.routes.models as models_module
+    import app.api.routes.models as models_module
 
     monkeypatch.setattr(models_module, "MODEL_ROOT", str(tmp_path))
     monkeypatch.setattr(models_module, "is_active", lambda name: True)
@@ -238,7 +238,7 @@ def test_adapter_delete_active_conflict_409(monkeypatch, tmp_path):
 
 def test_adapter_delete_unknown_notfound_404(monkeypatch, tmp_path):
     """Version inconnue => HTTPException 404 => NotFoundError."""
-    import api.routes.models as models_module
+    import app.api.routes.models as models_module
 
     monkeypatch.setattr(models_module, "MODEL_ROOT", str(tmp_path))
     adapter = ModuleModelVersioningAdapter()

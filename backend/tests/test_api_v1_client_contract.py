@@ -30,8 +30,8 @@ from pathlib import Path
 
 os.environ.setdefault("API_KEY", "test-key")
 
-import api as _api  # noqa: E402, F401  (charge l'application, isole l'env)
-from api import app  # noqa: E402
+import app.api as _api  # noqa: E402, F401  (charge l'application, isole l'env)
+from app.api import app  # noqa: E402
 
 # Racine Python (backend/). Le frontend (ex-dashboard/) vit un niveau
 # au-dessus, à la racine du dépôt : ../frontend/src.
@@ -199,7 +199,7 @@ def test_aucune_route_hors_v1_montee():
     """POST-STRANGLER (côté backend) : l'application ne monte PLUS AUCUNE
     route hors `/api/v1`.
 
-    L'épuration a retiré les 16 ``include_router`` legacy de ``api/main.py`` :
+    L'épuration a retiré les 16 ``include_router`` legacy de ``app/api/main.py`` :
     toute réintroduction d'un routeur non versionné casse ce test AVANT la
     mise en prod (les fichiers legacy restants ne sont plus montés).
     """

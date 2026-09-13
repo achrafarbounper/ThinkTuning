@@ -21,7 +21,7 @@ import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 
-import api.routes.agent as agent_routes  # noqa: E402
+import app.api.routes.agent as agent_routes  # noqa: E402
 from app.agent.core import AgentRunResult, RunStatus  # noqa: E402
 from core import flow_store as fs  # noqa: E402
 

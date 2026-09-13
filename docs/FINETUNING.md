@@ -44,8 +44,8 @@ Références historiques :
                     ┌─────────────────────────────────────────────────────────────┐
    entrée            │    Pipeline end-to-end (labeling → filtrage → fine-tuning)  │
    CSV/JSON/JSONL    │                                                             │
-   TXT ─────────────▶│  pipeline.py (CLI)        api/routes/pipeline.py (API)      │
-                     │        │                    api/routes/v1/pipeline.py        │
+   TXT ─────────────▶│  pipeline.py (CLI)        app/api/routes/pipeline.py (API)      │
+                     │        │                    app/api/routes/v1/pipeline.py        │
                      │        └──────────┬───────────────────────────┘             │
                      │                   ▼                                          │
                      │   core/pipeline_runner.py  (Thread daemon par job)          │
@@ -143,7 +143,7 @@ CSV/JSON/JSONL/TXT ─▶ label_dataset.py ─▶ [filtrage min_confidence] ─�
 ## 4. Orchestration asynchrone — `core/pipeline_runner.py`
 
 Module central partagé par le CLI (`pipeline.py`) et l'API (`/pipeline`),
-conformément à `api/routes/pipeline.py` (« même pattern de jobs que /train »).
+conformément à `app/api/routes/pipeline.py` (« même pattern de jobs que /train »).
 
 ### 4.1 Machine à états du job
 
@@ -423,8 +423,8 @@ rechargement de l'adapter. Sortie : tableau `rich` + métriques par modèle
 | `POST` | `/pipeline/cancel/{job_id}` | X-API-Key | Annulation coopérative |
 | `GET` | `/pipeline/jobs` | X-API-Key | Historique paginé (`limit` ≤ 1000, `offset`, filtre `status`), tri `started_at DESC` |
 
-- Route legacy : `api/routes/pipeline.py` ;
-- **Strangler** : `api/routes/v1/pipeline.py` délègue aux handlers legacy avec
+- Route legacy : `app/api/routes/pipeline.py` ;
+- **Strangler** : `app/api/routes/v1/pipeline.py` délègue aux handlers legacy avec
   conversion d'erreurs HTTP (`convert_legacy_http_error`) et réutilise
   `core.models` (zéro dérive de contrat).
 

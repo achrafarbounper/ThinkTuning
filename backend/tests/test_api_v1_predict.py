@@ -14,9 +14,9 @@ os.environ.setdefault("API_KEY", "test-key")
 import pytest
 from fastapi.testclient import TestClient
 
-import api  # noqa: F401
-from api import app
-from api.dependencies.composition import get_prediction_port
+import app.api as api# noqa: F401
+from app.api import app
+from app.api.dependencies.composition import get_prediction_port
 from app.domain.entities.prediction import PredictionResult, SanityReport
 from app.domain.errors import ModelNotAvailableError
 
@@ -193,7 +193,7 @@ BATCH_CSV = "text\nService impeccable\nJe ne reviendrai pas\n"
 
 
 class FakeLegacyPredictor:
-    """Fake du prédicteur legacy (``api._get_predictor``) — dicte les même
+    """Fake du prédicteur legacy (``app.api._get_predictor``) — dicte les même
     shape que le handler : ``[{"sentiment", "confidence"}]``."""
 
     def predict(self, texts: list[str]):

@@ -9,7 +9,7 @@ tests font un double contrôle :
     bad_request, ressources absentes → 404 not_found, état incohérent →
     409 conflict) ;
   - happy paths avec stores/collaborateurs fake (même technique que les
-    tests legacy : monkeypatch des globals du module `api.routes.agent`).
+    tests legacy : monkeypatch des globals du module `app.api.routes.agent`).
 """
 
 import os
@@ -18,8 +18,8 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402, F401
-from api import app  # noqa: E402
+import app.api as api# noqa: E402, F401
+from app.api import app  # noqa: E402
 
 client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
@@ -124,13 +124,13 @@ class _AskOutcome:
 
 
 def test_read_settings_requires_key(monkeypatch):
-    monkeypatch.setattr("api.routes.agent._settings_payload", lambda: {"settings": {}})
+    monkeypatch.setattr("app.api.routes.agent._settings_payload", lambda: {"settings": {}})
     assert client.get("/api/v1/agent/settings").status_code == 401
 
 
 def test_read_settings(monkeypatch):
     monkeypatch.setattr(
-        "api.routes.agent._settings_payload",
+        "app.api.routes.agent._settings_payload",
         lambda: {"settings": {"provider": "ollama"}, "reload_ok": True},
     )
     response = client.get("/api/v1/agent/settings", headers=AUTH)
@@ -146,11 +146,11 @@ def test_update_settings(monkeypatch):
         return {"provider": "ollama"}, [], sorted(values.keys())
 
     monkeypatch.setattr(
-        "api.routes.agent.update_settings", _fake_update
+        "app.api.routes.agent.update_settings", _fake_update
     )
-    monkeypatch.setattr("api.routes.agent.reload_agent_runner", lambda: None)
+    monkeypatch.setattr("app.api.routes.agent.reload_agent_runner", lambda: None)
     monkeypatch.setattr(
-        "api.routes.agent._settings_payload_from",
+        "app.api.routes.agent._settings_payload_from",
         lambda effective, port: {"settings": {"provider": "ollama"}},
     )
 
@@ -168,7 +168,7 @@ def test_update_settings_rejects_invalid_value(monkeypatch):
         raise ValueError("Provider inconnu : 'toaster'")
 
     monkeypatch.setattr(
-        "api.routes.agent.update_settings", _boom
+        "app.api.routes.agent.update_settings", _boom
     )
 
     response = client.put(
@@ -182,12 +182,12 @@ def test_update_settings_rejects_invalid_value(monkeypatch):
 
 
 def test_ask_core_requires_key(monkeypatch):
-    monkeypatch.setattr("api.routes.agent.new_core_enabled", lambda: True)
+    monkeypatch.setattr("app.api.routes.agent.new_core_enabled", lambda: True)
     assert client.post("/api/v1/agent/ask/core", json={"prompt": "salut"}).status_code == 401
 
 
 def test_ask_core_flag_off_is_503(monkeypatch):
-    monkeypatch.setattr("api.routes.agent.new_core_enabled", lambda: False)
+    monkeypatch.setattr("app.api.routes.agent.new_core_enabled", lambda: False)
     response = client.post(
         "/api/v1/agent/ask/core", json={"prompt": "salut"}, headers=AUTH
     )
@@ -196,7 +196,7 @@ def test_ask_core_flag_off_is_503(monkeypatch):
 
 
 def test_ask_core_stream_flag_off_is_503(monkeypatch):
-    monkeypatch.setattr("api.routes.agent.new_core_enabled", lambda: False)
+    monkeypatch.setattr("app.api.routes.agent.new_core_enabled", lambda: False)
     response = client.post(
         "/api/v1/agent/ask/core/stream", json={"prompt": "salut"}, headers=AUTH
     )
@@ -205,8 +205,8 @@ def test_ask_core_stream_flag_off_is_503(monkeypatch):
 
 
 def test_ask_core_happy_path(monkeypatch):
-    monkeypatch.setattr("api.routes.agent.new_core_enabled", lambda: True)
-    monkeypatch.setattr("api.routes.agent.run_ask_core", lambda **kwargs: _AskOutcome())
+    monkeypatch.setattr("app.api.routes.agent.new_core_enabled", lambda: True)
+    monkeypatch.setattr("app.api.routes.agent.run_ask_core", lambda **kwargs: _AskOutcome())
 
     response = client.post(
         "/api/v1/agent/ask/core", json={"prompt": "salut"}, headers=AUTH
@@ -231,8 +231,8 @@ def test_ask_core_forwards_model_and_thinking(monkeypatch):
         captured.update(kwargs)
         return _AskOutcome()
 
-    monkeypatch.setattr("api.routes.agent.new_core_enabled", lambda: True)
-    monkeypatch.setattr("api.routes.agent.run_ask_core", _fake_run_ask_core)
+    monkeypatch.setattr("app.api.routes.agent.new_core_enabled", lambda: True)
+    monkeypatch.setattr("app.api.routes.agent.run_ask_core", _fake_run_ask_core)
 
     response = client.post(
         "/api/v1/agent/ask/core",
@@ -256,9 +256,9 @@ def test_ask_core_default_model_falls_back_to_server_config(monkeypatch):
         captured.update(kwargs)
         return _AskOutcome()
 
-    monkeypatch.setattr("api.routes.agent.new_core_enabled", lambda: True)
-    monkeypatch.setattr("api.routes.agent.run_ask_core", _fake_run_ask_core)
-    monkeypatch.setattr("api.routes.agent.agent_config",
+    monkeypatch.setattr("app.api.routes.agent.new_core_enabled", lambda: True)
+    monkeypatch.setattr("app.api.routes.agent.run_ask_core", _fake_run_ask_core)
+    monkeypatch.setattr("app.api.routes.agent.agent_config",
                         lambda: {"model": "server-default"})
 
     response = client.post(
@@ -272,7 +272,7 @@ def test_ask_core_default_model_falls_back_to_server_config(monkeypatch):
 
 
 def test_approvals_require_key(monkeypatch):
-    monkeypatch.setattr("api.routes.agent.get_approval_store", lambda: FakeApprovalStore())
+    monkeypatch.setattr("app.api.routes.agent.get_approval_store", lambda: FakeApprovalStore())
     assert client.get("/api/v1/agent/approvals").status_code == 401
 
 
@@ -280,7 +280,7 @@ def test_approvals_list_and_filter(monkeypatch):
     store = FakeApprovalStore()
     store.create("a1")
     store.create("a2")
-    monkeypatch.setattr("api.routes.agent.get_approval_store", lambda: store)
+    monkeypatch.setattr("app.api.routes.agent.get_approval_store", lambda: store)
 
     response = client.get("/api/v1/agent/approvals", headers=AUTH)
     assert response.status_code == 200
@@ -292,7 +292,7 @@ def test_approvals_list_and_filter(monkeypatch):
 
 def test_approvals_unknown_status_is_400(monkeypatch):
     store = FakeApprovalStore()
-    monkeypatch.setattr("api.routes.agent.get_approval_store", lambda: store)
+    monkeypatch.setattr("app.api.routes.agent.get_approval_store", lambda: store)
     response = client.get("/api/v1/agent/approvals?status=bogus", headers=AUTH)
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "bad_request"
@@ -301,7 +301,7 @@ def test_approvals_unknown_status_is_400(monkeypatch):
 def test_approve_flow(monkeypatch):
     store = FakeApprovalStore()
     store.create("a1")
-    monkeypatch.setattr("api.routes.agent.get_approval_store", lambda: store)
+    monkeypatch.setattr("app.api.routes.agent.get_approval_store", lambda: store)
 
     response = client.post("/api/v1/agent/approvals/a1/approve", headers=AUTH)
     assert response.status_code == 200
@@ -322,7 +322,7 @@ def test_approve_flow(monkeypatch):
 def test_reject_flow(monkeypatch):
     store = FakeApprovalStore()
     store.create("a1")
-    monkeypatch.setattr("api.routes.agent.get_approval_store", lambda: store)
+    monkeypatch.setattr("app.api.routes.agent.get_approval_store", lambda: store)
 
     response = client.post("/api/v1/agent/approvals/a1/reject", headers=AUTH)
     assert response.status_code == 200
@@ -333,14 +333,14 @@ def test_reject_flow(monkeypatch):
 
 
 def test_flow_requires_key(monkeypatch):
-    monkeypatch.setattr("api.routes.agent.get_flow_store", lambda: FakeFlowStore())
+    monkeypatch.setattr("app.api.routes.agent.get_flow_store", lambda: FakeFlowStore())
     assert client.get("/api/v1/agent/flow").status_code == 401
 
 
 def test_flow_list_and_detail(monkeypatch):
     store = FakeFlowStore()
     store.start_flow("Analyse le sujet", "qwen2.5")
-    monkeypatch.setattr("api.routes.agent.get_flow_store", lambda: store)
+    monkeypatch.setattr("app.api.routes.agent.get_flow_store", lambda: store)
 
     listed = client.get("/api/v1/agent/flow", headers=AUTH)
     assert listed.status_code == 200
@@ -357,7 +357,7 @@ def test_flow_list_and_detail(monkeypatch):
 
 def test_flow_validation_and_missing(monkeypatch):
     store = FakeFlowStore()
-    monkeypatch.setattr("api.routes.agent.get_flow_store", lambda: store)
+    monkeypatch.setattr("app.api.routes.agent.get_flow_store", lambda: store)
 
     bad_limit = client.get("/api/v1/agent/flow?limit=9999", headers=AUTH)
     assert bad_limit.status_code == 422

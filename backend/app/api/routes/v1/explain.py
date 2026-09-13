@@ -1,0 +1,29 @@
+# project/app/api/routes/v1/explain.py
+
+"""Explication LLM versionnée (strangler — Phase 3d-5).
+
+Délégation au handler legacy ``app.api.routes.explain.explain_route`` (parité par
+construction) ; auth identique (scope read : X-API-Key OU Bearer JWT).
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.dependencies.auth import require_read_api_key_or_jwt
+from app.api.routes import explain as legacy
+from app.infrastructure.legacy_errors import convert_legacy_http_error
+
+router = APIRouter(prefix="/explain", tags=["Explication (v1)"])
+
+
+@router.post("", response_model=legacy.ExplainResponse)
+def explain(
+    req: legacy.ExplainRequest,
+    _: bool = Depends(require_read_api_key_or_jwt),  # P1 : lecture
+):
+    """Explique en langage naturel la prédiction d'un texte (via le LLM)."""
+    try:
+        return legacy.explain_route(req, True)
+    except HTTPException as exc:
+        raise convert_legacy_http_error(exc) from exc

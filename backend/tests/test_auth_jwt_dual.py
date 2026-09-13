@@ -26,7 +26,7 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from api.dependencies.auth import (
+from app.api.dependencies.auth import (
     require_api_key_or_jwt,
     require_read_api_key_or_jwt,
     ws_is_authorized,
@@ -197,7 +197,7 @@ def test_full_app_bearer_flow(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("JWT_SECRET", SECRET)
     monkeypatch.setenv("API_KEY", ADMIN_KEY)
     monkeypatch.delenv("API_KEY_OLD", raising=False)
-    from api import app  # noqa: E402 (import après env — contrat api.app)
+    from app.api import app  # noqa: E402 (import après env — contrat api.app)
     from app.infrastructure.security.service_accounts import (  # noqa: E402
         get_service_account_store,
         reset_service_account_store,

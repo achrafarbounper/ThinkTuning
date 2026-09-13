@@ -14,7 +14,7 @@ import sys
 
 os.environ.setdefault("API_KEY", os.getenv("API_KEY", "local-cleanup"))
 
-from api import cleanup_old_jobs
+from app.api import cleanup_old_jobs
 
 logger = logging.getLogger(__name__)
 

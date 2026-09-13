@@ -4,14 +4,14 @@
 
 Utilisées par DEUX frontières :
 
-    - la dépendance FastAPI de la surface REST (``api/dependencies/auth.py``) ;
+    - la dépendance FastAPI de la surface REST (``app/api/dependencies/auth.py``) ;
     - le transport MCP HTTP (``POST /mcp/sse``), qui n'a pas le droit
       d'importer la couche ``api`` (règle hexagonale : les dépendances
       pointent vers l'intérieur) — d'où ce module en ``app/infrastructure``.
 
 Convention identique aux deux frontières : ``API_KEY`` lue dans
 l'environnement À CHAQUE APPEL (rotation / tests sans rechargement), repli
-de développement signalé au démarrage (cf. ``api/main.py``), comparaison à
+de développement signalé au démarrage (cf. ``app/api/main.py``), comparaison à
 temps constant (timing attack).
 
 Durcissement P0 (docs/SECURITY_DIAGNOSTIC.md F1) : fail-closed en prod —
@@ -142,7 +142,7 @@ def ensure_api_key_configured() -> str:
       ``dev-local-api-key`` et placeholders type ``change-me`` rejetés) ;
     - dev/test → retourne ``effective_api_key()`` (repli dev autorisé).
 
-    Appelé au démarrage (``api/main.py::lifespan``) : l'API ne démarre PAS
+    Appelé au démarrage (``app/api/main.py::lifespan``) : l'API ne démarre PAS
     en prod sans secret réel. Ne lève JAMAIS en dev/test (compat tests).
 
     P1 (rotation + clé lecture) :

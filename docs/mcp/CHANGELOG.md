@@ -115,7 +115,7 @@
 - **Transport stdio** : `app/infrastructure/mcp/mcp_server_stdio.py` —
   entry point `thinktuning-mcp` (JSON-RPC ligne à ligne, stdout réservé au
   transport, logs sur stderr).
-- **Wiring** : router MCP monté dans `api/main.py`.
+- **Wiring** : router MCP monté dans `app/api/main.py`.
 - **Packaging** : `[project.scripts] thinktuning-mcp` dans `backend/pyproject.toml`.
 
 ### Tests
@@ -465,7 +465,7 @@
   (35 = +10 write/exec, tâche 17), `admin` (40 = +5 gestion mutante, tâche 19).
 - **Intégration rate limit** : la primitive `TokenBucket` est déplacée dans
   `app/infrastructure/mcp/security/rate_limit_bucket.py` et ré-exportée par
-  `api/middlewares/rate_limit.py` — une seule implémentation, deux
+  `app/api/middlewares/rate_limit.py` — une seule implémentation, deux
   consommateurs (REST : clé IP + limite globale ; MCP : clé client_id + limite
   du scope). L'enforceur n'importe JAMAIS `api` (la suite MCP reste légère).
 - **Résolution paresseuse** : le `MCPClientStore` (`core/mcp_client_store`) est

@@ -109,7 +109,7 @@ ThinkTuning/
 - Le domaine ne dépend de rien (ni framework, ni infrastructure)
 - Les use cases dépendent uniquement des ports (Protocol)
 - Les adapters implémentent les ports
-- Injection via composition root (`api/dependencies/composition.py`)
+- Injection via composition root (`app/api/dependencies/composition.py`)
 
 ### 2. Système Multi‑Agents
 
@@ -341,7 +341,7 @@ mypy backend/app || true
 | Document | Chemin |
 |---|---|
 | README principal | `README.md` |
-| Architecture API v1 | `backend/api/main.py` |
+| Architecture API v1 | `backend/app/api/main.py` |
 | Ports du domaine | `backend/app/domain/ports/ports.py` |
 | Boucle agentique | `backend/app/agent/core.py` |
 | Orchestrateur multi‑agents | `backend/ia/agent/orchestrator.py` |

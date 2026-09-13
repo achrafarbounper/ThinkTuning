@@ -231,7 +231,7 @@
   - `check_scope(client_id, tool_name)` → vérifie `visible_tools`
   - `check_quota(client_id, tool_name)` → vérifie `destructive_quota`
   - `check_rate_limit(client_id)` → vérifie `rate_limit_per_minute`
-- [x] Intégrer avec `api/middlewares/rate_limit.py` existant
+- [x] Intégrer avec `app/api/middlewares/rate_limit.py` existant
 - [x] 4 rôles : `read_only` (12 tools), `contributor` (25 tools), `operator` (35 tools), `admin` (40 tools)
 - [x] Test : `test_mcp_scope_enforcer.py` — chaque rôle + cas de dépassement
 
@@ -245,7 +245,7 @@
 > roadmap : read_only 12 (= V010 − file_checksum, label roadmap), contributor 25
 > (= V100), operator 35 (= +10 write/exec tâche 17), admin 40 (= +5 tâche 19).
 > **Intégration rate limit** : la primitive `TokenBucket` est déplacée dans
-> `security/rate_limit_bucket.py` et ré-exportée par `api/middlewares/rate_limit.py`
+> `security/rate_limit_bucket.py` et ré-exportée par `app/api/middlewares/rate_limit.py`
 > (même classe REST + MCP, zéro duplication ; l'enforceur n'importe jamais `api`).
 > Résolution paresseuse du `MCPClientStore` (`default_scope_resolver`) : aucun
 > import lourd, aucune base créée au module import. Test :
@@ -280,10 +280,10 @@
 > méthodes de catalogue/handshake (initialize, ping, lists) ne produisent
 > aucune entrée. Transports SSE (`X-Client-Id` → subject, repli session id /
 > anonymous) et stdio (anonymous) branchent le hook via
-> `build_mcp_server(audit=...)`. Dashboard : `api/routes/mcp.py`
+> `build_mcp_server(audit=...)`. Dashboard : `app/api/routes/mcp.py`
 > (`GET /mcp/metrics` — call volume, error_rate MCP, clients total/active/
 > revoked + détail par client trié par volume) délégué par la surface v1
-> (`api/routes/v1/mcp.py`, protégée `require_api_key` — strangler, parité par
+> (`app/api/routes/v1/mcp.py`, protégée `require_api_key` — strangler, parité par
 > construction). Test : `tests/test_mcp_audit.py` — 14 tests (chaque action
 > auditée avec subject/client_id, échecs tracés `is_error`, handshake non
 > audité, hook fautif non bloquant, interrupteur, métriques agrégées,
@@ -325,7 +325,7 @@
 > ``RuntimeError`` propage (serveur → ``Internal error``). Construction
 > toujours sans I/O ni import lourd (résolveurs paresseux ;
 > ``list_resources()`` = métadonnée pure). Correctif au passage :
-> ``system_status_adapter`` — import circulaire réel (``api.middlewares``
+> ``system_status_adapter`` — import circulaire réel (``app.api.middlewares``
 > au niveau module → ``api/__init__`` → ``composition.bootstrap()``)
 > devenu paresseux (cassait aussi le transport stdio en production).
 > Tests : ``tests/test_mcp_resources_10.py`` (nouveau, 52 tests : fakes
@@ -469,7 +469,7 @@
 > verte (30 tests nouveaux).
 
 ### Tâche 20 : HTTP API Legacy + MCP-First
-- [x] `api/routes/agent.py` → marquer `@deprecated` (HTTP API)
+- [x] `app/api/routes/agent.py` → marquer `@deprecated` (HTTP API)
 - [x] Feature flag `MCP_FIRST=true` → HTTP API en mode read-only
 - [x] Dashboard migre vers MCP-over-SSE (`POST /mcp/sse`)
 - [x] `ARCHITECTURE.md` → mettre à jour le diagramme (MCP = surface)

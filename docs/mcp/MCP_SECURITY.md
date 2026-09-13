@@ -39,7 +39,7 @@ Le transport MCP exécute des outils **réels** : sans garde, `MCP_FIRST=true`
 gèle l'HTTP legacy mais laisserait un canal d'exécution ouvert. Le transport
 exige donc la **même clé API que la surface REST** — source unique
 `app/infrastructure/security/api_key.py` (utilisée aussi par
-`api/dependencies/auth.py`, règle hexagonale : l'infra n'importe pas `api`).
+`app/api/dependencies/auth.py`, règle hexagonale : l'infra n'importe pas `api`).
 
 - Défaut : **actif** (fail-closed) — `Settings.mcp_auth_required = True` ;
 - En-tête : `X-API-Key` (le dashboard la transmet déjà via `mcpClient.ts`) ;

@@ -14,9 +14,9 @@ os.environ.setdefault("API_KEY", "test-key")
 import pytest
 from fastapi.testclient import TestClient
 
-import api  # noqa: F401
-from api import app
-from api.dependencies.composition import (
+import app.api as api# noqa: F401
+from app.api import app
+from app.api.dependencies.composition import (
     get_intent_training_runner_port,
     get_intent_versioning_port,
     get_training_jobs_port,
