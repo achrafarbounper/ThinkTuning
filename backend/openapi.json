@@ -4750,7 +4750,7 @@
           "MCP (v1)"
         ],
         "summary": "Get Mcp Metrics",
-        "description": "Métriques internes MCP : error rate, call volume, revoked clients.\n\nVoir ``api.routes.mcp.mcp_metrics`` pour la molécule complète.",
+        "description": "Métriques internes MCP : error rate, call volume, revoked clients.\n\nVoir ``app.api.routes.mcp.mcp_metrics`` pour la molécule complète.",
         "operationId": "get_mcp_metrics_api_v1_mcp_metrics_get",
         "parameters": [
           {
