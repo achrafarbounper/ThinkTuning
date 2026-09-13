@@ -421,6 +421,7 @@ def get_audit_store() -> AuditStore:
     with _store_lock:
         if _store is None:
             _store = MongoAuditStore()  # type: ignore[assignment]
+        assert _store is not None
         return _store
 
 
@@ -431,4 +432,5 @@ def reset_audit_store(path: str | None = None) -> AuditStore:
         from app.infrastructure.persistence.mongodb import MongoAuditStore
 
         _store = MongoAuditStore()  # type: ignore[assignment]
+        assert _store is not None
         return _store

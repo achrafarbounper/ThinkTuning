@@ -336,6 +336,8 @@ def get_private_host_allowlist() -> set[str]:
     """
     runtime = _RUNTIME_NETWORK_POLICY["ssrf_allowlist"]
     raw = os.getenv("AGENT_PRIVATE_HOST_ALLOWLIST", "") if runtime is None else runtime
+    if not isinstance(raw, str):
+        raw = ""
     return {entry.strip().lower() for entry in raw.split(",") if entry.strip()}
 
 

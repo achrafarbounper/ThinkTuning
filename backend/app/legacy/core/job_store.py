@@ -371,6 +371,7 @@ def get_job_store() -> PersistentJobStore:
     global _store
     if _store is None:
         _store = MongoJobStore()  # type: ignore[assignment]
+    assert _store is not None
     return _store
 
 

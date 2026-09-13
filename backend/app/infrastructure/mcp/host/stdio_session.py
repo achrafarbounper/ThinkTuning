@@ -71,12 +71,15 @@ class StdioSession:
                 + "\n"
             )
             self.process.stdin.flush()
-            result: dict[str, Any] | None = [None]
+            result: list[dict[str, Any] | None] = [None]
             error: list[BaseException] = []
+            process = self.process
+            assert process is not None
 
             def read() -> None:
                 try:
-                    line = self.process.stdout.readline()
+                    assert process.stdout is not None
+                    line = process.stdout.readline()
                     result[0] = json.loads(line) if line else None
                 except (OSError, ValueError) as exc:
                     error.append(exc)
@@ -89,6 +92,7 @@ class StdioSession:
             if error or not result[0]:
                 raise StdioSessionError(f"invalid MCP response: {method}")
             response = result[0]
+            assert response is not None
             if "error" in response:
                 raise StdioSessionError(str(response["error"]))
             return response.get("result", {})

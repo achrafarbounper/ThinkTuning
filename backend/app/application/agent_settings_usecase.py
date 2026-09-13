@@ -162,32 +162,34 @@ def validate_settings(values: dict[str, Any]) -> list[str]:
         raw = values.get(int_key)
         if raw is not None and raw != "":
             try:
-                parsed = int(raw)
+                parsed_int = int(raw)
             except (TypeError, ValueError):
                 errors.append(f"{int_key} doit être un entier.")
             else:
-                if not minimum <= parsed <= maximum:
+                if not minimum <= parsed_int <= maximum:
                     errors.append(f"{int_key} doit être entre {minimum} et {maximum}.")
                 else:
-                    values[int_key] = parsed
+                    values[int_key] = parsed_int
 
-    for float_key, minimum, maximum in (
+    for float_key, float_minimum, float_maximum in (
         ("train_augment_fraction", 0.0, 1.0),
         ("train_learning_rate", 0.0000001, 1.0),
         ("train_weight_decay", 0.0, 1.0),
         ("train_warmup_ratio", 0.0, 1.0),
     ):
-        raw = values.get(float_key)
-        if raw is not None and raw != "":
+        float_raw: object = values.get(float_key)
+        if float_raw is not None and float_raw != "":
             try:
-                parsed = float(raw)
+                parsed_float = float(str(float_raw))
             except (TypeError, ValueError):
                 errors.append(f"{float_key} doit être un nombre.")
             else:
-                if not minimum <= parsed <= maximum:
-                    errors.append(f"{float_key} doit être entre {minimum} et {maximum}.")
+                if not float_minimum <= parsed_float <= float_maximum:
+                    errors.append(
+                        f"{float_key} doit être entre {float_minimum} et {float_maximum}."
+                    )
                 else:
-                    values[float_key] = parsed
+                    values[float_key] = parsed_float
 
     train_device = values.get("train_device")
     if train_device is not None and train_device not in ("auto", "cpu", "cuda"):

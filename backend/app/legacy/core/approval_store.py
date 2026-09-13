@@ -254,6 +254,7 @@ def get_approval_store() -> ApprovalStore:
     with _store_lock:
         if _store is None:
             _store = MongoApprovalStore()  # type: ignore[assignment]
+        assert _store is not None
         return _store
 
 
@@ -264,4 +265,5 @@ def reset_approval_store(path: str | None = None) -> ApprovalStore:
         from app.infrastructure.persistence.mongodb import MongoApprovalStore
 
         _store = MongoApprovalStore()  # type: ignore[assignment]
+        assert _store is not None
         return _store

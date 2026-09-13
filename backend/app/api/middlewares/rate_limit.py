@@ -86,12 +86,12 @@ def _evict_idle_buckets_locked(now: float) -> None:
             continue
         stale = [key for key, bucket in store.items() if now - bucket.last_update > _IDLE_SECONDS]
         for key in stale:
-            del store[key]
+            del store[key]  # type: ignore[arg-type]
         # Toujours saturé (clients actifs mais récents) : évacue les plus anciens.
         if len(store) >= _MAX_BUCKETS:
             oldest = sorted(store.items(), key=lambda item: item[1].last_update)
-            for key, _bucket in oldest[: len(oldest) // 2]:
-                del store[key]
+            for eviction in oldest[: len(oldest) // 2]:
+                del store[eviction[0]]  # type: ignore[arg-type]
 
 
 class RedisTokenBucket:
@@ -177,12 +177,12 @@ def _consume_costly(client_id: str, group: str, limit: int, window: int) -> int 
 
     with _RATE_LIMIT_LOCK:
         _evict_idle_buckets_locked(time.monotonic())
-        bucket = _COSTLY_BUCKETS.get((client_id, group))
-        if bucket is None or bucket.capacity != max(1, limit):
-            bucket = TokenBucket(limit)
-            bucket.refill_rate = limit / max(1, window)  # fenêtre arbitraire (ex : 1 h)
-            _COSTLY_BUCKETS[(client_id, group)] = bucket
-        allowed, wait = bucket.consume(1.0)
+        costly_bucket = _COSTLY_BUCKETS.get((client_id, group))
+        if costly_bucket is None or costly_bucket.capacity != max(1, limit):
+            costly_bucket = TokenBucket(limit)
+            costly_bucket.refill_rate = limit / max(1, window)  # fenêtre arbitraire (ex : 1 h)
+            _COSTLY_BUCKETS[(client_id, group)] = costly_bucket
+        allowed, wait = costly_bucket.consume(1.0)
         return None if allowed else wait
 
 
