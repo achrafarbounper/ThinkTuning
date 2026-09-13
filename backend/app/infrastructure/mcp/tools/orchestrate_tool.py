@@ -116,6 +116,19 @@ def orchestrate(
     else:
         from app.agent.factory import build_agent_core
 
+        # Flow Map MCP (chemin non-streaming) : une session riche ouverte par
+        # le transport (``MCPServer._handle_method`` → ``_CURRENT_RECORDER``)
+        # est alimentée AUTOMATIQUEMENT — les callbacks explicites (SSE
+        # streaming, qui gère lui-même le relais) restent prioritaires.
+        if on_thinking is None or on_tool_event is None:
+            from app.infrastructure.mcp.mcp_flow import current_recorder
+
+            recorder = current_recorder()
+            if recorder is not None:
+                if on_thinking is None:
+                    on_thinking = recorder.record_thinking
+                if on_tool_event is None:
+                    on_tool_event = recorder.record_tool
         core = build_agent_core(
             enable_thinking=enable_thinking,
             on_thinking=on_thinking,

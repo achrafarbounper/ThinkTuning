@@ -196,6 +196,114 @@ export function sseToFlowEvent(
       };
     case "core.error":
       return { t: "error", at, message: payload.message ? String(payload.message) : undefined };
+    /* --- Sessions MCP (source="mcp" / "mcp_host" — Flow Map MCP) --------------- */
+    case "mcp.orchestrate.start":
+      // Session RICHE du tool orchestrate : un agent « Agent MCP » dont la
+      // sous-tâche porte la demande (prompt) — rejouable au même titre que les
+      // workers multi-agents.
+      return {
+        t: "worker.start",
+        at,
+        task_id: "mcp",
+        role: String(payload.role ?? "Agent MCP") || "Agent MCP",
+        subtask: payload.prompt ? String(payload.prompt) : undefined,
+      };
+    case "mcp.tool": {
+      const sub = (payload.event as string | undefined) ?? "tool_start";
+      const tool = String(payload.tool ?? "?");
+      const role = String(payload.role ?? "Agent MCP") || "Agent MCP";
+      if (sub === "tool_start") {
+        return {
+          t: "tool.start",
+          at,
+          task_id: "mcp",
+          role,
+          tool,
+          args: payload.args ? JSON.stringify(payload.args) : undefined,
+        };
+      }
+      return {
+        t: "tool.result",
+        at,
+        task_id: "mcp",
+        role,
+        tool,
+        status: payload.status === "error" ? "error" : "ok",
+        summary: payload.summary ? String(payload.summary) : undefined,
+        duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : undefined,
+      };
+    }
+    case "mcp.approval":
+      return {
+        t: "worker.approval",
+        at,
+        task_id: "mcp",
+        role: String(payload.role ?? "Agent MCP") || "Agent MCP",
+        request_id: payload.request_id ? String(payload.request_id) : undefined,
+        message: payload.message ? String(payload.message) : undefined,
+        approval: payload.approval
+          ? { tool: (payload.approval as { tool?: unknown }).tool ? String((payload.approval as { tool?: unknown }).tool) : undefined }
+          : undefined,
+      };
+    case "mcp.thinking":
+      // Réflexion du noyau (deltas streamés) : chronologie seule, jamais graphée.
+      return null;
+    case "mcp.done":
+      // Le statut RÉEL du run orchestrate pilote l'état terminal du graphe
+      // (completed / awaiting_approval / error) — même invariant que agent.done.
+      return {
+        t: "done",
+        at,
+        status: payload.status ? String(payload.status) : undefined,
+        answer: payload.answer ? String(payload.answer) : undefined,
+      };
+    case "mcp.error":
+      return { t: "error", at, message: payload.message ? String(payload.message) : undefined };
+    case "mcp.call":
+      // MINI-sessions des actions simples (resources/read, prompts/get,
+      // sampling/create) : un agent « MCP » opère la méthode ciblée.
+      return {
+        t: "worker.start",
+        at,
+        task_id: "mcp",
+        role: String(payload.role ?? "MCP") || "MCP",
+        subtask: payload.label ? String(payload.label) : undefined,
+      };
+    case "mcp.result":
+      return {
+        t: "worker.result",
+        at,
+        task_id: "mcp",
+        role: String(payload.role ?? "MCP") || "MCP",
+        summary: payload.answer ? String(payload.answer) : payload.status === "error" ? "erreur" : undefined,
+        duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : undefined,
+      };
+    case "mcp_host.call": {
+      // Host SORTANT (CapabilityRouter → serveur MCP distant) : appel d'outil
+      // exécuté par l'agent hôte « MCP Host » (tool = cible distante).
+      const tool = String(payload.tool ?? payload.remote ?? payload.server ?? "?");
+      return {
+        t: "tool.start",
+        at,
+        task_id: "host",
+        role: String(payload.role ?? "MCP Host") || "MCP Host",
+        tool,
+        args: payload.arguments ? JSON.stringify(payload.arguments) : undefined,
+      };
+    }
+    case "mcp_host.result": {
+      const tool = String(payload.tool ?? payload.remote ?? payload.server ?? "?");
+      return {
+        t: "tool.result",
+        at,
+        task_id: "host",
+        role: String(payload.role ?? "MCP Host") || "MCP Host",
+        tool,
+        status: payload.status === "error" ? "error" : "ok",
+        summary: payload.summary ? String(payload.summary) : undefined,
+        duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : undefined,
+      };
+    }
     default:
       return null;
   }

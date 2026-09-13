@@ -333,6 +333,7 @@ export default function FlowMapPage() {
                 <option key={s.id} value={s.id}>
                   {formatDate(s.created_at)} · {s.status} · {s.tool_calls} outil{s.tool_calls > 1 ? "s" : ""} ·{" "}
                   {(s.agents.length ? `${s.agents.length} agent${s.agents.length > 1 ? "s" : ""}` : "")}
+                  {sourceTag(s.source) ? ` · ${sourceTag(s.source)}` : ""}
                   {s.prompt ? ` · ${truncate(s.prompt, 48)}` : ""}
                 </option>
               ))}
@@ -482,6 +483,13 @@ function Legend({ heat }: { heat: ReturnType<typeof computeHeat> | null }) {
     </div>
   );
 }
+/** Badge d'origine d'une session (vide pour l'API dashboard). */
+function sourceTag(source?: string): string {
+  if (source === "mcp") return "MCP";
+  if (source === "mcp_host") return "Host MCP";
+  return "";
+}
+
 /** Formate une date ISO en heure locale courte (liste des sessions). */
 function formatDate(iso: string): string {
   try {
