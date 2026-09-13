@@ -127,7 +127,8 @@ class SessionStore:
                     "tool_calls_json",
                     "created_at",
                 ),
-                row, strict=False,
+                row,
+                strict=False,
             )
         )
         # P2 lot 16 : déchiffrement transparent au repos (préfixe ``enc:`` si
