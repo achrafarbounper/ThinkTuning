@@ -254,9 +254,7 @@ class MCPServer:
         try:
             response = self._dispatch_method(method, request_id, params)
             self._audit_method(method, params, response, client_id, request_id)
-            self._flow_method(
-                method, params, response, client_id, request_id, recorder=recorder
-            )
+            self._flow_method(method, params, response, client_id, request_id, recorder=recorder)
             return response
         finally:
             if flow_token is not None:

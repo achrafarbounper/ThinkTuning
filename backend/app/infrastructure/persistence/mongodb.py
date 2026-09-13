@@ -473,8 +473,7 @@ class MongoFlowStore:
             d["tool_calls"] = sum(
                 1
                 for e in events
-                if e.get("event")
-                in ("agent.worker.tool", "core.tool", "mcp.tool", "mcp_host.call")
+                if e.get("event") in ("agent.worker.tool", "core.tool", "mcp.tool", "mcp_host.call")
                 and (e.get("data") or {}).get("event") != "tool_result"
             )
             d["agents"] = sorted(

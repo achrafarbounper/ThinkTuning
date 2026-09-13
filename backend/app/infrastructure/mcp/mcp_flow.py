@@ -98,6 +98,7 @@ _ACTION_EVENT_BY_METHOD = {
     MCPMethod.SAMPLING_CREATE: "sampling/create",
 }
 
+
 def mcp_flow_enabled() -> bool:
     """Le traçage Flow Map MCP est-il activé ? (interrupteur de rollback)."""
     return _MCP_FLOW_ENABLED
@@ -120,9 +121,7 @@ class MCPCallContext:
     session_id: str | None = None
 
 
-_CALL_CONTEXT: ContextVar[MCPCallContext | None] = ContextVar(
-    "mcp_call_context", default=None
-)
+_CALL_CONTEXT: ContextVar[MCPCallContext | None] = ContextVar("mcp_call_context", default=None)
 _CURRENT_RECORDER: ContextVar[MCPFlowRecorder | None] = ContextVar(
     "mcp_flow_recorder", default=None
 )
