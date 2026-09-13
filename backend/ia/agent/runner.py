@@ -1,5 +1,5 @@
 class AgentRunner:
-    """Fine enveloppe autour d'AgentCore consommée par app.legacy.core.agent_cache.
+    """Fine enveloppe autour d'AgentCore consommée par app.application.agent_cache.
 
     ``ask`` conserve le comportement historique (réponse finale seule, str).
     ``ask_detailed`` expose en plus la trace de réflexion collectée quand le

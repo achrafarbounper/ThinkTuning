@@ -15,7 +15,7 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import pytest  # noqa: E402
 
-from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+from app.application import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 AGENT_LOGGER = "thinktuning.agent"
 

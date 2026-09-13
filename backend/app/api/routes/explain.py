@@ -5,7 +5,7 @@
 Prend un texte, le fait prédire par DistilBERT (dernière version valide via
 ``app.api._get_predictor``) puis demande à l'agent IA une explication en langage
 naturel de la prédiction via le provider OpenRouter
-(``app.legacy.core.agent_cache.ask_agent_openrouter``), la prédiction (sentiment +
+(``app.application.agent_cache.ask_agent_openrouter``), la prédiction (sentiment +
 confidence) servant de contexte.
 
 Contrat d'entrée  : POST /explain  {"text": str, "model"?: str}
@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 import app.api as api
 from app.api.dependencies.auth import require_read_api_key
-from app.legacy.core import agent_cache
+from app.application import agent_cache
 
 router = APIRouter(tags=["Explication"])
 

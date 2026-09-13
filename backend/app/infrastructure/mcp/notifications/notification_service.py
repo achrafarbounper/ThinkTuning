@@ -2,7 +2,7 @@
 """Service de notification MCP — orchestrateur email/Slack (tâche 18, v2.0.0).
 
 Orchestre la diffusion des notifications de breaking changes à tous les
-clients MCP enregistrés (via ``app/legacy/core/mcp_client_store``) :
+clients MCP enregistrés (via ``app/infrastructure/persistence/mcp_client_store``) :
 
     1. Récupère la liste des clients enregistrés (``MCPClientStore.list()``) ;
     2. Compose le message de migration (texte brut + HTML/Slack blocks) ;
@@ -82,7 +82,7 @@ class NotificationService:
             clients = self.clients_provider()
         else:
             try:
-                from app.legacy.core.mcp_client_store import get_mcp_client_store
+                from app.infrastructure.persistence.mcp_client_store import get_mcp_client_store
 
                 clients = get_mcp_client_store().list()
             except Exception:  # pragma: no cover — store non disponible

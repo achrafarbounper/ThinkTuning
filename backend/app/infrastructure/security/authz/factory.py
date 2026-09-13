@@ -30,7 +30,7 @@ _default_enforcer: AuthzPolicyEnforcer | None = None
 
 def authz_enabled() -> bool:
     """Flag d'activation (relecture à chaque appel, convention du projet)."""
-    from app.legacy.core.feature_flags import flag
+    from app.application.feature_flags import flag
 
     return flag(FLAG_NAME)
 

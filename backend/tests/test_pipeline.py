@@ -1,6 +1,6 @@
 # project/tests/test_pipeline.py
 """Tests du pipeline end-to-end (SCRUM-39) : pipeline.py (CLI), le runner
-(app/legacy/core/pipeline_runner.py) et l'API /pipeline.
+(app/application/pipeline_runner.py) et l'API /pipeline.
 
 Aucun labeling ni fine-tuning réel : label_dataset et le subprocess
 finetune_llm.py sont remplacés par des doubles.
@@ -13,8 +13,8 @@ from unittest.mock import patch
 import pytest
 
 import pipeline as pipeline_cli
-from app.legacy.core import pipeline_runner
-from app.legacy.core.models import JobStatus, PipelineRequest, TrainJob
+from app.application import pipeline_runner
+from app.domain.entities.models import JobStatus, PipelineRequest, TrainJob
 
 # --------------------------------------------------------------------------- #
 # Fixtures / helpers
@@ -111,7 +111,7 @@ def test_build_finetune_cmd_overrides_and_no_qlora():
 # --------------------------------------------------------------------------- #
 
 def test_run_pipeline_completes(tmp_path, fake_label, fake_popen):
-    from app.legacy.core.job_store import PersistentJobStore
+    from app.infrastructure.persistence.job_store import PersistentJobStore
 
     store = PersistentJobStore(path=str(tmp_path / "jobs.db"))
     monkeypatch_store = patch.object(pipeline_runner, "get_job_store", lambda: store)
@@ -135,7 +135,7 @@ def test_run_pipeline_completes(tmp_path, fake_label, fake_popen):
 
 def test_run_pipeline_guard_empty_dataset(tmp_path, monkeypatch, fake_popen):
     """0 record au-dessus du seuil : job FAILED, finetune jamais lancé."""
-    from app.legacy.core.job_store import PersistentJobStore
+    from app.infrastructure.persistence.job_store import PersistentJobStore
 
     monkeypatch.setattr(pipeline_runner, "run_labeling", lambda params, out: [])
     store = PersistentJobStore(path=str(tmp_path / "jobs.db"))
@@ -152,7 +152,7 @@ def test_run_pipeline_guard_empty_dataset(tmp_path, monkeypatch, fake_popen):
 
 def test_run_pipeline_cancel(tmp_path, fake_label):
     """Annulation entre le labeling et le fine-tuning : subprocess non lancé."""
-    from app.legacy.core.job_store import PersistentJobStore
+    from app.infrastructure.persistence.job_store import PersistentJobStore
 
     store = PersistentJobStore(path=str(tmp_path / "jobs.db"))
 

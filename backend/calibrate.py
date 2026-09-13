@@ -53,10 +53,10 @@ from tqdm import tqdm
 # du module pour rester monkeypatchable dans les tests).
 import evaluate
 
-# Modèles versionnés produits par train.py (voir app/legacy/core/model_versioning.py) :
+# Modèles versionnés produits par train.py (voir app/infrastructure/persistence/model_versioning.py) :
 # MODEL_ROOT = experiments/models, list_model_versions() filtre les versions
 # VALIDES (présence de poids) triées de la plus récente à la plus ancienne.
-from app.legacy.core.model_versioning import MODEL_ROOT, list_model_versions
+from app.infrastructure.persistence.model_versioning import MODEL_ROOT, list_model_versions
 from src.dataset.loader import load_raw_dataset
 from src.dataset.preprocess import tokenize_dataset
 from src.utils.config import load_config
@@ -72,7 +72,7 @@ ECE_WARNING_THRESHOLD = 0.1
 def select_model_path(model_name=None):
     """
     Résout le chemin du modèle à calibrer parmi les versions de
-    app.legacy.core.model_versioning.MODEL_ROOT (experiments/models) :
+    app.infrastructure.persistence.model_versioning.MODEL_ROOT (experiments/models) :
 
         - model_name fourni  -> doit figurer parmi les versions VALIDES
           (contenant des poids : model.safetensors, pytorch_model.bin ou

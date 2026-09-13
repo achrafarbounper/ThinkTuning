@@ -6,7 +6,7 @@ os.environ.setdefault("API_KEY", "test-key")
 
 import pytest
 
-from app.legacy.core.model_sanity import (
+from app.application.model_sanity import (
     SANITY_PHRASES,
     VERDICT_FALLBACK,
     VERDICT_OK,
@@ -52,7 +52,7 @@ class GoodPredictor(StubPredictor):
 
 
 # ---------------------------------------------------------------------------
-# Logique de verdict (app.legacy.core.model_sanity)
+# Logique de verdict (app.application.model_sanity)
 # ---------------------------------------------------------------------------
 
 def test_sanity_reference_phrases_covered():

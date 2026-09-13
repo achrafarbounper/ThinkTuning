@@ -55,7 +55,7 @@ exige donc la **même clé API que la surface REST** — source unique
 
 ## 📊 Audit MCP
 
-Chaque appel MCP est **tracé** via `app/legacy/core/audit_store.py`.
+Chaque appel MCP est **tracé** via `app/infrastructure/persistence/audit_store.py`.
 
 ```python
 # Nouveaux events
@@ -77,7 +77,7 @@ audit_log(ACT_MCP_TOOL_CALL,
     run_id=mcp_request_id)
 ```
 
-→ Loggué dans la même table `agent_audit` que `app/legacy/core/audit_store.py`.
+→ Loggué dans la même table `agent_audit` que `app/infrastructure/persistence/audit_store.py`.
 → **Traçabilité** : client_id → tool → args → policy → run_id.
 
 ---
@@ -85,7 +85,7 @@ audit_log(ACT_MCP_TOOL_CALL,
 ## 🔁 Revocation Client MCP
 
 ```python
-# app/legacy/core/mcp_client_store.py
+# app/infrastructure/persistence/mcp_client_store.py
 class MCPClientStore:
     def revoke(self, client_id: str, reason: str): ...
     def list(self) -> list[MCPClient]: ...

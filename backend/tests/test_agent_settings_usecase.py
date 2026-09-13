@@ -38,7 +38,7 @@ class FakeSettingsPort:
 def _clean_agent_env(monkeypatch):
     """Environnement agent / MCP nettoyé (le use case n'utilise plus Settings).
 
-    SCRUM-138 : la couche env + défauts vient de ``app.legacy.core.agent_settings`` (la
+    SCRUM-138 : la couche env + défauts vient de ``app.infrastructure.persistence.agent_settings`` (la
     base reste prioritaire) ; on retire les variables qui pollueraient les
     défauts attendus (un ``.env`` machine ne doit pas faire flakker les tests).
     """

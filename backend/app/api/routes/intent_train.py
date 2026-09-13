@@ -3,11 +3,12 @@
 """Routes d'entraînement du classifieur d'intention (chat/action) — SCRUM-95.
 
 Même pattern de jobs que /train et /pipeline : POST crée un TrainJob persisté
-dans app/legacy/core/job_store.py (``kind="intent"``) et exécute
-app.legacy.core.intent_trainer.run_intent_training dans un thread daemon ; GET /status et
+dans app/infrastructure/persistence/job_store.py (``kind="intent"``) et exécute
+app.application.intent_trainer.run_intent_training dans un thread daemon ; GET /status et
 GET /jobs permettent le suivi par le dashboard (liste filtrée sur kind, donc
 sans mélange avec les jobs sentiment/pipeline). L'activation d'une version
-réutilise app/legacy/core/intent_store.py (pointeur ``active.json``) ; après activation,
+réutilise app/infrastructure/persistence/intent_store.py (pointeur ``active.json``) ; après
+activation,
 l'IHM chaîne POST /classifiers/intent/reload (store et runtime sont séparés).
 """
 
@@ -19,18 +20,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
 from app.api.dependencies.auth import require_api_key
-from app.legacy.core.intent_store import (
-    list_intent_model_versions,
-    resolve_intent_model_dir,
-    set_active_intent_version,
-)
-from app.legacy.core.intent_trainer import (
+from app.application.intent_trainer import (
     cancel_intent_training,
     get_intent_cancel_event,
     run_intent_training,
 )
-from app.legacy.core.job_store import get_job_store
-from app.legacy.core.models import IntentTrainRequest, JobListResponse, JobStatus, TrainJob
+from app.domain.entities.models import IntentTrainRequest, JobListResponse, JobStatus, TrainJob
+from app.infrastructure.persistence.intent_store import (
+    list_intent_model_versions,
+    resolve_intent_model_dir,
+    set_active_intent_version,
+)
+from app.infrastructure.persistence.job_store import get_job_store
 
 router = APIRouter(prefix="/train/intent", tags=["Intent Training"])
 

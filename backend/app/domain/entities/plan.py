@@ -8,7 +8,7 @@ réinvention) :
       catégories d'action (read/write/delete/exec/network/system/unknown) ;
     - ``ia/agent/plan_validator.py`` : tâches {task_id, role, subtask,
       dependencies} + codes d'erreur de validation ;
-    - ``app/legacy/core/approval_store.py`` : statuts pending/approved/rejected.
+    - ``app/infrastructure/persistence/approval_store.py`` : statuts pending/approved/rejected.
 
 Règles :
     - Pydantic v2, immuable (frozen), sérialisation JSON stable pour l'audit
@@ -53,7 +53,8 @@ class ActionCategory(StrEnum):
 
 
 class ApprovalStatus(StrEnum):
-    """Statut d'une demande d'approbation humaine (cf. app/legacy/core/approval_store.py)."""
+    """Statut d'une demande d'approbation humaine
+    (cf. app/infrastructure/persistence/approval_store.py)."""
 
     PENDING = "pending"
     APPROVED = "approved"
@@ -210,7 +211,7 @@ class Plan(_FrozenModel):
 class ApprovalDecision(_FrozenModel):
     """Décision humaine (ou policy) sur une action nécessitant validation.
 
-    Alignée sur la table ``agent_approvals`` (app/legacy/core/approval_store.py) :
+    Alignée sur la table ``agent_approvals`` (app/infrastructure/persistence/approval_store.py) :
     id, tool, args, category, reason, status, decided_by/decided_at."""
 
     approval_id: str

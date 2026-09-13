@@ -3,7 +3,7 @@
 """Phase C — gestion avancée du contexte et mémoire inter-sessions.
 
 Couvre ``ia/agent/context.py`` (estimation de jetons, fenêtre glissante,
-résumé, mémoire glissante), les helpers mémoire de ``app/legacy/core/session_store.py``
+résumé, mémoire glissante), les helpers mémoire de ``app/infrastructure/persistence/session_store.py``
 et l'intégration API derrière le flag ``AGENT_CONTEXT`` (défaut : OFF).
 """
 
@@ -17,8 +17,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 os.environ.setdefault("API_KEY", "test-key")  # avant l'import de l'app
 
 from app.api import app as api_app  # noqa: E402
-from app.legacy.core.feature_flags import flag  # noqa: E402
-from app.legacy.core.session_store import reset_session_store  # noqa: E402
+from app.application.feature_flags import flag  # noqa: E402
+from app.infrastructure.persistence.session_store import reset_session_store  # noqa: E402
 from ia.agent.context import (  # noqa: E402
     estimate_messages_tokens,
     estimate_tokens,

@@ -4,7 +4,7 @@ Cible :
   - ``IntentClassifier`` : repli règles quand aucun modèle entraîné (moteur
     ``auto``), moteur ``rules`` forcé, seuil de sécurité (une ``action`` sous
     le seuil perd le tranchage), validation des paramètres ;
-  - ``app.legacy.core.intent_store`` : distinction dernière version vs pointeur actif ;
+  - ``app.infrastructure.persistence.intent_store`` : distinction dernière version vs pointeur actif ;
   - intégration OBSERVATOIRE dans le noyau v2 (``AgentCore.last_intent`` et
     événement ``agent.intent_detected``) sans altération de la boucle LLM.
 
@@ -19,7 +19,7 @@ import threading
 
 import pytest
 
-from app.legacy.core.intent_store import (
+from app.infrastructure.persistence.intent_store import (
     default_intent_labels,
     resolve_intent_model_dir,
     set_active_intent_version,
@@ -42,7 +42,7 @@ class TestIntentClassifierRules:
         assert all(0.0 <= r.confidence <= 1.0 for r in results)
 
     def test_engine_auto_sans_modele_bascule_sur_regles(self, monkeypatch, tmp_path) -> None:
-        monkeypatch.setattr("app.legacy.core.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
+        monkeypatch.setattr("app.infrastructure.persistence.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
         monkeypatch.setattr(
             "ia.agent.classifiers.intent_classifier._MODEL_MISSING_WARNED", False
         )
@@ -127,7 +127,7 @@ class TestApplySafetyThreshold:
 
 
 # ---------------------------------------------------------------------------
-# app.legacy.core.intent_store
+# app.infrastructure.persistence.intent_store
 # ---------------------------------------------------------------------------
 
 
@@ -136,7 +136,7 @@ class TestIntentStore:
         assert default_intent_labels() == ("chat", "action")
 
     def test_resolve_aucun_modele_leve_erreur_claire(self, monkeypatch, tmp_path) -> None:
-        monkeypatch.setattr("app.legacy.core.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
+        monkeypatch.setattr("app.infrastructure.persistence.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
         with pytest.raises(RuntimeError, match="Aucun modèle d'intention"):
             resolve_intent_model_dir()
 
@@ -154,7 +154,7 @@ class TestIntentStore:
         (tmp_path / "active.json").write_text(
             json.dumps({"active": version}), encoding="utf-8"
         )
-        monkeypatch.setattr("app.legacy.core.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
+        monkeypatch.setattr("app.infrastructure.persistence.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
         return version
 
     def test_resolve_pointeur_actif(self, _fake_model_dir) -> None:
@@ -178,7 +178,7 @@ class TestIntentStore:
             assert json.load(fh)["active"] == "20260902T000000Z"
 
     def test_resolve_optional_retourne_none_sans_modèle(self, monkeypatch, tmp_path) -> None:
-        monkeypatch.setattr("app.legacy.core.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
+        monkeypatch.setattr("app.infrastructure.persistence.intent_store.INTENT_MODEL_ROOT", str(tmp_path))
         assert resolve_intent_model_optional("400_check") is None
         with pytest.raises(ValueError):
             IntentClassifier(engine="rules", threshold=1.5)

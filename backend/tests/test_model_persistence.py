@@ -19,9 +19,9 @@ import pytest
 import torch
 from torch.utils.data import DataLoader
 
-from app.legacy.core import model_versioning
-from app.legacy.core.model_head_check import head_matches_reference, is_model_version_trained
-from app.legacy.core.model_versioning import save_model_version
+from app.infrastructure.persistence import model_versioning
+from app.infrastructure.persistence.model_head_check import head_matches_reference, is_model_version_trained
+from app.infrastructure.persistence.model_versioning import save_model_version
 from src.model.trainer import Trainer
 
 # --------------------------------------------------------------------------- #

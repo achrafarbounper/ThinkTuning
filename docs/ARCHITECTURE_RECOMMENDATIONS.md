@@ -102,7 +102,7 @@ Règles :
   `tests/conftest.py` global fermerait la porte à toute nouvelle fuite
   (c'est celle de `test_trainer.py` qui a publié 24 stubs dans l'état réel).
 - **Un seul seam par dépendance** : mocker `app.api._get_predictor` (et non tantôt
-  `app.legacy.core.predictor_cache.get_predictor`, tantôt la variable `_predictor`).
+  `app.application.predictor_cache.get_predictor`, tantôt la variable `_predictor`).
 - **Frontend** : `npm test` (vitest + RTL, 28 tests). Priorité aux modules
   critiques : transport (`clientCore`), hooks génériques (`usePolling`,
   `useLocalStorage`), parsing (`streamSse`). Les pages sont couvertes par

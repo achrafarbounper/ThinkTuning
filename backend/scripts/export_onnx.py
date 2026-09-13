@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.legacy.core.onnx_exporter import export_model_to_onnx  # noqa: E402
+from app.application.onnx_exporter import export_model_to_onnx  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger("export_onnx")

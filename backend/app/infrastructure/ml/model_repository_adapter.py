@@ -1,4 +1,4 @@
-"""Adaptateur : versioning de modèles legacy (app.legacy.core.model_versioning)
+"""Adaptateur : versioning de modèles legacy (app.infrastructure.persistence.model_versioning)
 -> ModelRepositoryPort.
 
 Consultation seule (listage, résolution de la version active) : aucune
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 
-from app.legacy.core import model_versioning as _legacy
+from app.infrastructure.persistence import model_versioning as _legacy
 
 
 def mask_model_dir(model_dir: str | None) -> str | None:

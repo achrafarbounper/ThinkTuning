@@ -10,16 +10,16 @@ from fastapi import APIRouter, Depends, HTTPException
 
 import app.api as api
 from app.api.dependencies.auth import require_api_key, require_read_api_key
-from app.legacy.core.model_activation import activate_model, is_active, read_active_pointer
-from app.legacy.core.model_sanity import VERDICT_OK, run_model_sanity
-from app.legacy.core.model_versioning import (
+from app.application.model_activation import activate_model, is_active, read_active_pointer
+from app.application.model_sanity import VERDICT_OK, run_model_sanity
+from app.application.predictor_cache import evict_cached_model, get_predictor
+from app.domain.entities.models import ModelVersion
+from app.infrastructure.persistence.model_versioning import (
     MODEL_ROOT,
     list_model_versions,
     resolve_model_dir,
     validate_model_version,
 )
-from app.legacy.core.models import ModelVersion
-from app.legacy.core.predictor_cache import evict_cached_model, get_predictor
 
 logger = logging.getLogger(__name__)
 

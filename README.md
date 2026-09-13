@@ -17,7 +17,8 @@ ThinkTuning/
 ├── backend/             # Racine du projet Python (API + ML) — les chemins relatifs (configs/, data/, experiments/) y résolvent
 │   ├── api/             # API FastAPI (routes v1, middlewares, auth par clé)
 │   ├── app/             # Noyau hexagonal : domain / application / infrastructure
-│   ├── app/legacy/core/  # Stores SQLite, versionnage des modèles, cache predictor
+│   │   ├── application/       # Runners/caches/registres réabsorbés (ex-legacy/core)
+│   │   └── infrastructure/    # Adaptateurs : persistence (stores), ml, mcp, events
 │   ├── ia/              # Agent IA (Ollama/OpenRouter/HF/LM Studio) + outils sandboxés
 │   ├── src/             # ML : dataset, augmentation (EDA : SR/RI/RS/RD), entraînement, inférence
 │   ├── train.py         # Fine-tuning de XLM-RoBERTa sur le dataset augmenté
@@ -368,7 +369,7 @@ Options principales :
 
 L'agent LLM (Ollama + outils sandboxés) est intégré à l'API principale sous le
 préfixe `/api/agent` (l'ancien serveur autonome `ia/api_server.py` a été retiré ;
-`app/legacy/core/agent_cache.py` est le point d'entrée unique vers l'agent) :
+`app/application/agent_cache.py` est le point d'entrée unique vers l'agent) :
 
 ```bash
 uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -779,7 +780,7 @@ GET /train/stream/{job_id}?token=<DASHBOARD_WS_TOKEN ou API_KEY>
   actif le serveur scrute le store toutes les 0,5 s ; dès que le statut est
   terminal, événement `end` + fermeture — pas de connexion ouverte inutile.
 - **Architecture** : l'endpoint consomme une abstraction
-  `TrainingEventsSource` (`app/legacy/core/training_events.py`) dont l'implémentation
+  `TrainingEventsSource` (`app/infrastructure/persistence/training_events.py`) dont l'implémentation
   actuelle, `MongoPollingEventsSource`, scrute le store partagé (compatible
   multi-workers). Pour passer à une diffusion push (Redis pub/sub, NATS, ...)
   plus tard, il suffit d'implémenter la même interface — l'endpoint ne change

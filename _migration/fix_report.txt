@@ -1,0 +1,25 @@
+fixed: backend\tests\test_agent_api.py
+fixed: backend\tests\test_agent_context_length.py
+fixed: backend\tests\test_agent_hf.py
+fixed: backend\tests\test_agent_logging.py
+fixed: backend\tests\test_agent_openrouter.py
+fixed: backend\tests\test_api_ai_chat.py
+fixed: backend\tests\test_api_explain.py
+fixed: backend\tests\test_system_prompt_tools.py
+fixed: backend/openapi.json (2 descriptions)
+
+--- restes ---
+ARCHITECTURE.md:13: (`api/`, `app/legacy/core/`, `ia/`, `src/`), et les conventions à respecter
+ARCHITECTURE.md:43: │  app/legacy/core (stores SQLite)    │
+ARCHITECTURE.md:131: app/legacy/core/ ia/ src/         # legacy — migré progressivement
+ARCHITECTURE.md:235: les stores restent dans `app/legacy/core/` ; les wrappers `app/infrastructure/persistence/`
+ARCHITECTURE.md:241: `api/`, `app/legacy/core/`, `app/` ni les tests. Garde-fous CI :
+ARCHITECTURE.md:243: 3. Étendre ruff/mypy à `api/`, `app/legacy/core/`, `ia/`, `tests/`.
+README.md:20: │   ├── app/legacy/core/  # Stores SQLite, versionnage des modèles, cache predictor
+backend\pyproject.toml:77: extend-exclude = ["venv", ".agent_tmp", "experiments", "outputs", "app/legacy"]
+backend\pyproject.toml:116: # app/legacy = legacy déplacé (ex-core/), requalifié à l'absorption finale.
+backend\app\infrastructure\ml\predictor_adapter.py:13: Les imports passent par l'identité de module (``from app.legacy.core import ...``) et
+docs\CLASSIFIERS.md:163: | `app/legacy/core/circuit_breaker.py` | Pattern Circuit Breaker existant (réutilisé par `ResilientClassifier`). |
+docs\FINETUNING.md:727: Extraire un module partagé (ex. `app/legacy/core/prompt_template.py`) qui expose
+docs\FINETUNING.md:856: | 4 | Template unique + format strict (consigne vocabulaire) | nouveau `app/legacy/core/prompt_template.py` ; 3 modules 
+docs\mcp\MANIFEST.md:63: | `model_versions` | read_only | ✅ | — | ✅ | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandb

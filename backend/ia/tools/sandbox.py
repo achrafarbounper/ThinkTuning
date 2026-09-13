@@ -209,7 +209,7 @@ MAX_DOWNLOAD_BYTES = 2_000_000
 
 # --- Pilotage runtime (page Paramètres du dashboard) ------------------------------------
 # Les réglages persistés côté IHM (``ssrf_enabled`` / ``ssrf_allowlist``, module
-# de configuration ``app/legacy/core/agent_settings``) SURCLASSENT l'environnement :
+# de configuration ``app/infrastructure/persistence/agent_settings``) SURCLASSENT l'environnement :
 # ``None`` signifie « pas d'override → suivre l'env » (comportement historique,
 # env relue à chaque appel). L'override est poussé UNIQUEMENT depuis les valeurs
 # PERSISTÉES (jamais depuis les défauts) par ``get_agent_settings`` (legacy),

@@ -1,0 +1,46 @@
+B904 fixed 0: app\application\agent_cache.py
+B904 fixed 0: app\infrastructure\persistence\annotation_store.py
+B904 fixed 0: app\infrastructure\persistence\model_versioning.py
+B904 total: 0
+
+E501 fixed 1: app\agent\core.py
+E501 fixed 1: app\agent\memory\long_term.py
+E501 fixed 1: app\agent\settings.py
+E501 fixed 0: app\api\routes\agent.py
+E501 fixed 1: app\api\routes\intent_train.py
+E501 fixed 1: app\api\routes\pipeline.py
+E501 fixed 0: app\api\routes\sessions.py
+E501 fixed 2: app\application\agent_settings_usecase.py
+E501 fixed 1: app\application\intent_trainer.py
+E501 fixed 1: app\application\run_lifecycle.py
+E501 fixed 1: app\application\session_memory.py
+E501 fixed 0: app\domain\entities\plan.py
+E501 fixed 1: app\domain\entities\run.py
+E501 fixed 1: app\domain\ports\ports.py
+E501 fixed 0: app\domain\ports\prediction_ports.py
+E501 fixed 0: app\infrastructure\legacy_approval_store.py
+E501 fixed 0: app\infrastructure\legacy_settings_adapter.py
+E501 fixed 2: app\infrastructure\mcp\mcp_audit.py
+E501 fixed 2: app\infrastructure\mcp\mcp_flow.py
+E501 fixed 1: app\infrastructure\mcp\mcp_server.py
+E501 fixed 1: app\infrastructure\mcp\resources\resource_provider.py
+E501 fixed 1: app\infrastructure\mcp\security\scope_enforcer.py
+E501 fixed 1: app\infrastructure\persistence\audit_store.py
+E501 fixed 1: app\infrastructure\persistence\flow_store.py
+E501 fixed 1: app\infrastructure\persistence\intent_store.py
+E501 fixed 1: app\infrastructure\persistence\mongodb.py
+E501 fixed 1: app\infrastructure\persistence\session_store.py
+E501 fixed 1: app\infrastructure\system_status_adapter.py
+
+MANUEL:
+  d:\workspace\ThinkTuning\backend\app\api\routes\agent.py:281:         description="Session de conversation (app/infrastructure/persistence/session_store) où journaliser "
+  d:\workspace\ThinkTuning\backend\app\api\routes\sessions.py:3: """CRUD des conversations persistées de l'assistant (app/infrastructure/persistence/session_store.py).
+  d:\workspace\ThinkTuning\backend\app\domain\entities\plan.py:56:     """Statut d'une demande d'approbation humaine (cf. app/infrastructure/persistence/approval_store.py)."""
+  d:\workspace\ThinkTuning\backend\app\domain\ports\ports.py:327:     """Contrat du store de paramètres persistés de l'agent (cf. app/infrastructure/persistence/agent_settings.py).
+  d:\workspace\ThinkTuning\backend\app\domain\ports\ports.py:290:     """Contrat de la file d'approbation humaine (cf. app/infrastructure/persistence/approval_store.py).
+  d:\workspace\ThinkTuning\backend\app\domain\ports\ports.py:215:     """Contrat du journal des sessions multi-agents (cf. app/infrastructure/persistence/flow_store.py).
+  d:\workspace\ThinkTuning\backend\app\domain\ports\prediction_ports.py:56:     """Contrat de consultation des versions de modèles (cf. app/infrastructure/persistence/model_versioning)."""
+  d:\workspace\ThinkTuning\backend\app\infrastructure\legacy_approval_store.py:21:         "app.infrastructure.persistence.approval_store introuvable : adaptateur d'approbation inutilisable."
+  d:\workspace\ThinkTuning\backend\app\infrastructure\legacy_approval_store.py:1: """Adaptateur : file d'approbation legacy (app/infrastructure/persistence/approval_store.py) -> port.
+  d:\workspace\ThinkTuning\backend\app\infrastructure\legacy_settings_adapter.py:24:         "app.infrastructure.persistence.agent_settings introuvable : adaptateur de paramètres inutilisable."
+  d:\workspace\ThinkTuning\backend\app\infrastructure\mcp\mcp_audit.py:2: """Audit MCP — journalisation de chaque appel dans ``app/infrastructure/persistence/audit_store`` (S4, tâche 12).

@@ -26,7 +26,7 @@ import os
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from app.legacy.core.model_versioning import resolve_model_path
+from app.infrastructure.persistence.model_versioning import resolve_model_path
 from label_dataset import load_texts_from_file
 from src.inference.predictor import Predictor
 

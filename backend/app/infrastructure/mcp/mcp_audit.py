@@ -1,5 +1,6 @@
 # project/app/infrastructure/mcp/mcp_audit.py
-"""Audit MCP — journalisation de chaque appel dans ``app/legacy/core/audit_store`` (S4, tâche 12).
+"""Audit MCP — journalisation de chaque appel dans
+``app/infrastructure/persistence/audit_store`` (S4, tâche 12).
 
 Contrat (docs/mcp/MCP_SECURITY.md) : chaque appel MCP est tracé dans la MÊME
 table ``agent_audit`` que l'agent, avec ``subject`` = ``client_id`` :
@@ -16,7 +17,8 @@ Garanties :
     - interrupteur ``MCP_AUDIT_ENABLED`` (défaut ``true``) — les déploiements
       qui désactivent l'audit le font explicitement, jamais par accident.
 
-L'import de ``app.legacy.core.audit_store`` est paresseux (et léger : stdlib) : importer
+L'import de ``app.infrastructure.persistence.audit_store`` est paresseux (et léger : stdlib) :
+importer
 ce module ne crée AUCUNE base SQLite (le store est résolu à l'appel).
 """
 
@@ -50,10 +52,11 @@ def audit_mcp_call(
     run_id: str | None = None,
     **_: Any,
 ) -> dict | None:
-    """Journalise un appel MCP dans ``app/legacy/core/audit_store`` (non bloquant).
+    """Journalise un appel MCP dans ``app/infrastructure/persistence/audit_store`` (non bloquant).
 
     Args :
-        action :  action normalisée (``ACT_MCP_*`` de ``app/legacy/core/audit_store``) ;
+        action : action normalisée (``ACT_MCP_*`` de
+        ``app/infrastructure/persistence/audit_store``) ;
         subject : ``client_id`` MCP de l'appelant (ou ``anonymous``) ;
         detail :  description de l'appel (tool/URI/prompt, arguments,
                   ``is_error``, scope) — anonymisée par le store (``redact``) ;
@@ -66,7 +69,7 @@ def audit_mcp_call(
     if not mcp_audit_enabled():
         return None
     try:
-        from app.legacy.core.audit_store import get_audit_store
+        from app.infrastructure.persistence.audit_store import get_audit_store
 
         return get_audit_store().log(
             action,

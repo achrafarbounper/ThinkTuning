@@ -18,7 +18,7 @@ import torch
 pytest.importorskip("onnx")
 pytest.importorskip("onnxruntime")
 
-from app.legacy.core.onnx_exporter import (  # noqa: E402
+from app.application.onnx_exporter import (  # noqa: E402
     ONNXClassificationEngine,
     export_model_to_onnx,
     softmax_logits,

@@ -7,7 +7,8 @@ import os
 
 import pytest
 
-from app.legacy.core import model_activation, model_versioning
+from app.application import model_activation
+from app.infrastructure.persistence import model_versioning
 
 
 @pytest.fixture()

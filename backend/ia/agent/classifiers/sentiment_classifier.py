@@ -8,7 +8,7 @@ chunking, ``inference_mode``, device auto). Il ajoute :
   - le cache de RÉSULTATS LRU + TTL par texte (hit-rate attendu 60-80 %) ;
   - des compteurs d'activité (prédictions, hit/miss, latence, erreurs).
 
-Le modèle est chargé paresseusement via ``app.legacy.core.predictor_cache``. Pour les
+Le modèle est chargé paresseusement via ``app.application.predictor_cache``. Pour les
 tests, monkeypatchez ``_load_predictor`` / ``_reload_predictor`` (fonctions
 module) : aucun import torch n'est alors nécessaire.
 """
@@ -20,7 +20,7 @@ import os
 import time
 from typing import Any
 
-from app.legacy.core.prediction_result_cache import PredictionResultCache
+from app.application.prediction_result_cache import PredictionResultCache
 from ia.agent.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
 
 logger = logging.getLogger("thinktuning.agent.classifiers.sentiment")
@@ -30,14 +30,14 @@ _SENTIMENT_LABELS = {"positive", "negative", "neutral"}
 
 def _load_predictor(model_name: str | None) -> Any:
     """Prédicteur de la version ``model_name`` (None = version active)."""
-    from app.legacy.core import predictor_cache
+    from app.application import predictor_cache
 
     return predictor_cache.get_predictor(model_name)
 
 
 def _reload_predictor(model_name: str | None) -> Any:
     """Recharge la version active depuis le disque puis renvoie le prédicteur."""
-    from app.legacy.core import predictor_cache
+    from app.application import predictor_cache
 
     predictor_cache.reload_predictor()
     return predictor_cache.get_predictor(model_name)

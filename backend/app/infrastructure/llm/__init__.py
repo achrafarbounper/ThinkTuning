@@ -10,7 +10,7 @@
   use-cases hors ligne.
 
 Décommission (fin de migration) : la suppression de ``ia/agent/llm_client.py``
-est liée au retrait du chemin v1 (``app/legacy/core/agent_cache.py`` l'utilise encore).
+est liée au retrait du chemin v1 (``app/application/agent_cache.py`` l'utilise encore).
 """
 
 from __future__ import annotations

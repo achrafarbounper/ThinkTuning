@@ -1,0 +1,436 @@
+# project/core/audit_store.py
+
+"""Journal d'audit & conformité des actions sensibles de l'agent (SQLite).
+
+Répond aux exigences de conformité (Phase A — Security & Compliance) : toute
+action à fort enjeu (lancement de run, exécution d'outil, décision de
+validation humaine, modification de config) est tracée dans une table dédiée
+avec, pour chaque entrée, un identifiant stable, l'acteur, l'action, le sujet,
+le détail JSON, l'IP d'origine, et le run/requête lié — le tout horodaté en
+ISO UTC (millisecondes).
+
+Mêmes conventions que ``app/infrastructure/persistence/approval_store.py`` /
+``app/infrastructure/persistence/run_store.py`` :
+
+    - base SQLite dédiée (experiments/agent_audit.db, surchargeable via
+      AGENT_AUDIT_PATH pour isoler les tests) ;
+    - store thread-safe (l'API FastAPI appelle depuis plusieurs threads) ;
+    - singleton paresseux ``get_audit_store()`` + ``reset_audit_store()``.
+
+Sécurité des données : ``redact()`` est appliqué à l'écriture sur le détail
+pour ne JAMAIS persister de secret en clair — clés API, jetons et champs nommés
+d'après ``SENSITIVE_KEYS`` sont remplacés par ``[REDACTED]``, et les autres
+valeurs trop longues sont tronquées.
+"""
+
+import json
+import logging
+import os
+import sqlite3
+import threading
+import uuid
+from datetime import UTC, datetime
+
+logger = logging.getLogger(__name__)
+
+AGENT_AUDIT_PATH = os.getenv("AGENT_AUDIT_PATH", os.path.join("experiments", "agent_audit.db"))
+
+# Actions d'audit normalisées (le code appelant peut en définir d'autres).
+ACT_RUN = "agent_run"  # lancement / issue d'un run
+ACT_TOOL = "tool_execution"  # appel d'un outil
+ACT_APPROVAL = "approval"  # décision approve / reject
+ACT_CONFIG = "config_change"  # modification de la configuration LLM
+ACT_CONNECT = "connectivity"  # sonde de connectivité provider
+
+# Actions d'audit MCP (S4, tâche 12 — docs/mcp/MCP_SECURITY.md) : chaque appel
+# MCP (tools/call, resources/read, prompts/get, sampling/create, orchestrate)
+# est tracé dans la MÊME table agent_audit que les actions de l'agent —
+# ``subject`` porte toujours le ``client_id`` MCP, ``detail`` la description
+# de l'appel (tool/URI/prompt, arguments anonymisés, is_error, scope).
+ACT_MCP_TOOL_CALL = "mcp_tool_call"  # outils/call (hors orchestrate)
+ACT_MCP_RESOURCE_READ = "mcp_resource_read"  # resources/read
+ACT_MCP_PROMPT_GET = "mcp_prompt_get"  # prompts/get
+ACT_MCP_SAMPLING = "mcp_sampling"  # sampling/create
+ACT_MCP_ORCHESTRATE = "mcp_orchestrate"  # tools/call sur le tool ``orchestrate``
+ACT_MCP_CLIENT_TOOL_CALL = "mcp_client_tool_call"  # outbound host call
+
+# Regroupement des actions MCP — ordre stable pour l'agrégation (mcp_metrics)
+# et le tri du dashboard interne.
+MCP_ACTIONS = (
+    ACT_MCP_TOOL_CALL,
+    ACT_MCP_RESOURCE_READ,
+    ACT_MCP_PROMPT_GET,
+    ACT_MCP_SAMPLING,
+    ACT_MCP_ORCHESTRATE,
+)
+
+# Marqueur d'échec écrit dans ``detail`` par l'infrastructure MCP — la valeur
+# est un booléen JSON (``"is_error": true``) : on l'utilise pour l'agrégation
+# SQL du taux d'erreur (molécule stable, rédigée par notre propre code).
+_IS_ERROR_KEY = '"is_error": true'
+
+# Clés sensibles à anonymiser dans le détail (comparaison insensible à la casse).
+SENSITIVE_KEYS = {
+    "api_key",
+    "apikey",
+    "token",
+    "authorization",
+    "secret",
+    "password",
+    "passwd",
+    "pwd",
+    "key",
+}
+
+# Taille max de chaque champ du détail JSON après anonymisation.
+_MAX_STRING_CHARS = 2000
+_MAX_DETAIL_ITEMS = 200
+
+_COLUMNS = [
+    "id",
+    "ts",
+    "actor",
+    "action",
+    "subject",
+    "detail_json",
+    "ip",
+    "request_id",
+    "run_id",
+]
+
+
+def _utcnow_iso() -> str:
+    """Horodatage ISO 8601 UTC (millisecondes) — stable, triable, horodaté."""
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _truncate(text: str) -> str:
+    suffix = "…[tronqué]"
+    if len(text) <= _MAX_STRING_CHARS:
+        return text
+    # La longueur TOTALE (texte + suffixe) reste dans la limite.
+    keep = max(0, _MAX_STRING_CHARS - len(suffix))
+    return text[:keep] + suffix
+
+
+def redact(value):
+    """Anonymise récursivement une valeur (dict/list/scalaire) pour l'audit.
+
+    - Les clés nommées comme dans ``SENSITIVE_KEYS`` (insensible à la casse)
+      sont remplacées par ``[REDACTED]`` (valeur écrasée) ;
+    - P1 point 10c : les secrets contenus dans les VALEURS (DSN PostgreSQL,
+      ``Bearer …``, ``clé=secret``) sont aussi masqués (``secrets_redact``) ;
+    - les chaînes trop longues sont tronquées ;
+    - les listes/objets volumineux sont bornés pour garder une trace lisible.
+    """
+    from app.infrastructure.persistence.secrets_redact import (
+        redact_secrets,
+    )  # import local : anti-cycle
+
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            if isinstance(k, str) and k.strip().lower() in SENSITIVE_KEYS:
+                out[k] = "[REDACTED]"
+            else:
+                out[k] = redact(v)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [redact(item) for item in value][:_MAX_DETAIL_ITEMS]
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return _truncate(redact_secrets(value))
+    # Scalaires typés (int/float/bool) : préserver le type.
+    return value
+
+
+def _dumps(detail) -> str:
+    try:
+        return json.dumps(redact(detail or {}), ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return json.dumps({"__detail_error__": str(detail)[:200]}, ensure_ascii=False)
+
+
+class AuditStore:
+    """Journal d'audit au-dessus d'une table SQLite (thread-safe)."""
+
+    def __init__(self, path: str = AGENT_AUDIT_PATH):
+        self.path = path
+        self._lock = threading.RLock()
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self._ensure_db()
+
+    # --- Infra ---
+
+    def _connect(self):
+        return sqlite3.connect(self.path, timeout=30.0)
+
+    def _ensure_db(self):
+        conn = self._connect()
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_audit (
+                id          TEXT PRIMARY KEY,
+                ts          TEXT NOT NULL,
+                actor       TEXT NOT NULL,
+                action      TEXT NOT NULL,
+                subject     TEXT NOT NULL DEFAULT '',
+                detail_json TEXT NOT NULL DEFAULT '{}',
+                ip          TEXT,
+                request_id  TEXT NOT NULL DEFAULT '',
+                run_id      TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        # P2 lot 16 : colonne ``is_error`` (booléen agrégé SANS lire le détail
+        # JSON — nécessaire dès que ``detail_json`` est chiffré au repos) +
+        # migration ALTER pour les bases créées avant cette colonne.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_audit)").fetchall()}
+        if "is_error" not in columns:
+            conn.execute("ALTER TABLE agent_audit ADD COLUMN is_error INTEGER NOT NULL DEFAULT 0")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_ts ON agent_audit(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON agent_audit(action)")
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _row_to_dict(row) -> dict | None:
+        if row is None:
+            return None
+        data = dict(zip(_COLUMNS, row, strict=False))
+        raw_detail = data.pop("detail_json") or "{}"
+        try:
+            # P2 lot 16 : déchiffrement transparent (préfixe ``enc:`` si
+            # chiffrement actif — valeurs legacy en clair inchangées).
+            from app.infrastructure.persistence.store_crypto import decrypt_text
+
+            raw_detail = decrypt_text(raw_detail)
+            data["detail"] = json.loads(raw_detail)
+        except ValueError:
+            data["detail"] = {}
+        return data
+
+    # --- Écriture ---
+
+    def log(
+        self,
+        action: str,
+        subject: str = "",
+        detail: dict | None = None,
+        actor: str = "system",
+        ip: str | None = None,
+        request_id: str | None = None,
+        run_id: str | None = None,
+    ) -> dict:
+        """Ajoute une entrée d'audit (détail anonymisé/tronqué à l'écriture,
+        chiffré au repos si ``STORE_ENCRYPTION_KEY`` est posée — P2 lot 16)."""
+        record_id = str(uuid.uuid4())
+        ts = _utcnow_iso()
+        dumped = _dumps(detail)
+        # Booléen agrégé hors chiffrement (métriques MCP sans passer par le
+        # détail JSON chiffré).
+        is_error = 1 if _IS_ERROR_KEY in dumped else 0
+        from app.infrastructure.persistence.store_crypto import encrypt_text
+
+        stored_detail = encrypt_text(dumped)
+        with self._lock:
+            conn = self._connect()
+            try:
+                with conn:
+                    conn.execute(
+                        "INSERT INTO agent_audit (id, ts, actor, action, subject,"
+                        " detail_json, ip, request_id, run_id, is_error)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            record_id,
+                            ts,
+                            actor or "system",
+                            action,
+                            subject or "",
+                            stored_detail,
+                            ip,
+                            request_id or "",
+                            run_id or "",
+                            is_error,
+                        ),
+                    )
+            finally:
+                conn.close()
+        row = self.get(record_id)
+        assert row is not None
+        return row
+
+    def prune_older_than(self, max_age_days: int) -> dict:
+        """Purge (TTL) les entrées plus vieilles que ``max_age_days`` jours.
+
+        Retourne ``{"deleted": n, "cutoff": ts}``. Utilise l'index
+        ``idx_audit_ts`` (pas de scan complet). Appelé par le script
+        ``scripts/retention.py`` (cron) — P2 lot 16.
+        """
+        from datetime import datetime as _dt
+
+        cutoff = _dt.now(UTC).timestamp() - int(max_age_days) * 86400
+        cutoff_iso = _dt.fromtimestamp(cutoff, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        with self._lock:
+            conn = self._connect()
+            try:
+                with conn:
+                    cursor = conn.execute("DELETE FROM agent_audit WHERE ts < ?", (cutoff_iso,))
+                    deleted = cursor.rowcount
+            finally:
+                conn.close()
+        if deleted:
+            logger.info("audit TTL : %d entrée(s) purgée(s) (cutoff %s)", deleted, cutoff_iso)
+        return {"deleted": deleted, "cutoff": cutoff_iso}
+
+    # --- Lecture ---
+
+    def get(self, audit_id: str) -> dict | None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT * FROM agent_audit WHERE id = ?", (str(audit_id),)
+                ).fetchone()
+            finally:
+                conn.close()
+        return self._row_to_dict(row)
+
+    def query(
+        self,
+        action: str | None = None,
+        subject: str | None = None,
+        actor: str | None = None,
+        run_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """Interroge le journal (filtres AND). Retourne items/total/limit/offset."""
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+        conditions, params = [], []
+        if action:
+            conditions.append("action = ?")
+            params.append(action)
+        if subject:
+            conditions.append("subject = ?")
+            params.append(subject)
+        if actor:
+            conditions.append("actor = ?")
+            params.append(actor)
+        if run_id:
+            conditions.append("run_id = ?")
+            params.append(run_id)
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+        with self._lock:
+            conn = self._connect()
+            try:
+                total = conn.execute(
+                    f"SELECT COUNT(*) FROM agent_audit{where}",
+                    params,
+                ).fetchone()[0]
+                rows = conn.execute(
+                    f"SELECT * FROM agent_audit{where} ORDER BY ts DESC, id LIMIT ? OFFSET ?",
+                    [*params, limit, offset],
+                ).fetchall()
+            finally:
+                conn.close()
+        return {
+            "items": [d for d in (self._row_to_dict(r) for r in rows) if d is not None],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    def mcp_metrics(self) -> dict:
+        """Agrégats MCP pour le dashboard interne (S4, tâche 12).
+
+        Sources : la table ``agent_audit`` filtrée sur ``MCP_ACTIONS``.
+
+            ``call_volume`` :  total d'appels MCP + répartition par action ;
+            ``errors`` :       appels dont le ``detail`` porte ``is_error: true``
+                               (les échecs sont JOURNALISÉS et marqués à
+                               l'écriture par l'infrastructure MCP) ;
+            ``error_rate`` :   ``errors / total`` (0.0 si aucun appel).
+
+        Retourne une molécule stable (jamais de clé manquante) — le front la
+        consomme directement. ``sqlite3`` par indices (aucune row_factory posée
+        sur la connexion, cf. ``_connect``).
+        """
+        placeholders = ",".join("?" * len(MCP_ACTIONS))
+        actions = list(MCP_ACTIONS)
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    f"SELECT action, COUNT(*) AS n FROM agent_audit "
+                    f"WHERE action IN ({placeholders}) GROUP BY action",
+                    actions,
+                ).fetchall()
+                total = conn.execute(
+                    f"SELECT COUNT(*) AS n FROM agent_audit WHERE action IN ({placeholders})",
+                    actions,
+                ).fetchone()[0]
+                errors = conn.execute(
+                    f"SELECT COUNT(*) AS n FROM agent_audit "
+                    f"WHERE action IN ({placeholders}) AND is_error = 1",
+                    actions,
+                ).fetchone()[0]
+            finally:
+                conn.close()
+        by_action = {action: 0 for action in MCP_ACTIONS}
+        for row in rows:
+            by_action[row[0]] = row[1]
+        total = int(total or 0)
+        errors = int(errors or 0)
+        return {
+            "total": total,
+            "by_action": by_action,
+            "errors": errors,
+            "error_rate": round(errors / total, 4) if total else 0.0,
+        }
+
+
+# --- Store partagé (lazy, surchargeable en tests) ---
+
+_store: AuditStore | None = None
+_store_lock = threading.Lock()
+
+# Cache du store Mongo (mode PERSISTENCE_BACKEND=mongodb) : instancié UNE seule
+# fois puis réutilisé — même sémantique que le singleton SQLite (_store) au-dessus.
+# Annoté avec le type de retour du getter (la classe ``MongoAuditStore`` n'est
+# importable qu'en lazy : import de module circulaire).
+_mongo_store: "AuditStore | None" = None
+
+
+def _current_path() -> str:
+    """Chemin effectif de la base, relu à chaque création de store.
+
+    Permet à l'env var AGENT_AUDIT_PATH de surcharger le chemin par défaut
+    même après l'import du module (isolation des tests via monkeypatch).
+    """
+    return os.getenv("AGENT_AUDIT_PATH") or AGENT_AUDIT_PATH
+
+
+def get_audit_store() -> AuditStore:
+    """Store partagé de l'application (instance unique paresseuse)."""
+    from app.infrastructure.persistence.mongodb import MongoAuditStore
+
+    global _store
+    with _store_lock:
+        if _store is None:
+            _store = MongoAuditStore()  # type: ignore[assignment]
+        assert _store is not None
+        return _store
+
+
+def reset_audit_store(path: str | None = None) -> AuditStore:
+    """Remplace le store partagé par une base neuve (isolation des tests)."""
+    global _store
+    with _store_lock:
+        from app.infrastructure.persistence.mongodb import MongoAuditStore
+
+        _store = MongoAuditStore()  # type: ignore[assignment]
+        assert _store is not None
+        return _store

@@ -43,7 +43,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from build_intent_dataset import merge_labeled  # noqa: E402
-from app.legacy.core.intent_trainer import (  # noqa: E402
+from app.application.intent_trainer import (  # noqa: E402
     _format_intent_report,
     _intent_classification_report,
     _split_records,

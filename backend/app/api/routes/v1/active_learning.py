@@ -15,8 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
 from app.api.routes import active_learning as legacy
-from app.infrastructure.legacy_errors import convert_legacy_http_error
-from app.legacy.core.models import (
+from app.domain.entities.models import (
     ActiveLearningRequest,
     AnnotateListResponse,
     AnnotateRequest,
@@ -24,6 +23,7 @@ from app.legacy.core.models import (
     MergeAnnotationsResponse,
     TrainJob,
 )
+from app.infrastructure.legacy_errors import convert_legacy_http_error
 
 router = APIRouter(tags=["Active Learning (v1)"])
 

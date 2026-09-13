@@ -5,9 +5,9 @@ Enveloppent les modules ``core`` existants PAR ATTRIBUT DE MODULE (convention
 du projet : les monkeypatchs des tests ciblent le module, ils restent donc
 efficaces) :
 
-    - ``app.legacy.core.job_store``      : store SQLite persistant des jobs ;
-    - ``app.legacy.core.trainer_runner`` : thread worker + événement d'annulation ;
-    - ``app.legacy.core.scheduler``      : planifications APScheduler (SCRUM-34).
+    - ``app.infrastructure.persistence.job_store``      : store SQLite persistant des jobs ;
+    - ``app.application.trainer_runner`` : thread worker + événement d'annulation ;
+    - ``app.application.scheduler``      : planifications APScheduler (SCRUM-34).
 
 Les conversions d'erreurs legacy -> domaine sont concentrées ICI :
 ``RuntimeError`` (annulation d'un job inconnu) devient ``NotFoundError``.
@@ -18,6 +18,9 @@ from __future__ import annotations
 import threading
 import uuid
 
+from app.application import scheduler as schedule_manager
+from app.application import trainer_runner
+from app.domain.entities.models import JobStatus, TrainJob, TrainRequest
 from app.domain.errors import NotFoundError
 from app.domain.ports.training_ports import (
     MetricRows,
@@ -25,10 +28,7 @@ from app.domain.ports.training_ports import (
     TrainingRunnerPort,
     TrainingSchedulesPort,
 )
-from app.legacy.core import scheduler as schedule_manager
-from app.legacy.core import trainer_runner
-from app.legacy.core.job_store import get_job_store
-from app.legacy.core.models import JobStatus, TrainJob, TrainRequest
+from app.infrastructure.persistence.job_store import get_job_store
 
 # Verrou d'écriture du store (réplique le comportement du handler legacy :
 # mêmes garanties de concurrence entre la route et le worker).
@@ -61,7 +61,7 @@ class ModuleTrainingRunnerAdapter:
         # P2 lot 16 (résilience) : plafond de runs concurrents + file d'attente
         # bornée (TRAIN_MAX_CONCURRENT / TRAIN_QUEUE_MAX). Le slot est libéré
         # par la target wrapper à la fin du run (réussite OU échec).
-        from app.legacy.core.training_gate import TrainingBusyError, get_training_gate
+        from app.application.training_gate import TrainingBusyError, get_training_gate
 
         gate = get_training_gate()
 
@@ -92,7 +92,7 @@ class ModuleTrainingRunnerAdapter:
 
 
 class ModuleTrainingSchedulesAdapter:
-    """Planifications récurrentes (app.legacy.core.scheduler, par attribut de module)."""
+    """Planifications récurrentes (app.application.scheduler, par attribut de module)."""
 
     def create(
         self,

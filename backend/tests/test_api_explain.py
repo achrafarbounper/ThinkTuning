@@ -3,7 +3,7 @@
 """Tests offline de l'endpoint POST /explain.
 
 Aucun appel réseau : le runner OpenRouter est remplacé par un runner adossé à
-un FakeLLM scripté (via `app.legacy.core.agent_cache._build_openrouter_runner`), et la
+un FakeLLM scripté (via `app.application.agent_cache._build_openrouter_runner`), et la
 prédiction DistilBERT est remplacée par un FakePredictor (patché sur
 `app.api._get_predictor`).
 
@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import app.api as api# noqa: E402
 from app.api import app  # noqa: E402
-from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+from app.application import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 HEADERS = {"X-API-Key": "test-key"}
 
@@ -54,7 +54,7 @@ class FakeLLM:
 
 
 class FakePredictor:
-    """Remplace le prédicteur DistilBERT (même contrat que app.legacy.core.predictor_cache)."""
+    """Remplace le prédicteur DistilBERT (même contrat que app.application.predictor_cache)."""
 
     def __init__(self, sentiment="positive", confidence=0.97):
         self.sentiment = sentiment

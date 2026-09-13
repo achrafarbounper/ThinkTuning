@@ -4,7 +4,7 @@
 
 Contrat vérifié (docs/mcp/MCP_SECURITY.md) :
     chaque appel MCP d'ACTION est journalisé dans la table ``agent_audit``
-    (``app/legacy/core/audit_store.py``) avec ``subject`` = ``client_id`` :
+    (``app/infrastructure/persistence/audit_store.py``) avec ``subject`` = ``client_id`` :
 
         - tools/call (hors orchestrate) → ``mcp_tool_call`` ;
         - tools/call sur ``orchestrate`` → ``mcp_orchestrate`` ;
@@ -36,7 +36,7 @@ from app.domain.entities.mcp import MCPScopeRole, MCPVersion
 from app.infrastructure.mcp.mcp_audit import mcp_audit_enabled
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.protocol import ErrorCode
-from app.legacy.core.audit_store import (
+from app.infrastructure.persistence.audit_store import (
     ACT_MCP_ORCHESTRATE,
     ACT_MCP_PROMPT_GET,
     ACT_MCP_RESOURCE_READ,
@@ -284,7 +284,7 @@ def _register_dashboard_clients(tmp_path, monkeypatch) -> None:
     DANS ce store qu'on enregistre les clients — l'isolation par test vient du
     provider mock de conftest (plus de fichier ``MCP_CLIENT_STORE_PATH``)."""
     from app.domain.ports.mcp_ports import MCPSecurityScope
-    from app.legacy.core.mcp_client_store import get_mcp_client_store
+    from app.infrastructure.persistence.mcp_client_store import get_mcp_client_store
 
     store = get_mcp_client_store()
     store.register(

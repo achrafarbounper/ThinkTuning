@@ -24,12 +24,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, StringConstraints
 
 from app.api.dependencies.auth import require_api_key, require_read_api_key
-from app.legacy.core.classifier_monitoring import (
+from app.application.classifier_monitoring import (
     classifier_snapshot,
     classifier_snapshots,
     health_summary,
 )
-from app.legacy.core.classifier_registry import get_registry
+from app.application.classifier_registry import get_registry
 from ia.agent.classifiers.intent_classifier import IntentClassifier
 from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
 

@@ -3,7 +3,7 @@
 """Tests offline du chat IA (/api/v1/chat/ai) — surface v1 (découplage).
 
 Aucun appel réseau : le LLM (Ollama) est remplacé par un FakeLLM scripté,
-injecté dans le cache `app.legacy.core.agent_cache`.
+injecté dans le cache `app.application.agent_cache`.
 Lance avec : pytest tests/test_api_ai_chat.py -v
 """
 
@@ -16,7 +16,7 @@ import requests  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.api import app  # noqa: E402
-from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+from app.application import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 HEADERS = {"X-API-Key": "test-key"}
 

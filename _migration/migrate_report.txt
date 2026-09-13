@@ -1,0 +1,70 @@
+== Étape 1 : git mv ==
+  skip agent_settings.py (déjà déplacé)
+  skip annotation_store.py (déjà déplacé)
+  skip approval_store.py (déjà déplacé)
+  skip audit_store.py (déjà déplacé)
+  skip flow_store.py (déjà déplacé)
+  skip intent_store.py (déjà déplacé)
+  skip job_store.py (déjà déplacé)
+  skip mcp_client_store.py (déjà déplacé)
+  skip model_head_check.py (déjà déplacé)
+  skip model_versioning.py (déjà déplacé)
+  skip run_store.py (déjà déplacé)
+  skip secrets_redact.py (déjà déplacé)
+  skip session_store.py (déjà déplacé)
+  skip store_crypto.py (déjà déplacé)
+  skip training_events.py (déjà déplacé)
+  skip agent_cache.py (déjà déplacé)
+  skip classifier_monitoring.py (déjà déplacé)
+  skip classifier_registry.py (déjà déplacé)
+  skip cycle_runner.py (déjà déplacé)
+  skip dynamic_batcher.py (déjà déplacé)
+  skip feature_flags.py (déjà déplacé)
+  skip inference_executor.py (déjà déplacé)
+  skip intent_trainer.py (déjà déplacé)
+  skip job_logs.py (déjà déplacé)
+  skip model_activation.py (déjà déplacé)
+  skip model_sanity.py (déjà déplacé)
+  skip model_signing.py (déjà déplacé)
+  skip model_warmup.py (déjà déplacé)
+  skip onnx_exporter.py (déjà déplacé)
+  skip pipeline_runner.py (déjà déplacé)
+  skip prediction_result_cache.py (déjà déplacé)
+  skip predictor_cache.py (déjà déplacé)
+  skip scheduler.py (déjà déplacé)
+  skip trainer_runner.py (déjà déplacé)
+  skip training_gate.py (déjà déplacé)
+  skip models.py (déjà déplacé)
+== Étape 2 : suppression app/legacy ==
+  app/legacy déjà supprimé
+== Étape 3 : réécriture des références ==
+  fichiers modifiés : 11
+  imports paquet réécrits : 0
+  refs pointées réécrites : 6
+  refs slash réécrites    : 64
+== Étape 4 : occurrences 'app.legacy' / 'app/legacy' restantes ==
+  ARCHITECTURE.md:13: (`api/`, `app/legacy/core/`, `ia/`, `src/`), et les conventions à respecter
+  ARCHITECTURE.md:43: │  app/legacy/core (stores SQLite)    │
+  ARCHITECTURE.md:131: app/legacy/core/ ia/ src/         # legacy — migré progressivement
+  ARCHITECTURE.md:235: les stores restent dans `app/legacy/core/` ; les wrappers `app/infrastructure/persistence/`
+  ARCHITECTURE.md:241: `api/`, `app/legacy/core/`, `app/` ni les tests. Garde-fous CI :
+  ARCHITECTURE.md:243: 3. Étendre ruff/mypy à `api/`, `app/legacy/core/`, `ia/`, `tests/`.
+  README.md:20: │   ├── app/legacy/core/  # Stores SQLite, versionnage des modèles, cache predictor
+  backend\openapi.json:5474: "description": "Session de conversation (app/legacy/core/session_store) où journaliser l'échange ; absent : aucune persi
+  backend\openapi.json:5728: "description": "Session de conversation (app/legacy/core/session_store) où journaliser l'échange ; absent : aucune persi
+  backend\pyproject.toml:77: extend-exclude = ["venv", ".agent_tmp", "experiments", "outputs", "app/legacy"]
+  backend\pyproject.toml:116: # app/legacy = legacy déplacé (ex-core/), requalifié à l'absorption finale.
+  backend\app\infrastructure\ml\predictor_adapter.py:13: Les imports passent par l'identité de module (``from app.legacy.core import ...``) et
+  backend\tests\test_agent_api.py:28: from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+  backend\tests\test_agent_context_length.py:19: from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+  backend\tests\test_agent_hf.py:24: from app.legacy.core import agent_cache  # noqa: E402
+  backend\tests\test_agent_logging.py:18: from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+  backend\tests\test_agent_openrouter.py:39: from app.legacy.core import agent_cache  # noqa: E402
+  backend\tests\test_api_ai_chat.py:19: from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+  backend\tests\test_api_explain.py:25: from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+  backend\tests\test_system_prompt_tools.py:17: from app.legacy.core import agent_cache  # noqa: E402
+  docs\CLASSIFIERS.md:163: | `app/legacy/core/circuit_breaker.py` | Pattern Circuit Breaker existant (réutilisé par `ResilientClassifier`). |
+  docs\FINETUNING.md:727: Extraire un module partagé (ex. `app/legacy/core/prompt_template.py`) qui expose
+  docs\FINETUNING.md:856: | 4 | Template unique + format strict (consigne vocabulaire) | nouveau `app/legacy/core/prompt_template.py` ; 3 modules 
+  docs\mcp\MANIFEST.md:63: | `model_versions` | read_only | ✅ | — | ✅ | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandb
+  => 24 occurrences restantes

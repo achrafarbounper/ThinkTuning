@@ -10,8 +10,9 @@ hexagonale qui permet :
     - de brancher le client LLM réel OU un mock déterministe.
 
 Alignement : chaque Protocol reprend les signatures réelles des modules
-legacy qu'il encapsulera à la migration (app/legacy/core/session_store.py,
-app/legacy/core/audit_store.py, app/legacy/core/run_store.py, app/legacy/core/approval_store.py,
+legacy qu'il encapsulera à la migration (app/infrastructure/persistence/session_store.py,
+app/infrastructure/persistence/audit_store.py, app/infrastructure/persistence/run_store.py,
+app/infrastructure/persistence/approval_store.py,
 ia/agent/llm_client.py, ia/tools/tool_registry.py). Les stores legacy
 implémentent déjà ces signatures : un simple adaptateur suffira.
 """
@@ -113,7 +114,7 @@ class ToolRegistryPort(Protocol):
 
 @runtime_checkable
 class SessionStorePort(Protocol):
-    """Contrat mémoire conversationnelle (cf. app/legacy/core/session_store.py).
+    """Contrat mémoire conversationnelle (cf. app/infrastructure/persistence/session_store.py).
 
     Short-term : messages de la session. Long-term : résumés par clé
     (``save_memory``/``get_memory``).
@@ -153,7 +154,7 @@ class SessionStorePort(Protocol):
 
 @runtime_checkable
 class AuditStorePort(Protocol):
-    """Contrat du journal d'audit (cf. app/legacy/core/audit_store.py,
+    """Contrat du journal d'audit (cf. app/infrastructure/persistence/audit_store.py,
     signature ``log`` identique)."""
 
     def log(
@@ -176,7 +177,7 @@ class AuditStorePort(Protocol):
 
 @runtime_checkable
 class RunStorePort(Protocol):
-    """Contrat de traçabilité des runs agent (cf. app/legacy/core/run_store.py).
+    """Contrat de traçabilité des runs agent (cf. app/infrastructure/persistence/run_store.py).
 
     Signatures alignées sur l'implémentation legacy : un adaptateur conforme
     doit accepter exactement ces arguments (les tests de contrat vérifient
@@ -212,7 +213,8 @@ class RunStorePort(Protocol):
 
 @runtime_checkable
 class FlowStorePort(Protocol):
-    """Contrat du journal des sessions multi-agents (cf. app/legacy/core/flow_store.py).
+    """Contrat du journal des sessions multi-agents
+    (cf. app/infrastructure/persistence/flow_store.py).
 
     Chaque session (flow) est une timeline horodatée d'événements SSE, rejouable
     dans le dashboard (Flow Map). Les événements sont appendus en temps réel
@@ -287,7 +289,8 @@ class MultiAgentOrchestratorPort(Protocol):
 
 @runtime_checkable
 class ApprovalStorePort(Protocol):
-    """Contrat de la file d'approbation humaine (cf. app/legacy/core/approval_store.py).
+    """Contrat de la file d'approbation humaine
+    (cf. app/infrastructure/persistence/approval_store.py).
 
     Flux : ``create`` (status pending) -> ``approve``/``reject`` -> le runner
     reprend l'action si ``approved``. Le filtrage passe par ``list(status)``.
@@ -324,7 +327,8 @@ class ApprovalStorePort(Protocol):
 
 @runtime_checkable
 class AgentSettingsPort(Protocol):
-    """Contrat du store de paramètres persistés de l'agent (cf. app/legacy/core/agent_settings.py).
+    """Contrat du store de paramètres persistés de l'agent
+    (cf. app/infrastructure/persistence/agent_settings.py).
 
     Config effective = priorité décroissante :
         1. valeurs sauvegardées en base (via ``save_many``) ;

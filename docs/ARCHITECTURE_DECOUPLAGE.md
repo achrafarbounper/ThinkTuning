@@ -67,7 +67,7 @@ l'infrastructure, pas du domaine :
 | `predictor_cache`, `model_*`    | Infrastructure ML    | adaptateurs `app/infrastructure` |
 | `scheduler`, `job_store`, `*_store` | Infrastructure persistance | partagé tel quel (kernel) |
 | `trainer_runner`, `cycle_runner`, `pipeline_runner` | Orchestration legacy | appelé via handlers/delegation |
-| `app/legacy/core/models.py` (TrainJob, enums, DTO) | Modèle partagé        | réutilisé tel quel (zéro dérive) |
+| `app/domain/entities/models.py` (TrainJob, enums, DTO) | Modèle partagé        | réutilisé tel quel (zéro dérive) |
 
 ---
 

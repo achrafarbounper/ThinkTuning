@@ -1,8 +1,8 @@
 """Tests de l'avancement temps réel des jobs d'entraînement :
 
-  - app/legacy/core/job_logs : capture des logs par job (mapping thread -> job),
+  - app/application/job_logs : capture des logs par job (mapping thread -> job),
   - Trainer.on_progress : callback batch-par-batch des phases train/eval,
-  - app/legacy/core/trainer_runner : état des étapes + pourcentage global (job.progress),
+  - app/application/trainer_runner : état des étapes + pourcentage global (job.progress),
   - MongoPollingEventsSource : get_progress / get_logs.
 """
 import logging
@@ -20,14 +20,14 @@ import torch
 from torch import nn
 
 import app.api as api# noqa: E402,F401  (initialise l'app comme les autres tests)
-from app.legacy.core import job_logs, trainer_runner
-from app.legacy.core.job_store import get_job_store
-from app.legacy.core.models import TRAIN_JOB_STEPS, JobStatus, TrainJob
-from app.legacy.core.training_events import MongoPollingEventsSource
+from app.application import job_logs, trainer_runner
+from app.infrastructure.persistence.job_store import get_job_store
+from app.domain.entities.models import TRAIN_JOB_STEPS, JobStatus, TrainJob
+from app.infrastructure.persistence.training_events import MongoPollingEventsSource
 from src.model.trainer import Trainer
 
 # ---------------------------------------------------------------------------
-# app/legacy/core/job_logs
+# app/application/job_logs
 # ---------------------------------------------------------------------------
 
 def test_job_logs_capture_and_since_seq():
@@ -145,7 +145,7 @@ def test_trainer_on_progress_exception_swallowed():
 
 
 # ---------------------------------------------------------------------------
-# app/legacy/core/trainer_runner : étapes + pourcentage global
+# app/application/trainer_runner : étapes + pourcentage global
 # ---------------------------------------------------------------------------
 
 def test_compute_global_pct():

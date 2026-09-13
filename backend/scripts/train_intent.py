@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.legacy.core.intent_store import (  # noqa: E402
+from app.infrastructure.persistence.intent_store import (  # noqa: E402
     INTENT_MODEL_ROOT,
     default_intent_labels,
     list_intent_model_versions,
@@ -35,7 +35,7 @@ from app.legacy.core.intent_store import (  # noqa: E402
 # Parité API (cf. §13 de docs/INTENT_TRAINING.md) : helpers purs du runner
 # intent, sans imports lourds — diagnostic classification_report (confusions
 # chat↔action) + split train/val stratifié.
-from app.legacy.core.intent_trainer import (  # noqa: E402
+from app.application.intent_trainer import (  # noqa: E402
     EARLY_STOPPING_PATIENCE,
     _best_checkpoint_training_args,
     _format_intent_report,

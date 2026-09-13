@@ -1,6 +1,6 @@
 """Use case des paramètres de l'agent (lecture / écriture / test de connectivité).
 
-Remplace ``app/legacy/core/agent_settings.py`` dans la couche API : la route v1
+Remplace ``app/infrastructure/persistence/agent_settings.py`` dans la couche API : la route v1
 (``api/routes/v1/agent.py``) délègue à ce use-case au lieu d'appeler
 directement le store legacy.
 
@@ -15,7 +15,8 @@ l'adaptateur ne fait que transmettre au store legacy.
 
 SCRUM-138 : ce use case est LE module de configuration IHM de l'agent — il ne
 dépend plus de ``app/config/settings.py`` (aucune configuration d'agent n'y
-reste) : la couche env + défauts vient de ``app.legacy.core.agent_settings.env_and_defaults``
+reste) : la couche env + défauts vient de
+``app.infrastructure.persistence.agent_settings.env_and_defaults``
 et les valeurs effectives sont ENTièrement stockées / chargées depuis la base
 de persistance (MongoDB via ``MongoAgentSettingsStore``).
 """
@@ -26,9 +27,9 @@ from typing import Any
 
 from app.domain.ports import AgentSettingsPort
 
-# Clés acceptées en écriture — SOURCE UNIQUE : ``app/legacy/core/agent_settings.py``
+# Clés acceptées en écriture — SOURCE UNIQUE : ``app/infrastructure/persistence/agent_settings.py``
 # (le store MongoDB ``MongoAgentSettingsStore`` filtre sur le même tuple).
-from app.legacy.core.agent_settings import SETTING_KEYS  # noqa: F401  (ré-exporté)
+from app.infrastructure.persistence.agent_settings import SETTING_KEYS  # noqa: F401  (ré-exporté)
 
 # Défauts effectifs du module IHM = défauts historiques de
 # app/config/settings.py (déplacés ici) : ils ne servent qu'au démarrage à
@@ -86,13 +87,14 @@ def get_effective_settings(port: AgentSettingsPort) -> dict[str, Any]:
     """Config effective : priorité base > env > défauts.
 
     La couche env+défauts (store-free) vient de
-    ``app.legacy.core.agent_settings.env_and_defaults`` ; seules les valeurs réellement
+    ``app.infrastructure.persistence.agent_settings.env_and_defaults`` ; seules les valeurs
+    réellement
     issues de l'environnement remplacent les défauts du module (les ``""`` /
     ``None`` legacy ne les écrasent pas), puis les valeurs persistées en base
     s'appliquent par-dessus — une sauvegarde du dashboard est immédiatement
     effective.
     """
-    from app.legacy.core.agent_settings import env_and_defaults
+    from app.infrastructure.persistence.agent_settings import env_and_defaults
 
     values = {**DEFAULTS}
     for key, value in env_and_defaults().items():
