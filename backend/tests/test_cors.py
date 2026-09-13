@@ -8,7 +8,7 @@ Contexte production : une origine NON autorisée reçoit
   - sur un preflight OPTIONS : un 400 « Disallowed CORS origin » émis par le
     CORSMiddleware de Starlette.
 
-On ne teste PAS l'instance ``app`` d'``api.main`` : sa configuration CORS est
+On ne teste PAS l'instance ``app`` d'``app.api.main`` : sa configuration CORS est
 figée à l'import (variables d'environnement du process), dépendante de l'ordre
 de collecte pytest. On teste donc :
   1. les helpers de lecture d'environnement (fonctions pures, re-lues à chaque
@@ -24,7 +24,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
-from api.main import _cors_allow_origin_regex, _cors_allowed_origins
+from app.api.main import _cors_allow_origin_regex, _cors_allowed_origins
 
 # Origines de référence (production + previews Vercel).
 # Regex préfixée par le nom de projet Vercel « think-tuning-ai » : elle couvre
@@ -37,7 +37,7 @@ VERCEL_PREVIEW = "https://think-tuning-ai-abc123.vercel.app"
 VERCEL_PREVIEW_TEAM = "https://think-tuning-ai-abc123-snowy-two-23.vercel.app"
 VERCEL_REGEX = r"^https://think-tuning-ai-[a-z0-9-]+\.vercel\.app$"
 
-# En-têtes autorisés par le middleware CORS — MIROR EXACT de api/main.py
+# En-têtes autorisés par le middleware CORS — MIROR EXACT de app/api/main.py
 # (jamais "*" : énumération stricte, P0 SEC F5). Outre la surface REST, le
 # transport MCP (POST /mcp/sse, mcpClient.ts) envoie X-Client-Id et
 # Mcp-Session-Id : sans eux le preflight répond 400 « Disallowed CORS
@@ -53,7 +53,7 @@ ALLOW_HEADERS = [
 
 
 def _make_client(origins: list[str], regex: str | None = None) -> TestClient:
-    """App synthétique câblée comme api/main.py : CORS = seul middleware (P0)."""
+    """App synthétique câblée comme app/api/main.py : CORS = seul middleware (P0)."""
     app = FastAPI()
 
     @app.get("/ping")

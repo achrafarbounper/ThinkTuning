@@ -1,4 +1,4 @@
-# project/api/routes/v1/__init__.py
+# project/app/api/routes/v1/__init__.py
 """Router racine de l'API versionnée v1 (montage : prefix="/api/v1").
 
 Surface DE COUPLAGE FRONTEND/BACKEND : les endpoints y sont stables, les

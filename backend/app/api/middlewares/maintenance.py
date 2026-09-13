@@ -1,4 +1,4 @@
-# project/api/middlewares/maintenance.py
+# project/app/api/middlewares/maintenance.py
 
 import json
 import threading

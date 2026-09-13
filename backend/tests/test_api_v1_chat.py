@@ -1,7 +1,7 @@
 # project/tests/test_api_v1_chat.py
 """Tests des endpoints chat v1 (Phase 3d-4 — découplage agent/sessions).
 
-Les routes v1 délèguent aux handlers legacy ``api.routes.ai_chat`` (parité par
+Les routes v1 délèguent aux handlers legacy ``app.api.routes.ai_chat`` (parité par
 construction) ; les tests substituent les collaborateurs LLM par des fakes
 (``list_llm_models``, ``ask_agent_detailed_streaming``) : aucun appel Ollama
 réel n'est fait. La conversion d'erreur pré-stream 502 → enveloppe v1
@@ -15,8 +15,8 @@ os.environ.setdefault("API_KEY", "test-key")
 from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402, F401
-from api import app  # noqa: E402
+import app.api as api# noqa: E402, F401
+from app.api import app  # noqa: E402
 
 client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
@@ -24,7 +24,7 @@ AUTH = {"X-API-Key": "test-key"}
 
 def test_list_llm_models(monkeypatch):
     monkeypatch.setattr(
-        "api.routes.ai_chat.list_llm_models",
+        "app.api.routes.ai_chat.list_llm_models",
         lambda: {
             "active": "qwen2.5",
             "models": [
@@ -45,13 +45,13 @@ def test_list_llm_models(monkeypatch):
 
 
 def test_list_llm_models_requires_key(monkeypatch):
-    monkeypatch.setattr("api.routes.ai_chat.list_llm_models", lambda: {})
+    monkeypatch.setattr("app.api.routes.ai_chat.list_llm_models", lambda: {})
     assert client.get("/api/v1/chat/models").status_code == 401
 
 
 def test_ai_chat_requires_key(monkeypatch):
     monkeypatch.setattr(
-        "api.routes.ai_chat.ask_agent_detailed_streaming",
+        "app.api.routes.ai_chat.ask_agent_detailed_streaming",
         lambda *args, **kwargs: {"answer": "x", "thinking": ""},
     )
     assert client.post("/api/v1/chat/ai", json={"message": "salut"}).status_code == 401
@@ -59,7 +59,7 @@ def test_ai_chat_requires_key(monkeypatch):
 
 def test_ai_chat_streams_answer_sse(monkeypatch):
     monkeypatch.setattr(
-        "api.routes.ai_chat.ask_agent_detailed_streaming",
+        "app.api.routes.ai_chat.ask_agent_detailed_streaming",
         lambda prompt, model, enable_thinking, on_thinking=None: {
             "answer": "Bonjour",
             "thinking": "",
@@ -80,7 +80,7 @@ def test_ai_chat_streams_thinking_sse(monkeypatch):
             on_thinking("raisonnement ")
         return {"answer": "Oui", "thinking": "raisonnement "}
 
-    monkeypatch.setattr("api.routes.ai_chat.ask_agent_detailed_streaming", _fake_ask)
+    monkeypatch.setattr("app.api.routes.ai_chat.ask_agent_detailed_streaming", _fake_ask)
     response = client.post(
         "/api/v1/chat/ai", json={"message": "question", "enable_thinking": True}, headers=AUTH
     )
@@ -93,7 +93,7 @@ def test_ai_chat_maps_prestream_failure_to_502(monkeypatch):
     def _boom(*args, **kwargs):
         raise HTTPException(status_code=502, detail="provider down")
 
-    monkeypatch.setattr("api.routes.ai_chat.ask_agent_detailed_streaming", _boom)
+    monkeypatch.setattr("app.api.routes.ai_chat.ask_agent_detailed_streaming", _boom)
     response = client.post("/api/v1/chat/ai", json={"message": "salut"}, headers=AUTH)
     assert response.status_code == 502
     body = response.json()

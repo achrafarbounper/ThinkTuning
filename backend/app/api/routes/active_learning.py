@@ -1,4 +1,4 @@
-# project/api/routes/active_learning.py
+# project/app/api/routes/active_learning.py
 
 """Routes du cycle Active Learning (SCRUM-55).
 
@@ -18,7 +18,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies.auth import require_api_key
+from app.api.dependencies.auth import require_api_key
 from core.annotation_store import get_annotation_store
 from core.cycle_runner import run_cycle
 from core.job_store import get_job_store

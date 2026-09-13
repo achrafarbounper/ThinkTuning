@@ -1,4 +1,4 @@
-# project/api/routes/v1/health.py
+# project/app/api/routes/v1/health.py
 """Endpoints de santé v1 (adaptateur HTTP du use-case ``health_usecase``).
 
     GET /api/v1/health                  photographie de santé (public : healthcheck Docker)
@@ -18,12 +18,12 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, Query
 
-from api.dependencies.composition import (
+from app.api.dependencies.composition import (
     get_model_repository_port,
     get_prediction_port,
     get_system_status_port,
 )
-from api.schemas.health import HealthResponse, SanityCaseResultOut, SanityVerdictResponse
+from app.api.schemas.health import HealthResponse, SanityCaseResultOut, SanityVerdictResponse
 from app.application.health_usecase import run_health_check, run_model_sanity_check
 from app.domain.entities.prediction import SanityReport
 from app.domain.errors import ModelSanityError

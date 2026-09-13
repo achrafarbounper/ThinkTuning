@@ -1,4 +1,4 @@
-# project/api/__init__.py
+# project/app/api/__init__.py
 
 import os
 
@@ -24,7 +24,7 @@ from core.trainer_runner import run_training as _run_training, cancel_training
 
 # === Expose predictor ===
 # Seule la FONCTION est ré-exportée : elle est monkeypatchée par les tests
-# (`api._get_predictor`) et appelée à l'exécution, donc toujours à jour.
+# (`app.api._get_predictor`) et appelée à l'exécution, donc toujours à jour.
 # Les variables privées `_predictor` / `_predictor_lock` ne sont PAS
 # ré-exportées : importées « par valeur », elles devenaient des références
 # obsolètes dès que predictor_cache rechargeait un modèle (état fantôme).
@@ -37,20 +37,20 @@ from src.utils.config import load_config
 from core.model_versioning import MODEL_ROOT, MODELS_ROOT
 
 # === Expose rate limit ===
-from api.middlewares.rate_limit import (
+from app.api.middlewares.rate_limit import (
     RATE_LIMIT_PER_MINUTE,
     _reset_rate_limit_buckets,
 )
 RATE_LIMIT_ENABLED = RATE_LIMIT_PER_MINUTE > 0
 
 # === Expose maintenance mode ===
-from api.middlewares.maintenance import (
+from app.api.middlewares.maintenance import (
     is_maintenance_mode as _MAINTENANCE_MODE,
     set_maintenance_mode,
 )
 
 # === Expose API key getter ===
-from api.dependencies.auth import _get_api_key
+from app.api.dependencies.auth import _get_api_key
 
 from src.dataset.loader import load_raw_dataset, augment_dataset
 from src.dataset.preprocess import create_dataloaders
@@ -63,8 +63,8 @@ from core.model_versioning import save_model_version
 # === Surface publique de la façade =========================================
 # Déclarée explicitement pour ruff (F401) : chaque nom ci-dessous est un
 # re-export INTENTIONNEL, consommé ailleurs via `from api import X` (modules,
-# tests — y compris les cibles de monkeypatch `api._get_predictor`,
-# `api._reset_rate_limit_buckets`, `api._get_api_key`).
+# tests — y compris les cibles de monkeypatch `app.api._get_predictor`,
+# `app.api._reset_rate_limit_buckets`, `app.api._get_api_key`).
 __all__ = [
     "TEST_MODE",
     "app",

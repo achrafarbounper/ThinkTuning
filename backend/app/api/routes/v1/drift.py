@@ -1,8 +1,8 @@
-# project/api/routes/v1/drift.py
+# project/app/api/routes/v1/drift.py
 
 """Détection de dérive versionnée (strangler — Phase 3d-5).
 
-Délégation au handler legacy ``api.routes.drift.drift_route``. L'appel direct
+Délégation au handler legacy ``app.api.routes.drift.drift_route``. L'appel direct
 rejoue EXACTEMENT la signature FastAPI legacy (``Request`` + ``UploadFile`` +
 ``Form``) : le framework parse le multipart, l'appelé fait le reste
 (``request.form()``, ``request.json()``, ``request.query_params``) — parité
@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
-from api.dependencies.auth import require_api_key_or_jwt
-from api.routes import drift as legacy
+from app.api.dependencies.auth import require_api_key_or_jwt
+from app.api.routes import drift as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 
 router = APIRouter(prefix="/drift", tags=["Drift (v1)"])

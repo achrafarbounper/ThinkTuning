@@ -1,4 +1,4 @@
-# project/api/middlewares/metrics.py
+# project/app/api/middlewares/metrics.py
 
 import logging
 import time

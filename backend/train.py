@@ -11,7 +11,7 @@ from src.dataset.preprocess import create_dataloaders
 from src.model.distilbert import build_model
 from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
-from api import TEST_MODE
+from app.api import TEST_MODE
 
 logger = logging.getLogger(__name__)
 

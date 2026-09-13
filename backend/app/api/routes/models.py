@@ -1,4 +1,4 @@
-# project/api/routes/models.py
+# project/app/api/routes/models.py
 
 import json
 import logging
@@ -8,8 +8,8 @@ import shutil
 
 from fastapi import APIRouter, Depends, HTTPException
 
-import api
-from api.dependencies.auth import require_api_key, require_read_api_key
+import app.api as api
+from app.api.dependencies.auth import require_api_key, require_read_api_key
 from core.model_activation import activate_model, is_active, read_active_pointer
 from core.model_sanity import VERDICT_OK, run_model_sanity
 from core.model_versioning import (

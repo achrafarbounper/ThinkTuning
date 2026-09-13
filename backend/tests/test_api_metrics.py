@@ -4,7 +4,7 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient
 
-from api import app
+from app.api import app
 
 client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}

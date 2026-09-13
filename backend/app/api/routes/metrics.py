@@ -1,4 +1,4 @@
-# project/api/routes/metrics.py
+# project/app/api/routes/metrics.py
 
 import time
 
@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 
-from api.dependencies.auth import require_api_key
+from app.api.dependencies.auth import require_api_key
 
 router = APIRouter(tags=["Metrics"])
 

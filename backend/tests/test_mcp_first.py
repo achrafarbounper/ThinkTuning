@@ -3,7 +3,7 @@
 
 Contrat du sprint S7 « HTTP API legacy + MCP actif » :
 
-    1. ``api/routes/agent.py`` est marqué @deprecated : DeprecationWarning à
+    1. ``app/api/routes/agent.py`` est marqué @deprecated : DeprecationWarning à
        l'import + en-têtes ``Deprecation`` / ``Sunset`` / ``Warning: 299`` ;
     2. feature flag ``MCP_FIRST=true`` : les endpoints mutants (POST/PUT/DELETE)
        de la surface legacy répondent 405 (code ``mcp_first_read_only``), les
@@ -31,8 +31,8 @@ import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 
-import api.routes.agent as agent_routes  # noqa: E402
-from api.routes.v1 import agent as v1_agent_routes  # noqa: E402
+import app.api.routes.agent as agent_routes  # noqa: E402
+from app.api.routes.v1 import agent as v1_agent_routes  # noqa: E402
 from app.agent.settings import get_agent_config  # noqa: E402
 from app.infrastructure.mcp.mcp_server_sse import router as mcp_sse_router  # noqa: E402
 

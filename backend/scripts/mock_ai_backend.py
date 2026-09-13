@@ -8,7 +8,7 @@ Lancement (depuis la racine du projet) :
     venv\\Scripts\\python scripts\\mock_ai_backend.py
 
 Le serveur écoute sur http://127.0.0.1:8000 et expose exactement le même
-contrat que `api/routes/ai_chat.py` :
+contrat que `app/api/routes/ai_chat.py` :
 
     GET  /api/models  -> {"active": "...", "models": [{"name", ...}]}
     POST /api/ai  {"message": "…", "history": [...], "model": "…"}
@@ -65,7 +65,7 @@ MOCK_MODELS = [
 
 @app.get("/api/models")
 def list_models() -> dict:
-    """Même contrat que api/routes/ai_chat.py : liste + modèle actif."""
+    """Même contrat que app/api/routes/ai_chat.py : liste + modèle actif."""
     return {"active": "mock-echo-mini", "models": MOCK_MODELS}
 
 

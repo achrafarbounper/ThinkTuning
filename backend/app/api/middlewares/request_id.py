@@ -1,4 +1,4 @@
-# project/api/middlewares/request_id.py
+# project/app/api/middlewares/request_id.py
 """Tracing par ``X-Request-Id`` (P2 durable, lot 16).
 
 Chaque requête HTTP reçoit un identifiant unique :

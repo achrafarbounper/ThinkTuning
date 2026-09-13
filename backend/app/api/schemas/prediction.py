@@ -1,4 +1,4 @@
-# project/api/schemas/prediction.py
+# project/app/api/schemas/prediction.py
 
 import os
 from typing import Annotated

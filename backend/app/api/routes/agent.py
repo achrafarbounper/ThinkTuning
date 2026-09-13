@@ -1,4 +1,4 @@
-# project/api/routes/agent.py
+# project/app/api/routes/agent.py
 
 """Endpoints de l'agent IA intégrés au package api.
 
@@ -8,7 +8,7 @@
     ``POST /mcp/sse`` (transport streamable HTTP) et ``thinktuning-mcp``
     (transport stdio) — serveur ``app/infrastructure/mcp/``. Ce module reste
     monté UNIQUEMENT comme adaptateur strangler : les délégations v1
-    (``api/routes/v1/agent.py``) appellent encore ces handlers (source unique
+    (``app/api/routes/v1/agent.py``) appellent encore ces handlers (source unique
     jusqu'à migration complète).
 
     Dépréciation active (verrouillée par ``tests/test_mcp_first.py``) :
@@ -59,7 +59,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.dependencies.auth import require_api_key, ws_is_authorized
+from app.api.dependencies.auth import require_api_key, ws_is_authorized
 
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
@@ -181,7 +181,7 @@ DEPRECATION_WARNING = (
 
 #: Notice complète émise en :class:`DeprecationWarning` à l'import du module.
 DEPRECATION_NOTICE = (
-    "api/routes/agent.py est la surface HTTP legacy de l'agent IA (v3.0.0 "
+    "app/api/routes/agent.py est la surface HTTP legacy de l'agent IA (v3.0.0 "
     "MCP-First). La surface d'entrée privilégiée est MCP (POST /mcp/sse, "
     "transport stdio `thinktuning-mcp`) ; ce module n'est conservé que comme "
     "adaptateur strangler des délégations v1. Activez MCP_FIRST=true pour "

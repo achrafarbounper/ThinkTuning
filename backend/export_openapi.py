@@ -8,7 +8,7 @@ Usage (depuis backend/, la racine du projet Python) :
 
 Le fichier exporté sert de source aux générateurs de clients typés
 (openapi-typescript, openapi-generator, ...). L'épuration legacy a retiré les
-16 ``include_router`` de ``api/main.py`` : la spec ne contient PLUS que la
+16 ``include_router`` de ``app/api/main.py`` : la spec ne contient PLUS que la
 surface ``/api/v1/*`` (58 routes). Le contrat v1 est VERROUILLÉ par
 ``tests/test_api_v1_contract.py`` : toute dérive de paths / DTO v1 casse
 la CI AVANT de casser un consommateur (dashboard, client généré) — c'est ce
@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # Import différé : après la config de sys.path / env ci-dessus.
-    from api import app  # noqa: E402
+    from app.api import app  # noqa: E402
 
     spec = app.openapi()
     out_path = Path(args.out)

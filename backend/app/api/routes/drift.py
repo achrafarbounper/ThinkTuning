@@ -1,4 +1,4 @@
-# project/api/routes/drift.py
+# project/app/api/routes/drift.py
 """
 Endpoint POST /drift — Détection de dérive entre deux batches de prédictions.
 
@@ -36,8 +36,8 @@ import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from scipy.stats import chisquare, entropy
 
-import api
-from api.dependencies.auth import require_api_key
+import app.api as api
+from app.api.dependencies.auth import require_api_key
 
 router = APIRouter(tags=["Drift"])
 

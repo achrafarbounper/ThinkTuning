@@ -15,7 +15,7 @@ import pytest  # noqa: E402
 import requests  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from api import app  # noqa: E402
+from app.api import app  # noqa: E402
 from core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 HEADERS = {"X-API-Key": "test-key"}

@@ -1,9 +1,9 @@
-# project/api/routes/explain.py
+# project/app/api/routes/explain.py
 
 """Endpoint POST /explain — Explication LLM du sentiment prédit.
 
 Prend un texte, le fait prédire par DistilBERT (dernière version valide via
-``api._get_predictor``) puis demande à l'agent IA une explication en langage
+``app.api._get_predictor``) puis demande à l'agent IA une explication en langage
 naturel de la prédiction via le provider OpenRouter
 (``core.agent_cache.ask_agent_openrouter``), la prédiction (sentiment +
 confidence) servant de contexte.
@@ -22,8 +22,8 @@ Le champ ``model`` est le modèle LLM OpenRouter à utiliser pour l'explication
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-import api
-from api.dependencies.auth import require_read_api_key
+import app.api as api
+from app.api.dependencies.auth import require_read_api_key
 from core import agent_cache
 
 router = APIRouter(tags=["Explication"])

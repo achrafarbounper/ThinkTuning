@@ -11,8 +11,8 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402, F401
-from api import app  # noqa: E402
+import app.api as api# noqa: E402, F401
+from app.api import app  # noqa: E402
 from core.models import JobStatus, TrainJob
 
 client = TestClient(app)
@@ -42,9 +42,9 @@ class _FakeJobStore:
 
 def _install_pipeline_fakes(monkeypatch) -> _FakeJobStore:
     fake = _FakeJobStore()
-    monkeypatch.setattr("api.routes.pipeline.get_job_store", lambda: fake)
-    monkeypatch.setattr("api.routes.pipeline.run_pipeline", lambda *a, **k: None)
-    monkeypatch.setattr("api.routes.pipeline.get_cancel_event", lambda *a, **k: None)
+    monkeypatch.setattr("app.api.routes.pipeline.get_job_store", lambda: fake)
+    monkeypatch.setattr("app.api.routes.pipeline.run_pipeline", lambda *a, **k: None)
+    monkeypatch.setattr("app.api.routes.pipeline.get_cancel_event", lambda *a, **k: None)
     return fake
 
 
@@ -94,7 +94,7 @@ def test_pipeline_cancel(monkeypatch):
             raise RuntimeError("job_id introuvable")
         return fake.jobs[job_id]
 
-    monkeypatch.setattr("api.routes.pipeline.cancel_pipeline", _fake_cancel)
+    monkeypatch.setattr("app.api.routes.pipeline.cancel_pipeline", _fake_cancel)
 
     ok = client.post("/api/v1/pipeline/cancel/job-1", headers=AUTH)
     assert ok.status_code == 200

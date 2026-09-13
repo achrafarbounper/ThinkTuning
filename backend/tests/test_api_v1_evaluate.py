@@ -4,7 +4,7 @@
 Deux niveaux :
     - route : port substitué (aucun modèle chargé, aucune donnée réelle) ;
     - adaptateur : handler legacy ``confusion_route`` enveloppé avec
-      ``api._get_predictor`` / ``api.load_raw_dataset`` monkeypatchés —
+      ``app.api._get_predictor`` / ``app.api.load_raw_dataset`` monkeypatchés —
       vérifie la conversion 503 -> ``ModelNotAvailableError`` et le calcul
       sklearn de bout en bout (petit échantillon déterministe).
 """
@@ -17,9 +17,9 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-import api  # noqa: F401
-from api import app
-from api.dependencies.composition import get_evaluation_port
+import app.api as api# noqa: F401
+from app.api import app
+from app.api.dependencies.composition import get_evaluation_port
 from app.domain.errors import ModelNotAvailableError, ValidationError
 from app.infrastructure.ml.model_versioning_adapter import ModuleEvaluationAdapter
 

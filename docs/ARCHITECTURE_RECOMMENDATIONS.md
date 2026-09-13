@@ -48,7 +48,7 @@ Règles d'interface :
 
 1. **Flux unique** : `route → service (core/ ou app/application) → infrastructure`.
    Une route ne touche jamais directement SQLite, torch ou un fichier.
-2. **Seams de test explicites** : les tests monkeypatchent `api._get_predictor`
+2. **Seams de test explicites** : les tests monkeypatchent `app.api._get_predictor`
    (fonction) — jamais des variables privées. Si un test a besoin d'un état,
    exposer une fonction, pas une variable.
 3. **Annulation** : tout runner long expose `get_cancel_event(job_id)` ;
@@ -97,7 +97,7 @@ Règles :
   redirigés vers `tmp_path`. Une fixture autouse dans un futur
   `tests/conftest.py` global fermerait la porte à toute nouvelle fuite
   (c'est celle de `test_trainer.py` qui a publié 24 stubs dans l'état réel).
-- **Un seul seam par dépendance** : mocker `api._get_predictor` (et non tantôt
+- **Un seul seam par dépendance** : mocker `app.api._get_predictor` (et non tantôt
   `core.predictor_cache.get_predictor`, tantôt la variable `_predictor`).
 - **Frontend** : `npm test` (vitest + RTL, 28 tests). Priorité aux modules
   critiques : transport (`clientCore`), hooks génériques (`usePolling`,

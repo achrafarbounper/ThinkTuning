@@ -1,4 +1,4 @@
-# project/api/routes/v1/training.py
+# project/app/api/routes/v1/training.py
 """Endpoints training v1 (Phase 3d — découplage du noyau /train).
 
     POST   /api/v1/train                        démarre un entraînement (202)
@@ -16,7 +16,7 @@ Choix assumés (pragmatisme strangler) :
       avec le worker ``trainer_runner``) : shapes identiques au legacy PAR
       CONSTRUCTION, zéro risque de divergence de contrat ;
     - le WebSocket DÉLÈGUE au handler legacy partagé
-      (``api.routes.train.stream_training_metrics``) : logique en source
+      (``app.api.routes.train.stream_training_metrics``) : logique en source
       unique, et les tests existants monkeypatchent les constantes de CE
       module (``STALL_MINUTES``, ``ACTIVE_POLL_SECONDS``) ;
     - les erreurs métier passent par le handler DomainError global
@@ -37,13 +37,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, WebSocket
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.dependencies.composition import (
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.dependencies.composition import (
     get_training_jobs_port,
     get_training_runner_port,
     get_training_schedules_port,
 )
-from api.routes.train import stream_training_metrics
+from app.api.routes.train import stream_training_metrics
 from app.application.training_usecase import (
     cancel_training_run,
     delete_training_schedule,

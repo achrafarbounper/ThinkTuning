@@ -1,4 +1,4 @@
-# project/api/routes/train.py
+# project/app/api/routes/train.py
 
 import asyncio
 import json
@@ -10,7 +10,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from api.dependencies.auth import _get_api_key, require_api_key, ws_is_authorized
+from app.api.dependencies.auth import _get_api_key, require_api_key, ws_is_authorized
 from core import scheduler as schedule_manager
 from core.job_store import get_job_store
 from core.models import (

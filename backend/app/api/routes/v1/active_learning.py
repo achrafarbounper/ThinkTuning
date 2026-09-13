@@ -1,8 +1,8 @@
-# project/api/routes/v1/active_learning.py
+# project/app/api/routes/v1/active_learning.py
 
 """Cycle Active Learning versionné (strangler — Phase 3d-5).
 
-Délégation aux handlers legacy ``api.routes.active_learning`` (parité par
+Délégation aux handlers legacy ``app.api.routes.active_learning`` (parité par
 construction) ; auth bipolaire X-API-Key OU Bearer JWT (GET en scope
 read, POST en action admin).
 L'export CSV (``/annotate/export``) n'est PAS migré : non consommé par le
@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.routes import active_learning as legacy
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.routes import active_learning as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 from core.models import (
     ActiveLearningRequest,

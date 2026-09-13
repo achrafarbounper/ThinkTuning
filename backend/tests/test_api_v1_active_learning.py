@@ -11,8 +11,8 @@ os.environ.setdefault("API_KEY", "test-key")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402, F401
-from api import app  # noqa: E402
+import app.api as api# noqa: E402, F401
+from app.api import app  # noqa: E402
 from core.models import TrainJob
 
 client = TestClient(app)
@@ -58,9 +58,9 @@ class _FakeJobStore:
 def _install_fakes(monkeypatch):
     ann = _FakeAnnotationStore()
     jobs = _FakeJobStore()
-    monkeypatch.setattr("api.routes.active_learning.get_annotation_store", lambda: ann)
-    monkeypatch.setattr("api.routes.active_learning.get_job_store", lambda: jobs)
-    monkeypatch.setattr("api.routes.active_learning.run_cycle", lambda *a, **k: None)
+    monkeypatch.setattr("app.api.routes.active_learning.get_annotation_store", lambda: ann)
+    monkeypatch.setattr("app.api.routes.active_learning.get_job_store", lambda: jobs)
+    monkeypatch.setattr("app.api.routes.active_learning.run_cycle", lambda *a, **k: None)
     return ann, jobs
 
 
@@ -90,7 +90,7 @@ def test_select_examples_empty_is_400(monkeypatch):
     _install_fakes(monkeypatch)
     # ``texts=[]`` est falsy : le handler retombe sur le dataset par défaut.
     # On force ``_load_texts`` à ne rien charger pour atteindre la branche 400.
-    monkeypatch.setattr("api.routes.active_learning._load_texts", lambda path, texts: [])
+    monkeypatch.setattr("app.api.routes.active_learning._load_texts", lambda path, texts: [])
     response = client.post("/api/v1/active_learning", json={"texts": []}, headers=AUTH)
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "bad_request"

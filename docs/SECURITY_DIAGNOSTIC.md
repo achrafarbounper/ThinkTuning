@@ -28,7 +28,7 @@
 ### 2.1 Authentification / Autorisation — OWASP API1, API5
 
 **F1 — Fallback dev public [CRITIQUE]**
-`backend/app/infrastructure/security/api_key.py:26-31` : `DEV_FALLBACK_KEY="dev-local-api-key"` si `API_KEY` vide. Seul un `logger.warning` au démarrage (`backend/api/dependencies/auth.py:28-34`). `docker-compose.yml:74` : `API_KEY=${API_KEY}` → vide si non défini = fallback actif en prod.
+`backend/app/infrastructure/security/api_key.py:26-31` : `DEV_FALLBACK_KEY="dev-local-api-key"` si `API_KEY` vide. Seul un `logger.warning` au démarrage (`backend/app/api/dependencies/auth.py:28-34`). `docker-compose.yml:74` : `API_KEY=${API_KEY}` → vide si non défini = fallback actif en prod.
 *Risque :* clé publique connue → bypass 401 global. *Correctif P0 :* fail-closed si `ENV=prod` et clé absente ; clé 256-bit générée au setup.
 
 **F2 — Secret unique sans scopes/RBAC [HAUTE]**
@@ -40,17 +40,17 @@ Convention `?token=` pour `/train/stream/{job_id}` et `/api/agent/ws` (README). 
 *Correctif :* jeton éphémère `DASHBOARD_WS_TOKEN` à TTL court + `Sec-WebSocket-Protocol`, révocation à la fermeture.
 
 **F4 — Lectures publiques [MOYENNE]**
-`backend/api/routes/sessions.py:31,58` : `GET /api/sessions`, `GET /{id}/messages` sans `require_api_key` (commentaire assumé « lecture publique »). `GET /health` expose `model_dir` absolu + `active_jobs`. `GET /metrics` exclu maintenance sans auth.
+`backend/app/api/routes/sessions.py:31,58` : `GET /api/sessions`, `GET /{id}/messages` sans `require_api_key` (commentaire assumé « lecture publique »). `GET /health` expose `model_dir` absolu + `active_jobs`. `GET /metrics` exclu maintenance sans auth.
 *Risque :* énumération conversations (PII), fingerprinting infra.
 
 ### 2.2 Surface HTTP / CORS / Throttle — OWASP API4, API7
 
 **F5 — CORS permissif + credentials [HAUTE]**
-`backend/api/main.py:167-174` : `allow_methods=["*"]`, `allow_headers=["*"]`, `allow_credentials=True` + `allow_origin_regex` optionnelle (ex. `^https://think-tuning-ai-.*\.vercel\.app$` très large). Combinaison `credentials+*` dangereuse si regex mal posée.
+`backend/app/api/main.py:167-174` : `allow_methods=["*"]`, `allow_headers=["*"]`, `allow_credentials=True` + `allow_origin_regex` optionnelle (ex. `^https://think-tuning-ai-.*\.vercel\.app$` très large). Combinaison `credentials+*` dangereuse si regex mal posée.
 *Correctif :* whitelist méthodes/headers explicites, `allow_credentials=True` uniquement avec origines explicites, jamais avec regex wildcard.
 
 **F6 — Rate-limit partiel + spoofable [HAUTE]**
-`backend/api/middlewares/rate_limit.py:60-89` : seuls `POST /predict|/predict/batch|/compare (+v1)` throttlés. `ask/agent/train/explain/mcp/orchestrate` = LLM/GPU coûteux **non limités**. `RATE_LIMIT_TRUST_PROXY=1` par défaut → `X-Forwarded-For` forgeable → bypass. Bucket in-memory par process → bypass multi-workers gunicorn.
+`backend/app/api/middlewares/rate_limit.py:60-89` : seuls `POST /predict|/predict/batch|/compare (+v1)` throttlés. `ask/agent/train/explain/mcp/orchestrate` = LLM/GPU coûteux **non limités**. `RATE_LIMIT_TRUST_PROXY=1` par défaut → `X-Forwarded-For` forgeable → bypass. Bucket in-memory par process → bypass multi-workers gunicorn.
 *Correctif :* bucket Redis partagé, throttle par coût (LLM/train strict), `TRUST_PROXY=0` si exposition directe.
 
 **F7 — Proxy nginx longue durée [MOYENNE]**
@@ -125,7 +125,7 @@ Aucune séparation système/outils observée, pas de validation sortie LLM avant
 
 ### P0 — 0-15 jours (stop-bleeding, effort faible)
 
-1. **Fail-closed API_KEY en prod** : refuser démarrage si `ENV=prod` et `API_KEY` absente/longueur<32 ; générer `secrets.token_urlsafe(32)` au setup ; révoquer fallback. Fichiers : `security/api_key.py`, `api/main.py`, `compose`.
+1. **Fail-closed API_KEY en prod** : refuser démarrage si `ENV=prod` et `API_KEY` absente/longueur<32 ; générer `secrets.token_urlsafe(32)` au setup ; révoquer fallback. Fichiers : `security/api_key.py`, `app/api/main.py`, `compose`.
 2. **SSRF ON par défaut** : `AGENT_BLOCK_PRIVATE_HOSTS=1`, `ALLOWLIST=searxng`, `allow_redirects=False` + re-validation hôte après redirect, `stream+max_bytes` dans `network/web_tools`.
 3. **Durcir CORS** : méthodes `GET,POST,PUT,PATCH,DELETE,OPTIONS` explicites, headers `Authorization,X-API-Key,Content-Type` explicites, `allow_credentials` uniquement origines explicites, resserrer `CORS_ALLOW_ORIGIN_REGEX`.
 4. **Corriger `searxng secret_key`** : génération obligatoire via env `SEARXNG_SECRET` au déploiement, supprimer valeur codée en dur.

@@ -1,4 +1,4 @@
-"""Tests P1 SEC — quotas PAR ROUTE COÛTEUSE (``api/middlewares/rate_limit``).
+"""Tests P1 SEC — quotas PAR ROUTE COÛTEUSE (``app/api/middlewares/rate_limit``).
 
 Table ``COSTLY_ROUTE_LIMITS`` (IP × route), fenêtre arbitraire (min/heure),
 WARNING par 429, bucket global /predict* préservé, ``RedisTokenBucket``
@@ -9,8 +9,8 @@ Lance avec : pytest tests/test_rate_limit_global.py -v
 
 import logging
 
-from api.middlewares import rate_limit as rl
-from api.middlewares.rate_limit import (
+from app.api.middlewares import rate_limit as rl
+from app.api.middlewares.rate_limit import (
     RedisTokenBucket,
     _match_costly_route,
     _reset_rate_limit_buckets,
@@ -106,7 +106,7 @@ def test_warning_logged_on_exceeded(caplog, monkeypatch) -> None:
     monkeypatch.setattr(rl, "_REDIS_CLIENT", None, raising=False)
     first = rl._enforce_rate_limit(_FakeRequest("/busy"))
     assert first is None
-    with caplog.at_level(logging.WARNING, logger="api.middlewares.rate_limit"):
+    with caplog.at_level(logging.WARNING, logger="app.api.middlewares.rate_limit"):
         wait = rl._enforce_rate_limit(_FakeRequest("/busy"))
     assert wait is not None
     msgs = [r.getMessage() for r in caplog.records if "rate_limit_exceeded" in r.getMessage()]

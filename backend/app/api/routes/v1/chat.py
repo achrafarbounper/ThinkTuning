@@ -1,8 +1,8 @@
-# project/api/routes/v1/chat.py
+# project/app/api/routes/v1/chat.py
 
 """Chat IA versionné (strangler — Phase 3d-4).
 
-Délégation aux handlers legacy ``api.routes.ai_chat`` : liste des modèles LLM
+Délégation aux handlers legacy ``app.api.routes.ai_chat`` : liste des modèles LLM
 (``GET /chat/models``, ex-``/models``) et chat streaming SSE (``POST /chat/ai``,
 ex-``/ai``). Auth bipolaire X-API-Key OU Bearer JWT : /models en scope
 read, POST /ai en action (rôle admin).
@@ -16,8 +16,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.routes import ai_chat as legacy
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.routes import ai_chat as legacy
 from app.domain.errors import GatewayTimeoutError, LLMClientError
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 

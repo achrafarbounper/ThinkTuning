@@ -384,11 +384,11 @@ démotion dégrade : val règles acc 0.667 / modèle acc 0.967 (seed 42).
 | `GET` | `/train/intent/versions` | X-API-Key | versions valides + `active` |
 | `POST` | `/train/intent/activate` | X-API-Key | pointe `active.json` (422 si inconnue) |
 
-- **Legacy** : `api/routes/intent_train.py` (logique directe) ;
-- **v1** : `api/routes/v1/intent_training.py`, monté sous `/api/v1`,
+- **Legacy** : `app/api/routes/intent_train.py` (logique directe) ;
+- **v1** : `app/api/routes/v1/intent_training.py`, monté sous `/api/v1`,
   **strangler** — délègue aux use-cases (`app.application.intent_training_usecase`)
   via des **ports** (`IntentTrainingRunnerPort`, `IntentVersioningPort`,
-  `TrainingJobsPort`) injectés par `api/dependencies/composition.py`.
+  `TrainingJobsPort`) injectés par `app/api/dependencies/composition.py`.
 
 > Parité stricte : validations 422, messages d'erreur legacy, store partagé
 > (`kind` distingue l'historique du dashboard).

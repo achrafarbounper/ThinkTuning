@@ -1,4 +1,4 @@
-# project/api/routes/evaluate.py
+# project/app/api/routes/evaluate.py
 """
 Évaluation du modèle sur un échantillon de référence.
 
@@ -11,8 +11,8 @@ page « Évaluation » du dashboard (heatmap de confusion + comparaison v1 vs v2
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sklearn.metrics import confusion_matrix, f1_score
 
-import api
-from api.dependencies.auth import require_api_key
+import app.api as api
+from app.api.dependencies.auth import require_api_key
 
 router = APIRouter(prefix="/evaluate", tags=["Évaluation"])
 

@@ -1,4 +1,4 @@
-# project/api/routes/v1/classifiers.py
+# project/app/api/routes/v1/classifiers.py
 
 """Classifieurs versionnés (strangler — Phase 3d-5).
 
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.routes import classifiers as legacy
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.routes import classifiers as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 
 router = APIRouter(prefix="/classifiers", tags=["Classifiers (v1)"])

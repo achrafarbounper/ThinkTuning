@@ -270,7 +270,7 @@ def test_mcp_metrics_on_empty_store_is_a_stable_molecule():
 
 def _dashboard_app() -> TestClient:
     """Mini-app ne montant QUE le router v1 MCP (tests isolés)."""
-    from api.routes.v1 import mcp as mcp_v1
+    from app.api.routes.v1 import mcp as mcp_v1
 
     app = FastAPI()
     app.include_router(mcp_v1.router)

@@ -58,7 +58,7 @@ d'erreur s'affiche alors dans la bulle du chat.
 ```bash
 # Terminal 1 — backend (au choix) :
 venv\Scripts\python scripts\mock_ai_backend.py        # mini-serveur de test autonome
-# ou la vraie API : uvicorn api.main:app --port 8000 --reload
+# ou la vraie API : uvicorn app.api.main:app --port 8000 --reload
 
 # Terminal 2 — frontend :
 cd dashboard && npm run dev                            # http://localhost:5173
@@ -78,7 +78,7 @@ Le proxy Vite transfère `/api/*` vers `http://localhost:8000`
 
 ### Brancher votre vrai modèle IA
 
-Remplacez `_build_reply()` dans `api/routes/ai_chat.py` par l'appel à votre
+Remplacez `_build_reply()` dans `app/api/routes/ai_chat.py` par l'appel à votre
 modèle. Le contrat est simple : émettre des événements SSE
 `data: {"delta": "fragment"}` puis `data: [DONE]`. Le frontend gère aussi un
 repli JSON non streamé (`{"content": "..."}`).

@@ -1,10 +1,10 @@
-# project/api/routes/health.py
+# project/app/api/routes/health.py
 
 import os
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.middlewares.maintenance import is_maintenance_mode
+from app.api.middlewares.maintenance import is_maintenance_mode
 from app.infrastructure.ml.model_repository_adapter import mask_model_dir
 from core.job_store import get_job_store
 from core.model_sanity import VERDICT_OK, run_model_sanity

@@ -143,7 +143,7 @@ def test_vault_unknown_backend_rejected() -> None:
 
 @pytest.fixture()
 def auth_client(tmp_path):
-    from api.routes.v1.auth import router
+    from app.api.routes.v1.auth import router
     from app.infrastructure.security.service_accounts import reset_service_account_store
 
     reset_service_account_store(str(tmp_path / "sa.db"))

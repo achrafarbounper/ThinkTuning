@@ -1,4 +1,4 @@
-# project/api/dependencies/auth.py
+# project/app/api/dependencies/auth.py
 
 from fastapi import Header, HTTPException, Request
 
@@ -21,7 +21,7 @@ def _get_api_key() -> str:
 
     La lecture à l'appel (et non à l'import) permet aux tests et aux
     processus longs de changer la clé via l'environnement sans recharger
-    le module — et supprime la duplication qui existait avec api/__init__.py.
+    le module — et supprime la duplication qui existait avec app/api/__init__.py.
     Le même module sert au transport MCP SSE (P5), qui ne peut pas importer
     la couche ``api`` (règle hexagonale).
     """

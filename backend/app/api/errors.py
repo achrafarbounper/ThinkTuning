@@ -1,4 +1,4 @@
-# project/api/errors.py
+# project/app/api/errors.py
 """Mapping global exceptions de domaine -> réponses HTTP.
 
 Un SEUL handler pour toute la hiérarchie ``DomainError`` : chaque erreur

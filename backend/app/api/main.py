@@ -1,4 +1,4 @@
-# project/api/main.py
+# project/app/api/main.py
 
 import os
 
@@ -84,7 +84,7 @@ def _run_startup_classifier_warmup() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Cycle de vie de l'application (remplace @app.on_event, déprécié)."""
-    from api.dependencies.auth import warn_if_insecure_api_key
+    from app.api.dependencies.auth import warn_if_insecure_api_key
 
     warn_if_insecure_api_key()
     # P2 lot 16 (privacy) : fail-closed production — refus de démarrer SANS
@@ -118,10 +118,10 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-from api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
-from api.middlewares.metrics import request_metrics_middleware  # noqa: E402
-from api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
-from api.middlewares.request_id import request_id_middleware  # noqa: E402
+from app.api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
+from app.api.middlewares.metrics import request_metrics_middleware  # noqa: E402
+from app.api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
+from app.api.middlewares.request_id import request_id_middleware  # noqa: E402
 from core.scheduler import ensure_scheduler_started  # noqa: E402
 
 
@@ -205,9 +205,9 @@ ensure_scheduler_started()
 # les ports + use-cases (app/domain, app/application) au lieu des modules
 # core.* directs. Les routes legacy ci-dessus restent servies en parallèle ;
 # la couche legacy sera retirée endpoint par endpoint une fois la v1 validée.
-from api.dependencies.composition import container  # noqa: E402
-from api.errors import register_domain_error_handlers  # noqa: E402
-from api.routes.v1 import router as v1_router  # noqa: E402
+from app.api.dependencies.composition import container  # noqa: E402
+from app.api.errors import register_domain_error_handlers  # noqa: E402
+from app.api.routes.v1 import router as v1_router  # noqa: E402
 
 # Composition root : enregistre les adaptateurs par défaut (paresseux —
 # aucun modèle n'est chargé ici, uniquement des factories).

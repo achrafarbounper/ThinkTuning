@@ -13,7 +13,7 @@ Pourquoi ce module ?
         - des tracebacks complets et mis en forme (rich) en cas d'échec.
 
     Utilisable depuis :
-        - api/main.py           -> logs API + agent dans le terminal uvicorn ;
+        - app/api/main.py           -> logs API + agent dans le terminal uvicorn ;
         - pipeline.py           -> logs des étapes du pipeline end-to-end (CLI) ;
         - n'importe quel script -> setup_logging() (ou setup_agent_logging())
           avant de journaliser ;
@@ -104,7 +104,7 @@ def _build_console_handler():
 def setup_logging(level=None):
     """Branche le handler console coloré sur le logger racine.
 
-    À appeler UNE fois au démarrage (api/main.py le fait déjà ; pipeline.py
+    À appeler UNE fois au démarrage (app/api/main.py le fait déjà ; pipeline.py
     l'appelle aussi). Le niveau peut être passé explicitement (prioritaire) ou
     venir d'AGENT_LOG_LEVEL. Retourne le handler installé (pratique pour les
     tests).
@@ -132,7 +132,7 @@ def setup_logging(level=None):
     return handler
 
 
-# Alias conservé pour compatibilité (api/main.py et les tests l'utilisent).
+# Alias conservé pour compatibilité (app/api/main.py et les tests l'utilisent).
 # Le comportement est identique : même handler console, niveau via
 # AGENT_LOG_LEVEL par défaut.
 setup_agent_logging = setup_logging

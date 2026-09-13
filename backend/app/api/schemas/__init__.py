@@ -1,4 +1,4 @@
-# project/api/schemas/__init__.py
+# project/app/api/schemas/__init__.py
 """Schémas Pydantic des endpoints v1 (contrats HTTP de l'API versionnée).
 
 Les schémas v1 sont la source de vérité du contrat HTTP : ils seront

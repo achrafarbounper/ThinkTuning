@@ -1,4 +1,4 @@
-# project/api/routes/pipeline.py
+# project/app/api/routes/pipeline.py
 """Pipeline end-to-end (labeling -> filtrage confidence -> fine-tuning LLM).
 
 Même pattern de jobs que /train : POST crée un TrainJob persisté dans
@@ -11,7 +11,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.dependencies.auth import require_api_key
+from app.api.dependencies.auth import require_api_key
 from core.job_store import get_job_store
 from core.models import JobListResponse, JobStatus, PipelineRequest, TrainJob
 from core.pipeline_runner import cancel_pipeline, get_cancel_event, run_pipeline

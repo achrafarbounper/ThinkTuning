@@ -19,7 +19,7 @@ import pytest
 import torch
 from torch import nn
 
-import api  # noqa: E402,F401  (initialise l'app comme les autres tests)
+import app.api as api# noqa: E402,F401  (initialise l'app comme les autres tests)
 from core import job_logs, trainer_runner
 from core.job_store import get_job_store
 from core.models import TRAIN_JOB_STEPS, JobStatus, TrainJob

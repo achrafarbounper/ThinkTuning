@@ -21,8 +21,8 @@ import os
 
 os.environ.setdefault("API_KEY", "test-key")
 
-from api import app  # noqa: E402
-from api.schemas.prediction import MAX_TEXTS_PER_REQUEST  # noqa: E402
+from app.api import app  # noqa: E402
+from app.api.schemas.prediction import MAX_TEXTS_PER_REQUEST  # noqa: E402
 
 spec = app.openapi()
 
@@ -78,7 +78,7 @@ V1_PATHS = {
     "/api/v1/metrics": {"get"},
     "/api/v1/metrics/json": {"get"},
     # S4 tâche 12 — observabilité MCP (dashboard interne : call volume,
-    # error rate, révocations) déléguée au handler legacy api.routes.mcp.
+    # error rate, révocations) déléguée au handler legacy app.api.routes.mcp.
     "/api/v1/mcp/metrics": {"get"},
     "/api/v1/drift": {"post"},
     "/api/v1/explain": {"post"},

@@ -1,4 +1,4 @@
-# project/api/routes/v1/prediction.py
+# project/app/api/routes/v1/prediction.py
 """Endpoints de prédiction v1 (adaptateur HTTP du use-case ``predict_usecase``).
 
     POST /api/v1/predict            prédiction d'un lot de phrases (protégé API key)
@@ -9,7 +9,7 @@ Différences assumées avec le legacy :
     - erreurs métier via le handler DomainError (payload
       ``{"error": {"code", "message", "details"}}``) — sauf les statuts sans
       équivalent (ex. 413) qui sont re-levés tels quels (parité totale) ;
-    - ``/predict/batch`` délègue au handler legacy ``api.routes.predict`` :
+    - ``/predict/batch`` délègue au handler legacy ``app.api.routes.predict`` :
       la signature FastAPI multipart est rejouée à l'identique, le framework
       parse le fichier/les forms, l'appelé fait le reste — parité par
       construction (chunks, ordre des colonnes, formats json/csv/parquet).
@@ -24,11 +24,11 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.dependencies.composition import get_prediction_port
-from api.routes import predict as legacy_predict
-from api.schemas.health import ReloadResponse
-from api.schemas.prediction import PredictedText, PredictRequest, PredictResponse
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.dependencies.composition import get_prediction_port
+from app.api.routes import predict as legacy_predict
+from app.api.schemas.health import ReloadResponse
+from app.api.schemas.prediction import PredictedText, PredictRequest, PredictResponse
 from app.application.predict_usecase import PredictCommand, run_predict, run_reload_with_sanity
 from app.domain.ports.prediction_ports import PredictionPort
 from app.infrastructure.legacy_errors import convert_legacy_http_error

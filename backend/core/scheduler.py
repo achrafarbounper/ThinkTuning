@@ -80,7 +80,7 @@ def _register_schedule(schedule: dict, replace: bool = True):
 def ensure_scheduler_started():
     """Démarre le scheduler et recharge les planifications persistées.
 
-    Idempotent : appelé au démarrage de l'API (api/main.py) et par
+    Idempotent : appelé au démarrage de l'API (app/api/main.py) et par
     POST /train/schedule, il ne fait rien si le scheduler tourne déjà.
     """
     scheduler = get_scheduler()

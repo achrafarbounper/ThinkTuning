@@ -82,15 +82,15 @@ select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
 ignore = ["B008"]  # Depends() en signature FastAPI (idiome officiel)
 
 [tool.ruff.lint.per-file-ignores]
-# api/__init__.py : façade d'amorçage. L'ordre des imports est CONTRAINT (les
+# app/api/__init__.py : façade d'amorçage. L'ordre des imports est CONTRAINT (les
 # flags d'environnement/API_KEY sont posés avant tout import core/src) et le
 # regroupement reflète l'ordre d'initialisation, pas le style ; les re-exports
 # intentionnels sont déclarés dans __all__.
-"api/__init__.py" = ["E402", "I001"]
-# api/routes/agent.py : legacy en cours de strangulation (Phase C). Les E402
+"app/api/__init__.py" = ["E402", "I001"]
+# app/api/routes/agent.py : legacy en cours de strangulation (Phase C). Les E402
 # sont causés par les imports fragmentés (structure préexistante + helpers
 # insérés en C3). L'épuration complète du fichier est prévue en Phase D2.
-"api/routes/agent.py" = ["E402"]
+"app/api/routes/agent.py" = ["E402"]
 # Tests legacy : lignes longues dans les assertions/data (faible ROI de reformater).
 # E402 ajouté : imports après docstring/setup (structure legacy).
 "tests/test_audit.py" = ["E501"]
@@ -112,7 +112,7 @@ ignore = ["B008"]  # Depends() en signature FastAPI (idiome officiel)
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-exclude = ["venv", ".agent_tmp", "experiments", "outputs", "src", "ia", "core", "api"]
+exclude = ["venv", ".agent_tmp", "experiments", "outputs", "src", "ia", "core", "app/api"]
 # Phase 3 : retirer les exclusions à mesure que les modules migrent sous app/.
 
 [tool.pytest.ini_options]

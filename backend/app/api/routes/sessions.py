@@ -1,4 +1,4 @@
-# project/api/routes/sessions.py
+# project/app/api/routes/sessions.py
 
 """CRUD des conversations persistées de l'assistant (core/session_store.py).
 
@@ -16,7 +16,7 @@ conversations contiennent des PII et ne sont plus en lecture publique.
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.dependencies.auth import require_api_key
+from app.api.dependencies.auth import require_api_key
 from core.session_store import get_session_store
 
 router = APIRouter(prefix="/api/sessions", tags=["Sessions"])

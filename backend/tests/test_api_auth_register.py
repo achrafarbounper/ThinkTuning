@@ -26,7 +26,7 @@ VALID_PAYLOAD = {
 
 @pytest.fixture()
 def register_client(tmp_path, monkeypatch):
-    from api.routes.v1.auth import router
+    from app.api.routes.v1.auth import router
     from app.infrastructure.security.service_accounts import reset_service_account_store
 
     monkeypatch.setenv("SERVICE_ACCOUNTS_PATH", str(tmp_path / "sa.db"))

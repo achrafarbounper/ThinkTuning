@@ -1,4 +1,4 @@
-# project/api/routes/mcp.py
+# project/app/api/routes/mcp.py
 """Routes internes MCP — observabilité du dashboard (S4, tâche 12).
 
 Dashboard interne (docs/mcp/MCP_SECURITY.md, « Observabilité MCP ») :
@@ -8,7 +8,7 @@ Dashboard interne (docs/mcp/MCP_SECURITY.md, « Observabilité MCP ») :
     - Revoked clients   → ``core/mcp_client_store``.
 
 Surface historique NON versionnée : consommée via le délégué v1
-(``api/routes/v1/mcp.py`` — strangler, même handler = parité garantie).
+(``app/api/routes/v1/mcp.py`` — strangler, même handler = parité garantie).
 La révocation d'un client (``MCPClientStore.revoke``) est une opération
 d'administration opérée en base/CLI — elle n'est PAS exposée ici : ce
 endpoint est en lecture seule.

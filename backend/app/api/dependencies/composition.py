@@ -1,4 +1,4 @@
-# project/api/dependencies/composition.py
+# project/app/api/dependencies/composition.py
 """Composition root de l'API — point UNIQUE d'instanciation des dépendances.
 
 Regroupe ce qui était dispersé (fonctions ``get_*`` par route) dans un
@@ -6,13 +6,13 @@ container explicite, léger et sans framework externe :
 
     - ``container.bootstrap()`` enregistre les implémentations par défaut
       (adaptateurs legacy) : appelé au démarrage (fail-fast) depuis
-      ``api/main.py`` et paresseusement par les providers ;
+      ``app/api/main.py`` et paresseusement par les providers ;
     - les routes v1 dépendent des PROVIDERS FastAPI ci-dessous — jamais des
       adaptateurs concrets ;
     - les tests substituent les ports via ``app.dependency_overrides[provider]``
       (pattern officiel FastAPI) ou ``container.register`` pour tout le process.
 
-Strangler : les routes legacy (api/routes/*.py) ne sont PAS modifiées ;
+Strangler : les routes legacy (app/api/routes/*.py) ne sont PAS modifiées ;
 elles continuent d'appeler core.* directement. Les routes v1 passent par
 ports + use-cases. La couche legacy sera retirée quand le flux v1 sera
 définitivement validé en production.

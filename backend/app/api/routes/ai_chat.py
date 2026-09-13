@@ -1,4 +1,4 @@
-# project/api/routes/ai_chat.py
+# project/app/api/routes/ai_chat.py
 
 """Endpoint de chat streaming (/api/ai) pour l'interface Copilot du dashboard.
 
@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.dependencies.auth import require_api_key
+from app.api.dependencies.auth import require_api_key
 from core.agent_cache import ask_agent_detailed_streaming, list_llm_models
 from core.session_store import get_session_store
 from ia.agent.encoding import repair_utf8_mojibake

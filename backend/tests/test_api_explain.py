@@ -5,7 +5,7 @@
 Aucun appel réseau : le runner OpenRouter est remplacé par un runner adossé à
 un FakeLLM scripté (via `core.agent_cache._build_openrouter_runner`), et la
 prédiction DistilBERT est remplacée par un FakePredictor (patché sur
-`api._get_predictor`).
+`app.api._get_predictor`).
 
 Couvert : succès (contrat JSON), contexte injecté dans le prompt, transmission
 du modèle OpenRouter, auth requise, validation du corps.
@@ -20,8 +20,8 @@ os.environ.setdefault("API_KEY", "test-key")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-import api  # noqa: E402
-from api import app  # noqa: E402
+import app.api as api# noqa: E402
+from app.api import app  # noqa: E402
 from core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 HEADERS = {"X-API-Key": "test-key"}

@@ -1,4 +1,4 @@
-# project/api/routes/v1/auth.py
+# project/app/api/routes/v1/auth.py
 """Endpoints d'authentification moderne (P2 durable, lot 13).
 
     POST   /api/v1/auth/register                     inscription publique (email + mot de passe)
@@ -36,7 +36,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from api.dependencies.auth import (
+from app.api.dependencies.auth import (
     authenticate_bearer_token,
     jwt_secret,
     require_api_key,

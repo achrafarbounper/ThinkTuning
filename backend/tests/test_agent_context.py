@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 os.environ.setdefault("API_KEY", "test-key")  # avant l'import de l'app
 
-from api import app as api_app  # noqa: E402
+from app.api import app as api_app  # noqa: E402
 from core.feature_flags import flag  # noqa: E402
 from core.session_store import reset_session_store  # noqa: E402
 from ia.agent.context import (  # noqa: E402
@@ -171,7 +171,7 @@ def test_history_load_unchanged_when_flag_off(monkeypatch):
     session = store.create_session(title="t")
     store.append_message(session["id"], "user", "q1")
     store.append_message(session["id"], "assistant", "a1")
-    from api.routes.agent import _load_session_history
+    from app.api.routes.agent import _load_session_history
 
     history = _load_session_history(session["id"], None)
     assert [m["content"] for m in history] == ["q1", "a1"]
@@ -185,7 +185,7 @@ def test_history_budget_applied_when_flag_on(monkeypatch):
     for i in range(10):
         store.append_message(session["id"], "user", "question " + str(i) * 50)
         store.append_message(session["id"], "assistant", "réponse " + str(i) * 50)
-    from api.routes.agent import _load_session_history
+    from app.api.routes.agent import _load_session_history
 
     history = _load_session_history(session["id"], None)
     assert history, "l'historique optimisé ne doit pas être vide"
@@ -202,7 +202,7 @@ def test_new_session_injects_cross_session_memory(monkeypatch):
     store = reset_session_store()
     store.save_memory("global", "Prénom de l'utilisateur : Achraf.")
     # Session neuve : aucun message -> la mémoire doit être injectée.
-    from api.routes.agent import _load_session_history
+    from app.api.routes.agent import _load_session_history
 
     history = _load_session_history("inexistant", None)
     assert len(history) == 1

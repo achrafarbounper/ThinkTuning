@@ -13,7 +13,7 @@ Checklist (docs/mcp/IMPLEMENTATION_PLAN.md, tâche 11) :
     - ``check_rate_limit`` : ``rate_limit_per_minute`` — burst, isolation,
       refill après délai ;
     - intégration : la primitive ``TokenBucket`` est la MÊME que celle du
-      middleware REST ``api/middlewares/rate_limit.py`` (zéro duplication).
+      middleware REST ``app/api/middlewares/rate_limit.py`` (zéro duplication).
 
 Aucun appel réseau ni dépendance lourde dans cette suite.
 """
@@ -417,9 +417,9 @@ def test_token_bucket_shared_with_rest_middleware() -> None:
     """Intégration tâche 11 : le middleware REST expose LA MÊME primitive TokenBucket.
 
     La primitive vit dans ``security/rate_limit_bucket.py`` ; le middleware
-    ``api/middlewares/rate_limit.py`` l'importe (zéro duplication) tandis que
+    ``app/api/middlewares/rate_limit.py`` l'importe (zéro duplication) tandis que
     l'enforceur n'importe jamais ``api``.
     """
-    from api.middlewares import rate_limit as rest_rate_limit
+    from app.api.middlewares import rate_limit as rest_rate_limit
 
     assert rest_rate_limit.TokenBucket is TokenBucket

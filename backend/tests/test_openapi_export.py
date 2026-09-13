@@ -22,8 +22,8 @@ from pathlib import Path
 
 os.environ.setdefault("API_KEY", "test-key")
 
-import api as _api  # noqa: E402, F401  (charge l'application, isole l'env)
-from api import app  # noqa: E402
+import app.api as _api  # noqa: E402, F401  (charge l'application, isole l'env)
+from app.api import app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPORTED = ROOT / "openapi.json"

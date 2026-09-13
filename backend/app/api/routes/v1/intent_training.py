@@ -1,4 +1,4 @@
-# project/api/routes/v1/intent_training.py
+# project/app/api/routes/v1/intent_training.py
 """Endpoints d'entraînement d'intention v1 (Phase 3d-2 — SCRUM-95).
 
     POST /api/v1/train/intent                  démarre l'entraînement (202)
@@ -8,7 +8,7 @@
     GET  /api/v1/train/intent/versions         versions valides + pointeur actif
     POST /api/v1/train/intent/activate         pointe active.json (422 sinon)
 
-Parité legacy (``api/routes/intent_train.py``) :
+Parité legacy (``app/api/routes/intent_train.py``) :
     - validations défensives AVANT création du job (dataset introuvable,
       version source invalide => 422 enveloppe domaine) ;
     - /jobs filtre kind="intent" (store partagé avec le sentiment/pipeline) ;
@@ -26,8 +26,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.dependencies.composition import (
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.dependencies.composition import (
     get_intent_training_runner_port,
     get_intent_versioning_port,
     get_training_jobs_port,

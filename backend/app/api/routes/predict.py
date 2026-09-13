@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, StringConstraints
 
-import api
-from api.dependencies.auth import require_api_key, require_read_api_key
+import app.api as api
+from app.api.dependencies.auth import require_api_key, require_read_api_key
 from core.dynamic_batcher import DynamicBatcher
 from core.inference_executor import get_executor
 from core.predictor_cache import reload_predictor

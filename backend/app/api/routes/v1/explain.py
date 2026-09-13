@@ -1,8 +1,8 @@
-# project/api/routes/v1/explain.py
+# project/app/api/routes/v1/explain.py
 
 """Explication LLM versionnée (strangler — Phase 3d-5).
 
-Délégation au handler legacy ``api.routes.explain.explain_route`` (parité par
+Délégation au handler legacy ``app.api.routes.explain.explain_route`` (parité par
 construction) ; auth identique (scope read : X-API-Key OU Bearer JWT).
 """
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies.auth import require_read_api_key_or_jwt
-from api.routes import explain as legacy
+from app.api.dependencies.auth import require_read_api_key_or_jwt
+from app.api.routes import explain as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 
 router = APIRouter(prefix="/explain", tags=["Explication (v1)"])

@@ -1,13 +1,13 @@
 # project/app/infrastructure/ml/model_versioning_adapter.py
 """Adaptateurs legacy du catalogue de modèles et de l'évaluation (Phase 3d-3).
 
-Enveloppent les handlers de ``api/routes/models.py`` et
-``api/routes/evaluate.py`` PAR ATTRIBUT DE MODULE (convention projet : les
-monkeypatchs des tests legacy — ``api.routes.models.MODEL_ROOT``,
-``api._get_predictor``, ``api.load_raw_dataset``... — restent efficaces
+Enveloppent les handlers de ``app/api/routes/models.py`` et
+``app/api/routes/evaluate.py`` PAR ATTRIBUT DE MODULE (convention projet : les
+monkeypatchs des tests legacy — ``app.api.routes.models.MODEL_ROOT``,
+``app.api._get_predictor``, ``app.api.load_raw_dataset``... — restent efficaces
 à travers la v1). Seule responsabilité ici : convertir les
 ``HTTPException`` legacy en erreurs de domaine (le handler global de
-``api/errors.py`` fait le reste) :
+``app/api/errors.py`` fait le reste) :
 
     422 -> ValidationError | 404 -> NotFoundError | 409 -> ConflictError
     503 -> ModelNotAvailableError
@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from api.routes import evaluate as evaluate_module
-from api.routes import models as models_module
+from app.api.routes import evaluate as evaluate_module
+from app.api.routes import models as models_module
 from app.domain.errors import ModelNotAvailableError
 from app.domain.ports.model_versioning_ports import (
     EvaluationPort,

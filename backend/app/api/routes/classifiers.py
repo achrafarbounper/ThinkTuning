@@ -8,7 +8,7 @@ Point d'entrée HTTP de la couche ``ia/agent/classifiers`` :
 
 Classifieurs connus d'office : ``sentiment`` (DistilBERT par ``predictor_cache``)
 et ``intent`` (MiniLM ou repli règles si aucun modèle entraîné). La prédiction
-est bornée (mêmes garde-fous anti-DoS que ``api/routes/predict.py``).
+est bornée (mêmes garde-fous anti-DoS que ``app/api/routes/predict.py``).
 
 Le listing GET est volontairement ouvert (type ``/health``) ; la prédiction et
 le rechargement exigent la clé API.
@@ -23,7 +23,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, StringConstraints
 
-from api.dependencies.auth import require_api_key, require_read_api_key
+from app.api.dependencies.auth import require_api_key, require_read_api_key
 from core.classifier_monitoring import (
     classifier_snapshot,
     classifier_snapshots,

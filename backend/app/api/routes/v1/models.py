@@ -1,4 +1,4 @@
-# project/api/routes/v1/models.py
+# project/app/api/routes/v1/models.py
 """Endpoints « modèles sentiment » v1 (Phase 3d-3).
 
     GET    /api/v1/models/details            catalogue détaillé (flag active)
@@ -6,7 +6,7 @@
     POST   /api/v1/models/{name}/activate    activation après validation artefacts
     DELETE /api/v1/models/{name}             suppression d'une version défaillante
 
-Parité legacy (``api/routes/models.py``) :
+Parité legacy (``app/api/routes/models.py``) :
     - details : liste vide (200) si aucun modèle entraîné (pas de 500) ;
     - activate : 422 artefacts invalides, 404 version inconnue ;
     - delete   : 422 (nom invalide OU version saine), 404 inconnue,
@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.dependencies.composition import get_model_versioning_port
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.dependencies.composition import get_model_versioning_port
 from app.application.models_usecase import (
     activate_model_version,
     delete_model_version,

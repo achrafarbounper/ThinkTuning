@@ -1,4 +1,4 @@
-# project/api/schemas/health.py
+# project/app/api/schemas/health.py
 
 
 from pydantic import BaseModel

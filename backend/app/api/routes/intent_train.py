@@ -1,4 +1,4 @@
-# project/api/routes/intent_train.py
+# project/app/api/routes/intent_train.py
 
 """Routes d'entraînement du classifieur d'intention (chat/action) — SCRUM-95.
 
@@ -18,7 +18,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from api.dependencies.auth import require_api_key
+from app.api.dependencies.auth import require_api_key
 from core.intent_store import (
     list_intent_model_versions,
     resolve_intent_model_dir,

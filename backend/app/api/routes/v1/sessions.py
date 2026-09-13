@@ -1,8 +1,8 @@
-# project/api/routes/v1/sessions.py
+# project/app/api/routes/v1/sessions.py
 
 """Sessions versionnées (strangler — Phase 3d-4).
 
-Délégation aux handlers legacy ``api.routes.sessions`` (parité par
+Délégation aux handlers legacy ``app.api.routes.sessions`` (parité par
 construction). P0 SEC (F4) : toute la surface est AUTHENTIFIÉE —
 X-API-Key OU Bearer JWT ; les lectures (liste, messages) acceptent le
 scope read (API_KEY_READ ou jeton read/admin), les écritures exigent
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.routes import sessions as legacy
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.routes import sessions as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
 
 router = APIRouter(prefix="/sessions", tags=["Sessions (v1)"])

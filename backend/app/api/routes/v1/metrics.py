@@ -1,4 +1,4 @@
-# project/api/routes/v1/metrics.py
+# project/app/api/routes/v1/metrics.py
 
 """Métriques versionnées (strangler — Phase 3d-5).
 
@@ -16,8 +16,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
-from api.dependencies.auth import require_read_api_key_or_jwt
-from api.routes import metrics as legacy
+from app.api.dependencies.auth import require_read_api_key_or_jwt
+from app.api.routes import metrics as legacy
 
 router = APIRouter(prefix="/metrics", tags=["Metrics (v1)"])
 

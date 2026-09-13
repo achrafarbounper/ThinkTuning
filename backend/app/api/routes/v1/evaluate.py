@@ -1,9 +1,9 @@
-# project/api/routes/v1/evaluate.py
+# project/app/api/routes/v1/evaluate.py
 """Endpoint d'évaluation v1 (Phase 3d-3).
 
     GET /api/v1/evaluate/confusion?model=&limit=&max_mistakes=
 
-Parité legacy (``api/routes/evaluate.py``) :
+Parité legacy (``app/api/routes/evaluate.py``) :
     - ``model=None`` => dernière version valide ; 503 enveloppe domaine si
       aucun modèle exploitable (même contrat que /predict) ; 422 si
       l'échantillon de référence est vide ;
@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from api.dependencies.auth import require_read_api_key_or_jwt
-from api.dependencies.composition import get_evaluation_port
+from app.api.dependencies.auth import require_read_api_key_or_jwt
+from app.api.dependencies.composition import get_evaluation_port
 from app.application.models_usecase import run_confusion_evaluation
 from app.domain.ports.model_versioning_ports import EvaluationPort
 

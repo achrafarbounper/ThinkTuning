@@ -36,7 +36,7 @@ et la migration de la surface consommée s'est faite par **strangler pattern**
 ┌──────────────────────────────────────────────────────────────┐
 │                   API FastAPI (api/)                          │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │ api/routes/v1/*   ← versionné, enveloppe d'erreur v1   │  │
+│  │ app/api/routes/v1/*   ← versionné, enveloppe d'erreur v1   │  │
 │  │   (façade anti-corruption : délègue ou encapsule)       │  │
 │  ├────────────────────────────────────────────────────────┤  │
 │  │ app/ (hexagonale pragmatique)                          │  │
@@ -44,7 +44,7 @@ et la migration de la surface consommée s'est faite par **strangler pattern**
 │  │   application/   use cases (predict, health, training…)│  │
 │  │   infrastructure adapters (ml, persist, legacy)        │  │
 │  ├────────────────────────────────────────────────────────┤  │
-│  │ api/dependencies/composition.py   composition root     │  │
+│  │ app/api/dependencies/composition.py   composition root     │  │
 │  └────────────────────────────────────────────────────────┘  │
 └───────────────────────────────┬──────────────────────────────┘
                                 │
@@ -71,8 +71,8 @@ l'infrastructure, pas du domaine :
 ### Versioning
 
 - `/api/v1/*` : version stable, **la seule surface montée** (épuration faite :
-  les 16 `include_router` legacy ont été retirés de `api/main.py`).
-- Les fichiers legacy (`api/routes/*.py`) ne sont plus montés : les routes v1
+  les 16 `include_router` legacy ont été retirés de `app/api/main.py`).
+- Les fichiers legacy (`app/api/routes/*.py`) ne sont plus montés : les routes v1
   y délèguent par attribut de module (monkeypatchs des tests préservés).
 - Toute évolution **breaking** = création d'un routeur `/api/v2/*`.
 
@@ -89,7 +89,7 @@ Codes usités : `bad_request` (400), `validation_error` (422), `not_found`
 `agent_run_error` (500), `gateway_timeout` (504).
 
 - Source : `app/domain/errors.py` (hiérarchie `DomainError`).
-- Runtime : `api/errors.py` (handler global) + `app/infrastructure/legacy_errors.py`
+- Runtime : `app/api/errors.py` (handler global) + `app/infrastructure/legacy_errors.py`
   (convertisseur `HTTPException` legacy → `DomainError`).
 - Le transport frontend ne connaît PLUS que l'enveloppe v1 : le repli legacy
   (`detail`) a été neutralisé avec la surface legacy (`clientCore.ts` en
@@ -123,7 +123,7 @@ Codes usités : `bad_request` (400), `validation_error` (422), `not_found`
 | complétion | `/predict/batch` (dernier résidu réel — multipart CSV, délégation legacy) | 1 |
 
 **Total** : 58 routes v1 enregistrées (57 HTTP + 1 WS). **Épuration faite** :
-la surface legacy (80 routes HTTP) n'est **plus montée** — `api/main.py` ne
+la surface legacy (80 routes HTTP) n'est **plus montée** — `app/api/main.py` ne
 monte que la v1, et les fichiers legacy servent uniquement de cible de
 délégation / monkeypatch pour les tests.
 
@@ -156,7 +156,7 @@ avant de casser l'IHM) ; les autres DTO historiques suivront au fil de l'eau.
 
 ## 6. Ajouter un endpoint v1 (procédure)
 
-1. Créer `api/routes/v1/<feature>.py`, l'ajouter dans `api/routes/v1/__init__.py`.
+1. Créer `app/api/routes/v1/<feature>.py`, l'ajouter dans `app/api/routes/v1/__init__.py`.
 2. Préférer la **délégation au handler legacy** (parité par construction) tant
    que la logique n'a pas de use case dédié ; sinon port/usecase/adapter
    (cf. `prediction`, `health`, `training`).
@@ -197,13 +197,13 @@ Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
   fraîcheur du spec (3 tests), DTO `ApiHealth` branché sur le schéma généré.
 
 ### Restant (post-épuration)
-1. **Suppression des fichiers legacy** (`api/routes/*.py`, `core/*` devenus
+1. **Suppression des fichiers legacy** (`app/api/routes/*.py`, `core/*` devenus
    morts) : la délégation par attribut de module devra d'abord être portée en
    use cases/adapters réels pour les flux concernés.
 2. **Poursuivre le branchement des DTO** (`PredictionResult`, `ModelVersion`,
    `Explanation`, …) sur le schéma généré, puis consommer `operations` pour
    typer les chemins d'appels.
-3. **Extraction métier des handlers `api/routes/agent.py`** (~1700 lignes,
+3. **Extraction métier des handlers `app/api/routes/agent.py`** (~1700 lignes,
    état/queues/store) en use cases `app/application/` (épic d'estimation
    séparée — Phase C).
 4. **Schéma `Security` OpenAPI** transverse (le spec marque `X-API-Key` en

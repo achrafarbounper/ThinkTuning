@@ -1,8 +1,8 @@
-# project/api/routes/v1/agent.py
+# project/app/api/routes/v1/agent.py
 
 """Surface versionnée de l'agent IA (strangler — Phase 3d-4).
 
-Les routes v1 délèguent aux handlers legacy ``api.routes.agent`` : même code
+Les routes v1 délèguent aux handlers legacy ``app.api.routes.agent`` : même code
 path, donc PARITÉ GARANTIE PAR CONSTRUCTION. Chaque handler legacy porte une
 dépendance bipolaire ``Depends(require_api_key_or_jwt)`` (X-API-Key OU
 Bearer JWT) ; côté v1 l'auth est appliquée par la route, puis la valeur
@@ -26,8 +26,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
-from api.routes import agent as legacy
+from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
+from app.api.routes import agent as legacy
 from app.domain.errors import (
     AgentRunError,
     GatewayTimeoutError,
