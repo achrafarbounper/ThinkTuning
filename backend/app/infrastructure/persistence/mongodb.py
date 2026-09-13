@@ -731,7 +731,11 @@ class MongoAgentProviderStore:
 
         document = dict(document)
         requested_id = document.pop("id", None)
-        selector = {"_id": ObjectId(requested_id)} if requested_id and ObjectId.is_valid(requested_id) else {"_id": ObjectId()}
+        selector = (
+            {"_id": ObjectId(requested_id)}
+            if requested_id and ObjectId.is_valid(requested_id)
+            else {"_id": ObjectId()}
+        )
         self.c.update_one(
             selector,
             {"$set": document},
@@ -742,7 +746,11 @@ class MongoAgentProviderStore:
     def delete(self, provider_id):
         from bson import ObjectId
 
-        selector = {"_id": ObjectId(provider_id)} if ObjectId.is_valid(provider_id) else {"id": provider_id}
+        selector = (
+            {"_id": ObjectId(provider_id)}
+            if ObjectId.is_valid(provider_id)
+            else {"id": provider_id}
+        )
         return self.c.delete_one(selector).deleted_count > 0
 
 

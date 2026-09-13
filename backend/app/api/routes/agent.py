@@ -522,12 +522,30 @@ class AgentProviderPayload(BaseModel):
     """Document Mongo complet d'une configuration provider."""
 
     id: str | None = Field(None, max_length=80)
-    assistant: dict[str, str] = Field(default_factory=lambda: {"name": "Assistant IA", "status": "prêt"})
+    assistant: dict[str, str] = Field(
+        default_factory=lambda: {"name": "Assistant IA", "status": "prêt"}
+    )
     provider: dict[str, Any]
-    budgets: dict[str, int] = Field(default_factory=lambda: {"max_llm_rounds_per_run": 6, "max_tool_calls_per_run": 20})
+    budgets: dict[str, int] = Field(
+        default_factory=lambda: {
+            "max_llm_rounds_per_run": 6,
+            "max_tool_calls_per_run": 20,
+        }
+    )
     logging: dict[str, str] = Field(default_factory=lambda: {"level": "INFO"})
-    mcp: dict[str, Any] = Field(default_factory=lambda: {"surface": "MCP-First", "http_legacy_read_only": True, "auth_required": True})
-    network_security: dict[str, Any] = Field(default_factory=lambda: {"ssrf_protection_enabled": True, "allowed_private_hosts": []})
+    mcp: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "surface": "MCP-First",
+            "http_legacy_read_only": True,
+            "auth_required": True,
+        }
+    )
+    network_security: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "ssrf_protection_enabled": True,
+            "allowed_private_hosts": [],
+        }
+    )
     features: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -555,7 +573,10 @@ def save_agent_provider(provider: AgentProviderPayload, _: bool = Depends(requir
     document.pop("id", None)
     document["provider"].pop("has_api_key", None)
     document["provider"].pop("api_key_masked", None)
-    document["provider"].setdefault("streaming_sse", {"first_event_seconds": 60, "heartbeat_seconds": 10})
+    document["provider"].setdefault(
+        "streaming_sse",
+        {"first_event_seconds": 60, "heartbeat_seconds": 10},
+    )
     if not document["provider"].get("api_key"):
         document["provider"].pop("api_key", None)
     saved = MongoAgentProviderStore().upsert(document)
@@ -575,7 +596,11 @@ def delete_agent_provider(provider_id: str, _: bool = Depends(require_api_key)):
 def activate_agent_provider(provider_id: str, _: bool = Depends(require_api_key)):
     from bson import ObjectId
 
-    selector = {"_id": ObjectId(provider_id)} if ObjectId.is_valid(provider_id) else {"id": provider_id}
+    selector = (
+        {"_id": ObjectId(provider_id)}
+        if ObjectId.is_valid(provider_id)
+        else {"id": provider_id}
+    )
     document = MongoAgentProviderStore().c.find_one(selector)
     if not document:
         raise HTTPException(status_code=404, detail="Provider introuvable.")
@@ -595,7 +620,12 @@ def activate_agent_provider(provider_id: str, _: bool = Depends(require_api_key)
         "temperature": provider_config["temperature"],
     }
     if provider == "openrouter":
-        values.update({"openrouter_url": base_url, "openrouter_api_key": provider_config.get("api_key", "")})
+        values.update(
+            {
+                "openrouter_url": base_url,
+                "openrouter_api_key": provider_config.get("api_key", ""),
+            }
+        )
     elif provider == "hf":
         values.update({"hf_url": base_url, "hf_api_key": provider_config.get("api_key", "")})
     elif provider == "lm_studio":
