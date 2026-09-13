@@ -60,19 +60,20 @@ from pydantic import BaseModel, Field
 
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
-from app.agent.factory import build_agent_core, new_core_enabled
-from app.agent.settings import agent_flag, get_agent_config
-from app.api.dependencies.auth import require_api_key, ws_is_authorized
-from app.application.agent_cache import (
-    REQUIRED_ARGS,
-    TOOL_META,
-    TOOLS,
-    _hf_chat_url,
-    _lm_studio_chat_url,
-    _openrouter_chat_url,
-    agent_config,
-    reload_agent_runner,
+from app.agent.factory import build_agent_core, build_llm_client, new_core_enabled
+from app.agent.settings import (
+    DEFAULT_HF_URL,
+    DEFAULT_LM_STUDIO_URL,
+    DEFAULT_OPENROUTER_URL,
+    agent_flag,
+    get_agent_config,
+    normalize_chat_url,
 )
+from app.api.dependencies.auth import require_api_key, ws_is_authorized
+
+# Dernier couplage au runtime v1 (via la façade agent_cache) : rechargement
+# du runner après mise à jour des réglages (POST /api/agent/settings).
+from app.application.agent_cache import reload_agent_runner
 from app.application.agent_settings_usecase import (
     get_effective_settings,
     update_settings,
@@ -109,6 +110,11 @@ from app.infrastructure.persistence.audit_store import (  # Phase A (audit / con
     ACT_RUN,
     ACT_TOOL,
     get_audit_store,
+)
+from app.infrastructure.tools.tool_registry import (
+    REQUIRED_ARGS,
+    TOOL_META,
+    TOOLS,
 )
 
 
@@ -527,14 +533,14 @@ def agent_status():
     Public (comme /health) : ne révèle aucune donnée sensible, permet au
     dashboard d'afficher la config sans clé API.
     """
-    cfg = agent_config()
+    cfg = get_agent_config()
     return {
         "status": "ok",
-        "provider": cfg["provider"],
-        "model": cfg["model"],
-        "ollama_url": cfg["ollama_url"],
-        "timeout_seconds": cfg["timeout"],
-        "context_length": cfg["context_length"],
+        "provider": str(cfg.provider),
+        "model": cfg.model_name,
+        "ollama_url": cfg.ollama_url,
+        "timeout_seconds": cfg.timeout_seconds,
+        "context_length": cfg.context_length,
         "auth_required": True,  # l'API principale applique toujours X-API-Key
         "tools": sorted(TOOLS),
     }
@@ -851,9 +857,7 @@ def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     if not request.draft.strip():
         return {"completion": ""}
     try:
-        from app.application.agent_cache import get_agent_runner
-
-        llm = get_agent_runner().agent.llm
+        llm = build_llm_client()
     except Exception:
         raise HTTPException(status_code=503, detail="LLM indisponible pour la complétion") from None
     return {"completion": complete_text(llm, request.messages, request.draft)}
@@ -893,7 +897,7 @@ def ask_core(request: AskRequest, _: bool = Depends(require_api_key)):
             # métadonnées du run ET surcharge réelle du client LLM (partial
             # du factory : le modèle est appliqué à l'assemblage du noyau,
             # pas seulement journalisé).
-            model=request.model or agent_config()["model"],
+            model=request.model or get_agent_config().model_name,
             run_store=get_run_store(),
             approval_store=build_approval_store(),
             build_core=functools.partial(
@@ -942,7 +946,7 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     events: queue.Queue[tuple[str, object]] = queue.Queue()
     # Modèle effectif : surcharge explicite du client (sélecteur du chat,
     # champ ``model`` d'AskStreamRequest) sinon défaut de la config serveur.
-    effective_model = request.model or agent_config()["model"]
+    effective_model = request.model or get_agent_config().model_name
     run_store = get_run_store()
     run_row = run_store.start_run(request.prompt, model=effective_model, source="ask_core_stream")
     _audit_log(
@@ -1472,36 +1476,36 @@ def test_agent_connectivity(request: ConnectivityTestRequest, _: bool = Depends(
     Retourne ``{"ok": bool, "detail": str}`` — aucune exception n'est levée :
     le résultat d'échec est un corps 200 que l'UI affiche comme tel.
     """
-    cfg = agent_config()
-    provider = (request.provider or "").strip().lower() or cfg["provider"]
+    cfg = get_agent_config()
+    provider = (request.provider or "").strip().lower() or str(cfg.provider)
     if provider == "openrouter":
-        url = (request.openrouter_url or "").strip() or cfg["openrouter_url"]
-        chat_url = _openrouter_chat_url(url)
+        url = (request.openrouter_url or "").strip() or cfg.openrouter_url
+        chat_url = normalize_chat_url(url, default=DEFAULT_OPENROUTER_URL)
         base = chat_url[: -len("/chat/completions")].rstrip("/")
         probe_url = f"{base}/models"
-        api_key = (request.openrouter_api_key or cfg["openrouter_api_key"] or "").strip()
+        api_key = (request.openrouter_api_key or cfg.openrouter_api_key or "").strip()
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         success_detail = f"OpenRouter joignable sur {probe_url}"
         hint = ""
     elif provider == "hf":
-        url = (request.hf_url or "").strip() or cfg["hf_url"]
-        chat_url = _hf_chat_url(url)
+        url = (request.hf_url or "").strip() or cfg.hf_url
+        chat_url = normalize_chat_url(url, default=DEFAULT_HF_URL)
         base = chat_url[: -len("/chat/completions")].rstrip("/")
         probe_url = f"{base}/models"
-        api_key = (request.hf_api_key or cfg["hf_api_key"] or "").strip()
+        api_key = (request.hf_api_key or cfg.hf_api_key or "").strip()
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         success_detail = f"Hugging Face joignable sur {probe_url}"
         hint = ""
     elif provider == "lm_studio":
-        url = (request.lm_studio_url or "").strip() or cfg["lm_studio_url"]
-        chat_url = _lm_studio_chat_url(url)
+        url = (request.lm_studio_url or "").strip() or cfg.lm_studio_url
+        chat_url = normalize_chat_url(url, default=DEFAULT_LM_STUDIO_URL)
         base = chat_url[: -len("/chat/completions")].rstrip("/")
         probe_url = f"{base}/models"
         headers = None  # serveur local : aucune authentification
         success_detail = f"LM Studio joignable sur {probe_url}"
         hint = " Vérifiez que le serveur LM Studio tourne (Developer > Local Server)."
     else:
-        base_url = (request.ollama_url or "").strip() or cfg["ollama_url"]
+        base_url = (request.ollama_url or "").strip() or cfg.ollama_url
         marker = base_url.find("/api/")
         root = base_url[:marker] if marker != -1 else base_url.rstrip("/")
         probe_url = f"{root}/api/tags"
@@ -1619,7 +1623,7 @@ async def agent_ws(websocket: WebSocket):
         await websocket.close(code=1008, reason="Jeton invalide")
         return
     await websocket.accept()
-    await websocket.send_json({"event": "hello", "model": agent_config()["model"]})
+    await websocket.send_json({"event": "hello", "model": get_agent_config().model_name})
     try:
         while True:
             raw = await websocket.receive_text()
@@ -1734,7 +1738,7 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id, enable_thinking, m
     """
     events = queue.Queue()
     run_store = get_run_store()
-    effective_model = model or agent_config()["model"]
+    effective_model = model or get_agent_config().model_name
     run_row = run_store.start_run(prompt, model=effective_model, source="ws")
     tool_events: list[dict] = []
     bus = InMemoryEventBus()
@@ -1896,7 +1900,7 @@ def multi_ask_stream(request: MultiAskRequest, _: bool = Depends(require_api_key
     # rejouable du dashboard (Replay / Heatmap). La persistance est défensive
     # et ne doit JAMAIS faire échouer le streaming.
     flow_record = get_flow_store().start_flow(
-        request.prompt, request.model or agent_config()["model"]
+        request.prompt, request.model or get_agent_config().model_name
     )
     flow_t0 = time.perf_counter()
     flow_errored = {"v": False}

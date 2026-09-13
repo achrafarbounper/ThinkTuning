@@ -2,9 +2,9 @@
 
 """Tests offline de l'endpoint POST /explain.
 
-Aucun appel réseau : le runner OpenRouter est remplacé par un runner adossé à
-un FakeLLM scripté (via `app.application.agent_cache._build_openrouter_runner`), et la
-prédiction DistilBERT est remplacée par un FakePredictor (patché sur
+Aucun appel réseau : l'explication OpenRouter est remplacée par un
+FakeLLM scripté (via le use-case noyau v2 ``app.application.explain_agent``),
+et la prédiction DistilBERT est remplacée par un FakePredictor (patché sur
 `app.api._get_predictor`).
 
 Couvert : succès (contrat JSON), contexte injecté dans le prompt, transmission
@@ -20,9 +20,9 @@ os.environ.setdefault("API_KEY", "test-key")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-import app.api as api# noqa: E402
+import app.api as api  # noqa: E402
+import app.api.routes.explain as app_routes_explain  # noqa: E402  (patch du symbole importé par la route)
 from app.api import app  # noqa: E402
-from app.application import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 HEADERS = {"X-API-Key": "test-key"}
 
@@ -66,21 +66,23 @@ class FakePredictor:
 
 @pytest.fixture()
 def openrouter_llm(monkeypatch):
-    """Injecte un runner OpenRouter adossé à un FakeLLM (restauré après le test).
+    """Injecte un use-case OpenRouter adossé à un FakeLLM (restauré après le test).
 
-    Monkeypatche ``ask_agent_openrouter`` pour que POST /explain utilise le
-    LLM factice sans aucun appel réseau, tout en enregistrant les modèles
-    OpenRouter demandés (`request_models`).
+    Monkeypatche ``ask_agent_openrouter`` de ``app.api.routes.explain`` (le
+    symbole importé par la route depuis ``app.application.explain_agent``)
+    pour que POST /explain utilise le LLM factice sans aucun appel réseau,
+    tout en enregistrant les modèles OpenRouter demandés (`request_models`).
     """
     llm = FakeLLM()
     request_models = []
 
     def fake_ask_openrouter(prompt, model=None):
         request_models.append(model)
-        runner = agent_cache.AgentRunner(agent_cache.AgentCore(llm))
-        return runner.ask_detailed(prompt).answer
+        return llm.call([{"role": "user", "content": prompt}])
 
-    monkeypatch.setattr(agent_cache, "ask_agent_openrouter", fake_ask_openrouter)
+    monkeypatch.setattr(
+        app_routes_explain, "ask_agent_openrouter", fake_ask_openrouter
+    )
     llm.request_models = request_models
     return llm
 

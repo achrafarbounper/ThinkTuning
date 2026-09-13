@@ -34,8 +34,13 @@ from app.domain.ports import AgentSettingsPort
 __all__ = [
     "AgentProvider",
     "AgentConfig",
+    "DEFAULT_HF_URL",
+    "DEFAULT_LM_STUDIO_URL",
+    "DEFAULT_OPENROUTER_MODEL_NAME",
+    "DEFAULT_OPENROUTER_URL",
     "agent_flag",
     "get_agent_config",
+    "normalize_chat_url",
 ]
 
 
@@ -92,6 +97,36 @@ _DEFAULTS: dict[str, Any] = {
 # Clés du store IHM renommées vers les champs du modèle (clé ``model`` du
 # dashboard → champ ``model_name`` du noyau).
 _RENAMES = {"model": "model_name"}
+
+# Endpoints chat complets par défaut — source canonique (S1 : réduction legacy).
+# Les helpers historiques d'``app.application.agent_cache`` (``_openrouter_chat_url``
+# & co) en dérivaient une copie ; ils délèguent désormais ici.
+DEFAULT_OPENROUTER_URL = _DEFAULTS["openrouter_url"]
+DEFAULT_HF_URL = _DEFAULTS["hf_url"]
+DEFAULT_LM_STUDIO_URL = _DEFAULTS["lm_studio_url"]
+
+# Modèle OpenRouter par défaut (IDs au format « vendor/model »). Source
+# canonique S3 : le use-case ``app.application.explain_agent`` (explication LLM
+# forcée OpenRouter) le consomme ; l'ancienne constante legacy
+# ``app.application.agent_cache.DEFAULT_OPENROUTER_MODEL_NAME`` porte la même
+# valeur tant que la façade vit.
+DEFAULT_OPENROUTER_MODEL_NAME = _DEFAULTS["model_name"]
+
+
+def normalize_chat_url(url: str | None, *, default: str) -> str:
+    """Normalise une URL provider vers l'endpoint « chat/completions ».
+
+    Accepte la racine enregistrée par le dashboard (« https://openrouter.ai/api/v1 »)
+    comme l'endpoint complet (« .../v1/chat/completions ») — un suffixe manquant
+    est ajouté. Source de vérité unique depuis S1 : les helpers historiques
+    ``app.application.agent_cache._*_chat_url`` délèguent à cette fonction.
+    """
+    url = (url or "").strip().rstrip("/")
+    if not url:
+        return default
+    if url.endswith("/chat/completions"):
+        return url
+    return f"{url}/chat/completions"
 
 
 class AgentConfig(BaseModel):

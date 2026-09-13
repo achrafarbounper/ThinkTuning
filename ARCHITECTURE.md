@@ -10,7 +10,8 @@
 
 Ce document décrit l'architecture cible en cours de mise en place
 (architecture hexagonale), l'absorption du code historique
-(`api/`, `ia/`, `core/`, `src/` — désormais intégrés sous `app/`), et
+(`api/`, `ia/`, `core/`, `src/` — désormais absorbés ou encapsulés sous
+`backend/app/`), et
 les conventions à respecter pour toute évolution.
 
 ---
@@ -23,8 +24,7 @@ les conventions à respecter pour toute évolution.
                                           + stdio `thinktuning-mcp`
                                                      │ tools/call orchestrate
                                                      ▼
-  HTTP/WS/SSE ─▶ │  api/  (FastAPI) — adapters d'entrée (déprécié → MCP,
-                 │   read-only sous MCP_FIRST=true, sauf approbations)
+  HTTP/WS/SSE ─▶ │  backend/app/api/ (FastAPI) — routes versionnées /api/v1
                  └──────────────┬─────────────────────────────┘
                                 │ Depends / use-cases
                  ┌──────────────▼─────────────────────────────┐
@@ -53,23 +53,21 @@ les conventions à respecter pour toute évolution.
 - `app/infrastructure/**` implémente les ports en déléguant au legacy.
 - `api/**` assemble et expose ; aucune logique métier.
 
-### Surface d'entrée (S7 — MCP-First)
+### Surface d'entrée (API v1 + MCP)
 
 - **MCP est la surface privilégiée** : `POST /mcp/sse` (transport streamable
   HTTP, JSON-RPC 2.0 ⇄ SSE) et `thinktuning-mcp` (stdio). Le serveur vit dans
   `app/infrastructure/mcp/` (bootstrap en lecture pour tout scope + tool
   `orchestrate` S6 — la boucle agentique complète).
-- L'**HTTP legacy** (`api/routes/agent.py`) est marqué `@deprecated` (tâche 20)
-  et conservé uniquement comme adaptateur strangler des délégations v1 ; sous
-  `MCP_FIRST=true` il répond 405 (`mcp_first_read_only`) sur toute mutation,
-  sauf l'approbation humaine (`/approvals/*/approve|reject`) qui reste le
-  canal whitelisté débloquant les runs MCP `pending_approval`.
+- L'API HTTP applicative est montée sous `/api/v1`. Les modules legacy
+  internes ne constituent pas un contrat public : ils servent uniquement de
+  cibles de délégation et de compatibilité des tests.
 
 ---
 
 ## 2. La couche agentique
 
-### Flux d'un run (`POST /api/agent/ask/core` — idem via `POST /mcp/sse`, tools/call `orchestrate`)
+### Flux d'un run (`POST /api/v1/agent/ask/core` — idem via `POST /mcp/sse`, tools/call `orchestrate`)
 
 1. **Intent** — validé à l'entrée (`app/domain/entities/plan.py`) : prompt,
    session, rôle, budget max_rounds.
@@ -89,7 +87,7 @@ les conventions à respecter pour toute évolution.
    LLM (auto-correction, jusqu'à épuisement du budget).
 6. **Approbation** — action `APPROVE` sans gateway → `PENDING_APPROVAL` +
    demande persistée (`app/infrastructure/persistence/approval_store`) ; le client approuve via
-   `POST /api/agent/approvals/{id}/approve` puis relance avec
+   `POST /api/v1/agent/approvals/{id}/approve` puis relance avec
    `resume_request_id`. La reprise n'accorde que l'action dont l'empreinte
    SHA-256 des arguments correspond **exactement** à la demande approuvée.
 7. **Mémoire** — short-term : fenêtre glissante sur la session
@@ -122,10 +120,10 @@ app/
 │   ├── settings.py               # AgentConfig — config agent (base IHM/Mongo)
 │   └── factory.py                # composition root + flag AGENT_NEW_CORE
 └── infrastructure/
-    ├── legacy_registry.py        # ia/tools/tool_registry → ToolRegistryPort
+    ├── legacy_registry.py        # registre historique encapsulé → ToolRegistryPort
     └── legacy_approval_store.py  # app/infrastructure/persistence/approval_store → ApprovalStorePort
 
-api/routes/agent.py               # POST /ask/core (flag AGENT_NEW_CORE)
+backend/app/api/routes/v1/agent.py # POST /api/v1/agent/ask/core
                                   # @deprecated (tâche 20) : read-only MCP_FIRST
 app/infrastructure/mcp/           # SURFACE MCP (S7) : serveur SSE (POST /mcp/sse),
                                   # tools/ (bootstrap, orchestrate), manifest, security
@@ -136,8 +134,8 @@ app/infrastructure/ml/           # ML (ex-src/) : dataset, model, inference — 
 
 | Port | Legacy implémentant déjà le contrat |
 |---|---|
-| `LLMClientPort` | `ia/agent/llm_client.py` (retry + circuit breaker + streaming) |
-| `ToolRegistryPort` | `ia/tools/tool_registry.py` (manifeste `tools_config.json`) |
+| `LLMClientPort` | `app/infrastructure/llm/http_client.py` (retry + circuit breaker + streaming) |
+| `ToolRegistryPort` | `app/infrastructure/tools/` (manifeste `tools_config.json`) |
 | `SessionStorePort` | `app/infrastructure/persistence/session_store.py` (messages + mémoire long-term) |
 | `AuditStorePort` | `app/infrastructure/persistence/audit_store.py` |
 | `RunStorePort` | `app/infrastructure/persistence/run_store.py` |
@@ -185,7 +183,8 @@ aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
 - Bascule du noyau : **v2 activé par défaut depuis la bascule en production** ;
   `AGENT_NEW_CORE=0` force le repli legacy (`/ask/core` répond alors 503).
 - Bascule du client LLM : **`HttpLLMClient` activé par défaut** ;
-  `AGENT_LLM_V2=0` force le repli legacy (ia/agent/llm_client.py).
+  `AGENT_LLM_V2=0` force le repli de compatibilité encapsulé sous
+  `app/agent/legacy/`.
 - Surface MCP (S7) : **`MCP_FIRST=true`** gèle l'API HTTP legacy de l'agent en
   lecture seule (405 `mcp_first_read_only` ; approbations whitelistées) ;
   `MCP_SERVER_ENABLED` (défaut `true`) active/désactive le serveur MCP
@@ -199,7 +198,8 @@ aucune I/O, aucune mutation de l'historique) — `tests/test_context_port.py`.
 ### Ajouter un outil agent
 
 1. Fonction dans `ia/tools/<domaine>_tools.py` ;
-2. Enregistrement dans `TOOLS` (`ia/tools/tool_registry.py`) ;
+2. Enregistrement dans `TOOLS`
+   (`app/infrastructure/tools/tools_config.json`) ;
 3. Entrée déclarative dans `ia/tools/tools_config.json`
    (le test anti-divergence vérifie la cohérence) ;
 4. Si l'outil est risqué : catégorie dans `classify_tool`
@@ -231,103 +231,51 @@ permettent au runner de distinguer retry / recovery / rejet.
 
 ## 6. Migration restante (backlog)
 
-1. ~~Migration physique des stores legacy vers `app/infrastructure/persistence/`~~
-   **Conservée comme adaptation permanente** : les stores sont réabsorbés dans
-   `app/infrastructure/persistence/` et demeurent des adaptateurs de ports, sans
-   remplacement physique du stockage. Le schéma SQLite reste géré par le mode
-   legacy-compatible (pas de migration Alembic de la base historique).
-2. ~~Suppression progressive des hacks `sys.path`~~ **FAIT** : les imports passent
-   par les paquets réels (`ia.agent.*`, `ia.tools.*`, `ia.copilot.*`,
-   `ia.logging_setup`) ; aucun `sys.path` n'est plus injecté par `api/`, `app/`
-   ou les tests. Gardes-fous CI : `tests/test_sys_path_guard.py`.
-3. **Qualité statique et CI** : étendre `ruff`/`mypy` à `api/`, `ia/`, `tests/`
-   pour compléter la couverture actuelle de `app/` (avec `app/legacy/` supprimé).
-4. ~~Décommission du chemin v1 HTTP/WS~~ **FAIT** : routes `/ask` et
-   `/ask/stream` retirées, WebSocket legacy supprimé, use-cases de pontage
-   `run_legacy_ask` / `ask_agent_decision` / `ask_agent_decision_streaming`
-   éliminés ; le noyau v2 est désormais le chemin actif pour le contrat
-   SSE/WS/sessions.
-5. **Machine à états du run (domaine)** : finaliser la centralisation du cycle
-   de vie dans `app/domain/entities/run.py`, en faisant de `RunStateMachine` la
-   source de vérité unique pour les transitions persistées. L'invariant critique
-   reste : la reprise `awaiting_approval -> running` (empreinte validée) est la
-   seule manière de relancer un run, jamais depuis un état terminal.
-6. **Reste v1 résiduel** : chat `/api/ai`, `/complete` + summarizer de session,
-   coordinateur multi-agents (`MultiAgentCoordinator`) et tout le runner v1
-   construit sur `ia/agent/agent_core.py` + `ia/agent/llm_client.py` ; leur
-   migration vers le client/noyau v2 conditionne la suppression finale de
-   `ia/agent/llm_client.py`.
-7. **Bascule LLM v2** : terminer la décommission du client legacy une fois le
-   reste du flux v1 coupé ; conserver `StubLLMClient` et `HttpLLMClient` sous le
-   bon port (`LLMClientPort`) avec repli stable via `AGENT_LLM_V2`.
-8. **Baselines d'environnement** : `gpu_info` et `nvidia-smi` restent hors
-   sandbox Windows CI ; la validation GPU ne doit pas bloquer les builds
-   non-ML/CI standard.
-9. ~~MCP-First (S7 — tâche 20)~~ **FAIT** : surface MCP (`POST /mcp/sse`,
-   JSON-RPC 2.0 ⇄ SSE, serveur `app/infrastructure/mcp/mcp_server_sse.py`),
-   module legacy `api/routes/agent.py` marqué `@deprecated`, feature flag
-   **`MCP_FIRST=true`** en read-only pour le HTTP legacy, approbations humaines
-   whitelistées, dashboard migré vers MCP-over-SSE ; verrouillage par
-   `tests/test_mcp_first.py`.
+Les éléments marqués **livrés** sont conservés ici pour la traçabilité; seuls
+les points non livrés constituent le backlog actif.
 
-### Avancée Phase 3 (client LLM v2 + contexte)
+### Livré
 
-- **Port `ContextPort` absorbé** : `ia/agent/context.py` → wrapper
-  `app/infrastructure/context/legacy_context.py`, faux déterministe
-  `null_context.py`, bascule `AGENT_CONTEXT` (`tests/test_context_port.py`).
-- **`HttpLLMClient` (v2) implémenté** : client HTTP httpx propre derrière
-  `LLMClientPort` — streaming NDJSON/SSE, payloads `ollama`/`openrouter`/`hf`,
-  retry + circuit breaker réutilisés de `ia/agent/reliability.py` (classifieur
-  d'erreurs httpx dans `errors.py`), thinking + réparation d'encodage.
-  Bascule via `AGENT_LLM_V2` → `build_llm_client()` (`tests/test_llm_http_client.py`,
-  transport `httpx.MockTransport` hors réseau). Le stub déterministe
-  (`StubLLMClient`) reste disponible pour les tests de use-cases.
-  **Bascule en production réalisée** : `HttpLLMClient` est l'implémentation
-  par défaut (`flag_llm_v2=True`, repli legacy via `AGENT_LLM_V2=0` ;
-  `tests/test_llm_v2.py`, `tests/test_agent_factory.py`).
-  **Reste à faire** : décommissionner `ia/agent/llm_client.py` — il reste
-  importé par le chemin v1 résiduel (`app/application/agent_cache.py` :
-  coordinateur multi-agents + runners du chat `/api/ai`, cf. backlog item 6).
-- **Port `EventBusPort` (8e) ajouté puis câblé sur le SSE** : contrat pub/sub
-  aligné sur `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` et
-  `InMemoryEventBus` — dans `app/infrastructure/events/` (`tests/test_event_bus_port.py`).
-  **Câblage** : le noyau (`AgentCore`) accepte un `EventBusPort` optionnel et
-  publie son cycle de vie (`agent.run_start`, `agent.tool_start` / `tool_end`,
-  `agent.thinking`, `agent.approval_pending`, `agent.run_finished`) via
-  `_safe_emit` ; `/ask/core/stream` injecte un bus PAR RUN (`InMemoryEventBus`)
-  et s'abonne pour régénérer les frames SSE `core_tool` / `thinking_delta` à
-  l'identique — aucun cross-talk entre flux concurrents, et la route n'est plus
-  qu'un abonné (`tests/test_event_bus_wiring.py`).
+1. **Découplage des stores** — les stores et adaptateurs sont sous
+   `backend/app/infrastructure/persistence/`; le stockage SQLite/MongoDB reste
+   compatible avec les ports du domaine.
+2. **Suppression des hacks d'import** — le garde-fou
+   `backend/tests/test_sys_path_guard.py` protège l'absence d'injection
+   `sys.path` dans l'application.
+3. **API v1** — la surface HTTP publique est montée sous `/api/v1`, avec
+   enveloppe d'erreur et contrats client/backend testés.
+4. **Noyau agentique et transport LLM** — `AgentCore`, `HttpLLMClient`,
+   `StubLLMClient` et `EventBusPort` sont câblés via des ports/adaptateurs et
+   couverts par les tests ciblés.
+5. **MCP** — SSE HTTP (`/mcp/sse`), stdio `thinktuning-mcp`, outils, ressources,
+   sampling, auth et conformance sont couverts par les tests MCP.
 
-### Avancée Phase 3 (client LLM v2 + contexte)
+### Backlog actif
 
-- **Port `ContextPort` absorbé** : `ia/agent/context.py` → wrapper
-  `app/infrastructure/context/legacy_context.py`, faux déterministe
-  `null_context.py`, bascule `AGENT_CONTEXT` (`tests/test_context_port.py`).
-- **`HttpLLMClient` (v2) implémenté** : client HTTP httpx propre derrière
-  `LLMClientPort` — streaming NDJSON/SSE, payloads `ollama`/`openrouter`/`hf`,
-  retry + circuit breaker réutilisés de `ia/agent/reliability.py` (classifieur
-  d'erreurs httpx dans `errors.py`), thinking + réparation d'encodage.
-  Bascule via `AGENT_LLM_V2` → `build_llm_client()` (`tests/test_llm_http_client.py`,
-  transport `httpx.MockTransport` hors réseau). Le stub déterministe
-  (`StubLLMClient`) reste disponible pour les tests de use-cases.
-  **Bascule en production réalisée** : `HttpLLMClient` est l'implémentation
-  par défaut (`flag_llm_v2=True`, repli legacy via `AGENT_LLM_V2=0` ;
-  `tests/test_llm_v2.py`, `tests/test_agent_factory.py`).
-  **Reste à faire** : décommissionner `ia/agent/llm_client.py` — il reste
-  importé par le chemin v1 résiduel (`app/application/agent_cache.py` : coordinateur
-  multi-agents + runners du chat `/api/ai`, cf. backlog item 8).
-- **Port `EventBusPort` (8e) ajouté puis câblé sur le SSE** : contrat pub/sub
-  aligné sur `ia/agent/event_bus` ; deux adaptateurs — `LegacyEventBus` (wrapper
-  strangler vers le singleton, isolation d'erreurs préservée) et
-  `InMemoryEventBus` (faux déterministe async, avec `history`) — dans
-  `app/infrastructure/events/` (`tests/test_event_bus_port.py`).
-  **Câblage** : le noyau (`AgentCore`) accepte un `EventBusPort` optionnel et
-  publie son cycle de vie (`agent.run_start`, `agent.tool_start`/`tool_end`,
-  `agent.thinking`, `agent.approval_pending`, `agent.run_finished`) via
-  `_safe_emit` (défensif, jamais bloquant). `/ask/core/stream` injecte un bus
-  PAR RUN (`InMemoryEventBus`) et s'abonne pour régénérer les frames SSE
-  `core_tool` / `thinking_delta` à l'identique — aucun cross-talk entre flux
-  concurrents, et la route n'est plus qu'un abonné
-  (`tests/test_event_bus_wiring.py`). Les callbacks legacy `on_tool_event` /
-  `on_thinking` restent pris en charge (compatibilité `/ask/core` et tests).
+1. **Réduire la compatibilité legacy** : supprimer progressivement les imports
+   et adaptateurs encore nécessaires sous `backend/app/agent/legacy/`, après
+   migration de leurs derniers consommateurs. Aucun nouveau code ne doit
+   dépendre directement de ces modules.
+2. **Finaliser la machine à états des runs** : faire de
+   `backend/app/domain/entities/run.py` l'unique source de vérité des
+   transitions persistées, notamment pour la reprise
+   `awaiting_approval → running` avec empreinte validée.
+3. **Étendre la qualité statique** : élargir progressivement `ruff` et `mypy`
+   aux modules legacy et aux tests, sans réduire les garde-fous existants de
+   la CI.
+4. **Découpler la diffusion des événements d'entraînement** : conserver
+   `TrainingEventsSource` comme seam et évaluer un bus push (Redis/NATS) si le
+   polling MongoDB devient un goulot en multi-worker.
+5. **Valider les environnements matériels** : garder les parcours GPU
+   optionnels; `gpu_info`/`nvidia-smi` ne doivent jamais bloquer la CI Windows
+   CPU.
+
+### Règles de maintenance
+
+- Toute migration doit mettre à jour le contrat `/api/v1`, l'OpenAPI généré,
+  le client frontend et les tests associés dans le même changement.
+- Les références aux anciens chemins doivent rester dans les documents
+  explicitement historiques (`_migration/` ou sections d'historique), jamais
+  dans les instructions d'utilisation courante.
+- Un élément passe de **backlog actif** à **livré** uniquement après un test
+  automatisé ou une preuve de déploiement vérifiable.

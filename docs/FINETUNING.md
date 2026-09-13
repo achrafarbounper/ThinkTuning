@@ -422,7 +422,7 @@ rechargement de l'adapter. Sortie : tableau `rich` + métriques par modèle
 
 | Méthode | Route | Auth | Description |
 |---|---|---|---|
-| `POST` | `/pipeline` (+ `/api/v1/pipeline`) | X-API-Key | Crée le job (`202` + `TrainJob` `kind="pipeline"`), exécution en thread daemon |
+| `POST` | `/api/v1/pipeline` | X-API-Key | Crée le job (`202` + `TrainJob` `kind="pipeline"`), exécution en thread daemon |
 | `GET` | `/pipeline/status/{job_id}` | X-API-Key | Statut / étape / erreur du job |
 | `POST` | `/pipeline/cancel/{job_id}` | X-API-Key | Annulation coopérative |
 | `GET` | `/pipeline/jobs` | X-API-Key | Historique paginé (`limit` ≤ 1000, `offset`, filtre `status`), tri `started_at DESC` |
@@ -532,7 +532,7 @@ passer par l'index dédié (`--index-url .../whl/cpu`) avant le reste.
 | Fichier | Couverture |
 |---|---|
 | `tests/test_pipeline.py` | orchestration : `build_finetune_cmd` (None → défauts, flags LoRA/QLoRA), garde-fou dataset vide, annulation, échec subprocess, enchaînement CLI |
-| `tests/test_api_v1_pipeline.py` | routes versionnées `/api/v1/pipeline` (délégation legacy + conversion d'erreurs) |
+| `backend/tests/test_api_v1_pipeline.py` | routes versionnées `/api/v1/pipeline` (délégation legacy + conversion d'erreurs) |
 | `tests/test_label_dataset.py` | labeling + filtrage confidence + export Alpaca |
 | `tests/test_predict_llm.py` | `parse_generation` : alias FR/EN, extraction de confidence, inconnu |
 | `tests/test_benchmark.py` | comparaison DistilBERT vs LLM |

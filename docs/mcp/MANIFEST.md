@@ -1,8 +1,10 @@
 # Manifeste MCP ThinkTuning — v2.0.0
 
 > ⚠️ **FICHIER GÉNÉRÉ** — ne pas éditer à la main.
-> Source : `ia/tools/tools_config.json` (standard `thinktuning.tool/v1`) ;
-> régénération : `python -m app.infrastructure.mcp.manifest_generator` (depuis `backend/`).
+> Source : `backend/app/infrastructure/tools/tools_config.json`
+> (standard `thinktuning.tool/v1`) ;
+> régénération : `python -m app.infrastructure.mcp.manifest_generator`
+> (depuis `backend/`, avec `PYTHONIOENCODING=utf-8` sous Windows).
 
 | Attribut | Valeur |
 |---|---|

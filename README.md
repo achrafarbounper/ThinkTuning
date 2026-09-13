@@ -409,8 +409,8 @@ Routes (auth principale `X-API-Key`, sauf `/status` qui est public) :
 
 - `GET /api/agent/status` — statut, modèle visé, outils disponibles ;
 - `GET /api/agent/tools` — outils et arguments requis ;
-- `POST /api/agent/tools/run` — exécution directe d'un outil : `{"tool": "gpu_info", "args": {}}` ;
-- `POST /api/agent/ask` — prompt libre : `{"prompt": "..."}` — l'agent planifie lui-même
+- `POST /api/v1/agent/tools/run` — exécution directe d'un outil : `{"tool": "gpu_info", "args": {}}` ;
+- `POST /api/v1/agent/ask/core` — prompt libre : `{"prompt": "..."}` — l'agent planifie lui-même
   les appels d'outils puis renvoie la réponse finale ; en cas d'appel invalide
   (tool inconnu, arguments manquants, erreur d'exécution), l'erreur est renvoyée
   au LLM qui se corrige automatiquement (plafonné à `MAX_LLM_ROUNDS` tours).
@@ -421,7 +421,7 @@ L'agent peut raisonner explicitement avant de répondre : la trace de raisonneme
 est séparée de la réponse finale et affichée dans une bulle repliable du chat.
 
 - **Activation** : toggle « Réflexion » de l'en-tête du chat (choix persisté en
-  localStorage), ou champ `"enable_thinking": true` dans `POST /api/ai` ou dans
+  la requête `"enable_thinking": true` de `POST /api/v1/agent/ask/core` ou dans
   les arguments du tool MCP `orchestrate` (désactivé par défaut).
 - **Deux mécanismes complémentaires** :
   - *induit par le prompt* : la section `THINKING_PROMPT_SECTION`
@@ -528,7 +528,7 @@ Comportements notables :
   premier appel. LM Studio ne demande jamais de clé.
 - **Page Paramètres du dashboard** : le provider, l'URL et la clé sont
   enregistrables à chaud (`PUT /api/agent/settings`), avec sonde de
-  connectivité par provider (`POST /api/agent/settings/test`).
+  connectivité par provider (`POST /api/v1/agent/settings/test`).
 - **Tests** : `pytest tests/test_agent_openrouter.py tests/test_agent_hf.py
   tests/test_agent_lmstudio.py -v` (tests offline).
 
@@ -605,26 +605,26 @@ docker compose --profile search up -d searxng
 ```bash
 # État GPU (VRAM + utilisation)
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8000/api/agent/tools/run -d '{"tool": "gpu_info", "args": {}}'
+  -X POST http://localhost:8000/api/v1/agent/tools/run -d '{"tool": "gpu_info", "args": {}}'
 
 # Conteneurs Docker actifs
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8000/api/agent/tools/run \
+  -X POST http://localhost:8000/api/v1/agent/tools/run \
   -d '{"tool": "docker_ps", "args": {"all_containers": true}}'
 
 # Requête PostgreSQL en lecture seule
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8000/api/agent/tools/run \
+  -X POST http://localhost:8000/api/v1/agent/tools/run \
   -d '{"tool": "postgres_query", "args": {"query": "SELECT * FROM jobs LIMIT 5", "readonly": true}}'
 
 # Recherche Internet (outils web_search / web_fetch / web_read)
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8000/api/agent/tools/run \
+  -X POST http://localhost:8000/api/v1/agent/tools/run \
   -d '{"tool": "web_search", "args": {"query": "transformers fine-tuning"}}'
 
 # Prompt libre : l'agent choisit lui-même les outils
 curl -H "X-API-Key: change-me-api-key" -H "Content-Type: application/json" \
-  -X POST http://localhost:8000/api/agent/ask \
+  -X POST http://localhost:8000/api/v1/agent/ask/core \
   -d '{"prompt": "Liste le dossier experiments puis dis-moi combien de modèles il contient."}'
 ```
 
@@ -646,8 +646,8 @@ Pages disponibles (navigation par hachage `#/…`) :
 | **Tableau de bord** | Vue d'ensemble : statut API/modèle, jobs actifs, versions entraînées |
 | **Analyse** | Prédiction de sentiment FR/EN — unitaire (texte par ligne) ou par lot (CSV), historique local |
 | **Comparer** | Soumet le même texte à deux versions de modèles côte à côte (sentiment + confiance) |
-| **Assistant IA** | Chat façon Copilot en streaming SSE (`POST /api/ai`) avec réflexion, blocs d'outils et sessions |
-| **Entraînement** | Formulaire de fine-tuning (`POST /train`) + suivi temps réel du job (poll 4 s) + historique |
+| **Assistant IA** | Chat façon Copilot en streaming SSE via `/api/v1/agent/ask/core/stream` et MCP, avec réflexion, blocs d'outils et sessions |
+| **Entraînement** | Formulaire de fine-tuning (`POST /api/v1/train`) + suivi temps réel du job (poll 4 s) + historique |
 | **Paramètres** | Connexion API (URL + `X-API-Key`) et configuration du provider LLM (Ollama / OpenRouter / HF / LM Studio) |
 
 ### Lancement en développement
@@ -665,7 +665,7 @@ npm run dev            # http://localhost:5173
 
 Le proxy Vite transfère `/api/*` **et** `/mcp/*` (transport MCP du chat)
 vers `http://localhost:8000` (voir `frontend/vite.config.ts`), donc
-`fetch("/api/…")` comme `fetch("/mcp/sse")` fonctionnent tel quel.
+`fetch("/api/v1/…")` comme `fetch("/mcp/sse")` fonctionnent tel quel.
 
 ### Lancement en production (Docker)
 
@@ -726,15 +726,14 @@ d'URI) au lieu d'une erreur `pymongo` brute.
 L'API exige un en-tête `X-API-Key` (sauf endpoints publics comme `/health`). Le
 dashboard la résout dans cet ordre :
 
-1. la configuration persistée en `localStorage` (champ « API_KEY côté serveur »
-   du formulaire Paramètres) ;
-2. la variable d'environnement Vite `VITE_API_KEY` (`frontend/.env.local`,
-   ex. `VITE_API_KEY=dev-local-api-key`).
+1. le proxy nginx du dashboard Docker, qui injecte `API_KEY` côté serveur ;
+2. en développement, la configuration du client HTTP utilisée par les tests
+   et l'environnement local.
 
 Sans clé, le backend répond `401` et le message s'affiche dans l'interface.
 
 > Notes — le `frontend/README.md` documente l'interface de chat en détail
-> (streaming SSE, retombée JSON, contrat `POST /api/ai`), et
+> (streaming SSE, retombée JSON et transport versionné), et
 > `frontend/TRAIN_JOB_TRACKER.md` explique le suivi temps réel des jobs
 > d'entraînement.
 
