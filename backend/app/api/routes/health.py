@@ -37,11 +37,14 @@ def health():
 
 
 @router.get("/health/model-sanity")
-def model_sanity(model: str | None = Query(
-    None, alias="model_name",
-    description="Version de modèle à vérifier (dossier sous experiments/models). "
-                "Par défaut : version active.",
-)):
+def model_sanity(
+    model: str | None = Query(
+        None,
+        alias="model_name",
+        description="Version de modèle à vérifier (dossier sous experiments/models). "
+        "Par défaut : version active.",
+    ),
+):
     """Sanity check comportemental du modèle actif (SCRUM-74).
 
     Exécute Predictor.predict() sur un jeu fixe de phrases FR/EN polarisées
@@ -56,8 +59,11 @@ def model_sanity(model: str | None = Query(
     except Exception as exc:
         raise HTTPException(
             status_code=503,
-            detail={"status": "unhealthy", "verdict": "model_unavailable",
-                    "detail": f"Impossible de charger le modèle : {exc}"},
+            detail={
+                "status": "unhealthy",
+                "verdict": "model_unavailable",
+                "detail": f"Impossible de charger le modèle : {exc}",
+            },
         ) from exc
 
     report = run_model_sanity(predictor)

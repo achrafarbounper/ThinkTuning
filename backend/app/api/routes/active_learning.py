@@ -2,13 +2,13 @@
 
 """Routes du cycle Active Learning (SCRUM-55).
 
-  POST /active_learning          -> exemples les plus incertains (conf ~ 1/3)
-  POST /annotate                 -> stocke une correction manuelle
-  GET  /annotate/list            -> annotations enregistrees
-  POST /annotate/export          -> export CSV de review
-  POST /annotate/merge           -> fusion des annotations dans le dataset
-  POST /active_learning/cycle    -> cycle complet (202 + job asynchrone)
-  GET  /active_learning/cycle/status/{job_id}
+POST /active_learning          -> exemples les plus incertains (conf ~ 1/3)
+POST /annotate                 -> stocke une correction manuelle
+GET  /annotate/list            -> annotations enregistrees
+POST /annotate/export          -> export CSV de review
+POST /annotate/merge           -> fusion des annotations dans le dataset
+POST /active_learning/cycle    -> cycle complet (202 + job asynchrone)
+GET  /active_learning/cycle/status/{job_id}
 """
 
 import json

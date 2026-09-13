@@ -104,6 +104,7 @@ def get_training_history(job_id: str, _: bool = Depends(require_api_key)):
 def cancel_training_endpoint(job_id: str, _: bool = Depends(require_api_key)):
     return cancel_training(job_id)
 
+
 @router.get("/jobs", response_model=JobListResponse)
 def list_training_jobs(
     status: JobStatus | None = Query(
@@ -134,6 +135,7 @@ def list_training_jobs(
 # ---------------------------------------------------------------------------
 # SCRUM-34 : planification récurrente d'entraînements (cron-like, APScheduler)
 # ---------------------------------------------------------------------------
+
 
 @router.post("/schedule", response_model=ScheduledJob, status_code=202)
 def schedule_training(req: ScheduleRequest, _: bool = Depends(require_api_key)):
@@ -175,6 +177,7 @@ def delete_training_schedule(schedule_id: str, _: bool = Depends(require_api_key
 # ---------------------------------------------------------------------------
 # WebSocket : métriques d'entraînement en temps réel (epoch par epoch)
 # ---------------------------------------------------------------------------
+
 
 # Auth : les navigateurs ne peuvent pas poser de header sur un WebSocket, le
 # jeton est donc passé en query param `?token=` (même convention que
@@ -220,9 +223,7 @@ async def stream_training_metrics(websocket: WebSocket, job_id: str):
     # DASHBOARD_WS_TOKEN reste accepté (comparaison à temps constant).
     provided = websocket.query_params.get("token")
     header_ok = ws_is_authorized(websocket, read_scope=True)
-    dashboard_ok = bool(provided) and secrets.compare_digest(
-        provided, _get_dashboard_ws_token()
-    )
+    dashboard_ok = bool(provided) and secrets.compare_digest(provided, _get_dashboard_ws_token())
     if not (header_ok or dashboard_ok):
         await websocket.close(code=1008, reason="Jeton invalide")
         return
@@ -265,9 +266,7 @@ async def stream_training_metrics(websocket: WebSocket, job_id: str):
             if progress is not None:
                 progress_json = json.dumps(progress, sort_keys=True)
                 if progress_json != last_progress_json:
-                    await websocket.send_json(
-                        {"type": "progress", "job_id": job_id, **progress}
-                    )
+                    await websocket.send_json({"type": "progress", "job_id": job_id, **progress})
                     last_progress_json = progress_json
                     last_event_time = time.time()
 

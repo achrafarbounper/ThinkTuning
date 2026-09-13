@@ -21,7 +21,10 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 # directe → bypass du throttle). Mettre 1 UNIQUEMENT derrière un reverse proxy
 # de confiance (nginx compose : proxy_set_header X-Forwarded-For).
 RATE_LIMIT_TRUST_PROXY = os.getenv("RATE_LIMIT_TRUST_PROXY", "0").lower() in {
-    "1", "true", "yes", "on",
+    "1",
+    "true",
+    "yes",
+    "on",
 }
 
 # --- P1 SEC (point 12) : quotas PAR ROUTE COÛTEUSE --------------------------------
@@ -81,11 +84,7 @@ def _evict_idle_buckets_locked(now: float) -> None:
     for store in (_RATE_LIMIT_BUCKETS, _COSTLY_BUCKETS):
         if len(store) < _MAX_BUCKETS:
             continue
-        stale = [
-            key
-            for key, bucket in store.items()
-            if now - bucket.last_update > _IDLE_SECONDS
-        ]
+        stale = [key for key, bucket in store.items() if now - bucket.last_update > _IDLE_SECONDS]
         for key in stale:
             del store[key]
         # Toujours saturé (clients actifs mais récents) : évacue les plus anciens.
@@ -130,7 +129,8 @@ class RedisTokenBucket:
         except Exception as exc:  # fail-open : Redis down ne coupe pas l'API
             logger.warning(
                 "rate_limit_redis_unavailable key=%s error=%s (fail-open)",
-                self.key, exc,
+                self.key,
+                exc,
             )
             return True, 0
 
@@ -211,7 +211,10 @@ def _enforce_rate_limit(request: Request):
         if wait is not None:
             logger.warning(
                 "rate_limit_exceeded group=%s client=%s path=%s retry_after=%ss",
-                group, client_id, path, wait,
+                group,
+                client_id,
+                path,
+                wait,
             )
             return wait
         return None
@@ -227,6 +230,7 @@ def _enforce_rate_limit(request: Request):
         return None
 
     import app.api as api  # pour lire la valeur monkeypatchée
+
     rate = getattr(api, "RATE_LIMIT_PER_MINUTE", RATE_LIMIT_PER_MINUTE)
     if rate <= 0:
         return None
@@ -243,7 +247,9 @@ def _enforce_rate_limit(request: Request):
             return None
         logger.warning(
             "rate_limit_exceeded group=predict client=%s path=%s retry_after=%ss",
-            client_id, path, wait_seconds,
+            client_id,
+            path,
+            wait_seconds,
         )
         return wait_seconds
 
@@ -257,4 +263,3 @@ async def rate_limit_middleware(request: Request, call_next):
             headers={"Retry-After": str(wait_seconds)},
         )
     return await call_next(request)
-

@@ -152,12 +152,16 @@ def _require_api_key_or_jwt(
             # JWT (actionnable : expiré / révoqué / signature) est remontée.
             if read_scope and is_valid_read_api_key(x_api_key):
                 request.state.auth_principal = {
-                    "type": "api_key", "subject": "api-key", "role": "read",
+                    "type": "api_key",
+                    "subject": "api-key",
+                    "role": "read",
                 }
                 return True
             if is_valid_api_key(x_api_key):
                 request.state.auth_principal = {
-                    "type": "api_key", "subject": "api-key", "role": "admin",
+                    "type": "api_key",
+                    "subject": "api-key",
+                    "role": "admin",
                 }
                 return True
             raise

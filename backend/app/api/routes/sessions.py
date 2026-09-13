@@ -12,7 +12,6 @@ P0 SEC (F4) : TOUTE la surface sessions exige la clé API (X-API-Key) — les
 conversations contiennent des PII et ne sont plus en lecture publique.
 """
 
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 

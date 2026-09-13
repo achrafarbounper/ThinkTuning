@@ -52,6 +52,7 @@ def get_active_version(_: bool = Depends(require_read_api_key)):  # P1 : lecture
     """Pointeur de la version actuellement active (ou null si aucune)."""
     return read_active_pointer() or {"activated": False}
 
+
 @router.get("", tags=["Models"])
 def list_models(_: bool = Depends(require_read_api_key)):  # P1 : lecture
     root = api.MODEL_ROOT
@@ -61,10 +62,7 @@ def list_models(_: bool = Depends(require_read_api_key)):  # P1 : lecture
         path = os.path.join(root, name)
 
         if os.path.isdir(path) and os.path.isfile(os.path.join(path, "training_report.json")):
-            items.append({
-                "name": name,
-                "path": os.path.abspath(path)
-            })
+            items.append({"name": name, "path": os.path.abspath(path)})
 
     return items
 
@@ -101,8 +99,7 @@ def get_model_report(name: str, _: bool = Depends(require_read_api_key)):  # P1 
 
     if not os.path.isfile(report_path):
         raise HTTPException(
-            status_code=404,
-            detail=f"Training report not found for model '{name}'."
+            status_code=404, detail=f"Training report not found for model '{name}'."
         )
 
     with open(report_path, encoding="utf-8") as fh:

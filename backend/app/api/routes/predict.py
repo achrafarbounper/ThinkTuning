@@ -78,6 +78,7 @@ def reset_predict_batcher() -> None:
 # /predict
 # ---------------------------
 
+
 class PredictRequest(BaseModel):
     # min_length/max_length sur la liste : refuse [] (qui ferait planter le
     # tokenizer avec une 500) et borne la taille du lot (anti-DoS).
@@ -143,6 +144,7 @@ def predict_route(
 # ---------------------------
 # /predict/batch
 # ---------------------------
+
 
 @router.post("/predict/batch")
 async def predict_batch(
@@ -238,6 +240,7 @@ async def predict_batch(
 # /predict/reload
 # ---------------------------
 
+
 @router.post("/predict/reload")
 def reload_model(_: bool = Depends(require_api_key)):
     reload_predictor()
@@ -264,6 +267,7 @@ def reload_model(_: bool = Depends(require_api_key)):
 # ---------------------------
 # /compare
 # ---------------------------
+
 
 class CompareRequest(BaseModel):
     text_a: str

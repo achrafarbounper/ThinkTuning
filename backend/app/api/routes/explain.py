@@ -57,7 +57,7 @@ def build_explanation_prompt(text: str, sentiment: str, confidence: float) -> st
         "Tu es un expert en analyse de sentiment. Un modèle DistilBERT a "
         "classé le texte ci-dessous et nous devons expliquer son résultat "
         "en langage naturel.\n\n"
-        f"Texte analysé : \"{text}\"\n"
+        f'Texte analysé : "{text}"\n'
         f"Sentiment prédit par le modèle : {sentiment}\n"
         f"Confiance du modèle : {confidence:.2f} (entre 0 et 1)\n\n"
         "Explique clairement pourquoi le modèle a pu arriver à ce verdict : "

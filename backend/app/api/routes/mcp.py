@@ -26,6 +26,7 @@ router = APIRouter(tags=["MCP"])
 def _client_store():
     """Resolve the Mongo-backed MCP client store at call time."""
     from core.mcp_client_store import get_mcp_client_store
+
     return get_mcp_client_store()
 
 

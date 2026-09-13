@@ -19,7 +19,8 @@ router = APIRouter(prefix="/explain", tags=["Explication (v1)"])
 
 @router.post("", response_model=legacy.ExplainResponse)
 def explain(
-    req: legacy.ExplainRequest, _: bool = Depends(require_read_api_key_or_jwt)  # P1 : lecture
+    req: legacy.ExplainRequest,
+    _: bool = Depends(require_read_api_key_or_jwt),  # P1 : lecture
 ):
     """Explique en langage naturel la prédiction d'un texte (via le LLM)."""
     try:

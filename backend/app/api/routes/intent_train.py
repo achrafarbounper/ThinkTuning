@@ -42,15 +42,11 @@ class IntentActivateRequest(BaseModel):
 
     version: str
 
-    model_config = ConfigDict(
-        json_schema_extra={"examples": [{"version": "20260905T120000Z"}]}
-    )
+    model_config = ConfigDict(json_schema_extra={"examples": [{"version": "20260905T120000Z"}]})
 
 
 @router.post("", response_model=TrainJob, status_code=202)
-def start_intent_training(
-    req: IntentTrainRequest, _: bool = Depends(require_api_key)
-):
+def start_intent_training(req: IntentTrainRequest, _: bool = Depends(require_api_key)):
     """Lance l'entraînement du classifieur d'intention.
 
     Réponse 202 avec le job initial (kind="intent") ; suivre avec
@@ -59,9 +55,7 @@ def start_intent_training(
     créer le job.
     """
     if not os.path.isfile(req.dataset_path):
-        raise HTTPException(
-            status_code=422, detail=f"Dataset introuvable : {req.dataset_path}"
-        )
+        raise HTTPException(status_code=422, detail=f"Dataset introuvable : {req.dataset_path}")
     if req.base_model_version:
         try:
             resolve_intent_model_dir(req.base_model_version)
@@ -79,9 +73,7 @@ def start_intent_training(
         # route/runner).
         get_intent_cancel_event(job_id)
 
-    thread = threading.Thread(
-        target=run_intent_training, args=(job_id, req), daemon=True
-    )
+    thread = threading.Thread(target=run_intent_training, args=(job_id, req), daemon=True)
     thread.start()
 
     return job
@@ -98,9 +90,7 @@ def get_intent_training_status(job_id: str, _: bool = Depends(require_api_key)):
 
 
 @router.post("/cancel/{job_id}", response_model=TrainJob)
-def cancel_intent_training_endpoint(
-    job_id: str, _: bool = Depends(require_api_key)
-):
+def cancel_intent_training_endpoint(job_id: str, _: bool = Depends(require_api_key)):
     """Annule un job d'intention (404 si job inconnu)."""
     try:
         return cancel_intent_training(job_id)
@@ -125,9 +115,7 @@ def list_intent_training_jobs(
     """
     store = get_job_store()
     status_value = status.value if status else None
-    items, total = store.list_jobs(
-        status=status_value, kind="intent", limit=limit, offset=offset
-    )
+    items, total = store.list_jobs(status=status_value, kind="intent", limit=limit, offset=offset)
     return JobListResponse(total=total, items=items, limit=limit, offset=offset)
 
 
@@ -149,9 +137,7 @@ def list_versions(_: bool = Depends(require_api_key)):
 
 
 @router.post("/activate")
-def activate_intent_version(
-    req: IntentActivateRequest, _: bool = Depends(require_api_key)
-):
+def activate_intent_version(req: IntentActivateRequest, _: bool = Depends(require_api_key)):
     """Pointe ``active.json`` sur une version d'intention existante (422 sinon).
 
     Le classifieur en mémoire n'est PAS rechargé ici : le store (active.json)

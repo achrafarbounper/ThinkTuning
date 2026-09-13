@@ -61,7 +61,10 @@ def _registration_enabled() -> bool:
     chaud sans redémarrage.
     """
     return os.getenv("AUTH_REGISTRATION_ENABLED", "1").strip().lower() not in {
-        "0", "false", "no", "off",
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 
@@ -71,7 +74,9 @@ class TokenRequest(BaseModel):
     client_id: str = Field(min_length=1, description="Identifiant du service account")
     client_secret: str = Field(min_length=1, description="Secret du service account")
     ttl_seconds: int | None = Field(
-        default=None, ge=60, le=MAX_TOKEN_TTL_SECONDS,
+        default=None,
+        ge=60,
+        le=MAX_TOKEN_TTL_SECONDS,
         description="Durée de vie du jeton (défaut 900 s, plafond 24 h)",
     )
 
@@ -92,15 +97,18 @@ class RegisterRequest(BaseModel):
     """
 
     email: str = Field(
-        min_length=3, max_length=254,
+        min_length=3,
+        max_length=254,
         description="Adresse email — normalisée (minuscules) et utilisée comme identifiant",
     )
     password: str = Field(
-        min_length=8, max_length=128,
+        min_length=8,
+        max_length=128,
         description="Mot de passe (8 à 128 caractères) — hashé, jamais stocké en clair",
     )
     accept_terms: bool = Field(
-        default=False, description="Acceptation obligatoire des CGU (et consentement RGPD)",
+        default=False,
+        description="Acceptation obligatoire des CGU (et consentement RGPD)",
     )
 
 

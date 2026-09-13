@@ -66,9 +66,7 @@ class Container:
         self._instances: dict[str, Any] = {}
         self._bootstrapped = False
 
-    def register(
-        self, key: str, factory: Callable[[], Any], *, singleton: bool = False
-    ) -> None:
+    def register(self, key: str, factory: Callable[[], Any], *, singleton: bool = False) -> None:
         """Enregistre (ou remplace) la factory d'une clé.
 
         ``singleton=True`` met l'instance en cache après la première

@@ -91,6 +91,7 @@ def _label_distribution(labels: list[str]) -> dict:
 def _counts_vector(labels: list[str]) -> np.ndarray:
     return np.array([Counter(labels).get(name, 0) for name in LABEL_NAMES], dtype=float)
 
+
 def _drift_score(labels_a: list[str], labels_b: list[str], method: str) -> dict:
     """Calcule le score de dérive entre deux batches de labels.
 
@@ -192,7 +193,6 @@ async def drift_route(
         if "method" in payload:
             method = str(payload["method"]).lower()
         if not isinstance(texts_a, list) or not isinstance(texts_b, list):
-
             raise HTTPException(
                 status_code=400, detail="texts_a et textes_b doivent être des listes"
             )

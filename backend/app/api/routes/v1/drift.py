@@ -33,8 +33,6 @@ async def drift(
 ):
     """Détecte une dérive de distribution entre deux batches (CSV ou JSON)."""
     try:
-        return await legacy.drift_route(
-            request, file_a, file_b, text_column, True
-        )
+        return await legacy.drift_route(request, file_a, file_b, text_column, True)
     except HTTPException as exc:
         raise convert_legacy_http_error(exc) from exc

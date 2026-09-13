@@ -61,9 +61,7 @@ async def predict_batch(
 ):
     """Prédit un CSV uploadé et renvoie JSON, CSV ou parquet (délégation legacy)."""
     try:
-        return await legacy_predict.predict_batch(
-            file, text_column, response_format, model, True
-        )
+        return await legacy_predict.predict_batch(file, text_column, response_format, model, True)
     except HTTPException as exc:
         raise convert_legacy_http_error(exc) from exc
 

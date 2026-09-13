@@ -7,6 +7,7 @@ import os
 # circulaires : les modules bas niveau (src.*, core.*) lisent ce module
 # au lieu d'importer le package api.
 from src.utils.flags import TEST_MODE
+
 API_KEY = os.getenv("API_KEY", "dev-local-api-key")
 
 # === Expose FastAPI app ===
@@ -17,6 +18,7 @@ from core.models import JobStatus, TrainJob, TrainRequest, ModelVersion, JobList
 
 # === Expose job store ===
 from core.job_store import get_job_store, PersistentJobStore, cleanup_old_jobs
+
 _jobs = get_job_store()
 
 # === Expose training runner ===
@@ -41,6 +43,7 @@ from app.api.middlewares.rate_limit import (
     RATE_LIMIT_PER_MINUTE,
     _reset_rate_limit_buckets,
 )
+
 RATE_LIMIT_ENABLED = RATE_LIMIT_PER_MINUTE > 0
 
 # === Expose maintenance mode ===

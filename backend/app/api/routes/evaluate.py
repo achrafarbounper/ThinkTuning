@@ -40,12 +40,14 @@ def _predict(predictor, texts):
                 status_code=500,
                 detail=f"Label de prédiction inconnu : {name!r}",
             )
-        out.append({
-            "text": str(texts[idx]),
-            "pred_id": label_id,
-            "pred_label": name,
-            "confidence": float(res.get("confidence", 0.0)),
-        })
+        out.append(
+            {
+                "text": str(texts[idx]),
+                "pred_id": label_id,
+                "pred_label": name,
+                "confidence": float(res.get("confidence", 0.0)),
+            }
+        )
     return out
 
 
@@ -62,11 +64,13 @@ def _confusion_pairs(matrix):
                 continue
             count = int(matrix[true_idx, pred_idx])
             if count > 0:
-                pairs.append({
-                    "true_label": name,
-                    "pred_label": pred_name,
-                    "count": count,
-                })
+                pairs.append(
+                    {
+                        "true_label": name,
+                        "pred_label": pred_name,
+                        "count": count,
+                    }
+                )
     pairs.sort(key=lambda p: p["count"], reverse=True)
     return pairs
 
@@ -131,23 +135,27 @@ def confusion_route(
     for idx, name in enumerate(LABEL_NAMES):
         row_total = sum(1 for lab in labels if lab == idx)
         tp = int(matrix[idx, idx])
-        errors_by_class.append({
-            "label": name,
-            "total": row_total,
-            "correct": tp,
-            "errors": row_total - tp,
-        })
+        errors_by_class.append(
+            {
+                "label": name,
+                "total": row_total,
+                "correct": tp,
+                "errors": row_total - tp,
+            }
+        )
 
     # Exemples mal classés (journal des erreurs), limités à max_mistakes.
     mistakes = []
     for true_label, p in zip(labels, predictions, strict=True):
         if true_label != p["pred_id"]:
-            mistakes.append({
-                "text": p["text"],
-                "true_label": LABEL_NAMES[true_label],
-                "pred_label": p["pred_label"],
-                "confidence": p["confidence"],
-            })
+            mistakes.append(
+                {
+                    "text": p["text"],
+                    "true_label": LABEL_NAMES[true_label],
+                    "pred_label": p["pred_label"],
+                    "confidence": p["confidence"],
+                }
+            )
             if len(mistakes) >= max_mistakes:
                 break
 

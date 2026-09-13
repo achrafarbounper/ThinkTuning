@@ -63,9 +63,9 @@ def _resolve_classifier(name: str):
 
 
 class ClassifierPredictRequest(BaseModel):
-    texts: list[
-        Annotated[str, StringConstraints(max_length=MAX_CLASSIFIER_TEXT_CHARS)]
-    ] = Field(min_length=1, max_length=MAX_CLASSIFIER_TEXTS)
+    texts: list[Annotated[str, StringConstraints(max_length=MAX_CLASSIFIER_TEXT_CHARS)]] = Field(
+        min_length=1, max_length=MAX_CLASSIFIER_TEXTS
+    )
 
 
 class ClassifierPrediction(BaseModel):

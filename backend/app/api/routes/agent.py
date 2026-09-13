@@ -126,6 +126,8 @@ def _flag(name: str) -> bool:
 def _active_features() -> list[str]:
     """Liste ordonnée des flags activés (compatibilité avec l'ancien ``active_features()``)."""
     return [name for name, active in get_agent_config().active_flags().items() if active]
+
+
 from core.flow_store import (
     AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
 )
@@ -173,9 +175,7 @@ from ia.tools.tool_schema import validate_tool_definition  # SCRUM-99 (standard 
 DEPRECATION_SUNSET = "Sat, 31 Dec 2026 23:59:59 GMT"
 
 #: Notice courte injectée dans l'en-tête ``Warning: 299`` des réponses.
-DEPRECATION_WARNING = (
-    "Surface HTTP /api/agent deprecated : mutations via MCP (POST /mcp/sse)"
-)
+DEPRECATION_WARNING = "Surface HTTP /api/agent deprecated : mutations via MCP (POST /mcp/sse)"
 
 #: Notice complète émise en :class:`DeprecationWarning` à l'import du module.
 DEPRECATION_NOTICE = (
@@ -268,6 +268,7 @@ def _audit_log(action: str, subject: str = "", detail: dict | None = None, **kw)
 
 # --- Schémas Pydantic -------------------------------------------------------------
 
+
 class AskRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="Instruction envoyée à l'agent.")
     resume_request_id: str | None = Field(
@@ -281,13 +282,15 @@ class AskRequest(BaseModel):
         "l'échange ; absent : aucune persistance côté serveur.",
     )
     model: str | None = Field(
-        None, max_length=100,
+        None,
+        max_length=100,
         description="Modèle LLM ; absent/vide = défaut serveur "
         "(parité AskStreamRequest — le sélecteur du chat était auparavant "
         "ignoré sur ce chemin).",
     )
     enable_thinking: bool = Field(
-        False, description="Mode « Réflexion » (parité AskStreamRequest).",
+        False,
+        description="Mode « Réflexion » (parité AskStreamRequest).",
     )
 
 
@@ -315,8 +318,9 @@ class MultiAskRequest(BaseModel):
         None, max_length=100, description="Modèle LLM ; absent/vide = défaut serveur."
     )
     parallel: bool = Field(
-        True, description="Exécution parallèle des sous-tâches INDÉPENDANTES "
-        "(défaut : activé — les dépendances déclarées restent séquentielles)."
+        True,
+        description="Exécution parallèle des sous-tâches INDÉPENDANTES "
+        "(défaut : activé — les dépendances déclarées restent séquentielles).",
     )
     resume_request_id: str | None = Field(
         None,
@@ -401,16 +405,18 @@ class CustomToolCreateRequest(BaseModel):
     """
 
     definition: dict[str, Any] = Field(
-        ..., description="Définition thinktuning.tool/v1 complète du tool.",
+        ...,
+        description="Définition thinktuning.tool/v1 complète du tool.",
     )
     code: str = Field(
-        ..., min_length=1,
-        description="Implémentation Python : doit définir une fonction du "
-        "même nom que le tool.",
+        ...,
+        min_length=1,
+        description="Implémentation Python : doit définir une fonction du même nom que le tool.",
     )
     owner: str = Field("api", max_length=120, description="Société/origine du tool.")
     overwrite: bool = Field(
-        False, description="Remplace un tool DYNAMIQUE existant (jamais un natif).",
+        False,
+        description="Remplace un tool DYNAMIQUE existant (jamais un natif).",
     )
     allow_auto_approval: bool = Field(
         False,
@@ -460,9 +466,7 @@ class AgentSettingsUpdate(BaseModel):
     train_warmup_ratio: float | None = Field(None, ge=0, le=1)
     train_device: str | None = Field(None, pattern="^(auto|cpu|cuda)$")
     # Déplacés de app/config/settings.py (SCRUM-138) : budgets & garde-fous.
-    max_llm_rounds: int | None = Field(
-        None, ge=1, le=50, description="Rounds LLM max par run."
-    )
+    max_llm_rounds: int | None = Field(None, ge=1, le=50, description="Rounds LLM max par run.")
     max_tool_calls: int | None = Field(
         None, ge=1, le=200, description="Appels d'outils max par run."
     )
@@ -513,6 +517,7 @@ class ConnectivityTestRequest(BaseModel):
 
 
 # --- Endpoints ----------------------------------------------------------------------
+
 
 @router.get("/status")
 def agent_status():
@@ -606,28 +611,32 @@ def list_custom_tools(_: bool = Depends(require_api_key)):
     """Liste les tools DYNAMIQUES enregistrés (état runtime inclus)."""
     if not _flag("custom_tools"):
         raise HTTPException(
-            status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
+            status_code=404,
+            detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
     registry = get_global_registry()
     tools = []
     for rt in registry.list_registered(dynamic_only=True):
-        tools.append({
-            "name": rt.name,
-            "definition": rt.definition,
-            "approval": rt.approval,
-            "enabled": rt.enabled,
-            "experimental": rt.experimental,
-            "owner": rt.owner,
-            "registered_at": rt.registered_at,
-            "source_file": rt.source_file,
-        })
+        tools.append(
+            {
+                "name": rt.name,
+                "definition": rt.definition,
+                "approval": rt.approval,
+                "enabled": rt.enabled,
+                "experimental": rt.experimental,
+                "owner": rt.owner,
+                "registered_at": rt.registered_at,
+                "source_file": rt.source_file,
+            }
+        )
     return {"tools": tools, "max_dynamic_tools": registry.max_dynamic_tools}
 
 
 @router.post("/tools/custom", status_code=201)
 @writable_endpoint
 def create_custom_tool(
-    request: CustomToolCreateRequest, _: bool = Depends(require_api_key),
+    request: CustomToolCreateRequest,
+    _: bool = Depends(require_api_key),
 ):
     """Enregistre un tool personnalisé (décision HUMAINE — fail-closed).
 
@@ -640,7 +649,8 @@ def create_custom_tool(
     """
     if not _flag("custom_tools"):
         raise HTTPException(
-            status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
+            status_code=404,
+            detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
     definition = request.definition
     ok, errors = validate_tool_definition(definition)
@@ -660,8 +670,7 @@ def create_custom_tool(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Le tool dynamique « {name} » existe déjà "
-                "(overwrite=true pour le remplacer)."
+                f"Le tool dynamique « {name} » existe déjà (overwrite=true pour le remplacer)."
             ),
         )
 
@@ -671,13 +680,15 @@ def create_custom_tool(
     namespace: dict[str, Any] = {"__name__": f"custom_tool_{name}"}
     try:
         exec(  # noqa: S102 — see trust note above
-            compile(request.code, f"<custom-tool:{name}>", "exec"), namespace,
+            compile(request.code, f"<custom-tool:{name}>", "exec"),
+            namespace,
         )
     except SyntaxError as exc:
         raise HTTPException(status_code=422, detail=f"Code invalide (syntaxe) : {exc}") from exc
     except Exception as exc:
         raise HTTPException(
-            status_code=422, detail=f"Code invalide (erreur au chargement) : {exc}",
+            status_code=422,
+            detail=f"Code invalide (erreur au chargement) : {exc}",
         ) from exc
     func = namespace.get(name)
     if not callable(func):
@@ -698,7 +709,8 @@ def create_custom_tool(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     _audit_log(
-        ACT_TOOL, subject=f"custom_tool:{name}",
+        ACT_TOOL,
+        subject=f"custom_tool:{name}",
         detail={
             "action": "register",
             "owner": registered.owner,
@@ -708,9 +720,12 @@ def create_custom_tool(
     )
     try:
         from ia.agent.event_bus import emit as _emit
+
         _emit(
             ENV_TOOL_REGISTERED,
-            name=name, owner=registered.owner, approval=registered.approval,
+            name=name,
+            owner=registered.owner,
+            approval=registered.approval,
         )
     except Exception:  # noqa: BLE001 — l'événement ne doit jamais casser l'API
         pass
@@ -730,7 +745,8 @@ def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
     """Retire un tool DYNAMIQUE (les tools natifs ne sont jamais retirables)."""
     if not _flag("custom_tools"):
         raise HTTPException(
-            status_code=404, detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
+            status_code=404,
+            detail="Fonction désactivée (AGENT_CUSTOM_TOOLS_API)",
         )
     registry = get_global_registry()
     if not registry.has_tool(name):
@@ -745,10 +761,13 @@ def delete_custom_tool(name: str, _: bool = Depends(require_api_key)):
     except ToolRegistryError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit_log(
-        ACT_TOOL, subject=f"custom_tool:{name}", detail={"action": "unregister"},
+        ACT_TOOL,
+        subject=f"custom_tool:{name}",
+        detail={"action": "unregister"},
     )
     try:
         from ia.agent.event_bus import emit as _emit
+
         _emit(ENV_TOOL_REMOVED, name=name)
     except Exception:  # noqa: BLE001
         pass
@@ -768,6 +787,7 @@ def tool_stats(reset: bool = False, _: bool = Depends(require_api_key)):
 
 
 # --- Copilot : suggestions & apprentissage (Phase D, flag AGENT_COPILOT) ------
+
 
 class SuggestRequest(BaseModel):
     """Requête de suggestions « Copilot » : contexte de conversation + brouillon."""
@@ -923,10 +943,10 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     # champ ``model`` d'AskStreamRequest) sinon défaut de la config serveur.
     effective_model = request.model or agent_config()["model"]
     run_store = get_run_store()
-    run_row = run_store.start_run(request.prompt, model=effective_model,
-                                  source="ask_core_stream")
-    _audit_log(ACT_RUN, subject="ask_core_stream",
-               detail={"status": "started"}, run_id=run_row["id"])
+    run_row = run_store.start_run(request.prompt, model=effective_model, source="ask_core_stream")
+    _audit_log(
+        ACT_RUN, subject="ask_core_stream", detail={"status": "started"}, run_id=run_row["id"]
+    )
 
     # --- Persistance « Agent Flow Map » ---------------------------------------
     # Même convention que /multi/ask/stream : chaque run du noyau v2 crée une
@@ -973,12 +993,14 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
     def _on_bus_tool_start(*, tool, args=None, **_event) -> None:
         _push_tool({"event": "tool_start", "tool": tool, "args": args or {}})
 
-    def _on_bus_tool_end(*, tool, status, summary="", error="",
-                         duration_ms=None, **_event) -> None:
-        payload = {"event": "tool_result", "tool": tool,
-                   "status": status, "duration_ms": duration_ms}
-        payload["summary" if status == "ok" else "error"] = (
-            summary if status == "ok" else error)
+    def _on_bus_tool_end(*, tool, status, summary="", error="", duration_ms=None, **_event) -> None:
+        payload = {
+            "event": "tool_result",
+            "tool": tool,
+            "status": status,
+            "duration_ms": duration_ms,
+        }
+        payload["summary" if status == "ok" else "error"] = summary if status == "ok" else error
         _push_tool(payload)
 
     def _on_bus_thinking(*, chunk, **_event) -> None:
@@ -1002,8 +1024,7 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
             )
             history = _load_session_history(request.session_id, request.resume_request_id)
             result = core.run(
-                Intent(prompt=request.prompt,
-                       session_id=request.session_id or "default"),
+                Intent(prompt=request.prompt, session_id=request.session_id or "default"),
                 history=history,
             )
 
@@ -1012,55 +1033,68 @@ def ask_core_stream(request: AskStreamRequest, _: bool = Depends(require_api_key
             approval_payload = None
             if result.status is RunStatus.PENDING_APPROVAL and result.awaiting_action:
                 action = result.awaiting_action
-                approval_payload = create_approval_request(
-                    approval_store, action, request.prompt
-                )
+                approval_payload = create_approval_request(approval_store, action, request.prompt)
                 _audit_log(
-                    ACT_APPROVAL, subject="ask_core_stream",
-                    detail={"request_id": approval_payload["request_id"],
-                            "tool": action.tool},
+                    ACT_APPROVAL,
+                    subject="ask_core_stream",
+                    detail={"request_id": approval_payload["request_id"], "tool": action.tool},
                     run_id=run_row["id"],
                 )
-                _flow_record("core.approval", {
-                    "role": "noyau",
-                    "request_id": approval_payload["request_id"],
-                    "tool": action.tool,
-                    "message": "Policy : validation humaine requise",
-                })
+                _flow_record(
+                    "core.approval",
+                    {
+                        "role": "noyau",
+                        "request_id": approval_payload["request_id"],
+                        "tool": action.tool,
+                        "message": "Policy : validation humaine requise",
+                    },
+                )
 
             api_status = core_api_status(result.status)
             run_store.finish_run(
-                run_row["id"], core_store_status(result.status),
+                run_row["id"],
+                core_store_status(result.status),
                 answer_summary=(result.answer or "")[:300],
             )
             _audit_log(
-                ACT_RUN, subject="ask_core_stream",
-                detail={"status": api_status,
-                        "actions": len(result.actions),
-                        "rounds": result.rounds_used,
-                        "tool_calls": result.tool_calls_used},
+                ACT_RUN,
+                subject="ask_core_stream",
+                detail={
+                    "status": api_status,
+                    "actions": len(result.actions),
+                    "rounds": result.rounds_used,
+                    "tool_calls": result.tool_calls_used,
+                },
                 run_id=run_row["id"],
             )
             if api_status != "error":
-                _persist_exchange(request.session_id, request.prompt,
-                                  result.answer or "",
-                                  tool_events=(tool_events
-                                               or _core_tool_events(result))
-                                  or None,
-                                  thinking=result.thinking or "")
+                _persist_exchange(
+                    request.session_id,
+                    request.prompt,
+                    result.answer or "",
+                    tool_events=(tool_events or _core_tool_events(result)) or None,
+                    thinking=result.thinking or "",
+                )
 
             # Rejoue la réponse finale mot à mot (convention /ask/stream).
             for word in _stream_fragments(result.answer or ""):
                 events.put(("delta", word))
                 time.sleep(ANSWER_STREAM_CADENCE_SECONDS)
 
-            events.put(("final", {
-                "response": result.answer or "",
-                "model": effective_model,
-                "status": api_status,
-                "request_id": approval_payload["request_id"] if approval_payload else run_row["id"],
-                "approval": approval_payload,
-            }))
+            events.put(
+                (
+                    "final",
+                    {
+                        "response": result.answer or "",
+                        "model": effective_model,
+                        "status": api_status,
+                        "request_id": approval_payload["request_id"]
+                        if approval_payload
+                        else run_row["id"],
+                        "approval": approval_payload,
+                    },
+                )
+            )
 
             # Clôture de la session de flux (mapping statut run -> statut flux).
             _flow_record("core.done", {"answer": result.answer or "", "status": api_status})
@@ -1217,18 +1251,14 @@ def _persist_exchange(
 ) -> None:
     """Délègue au use-case de mémoire conversationnelle
     (app/application/session_memory.persist_exchange)."""
-    persist_exchange(
-        session_id, prompt, answer, tool_events=tool_events, thinking=thinking
-    )
+    persist_exchange(session_id, prompt, answer, tool_events=tool_events, thinking=thinking)
 
 
 # --- Approbation humaine (approve / reject) -----------------------------------------
 
 
 @router.get("/approvals")
-def list_approvals(
-    status: str | None = None, _: bool = Depends(require_api_key)
-):
+def list_approvals(status: str | None = None, _: bool = Depends(require_api_key)):
     """Liste des demandes d'approbation (toutes ou filtrées par statut)."""
     if status is not None and status not in STATUSES:
         raise HTTPException(
@@ -1376,9 +1406,7 @@ def read_agent_settings(_: bool = Depends(require_api_key)):
 
 @router.put("/settings")
 @writable_endpoint
-def update_agent_settings(
-    update: AgentSettingsUpdate, _: bool = Depends(require_api_key)
-):
+def update_agent_settings(update: AgentSettingsUpdate, _: bool = Depends(require_api_key)):
     """Sauvegarde partielle des paramètres puis rechargement immédiat de l'agent."""
     values = update.model_dump(exclude_none=True)
     port = build_settings_port()
@@ -1437,26 +1465,20 @@ def _settings_payload_from(effective, port):
 
 @router.post("/settings/test")
 @writable_endpoint
-def test_agent_connectivity(
-    request: ConnectivityTestRequest, _: bool = Depends(require_api_key)
-):
+def test_agent_connectivity(request: ConnectivityTestRequest, _: bool = Depends(require_api_key)):
     """Sonde le provider demandé (valeurs fournies ou config effective).
 
     Retourne ``{"ok": bool, "detail": str}`` — aucune exception n'est levée :
     le résultat d'échec est un corps 200 que l'UI affiche comme tel.
     """
     cfg = agent_config()
-    provider = (
-        (request.provider or "").strip().lower() or cfg["provider"]
-    )
+    provider = (request.provider or "").strip().lower() or cfg["provider"]
     if provider == "openrouter":
         url = (request.openrouter_url or "").strip() or cfg["openrouter_url"]
         chat_url = _openrouter_chat_url(url)
         base = chat_url[: -len("/chat/completions")].rstrip("/")
         probe_url = f"{base}/models"
-        api_key = (
-            request.openrouter_api_key or cfg["openrouter_api_key"] or ""
-        ).strip()
+        api_key = (request.openrouter_api_key or cfg["openrouter_api_key"] or "").strip()
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         success_detail = f"OpenRouter joignable sur {probe_url}"
         hint = ""
@@ -1465,9 +1487,7 @@ def test_agent_connectivity(
         chat_url = _hf_chat_url(url)
         base = chat_url[: -len("/chat/completions")].rstrip("/")
         probe_url = f"{base}/models"
-        api_key = (
-            request.hf_api_key or cfg["hf_api_key"] or ""
-        ).strip()
+        api_key = (request.hf_api_key or cfg["hf_api_key"] or "").strip()
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         success_detail = f"Hugging Face joignable sur {probe_url}"
         hint = ""
@@ -1478,10 +1498,7 @@ def test_agent_connectivity(
         probe_url = f"{base}/models"
         headers = None  # serveur local : aucune authentification
         success_detail = f"LM Studio joignable sur {probe_url}"
-        hint = (
-            " Vérifiez que le serveur LM Studio tourne"
-            " (Developer > Local Server)."
-        )
+        hint = " Vérifiez que le serveur LM Studio tourne (Developer > Local Server)."
     else:
         base_url = (request.ollama_url or "").strip() or cfg["ollama_url"]
         marker = base_url.find("/api/")
@@ -1492,9 +1509,7 @@ def test_agent_connectivity(
         hint = " Vérifiez qu'Ollama tourne."
 
     try:
-        response = requests.get(
-            probe_url, headers=headers, timeout=CONNECTIVITY_TIMEOUT_SECONDS
-        )
+        response = requests.get(probe_url, headers=headers, timeout=CONNECTIVITY_TIMEOUT_SECONDS)
         response.raise_for_status()
         response.json()
     except requests.exceptions.Timeout:
@@ -1545,17 +1560,29 @@ def list_audit(
             detail="Journal d'audit désactivé (flag AGENT_AUDIT inactif).",
         )
     return get_audit_store().query(
-        action=action, subject=subject, actor=actor, run_id=run_id,
-        limit=limit, offset=offset,
+        action=action,
+        subject=subject,
+        actor=actor,
+        run_id=run_id,
+        limit=limit,
+        offset=offset,
     )
 
 
 @router.get("/features")
 def agent_features(_: bool = Depends(require_api_key)):
     """État des flags d'enhancement (rollout incrémental)."""
-    flags = {name: _flag(name) for name in (
-        "reliability", "audit", "tool_analytics", "context", "copilot", "websocket",
-    )}
+    flags = {
+        name: _flag(name)
+        for name in (
+            "reliability",
+            "audit",
+            "tool_analytics",
+            "context",
+            "copilot",
+            "websocket",
+        )
+    }
     return {"features": flags, "active": _active_features()}
 
 
@@ -1600,10 +1627,12 @@ async def agent_ws(websocket: WebSocket):
                 if not isinstance(msg, dict):
                     raise ValueError("objet attendu")
             except ValueError:
-                await websocket.send_json({
-                    "event": "error",
-                    "detail": "Message JSON objet attendu.",
-                })
+                await websocket.send_json(
+                    {
+                        "event": "error",
+                        "detail": "Message JSON objet attendu.",
+                    }
+                )
                 continue
             action = str(msg.get("action", "")).lower()
             if action == "ping":
@@ -1613,10 +1642,12 @@ async def agent_ws(websocket: WebSocket):
             elif action == "ask":
                 await _ws_run_agent(websocket, msg)
             else:
-                await websocket.send_json({
-                    "event": "error",
-                    "detail": f"Action inconnue : {action or '(absente)'}",
-                })
+                await websocket.send_json(
+                    {
+                        "event": "error",
+                        "detail": f"Action inconnue : {action or '(absente)'}",
+                    }
+                )
     except WebSocketDisconnect:
         return
 
@@ -1627,10 +1658,12 @@ async def _ws_handle_approval(websocket: WebSocket, msg: dict, action: str) -> N
     store = get_approval_store()
     row = store.approve(request_id) if action == "approve" else store.reject(request_id)
     if row is None:
-        await websocket.send_json({
-            "event": "error",
-            "detail": f"Demande introuvable : {request_id}",
-        })
+        await websocket.send_json(
+            {
+                "event": "error",
+                "detail": f"Demande introuvable : {request_id}",
+            }
+        )
         return
     _audit_log(
         ACT_APPROVAL,
@@ -1641,11 +1674,13 @@ async def _ws_handle_approval(websocket: WebSocket, msg: dict, action: str) -> N
             "channel": "ws",
         },
     )
-    await websocket.send_json({
-        "event": "approval_done",
-        "decision": "approved" if action == "approve" else "rejected",
-        "approval": row,
-    })
+    await websocket.send_json(
+        {
+            "event": "approval_done",
+            "decision": "approved" if action == "approve" else "rejected",
+            "approval": row,
+        }
+    )
 
 
 async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
@@ -1656,10 +1691,12 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
     """
     prompt = str(msg.get("prompt") or "").strip()
     if not prompt:
-        await websocket.send_json({
-            "event": "error",
-            "detail": "'prompt' requis pour l'action 'ask'.",
-        })
+        await websocket.send_json(
+            {
+                "event": "error",
+                "detail": "'prompt' requis pour l'action 'ask'.",
+            }
+        )
         return
     enable_thinking = bool(msg.get("enable_thinking"))
     resume_request_id = msg.get("resume_request_id") or None
@@ -1669,9 +1706,11 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
     # Noyau v2 par défaut (bascule en production) : le flux WS legacy est
     # décommissionné ; les événements viennent du bus par-run du noyau.
     worker = _ws_core_worker(
-        prompt=prompt, session_id=session_id,
+        prompt=prompt,
+        session_id=session_id,
         resume_request_id=resume_request_id,
-        enable_thinking=enable_thinking, model=model,
+        enable_thinking=enable_thinking,
+        model=model,
     )
     # `worker` est (events_queue, thread) déjà lancé par la fabrique.
     events, _thread = worker
@@ -1682,8 +1721,8 @@ async def _ws_run_agent(websocket: WebSocket, msg: dict) -> None:
             break
         await websocket.send_json(item[1])
 
-def _ws_core_worker(*, prompt, session_id, resume_request_id,
-                    enable_thinking, model):
+
+def _ws_core_worker(*, prompt, session_id, resume_request_id, enable_thinking, model):
     """Worker WebSocket du noyau v2 — événements publiés sur un bus par-run.
 
     Le noyau ``AgentCore`` publie son cycle de vie sur un ``InMemoryEventBus``
@@ -1695,9 +1734,7 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
     events = queue.Queue()
     run_store = get_run_store()
     effective_model = model or agent_config()["model"]
-    run_row = run_store.start_run(
-        prompt, model=effective_model, source="ws"
-    )
+    run_row = run_store.start_run(prompt, model=effective_model, source="ws")
     tool_events: list[dict] = []
     bus = InMemoryEventBus()
 
@@ -1713,12 +1750,14 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
         except Exception:  # pragma: no cover - le journal ne doit jamais bloquer
             pass
 
-    def on_tool_end(*, tool, status, summary="", error="",
-                    duration_ms=None, **_event) -> None:
-        payload = {"event": "tool_result", "tool": tool,
-                   "status": status, "duration_ms": duration_ms}
-        payload["summary" if status == "ok" else "error"] = (
-            summary if status == "ok" else error)
+    def on_tool_end(*, tool, status, summary="", error="", duration_ms=None, **_event) -> None:
+        payload = {
+            "event": "tool_result",
+            "tool": tool,
+            "status": status,
+            "duration_ms": duration_ms,
+        }
+        payload["summary" if status == "ok" else "error"] = summary if status == "ok" else error
         events.put(("tool", payload))
         tool_events.append(payload)
         try:
@@ -1740,10 +1779,7 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
                 event_bus=bus,
                 model=model or None,
             )
-            result = core.run(
-                Intent(prompt=prompt,
-                       session_id=session_id or "default")
-            )
+            result = core.run(Intent(prompt=prompt, session_id=session_id or "default"))
             answer = result.answer or ""
             for word in _stream_fragments(answer):
                 events.put(("delta", {"event": "delta", "text": word}))
@@ -1753,48 +1789,54 @@ def _ws_core_worker(*, prompt, session_id, resume_request_id,
                 answer_summary=answer[:300],
             )
             _persist_exchange(
-                session_id, prompt, answer,
+                session_id,
+                prompt,
+                answer,
                 tool_events=tool_events or core_tool_events(result),
                 thinking=result.thinking or "",
             )
-            events.put((
-                "final",
-                {
-                    "event": "final",
-                    "response": answer,
-                    "model": effective_model,
-                    "status": core_api_status(result.status),
-                    "request_id": None,
-                },
-            ))
+            events.put(
+                (
+                    "final",
+                    {
+                        "event": "final",
+                        "response": answer,
+                        "model": effective_model,
+                        "status": core_api_status(result.status),
+                        "request_id": None,
+                    },
+                )
+            )
         except Exception as exc:  # pragma: no cover - défensif
             try:
                 run_store.finish_run(run_row["id"], RUN_ERROR, error=str(exc))
             except Exception:
                 pass
-            events.put((
-                "final",
-                {
-                    "event": "final",
-                    "response": "",
-                    "status": "error",
-                    "detail": f"{type(exc).__name__}: {exc}",
-                },
-            ))
+            events.put(
+                (
+                    "final",
+                    {
+                        "event": "final",
+                        "response": "",
+                        "status": "error",
+                        "detail": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+            )
         finally:
             events.put(None)
 
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
     return events, thread
+
+
 # --- Orchestration multi-agents (superviseur / workers) --------------------
 
 
 @router.post("/multi/ask")
 @writable_endpoint
-def multi_ask(
-    request: MultiAskRequest, _: bool = Depends(require_api_key)
-):
+def multi_ask(request: MultiAskRequest, _: bool = Depends(require_api_key)):
     """Orchestration multi-agents (mode bloquant).
 
     Exécute plan → dispatch → synthèse via le superviseur et renvoie le
@@ -1817,9 +1859,7 @@ def multi_ask(
 
 @router.post("/multi/ask/stream")
 @writable_endpoint
-def multi_ask_stream(
-    request: MultiAskRequest, _: bool = Depends(require_api_key)
-):
+def multi_ask_stream(request: MultiAskRequest, _: bool = Depends(require_api_key)):
     """Orchestration multi-agents en streaming SSE.
 
     Événements SSE (``event:`` + ``data:``) :
@@ -1898,9 +1938,7 @@ def multi_ask_stream(
             # sous-tâche attend une validation (invariant vérifié sur workers).
             api_status = (result or {}).get("status")
             workers = (result or {}).get("workers") or []
-            workers_awaiting = any(
-                w.get("status") == "awaiting_approval" for w in workers
-            )
+            workers_awaiting = any(w.get("status") == "awaiting_approval" for w in workers)
             if flow_errored["v"] or api_status == "error":
                 get_flow_store().finish_flow(
                     flow_record["id"],
@@ -1971,6 +2009,7 @@ def multi_ask_stream(
             "X-Accel-Buffering": "no",  # désactive le buffering nginx
         },
     )
+
 
 # --- Journal « Agent Flow Map » (sessions multi-agents persistées) -------------------
 

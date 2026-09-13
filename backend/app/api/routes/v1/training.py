@@ -126,9 +126,7 @@ def list_training_jobs_endpoint(
 ) -> JobListResponse:
     """Liste paginée et filtrée des jobs (tri ``started_at DESC``)."""
     status_value = status.value if status else None
-    return list_training_jobs(
-        status=status_value, limit=limit, offset=offset, jobs=jobs
-    )
+    return list_training_jobs(status=status_value, limit=limit, offset=offset, jobs=jobs)
 
 
 @router.post("/train/schedule", response_model=ScheduledJob, status_code=202)

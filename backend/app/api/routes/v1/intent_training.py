@@ -60,9 +60,7 @@ class IntentActivateRequest(BaseModel):
 
     version: str
 
-    model_config = ConfigDict(
-        json_schema_extra={"examples": [{"version": "20260905T120000Z"}]}
-    )
+    model_config = ConfigDict(json_schema_extra={"examples": [{"version": "20260905T120000Z"}]})
 
 
 @router.post("/train/intent", response_model=TrainJob, status_code=202)
@@ -108,9 +106,7 @@ def list_intent_training_jobs_endpoint(
 ) -> JobListResponse:
     """Liste paginée des jobs d'intention UNIQUEMENT (filtre kind="intent")."""
     status_value = status.value if status else None
-    return list_intent_training_jobs(
-        status=status_value, limit=limit, offset=offset, jobs=jobs
-    )
+    return list_intent_training_jobs(status=status_value, limit=limit, offset=offset, jobs=jobs)
 
 
 @router.get("/train/intent/versions")

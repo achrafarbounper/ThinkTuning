@@ -53,9 +53,7 @@ def _run_startup_model_sanity() -> None:
         # Aucun modèle disponible au démarrage (ex. premier lancement Docker)
         # ou échec du check : non bloquant, l'état reste visible via
         # GET /health/model-sanity.
-        _logger.warning(
-            "Sanity check modèle au démarrage indisponible : %s", exc
-        )
+        _logger.warning("Sanity check modèle au démarrage indisponible : %s", exc)
 
 
 def _run_startup_classifier_warmup() -> None:
@@ -73,9 +71,7 @@ def _run_startup_classifier_warmup() -> None:
         from core.model_warmup import get_warmup
         from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
 
-        classifier = get_registry().get_or_create(
-            SentimentClassifier.name, SentimentClassifier
-        )
+        classifier = get_registry().get_or_create(SentimentClassifier.name, SentimentClassifier)
         get_warmup().warm_in_background(classifier)
     except Exception as exc:  # pragma: no cover - défensif
         _logger.warning("Warmup classifieur au démarrage impossible : %s", exc)
@@ -141,6 +137,7 @@ def _cors_allowed_origins() -> list[str]:
         "http://127.0.0.1:3000",
     ]
 
+
 def _cors_allow_origin_regex() -> str | None:
     """Regex d'origines CORS additionnelles (optionnelle).
 
@@ -154,7 +151,6 @@ def _cors_allow_origin_regex() -> str | None:
     """
     raw = os.getenv("CORS_ALLOW_ORIGIN_REGEX", "").strip()
     return raw or None
-
 
 
 app = FastAPI(
@@ -226,4 +222,3 @@ app.include_router(v1_router, prefix="/api/v1")
 from app.infrastructure.mcp.mcp_server_sse import router as mcp_router  # noqa: E402
 
 app.include_router(mcp_router)
-
