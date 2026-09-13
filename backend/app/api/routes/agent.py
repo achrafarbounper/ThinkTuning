@@ -61,15 +61,16 @@ from pydantic import BaseModel, Field
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
 from app.agent.factory import build_agent_core, new_core_enabled
-from app.agent.settings import agent_flag, get_agent_config
+from app.agent.settings import (
+    DEFAULT_HF_URL,
+    DEFAULT_LM_STUDIO_URL,
+    DEFAULT_OPENROUTER_URL,
+    agent_flag,
+    get_agent_config,
+    normalize_chat_url,
+)
 from app.api.dependencies.auth import require_api_key, ws_is_authorized
 from app.application.agent_cache import (
-    REQUIRED_ARGS,
-    TOOL_META,
-    TOOLS,
-    _hf_chat_url,
-    _lm_studio_chat_url,
-    _openrouter_chat_url,
     agent_config,
     reload_agent_runner,
 )
@@ -109,6 +110,11 @@ from app.infrastructure.persistence.audit_store import (  # Phase A (audit / con
     ACT_RUN,
     ACT_TOOL,
     get_audit_store,
+)
+from app.infrastructure.tools.tool_registry import (
+    REQUIRED_ARGS,
+    TOOL_META,
+    TOOLS,
 )
 
 
@@ -1476,7 +1482,7 @@ def test_agent_connectivity(request: ConnectivityTestRequest, _: bool = Depends(
     provider = (request.provider or "").strip().lower() or cfg["provider"]
     if provider == "openrouter":
         url = (request.openrouter_url or "").strip() or cfg["openrouter_url"]
-        chat_url = _openrouter_chat_url(url)
+        chat_url = normalize_chat_url(url, default=DEFAULT_OPENROUTER_URL)
         base = chat_url[: -len("/chat/completions")].rstrip("/")
         probe_url = f"{base}/models"
         api_key = (request.openrouter_api_key or cfg["openrouter_api_key"] or "").strip()
@@ -1485,7 +1491,7 @@ def test_agent_connectivity(request: ConnectivityTestRequest, _: bool = Depends(
         hint = ""
     elif provider == "hf":
         url = (request.hf_url or "").strip() or cfg["hf_url"]
-        chat_url = _hf_chat_url(url)
+        chat_url = normalize_chat_url(url, default=DEFAULT_HF_URL)
         base = chat_url[: -len("/chat/completions")].rstrip("/")
         probe_url = f"{base}/models"
         api_key = (request.hf_api_key or cfg["hf_api_key"] or "").strip()
@@ -1494,7 +1500,7 @@ def test_agent_connectivity(request: ConnectivityTestRequest, _: bool = Depends(
         hint = ""
     elif provider == "lm_studio":
         url = (request.lm_studio_url or "").strip() or cfg["lm_studio_url"]
-        chat_url = _lm_studio_chat_url(url)
+        chat_url = normalize_chat_url(url, default=DEFAULT_LM_STUDIO_URL)
         base = chat_url[: -len("/chat/completions")].rstrip("/")
         probe_url = f"{base}/models"
         headers = None  # serveur local : aucune authentification
