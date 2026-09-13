@@ -226,7 +226,7 @@ def _enforce_rate_limit(request: Request):
     }:
         return None
 
-    import app.api as api# pour lire la valeur monkeypatchée
+    import app.api as api  # pour lire la valeur monkeypatchée
     rate = getattr(api, "RATE_LIMIT_PER_MINUTE", RATE_LIMIT_PER_MINUTE)
     if rate <= 0:
         return None

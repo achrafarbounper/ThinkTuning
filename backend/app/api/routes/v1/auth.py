@@ -43,8 +43,8 @@ from app.api.dependencies.auth import (
 )
 from app.infrastructure.security.service_accounts import (
     DEFAULT_TOKEN_TTL_SECONDS,
-    EmailAlreadyTakenError,
     MAX_TOKEN_TTL_SECONDS,
+    EmailAlreadyTakenError,
     RegistrationError,
     get_service_account_store,
 )

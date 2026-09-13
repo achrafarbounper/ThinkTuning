@@ -38,7 +38,6 @@ threadpool, donc l'appel bloquant vers Ollama ne gèle pas l'event loop.
 import asyncio
 import functools
 import json
-import os
 import queue
 import threading
 import time
@@ -59,12 +58,11 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.api.dependencies.auth import require_api_key, ws_is_authorized
-
 # Nouveau noyau agentique (app/) — activé par le flag AGENT_NEW_CORE.
 from app.agent.core import RunStatus
 from app.agent.factory import build_agent_core, new_core_enabled
 from app.agent.settings import agent_flag, get_agent_config
+from app.api.dependencies.auth import require_api_key, ws_is_authorized
 from app.application.agent_settings_usecase import (
     get_effective_settings,
     update_settings,
