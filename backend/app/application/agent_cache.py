@@ -87,6 +87,7 @@ def __getattr__(name: str) -> Any:
     globals()[name] = value
     return value
 
+
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
 __all__ = [
     "AgentCore",
