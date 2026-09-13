@@ -364,14 +364,7 @@ def run_training(job_id: str, req):
         logger.debug("Poids de classe calculés : %s", weights_repr)
 
         _set_step(job, store, job_id, "loading_model")
-        if TEST_MODE:
-            from app.infrastructure.ml.inference.tiny_tokenizer import TinyTokenizer
-            from app.infrastructure.ml.model.tiny_model import TinyModel
-
-            tokenizer = TinyTokenizer()
-            model = TinyModel()
-            logger.debug(f"Modèle chargé en mode test : TinyModel sur {cfg['device']}")
-        elif req.base_model_version:
+        if req.base_model_version:
             # Continual training : reprise des poids + tokenizer d'une version
             # précédente (experiments/models/<version>) au lieu du modèle de
             # base. Le reste du pipeline est inchangé : le résultat est une

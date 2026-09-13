@@ -188,22 +188,6 @@ class Predictor:
             from app.application.model_signing import verify_model_signature
 
             verify_model_signature(resolved_model_path)
-        # MODE TEST : TinyModel + TinyTokenizer (toujours sur CPU).
-        if TEST_MODE:
-            from app.infrastructure.ml.inference.tiny_tokenizer import TinyTokenizer
-            from app.infrastructure.ml.model.tiny_model import TinyModel
-
-            state_dict_path = os.path.join(resolved_model_path, "model.pt")
-            if not os.path.exists(state_dict_path):
-                raise FileNotFoundError("model.pt")
-
-            self.tokenizer = TinyTokenizer()
-            self.model = TinyModel()
-            self.model.load_state_dict(torch.load(state_dict_path, map_location="cpu"))
-            self.model.eval()
-            self.device = torch.device("cpu")
-            return
-
         self.model_path = resolved_model_path
         self.model_name = "distilbert-base-multilingual-cased"
         self.max_length = max_length if max_length is not None else _resolve_default_max_length()
