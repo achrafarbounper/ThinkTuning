@@ -10,7 +10,7 @@ le payload et classé dans un bucket.
 
 from __future__ import annotations
 
-from typing import Dict, Literal
+from typing import Literal
 
 # Buckets de comportement superviseur.
 Bucket = Literal["ok", "failed", "abort"]
@@ -44,7 +44,7 @@ SUPERVISOR_FAILED = "SupervisorFailed"
 # Mapping code -> bucket. La seule source de vérité du comportement de
 # contrôle. Ajouter un code fin = ajouter une ligne ici, sans toucher à la
 # logique de l'orchestrateur.
-CODE_BUCKET: Dict[str, Bucket] = {
+CODE_BUCKET: dict[str, Bucket] = {
     PLAN_VALIDATION_FAILED: "abort",
     PLAN_EMPTY: "abort",
     PLAN_CYCLE: "abort",

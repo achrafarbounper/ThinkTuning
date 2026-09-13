@@ -11,21 +11,45 @@ la résolution (``resolve_role_tools``) le signale au lieu de planter silencieus
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 # --- Noms d'outils par famille (réfèrent aux clés du registre) ---
 _WEB = ["web_search", "web_fetch", "web_read", "http_get", "http_post"]
 _FILES = [
-    "list_dir", "read_file", "find_file", "make_dir", "copy_path",
-    "move_path", "remove_path", "write_file", "file_info", "file_checksum",
-    "head_file", "count_lines", "touch", "write_json", "read_json",
-    "find_duplicates", "split_file", "dedupe_lines",
-    "search_in_files", "tail_file", "append_file", "now",
+    "list_dir",
+    "read_file",
+    "find_file",
+    "make_dir",
+    "copy_path",
+    "move_path",
+    "remove_path",
+    "write_file",
+    "file_info",
+    "file_checksum",
+    "head_file",
+    "count_lines",
+    "touch",
+    "write_json",
+    "read_json",
+    "find_duplicates",
+    "split_file",
+    "dedupe_lines",
+    "search_in_files",
+    "tail_file",
+    "append_file",
+    "now",
 ]
 _ML = [
-    "job_list", "job_get", "predict_sentiment", "dataset_stats",
-    "model_versions", "start_training", "train_model", "cancel_training",
+    "job_list",
+    "job_get",
+    "predict_sentiment",
+    "dataset_stats",
+    "model_versions",
+    "start_training",
+    "train_model",
+    "cancel_training",
     "stop_training",
 ]
 _DATA = ["postgres_query"]
@@ -35,11 +59,21 @@ _MATH = ["calc", "add"]
 # fixe les plans hors-périmètre vers ops). Le bloc _SYSTEM historique est devenu
 # un alias de _OPS pour ne pas dupliquer la vérité.
 _OPS = [
-    "env_info", "disk_usage", "gpu_info",
-    "zip_path", "unzip_file",
-    "git_status", "git_log", "git_diff", "download_file",
-    "git_branch", "git_commit", "github_list_issues", "github_get_pr",
-    "github_list_prs", "github_get_workflow_run",
+    "env_info",
+    "disk_usage",
+    "gpu_info",
+    "zip_path",
+    "unzip_file",
+    "git_status",
+    "git_log",
+    "git_diff",
+    "download_file",
+    "git_branch",
+    "git_commit",
+    "github_list_issues",
+    "github_get_pr",
+    "github_list_prs",
+    "github_get_workflow_run",
 ]
 _SHELL = ["run_command", "run_python"]
 # SCRUM-99 : outils personnalisés d'exemple (shell allowlisté + HTTP générique).
@@ -55,10 +89,12 @@ class Role:
     name: str
     label: str
     description: str
-    tools: List[str] = field(default_factory=list)
-    prompt_override: Optional[str] = None
+    tools: list[str] = field(default_factory=list)
+    prompt_override: str | None = None
+
+
 # --- Registre déclaratif des rôles spécialisés ---
-ROLES: Dict[str, Role] = {
+ROLES: dict[str, Role] = {
     "lead": Role(
         name="lead",
         label="Superviseur",
@@ -91,33 +127,26 @@ ROLES: Dict[str, Role] = {
         name="ml",
         label="Machine Learning",
         description=(
-            "Métier ThinkTuning : jobs d'entraînement, datasets, modèles, "
-            "prédictions de sentiment."
+            "Métier ThinkTuning : jobs d'entraînement, datasets, modèles, prédictions de sentiment."
         ),
         tools=_ML,
     ),
     "data": Role(
         name="data",
         label="Données (SQL)",
-        description=(
-            "Interrogation de bases PostgreSQL en lecture sécurisée."
-        ),
+        description=("Interrogation de bases PostgreSQL en lecture sécurisée."),
         tools=_DATA,
     ),
     "math": Role(
         name="math",
         label="Calcul",
-        description=(
-            "Calculs exacts et expressions mathématiques via la calculatrice sûre."
-        ),
+        description=("Calculs exacts et expressions mathématiques via la calculatrice sûre."),
         tools=_MATH,
     ),
     "ops": Role(
         name="ops",
         label="Système & Ops",
-        description=(
-            "Informations système/exploitation, archivage, git, téléchargements."
-        ),
+        description=("Informations système/exploitation, archivage, git, téléchargements."),
         tools=_OPS,
     ),
     "shell": Role(
@@ -168,38 +197,43 @@ ROLES: Dict[str, Role] = {
 
 # Ordre canonique des rôles (pour prompts, plan, validation).
 ROLE_ORDER = [
-    "web", "files", "ml", "data", "math", "ops", "shell", "docker",
-    "operator", "developer", "reviewer",
+    "web",
+    "files",
+    "ml",
+    "data",
+    "math",
+    "ops",
+    "shell",
+    "docker",
+    "operator",
+    "developer",
+    "reviewer",
 ]
 
 
-def role_names() -> List[str]:
+def role_names() -> list[str]:
     """Noms de tous les rôles spécialisés (hors « lead » superviseur)."""
     return list(ROLE_ORDER)
 
 
-def get_role(name: str) -> Optional[Role]:
+def get_role(name: str) -> Role | None:
     """Récupère un rôle par nom (None si inconnu)."""
     return ROLES.get(name)
 
 
-def role_tools() -> Dict[str, List[str]]:
+def role_tools() -> dict[str, list[str]]:
     """Outils réels par rôle — injectés au prompt du planner (build_planner_prompt).
 
     Le superviseur (LLM) doit connaître les CAPACITÉS des rôles pour choisir le
     bon rôle : sans cela il choisit « shell » pour des diagnostics que le rôle
     « ops » couvre déjà, ou assigne une lecture à un rôle à risque.
     """
-    return {
-        name: list(role.tools)
-        for name, role in ROLES.items()
-        if name != "lead" and role.tools
-    }
+    return {name: list(role.tools) for name, role in ROLES.items() if name != "lead" and role.tools}
 
 
 def resolve_role_tools(
-    name: str, registry: Dict[str, Callable[..., Any]]
-) -> Dict[str, Callable[..., Any]]:
+    name: str, registry: dict[str, Callable[..., Any]]
+) -> dict[str, Callable[..., Any]]:
     """Sous-ensemble d'outils réel d'un rôle depuis le registre central.
 
     Sélectionne dans ``registry`` (ex. TOOLS) les outils déclarés du rôle.
@@ -224,7 +258,7 @@ def resolve_role_tools(
 #     (réservé à des rôles rédactionnels futurs : rapport, explication…).
 # Ajouter un rôle à politique spécifique = ajouter une ligne ici (Open/Closed),
 # sans toucher à la logique de l'orchestrateur.
-INTENT_POLICY: Dict[str, str] = {
+INTENT_POLICY: dict[str, str] = {
     "lead": "pass_through",
     "web": "action_only",
     "files": "action_only",

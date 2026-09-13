@@ -12,7 +12,6 @@ moyennes de métriques, conversions d'unités…
 
 import ast
 
-
 _MAX_EXPONENT = 10_000  # borne anti-bombes à exposants (9**9**9…)
 
 _ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow)

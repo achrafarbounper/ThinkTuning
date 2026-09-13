@@ -32,6 +32,7 @@ def record_usage(tool: str, duration_ms: float, error: bool = False) -> None:
 
 def record_call(tool: str):
     """Context manager : chronomètre un appel et journalise succès/erreur."""
+
     class _Timer:
         def __enter__(self):
             self._t0 = time.perf_counter()

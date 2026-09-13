@@ -39,7 +39,7 @@ appel contre le schéma : le système REFUSE un appel mal formé avant exécutio
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 TOOL_SCHEMA_VERSION = "thinktuning.tool/v1"
 
@@ -48,7 +48,15 @@ _PARAM_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 ALLOWED_PARAM_TYPES = ("string", "number", "integer", "boolean", "object", "array")
 ALLOWED_CATEGORIES = (
-    "os", "api", "db", "ml", "file", "shell", "network", "custom", "builtin",
+    "os",
+    "api",
+    "db",
+    "ml",
+    "file",
+    "shell",
+    "network",
+    "custom",
+    "builtin",
 )
 # Niveaux de sûreté déclaratifs (design-time) :
 #   safe       : lecture pure — peut être auto-approuvé ;
@@ -80,13 +88,12 @@ _TYPE_CHECKS = {
 }
 
 
-
 def is_valid_tool_name(name: Any) -> bool:
     """Vrai si ``name`` est un nom de tool valide (snake_case borné)."""
     return isinstance(name, str) and bool(NAME_PATTERN.match(name))
 
 
-def approval_from_safety(safety: Optional[Dict[str, Any]]) -> Optional[str]:
+def approval_from_safety(safety: dict[str, Any] | None) -> str | None:
     """Dériver l'override ``approval`` depuis la déclaration ``safety``.
 
     ``None`` si la déclaration est absente/illisible : la policy par défaut du
@@ -102,21 +109,19 @@ def approval_from_safety(safety: Optional[Dict[str, Any]]) -> Optional[str]:
     return "manual" if safety.get("requires_approval", True) else "auto"
 
 
-def validate_tool_definition(definition: Any) -> Tuple[bool, List[str]]:
+def validate_tool_definition(definition: Any) -> tuple[bool, list[str]]:
     """Valide une définition de tool au standard v1. Retourne ``(ok, erreurs)``.
 
     Aucune exception : la liste d'erreurs est consommable par le reviewer,
     l'API et le validateur de plan (messages affichables tels quels).
     """
-    errors: List[str] = []
+    errors: list[str] = []
     if not isinstance(definition, dict):
         return False, ["la définition doit être un objet JSON ({...})"]
 
     schema = definition.get("$schema", TOOL_SCHEMA_VERSION)
     if schema != TOOL_SCHEMA_VERSION:
-        errors.append(
-            f"« $schema » inconnu : « {schema} » (attendu « {TOOL_SCHEMA_VERSION} »)"
-        )
+        errors.append(f"« $schema » inconnu : « {schema} » (attendu « {TOOL_SCHEMA_VERSION} »)")
 
     name = definition.get("name")
     if not is_valid_tool_name(name):
@@ -131,20 +136,17 @@ def validate_tool_definition(definition: Any) -> Tuple[bool, List[str]]:
 
     version = definition.get("version", DEFAULT_VERSION)
     if not isinstance(version, str) or not version.strip():
-        errors.append("« version » doit être une chaîne non vide (ex: \"1.0\")")
+        errors.append('« version » doit être une chaîne non vide (ex: "1.0")')
 
     category = definition.get("category", DEFAULT_CATEGORY)
     if category not in ALLOWED_CATEGORIES:
         errors.append(
-            f"« category » invalide : « {category} » "
-            f"(valides : {', '.join(ALLOWED_CATEGORIES)})"
+            f"« category » invalide : « {category} » (valides : {', '.join(ALLOWED_CATEGORIES)})"
         )
 
     approval = definition.get("approval")
     if approval is not None and approval not in ("auto", "manual", "blocked"):
-        errors.append(
-            f"« approval » invalide : « {approval} » (valides : auto, manual, blocked)"
-        )
+        errors.append(f"« approval » invalide : « {approval} » (valides : auto, manual, blocked)")
 
     safety = definition.get("safety")
     if safety is not None:
@@ -166,7 +168,6 @@ def validate_tool_definition(definition: Any) -> Tuple[bool, List[str]]:
                     "requires_approval=true"
                 )
 
-
     allowed_binaries = definition.get("allowed_binaries")
     if allowed_binaries is not None:
         if (
@@ -174,9 +175,7 @@ def validate_tool_definition(definition: Any) -> Tuple[bool, List[str]]:
             or not allowed_binaries
             or any(not isinstance(b, str) or not b.strip() for b in allowed_binaries)
         ):
-            errors.append(
-                "« allowed_binaries » doit être une liste non vide de noms de binaires"
-            )
+            errors.append("« allowed_binaries » doit être une liste non vide de noms de binaires")
 
     required_args = definition.get("required_args", [])
     if not isinstance(required_args, list) or any(
@@ -210,9 +209,7 @@ def validate_tool_definition(definition: Any) -> Tuple[bool, List[str]]:
             if "enum" in spec:
                 enum = spec.get("enum")
                 if not isinstance(enum, list) or not enum:
-                    errors.append(
-                        f"paramètre « {pname} » : « enum » doit être une liste non vide"
-                    )
+                    errors.append(f"paramètre « {pname} » : « enum » doit être une liste non vide")
 
     if isinstance(required_args, list) and isinstance(parameters, dict):
         unknown = [a for a in required_args if a not in parameters]
@@ -225,8 +222,7 @@ def validate_tool_definition(definition: Any) -> Tuple[bool, List[str]]:
     return (not errors), errors
 
 
-
-def to_meta_format(definition: Dict[str, Any]) -> Dict[str, Any]:
+def to_meta_format(definition: dict[str, Any]) -> dict[str, Any]:
     """Convertit une définition standard v1 vers le format historique TOOL_META.
 
     Sans perte : les clés de paramètres non standardisées (``default``…),
@@ -234,7 +230,7 @@ def to_meta_format(definition: Dict[str, Any]) -> Dict[str, Any]:
     préservées. L'override ``approval`` est dérivé de ``safety`` (une
     déclaration explicite ``approval`` prime) pour brancher le gate existant.
     """
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "name": definition.get("name", ""),
         "description": definition.get("description", ""),
         "required_args": list(definition.get("required_args", []) or []),
@@ -242,7 +238,7 @@ def to_meta_format(definition: Dict[str, Any]) -> Dict[str, Any]:
     }
     for pname, spec in (definition.get("parameters") or {}).items():
         spec = spec if isinstance(spec, dict) else {}
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "type": spec.get("type", "string"),
             "required": bool(spec.get("required", False)),
         }
@@ -251,9 +247,7 @@ def to_meta_format(definition: Dict[str, Any]) -> Dict[str, Any]:
                 entry[extra_key] = extra_val
         meta["parameters"][pname] = entry
 
-    approval = definition.get("approval") or approval_from_safety(
-        definition.get("safety")
-    )
+    approval = definition.get("approval") or approval_from_safety(definition.get("safety"))
     if approval:
         meta["approval"] = approval
     if definition.get("safety") is not None:
@@ -266,8 +260,16 @@ def to_meta_format(definition: Dict[str, Any]) -> Dict[str, Any]:
         meta["version"] = definition["version"]
     # Clés de premier niveau inconnues : préservées (round-trip sans perte).
     known = {
-        "$schema", "name", "description", "version", "category", "approval",
-        "safety", "allowed_binaries", "required_args", "parameters",
+        "$schema",
+        "name",
+        "description",
+        "version",
+        "category",
+        "approval",
+        "safety",
+        "allowed_binaries",
+        "required_args",
+        "parameters",
     }
     for key, value in definition.items():
         if key not in known:
@@ -275,8 +277,7 @@ def to_meta_format(definition: Dict[str, Any]) -> Dict[str, Any]:
     return meta
 
 
-
-def from_meta_format(name: str, meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def from_meta_format(name: str, meta: dict[str, Any] | None) -> dict[str, Any]:
     """Convertit une entrée TOOL_META (tools_config.json / plugin) au standard v1.
 
     Utilisée par l'hydratation de la ToolRegistry : le registre statique
@@ -284,10 +285,10 @@ def from_meta_format(name: str, meta: Optional[Dict[str, Any]]) -> Dict[str, Any
     vérité (tools_config.json reste la source déclarative des tools natifs).
     """
     meta = meta or {}
-    parameters: Dict[str, Any] = {}
+    parameters: dict[str, Any] = {}
     for pname, spec in (meta.get("parameters") or {}).items():
         spec = spec if isinstance(spec, dict) else {}
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "type": spec.get("type", "string"),
             "required": bool(spec.get("required", False)),
         }
@@ -296,7 +297,7 @@ def from_meta_format(name: str, meta: Optional[Dict[str, Any]]) -> Dict[str, Any
                 entry[extra_key] = extra_val
         parameters[pname] = entry
 
-    definition: Dict[str, Any] = {
+    definition: dict[str, Any] = {
         "$schema": TOOL_SCHEMA_VERSION,
         "name": name,
         "description": str(meta.get("description", "") or ""),
@@ -312,8 +313,15 @@ def from_meta_format(name: str, meta: Optional[Dict[str, Any]]) -> Dict[str, Any
     if meta.get("allowed_binaries"):
         definition["allowed_binaries"] = list(meta["allowed_binaries"])
     known = {
-        "name", "description", "version", "category", "approval", "safety",
-        "allowed_binaries", "required_args", "parameters",
+        "name",
+        "description",
+        "version",
+        "category",
+        "approval",
+        "safety",
+        "allowed_binaries",
+        "required_args",
+        "parameters",
     }
     for key, value in meta.items():
         if key not in known:
@@ -321,8 +329,7 @@ def from_meta_format(name: str, meta: Optional[Dict[str, Any]]) -> Dict[str, Any
     return definition
 
 
-
-def to_json_schema(definition: Dict[str, Any]) -> Dict[str, Any]:
+def to_json_schema(definition: dict[str, Any]) -> dict[str, Any]:
     """Définition standard -> JSON Schema standard (style function-calling).
 
     Format consommable directement par les LLM (OpenAI / Ollama / OpenRouter)
@@ -330,10 +337,10 @@ def to_json_schema(definition: Dict[str, Any]) -> Dict[str, Any]:
     Les champs design-time de sécurité (``safety``, ``allowed_binaries``) ne
     sont PAS exposés au LLM : ils gouvernent le moteur, pas le modèle.
     """
-    properties: Dict[str, Any] = {}
+    properties: dict[str, Any] = {}
     for pname, spec in (definition.get("parameters") or {}).items():
         spec = spec if isinstance(spec, dict) else {}
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "type": spec.get("type", "string"),
             "description": spec.get("description", ""),
         }
@@ -355,8 +362,9 @@ def to_json_schema(definition: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def check_args_against_definition(
-    definition: Dict[str, Any], args: Any,
-) -> Tuple[bool, List[str]]:
+    definition: dict[str, Any],
+    args: Any,
+) -> tuple[bool, list[str]]:
     """Valide DÉTERMINISTEMENT des arguments d'appel contre la définition.
 
     Le système REFUSE un appel mal formé (argument requis manquant, type
@@ -364,7 +372,7 @@ def check_args_against_definition(
     (les implémentations acceptent ``**kwargs``), seuls les paramètres
     DÉCLARÉS sont vérifiés en type et en ``enum``.
     """
-    errors: List[str] = []
+    errors: list[str] = []
     if not isinstance(definition, dict):
         return False, ["définition de tool invalide (objet attendu)"]
     if not isinstance(args, dict):
@@ -383,8 +391,7 @@ def check_args_against_definition(
         check = _TYPE_CHECKS.get(ptype) if isinstance(ptype, str) else None
         if check is not None and not check(value):
             errors.append(
-                f"type invalide pour « {key} » : attendu {ptype}, "
-                f"obtenu {type(value).__name__}"
+                f"type invalide pour « {key} » : attendu {ptype}, obtenu {type(value).__name__}"
             )
         if isinstance(spec.get("enum"), list) and spec["enum"]:
             if value not in spec["enum"]:
@@ -393,8 +400,3 @@ def check_args_against_definition(
                     f"(autorisé : {', '.join(map(str, spec['enum']))})"
                 )
     return (not errors), errors
-
-
-
-
-

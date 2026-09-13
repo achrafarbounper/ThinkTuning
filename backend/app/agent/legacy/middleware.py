@@ -23,8 +23,9 @@ Exemple :
 
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("thinktuning.agent.middleware")
 
@@ -41,12 +42,13 @@ class ToolContext:
         skipped: True si l'appel doit être court-circuité
         metadata: données libres pour les middlewares
     """
+
     tool_name: str
-    args: Dict[str, Any]
+    args: dict[str, Any]
     result: Any = None
-    error: Optional[Exception] = None
+    error: Exception | None = None
     skipped: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 MiddlewareFunc = Callable[[ToolContext, Callable[[ToolContext], Any]], Any]
@@ -56,7 +58,7 @@ MiddlewareFunc = Callable[[ToolContext, Callable[[ToolContext], Any]], Any]
 # Registre des middlewares
 # ============================================================
 
-_middlewares: List[tuple[int, MiddlewareFunc]] = []
+_middlewares: list[tuple[int, MiddlewareFunc]] = []
 _middleware_lock = threading.Lock()
 
 
@@ -85,7 +87,7 @@ def clear_middlewares() -> None:
         _middlewares.clear()
 
 
-def get_middlewares() -> List[tuple[int, MiddlewareFunc]]:
+def get_middlewares() -> list[tuple[int, MiddlewareFunc]]:
     """Retourne la liste des middlewares enregistrés (copie)."""
     with _middleware_lock:
         return list(_middlewares)
@@ -93,8 +95,8 @@ def get_middlewares() -> List[tuple[int, MiddlewareFunc]]:
 
 def process_tool_call(
     tool_name: str,
-    args: Dict[str, Any],
-    executor: Callable[[Dict[str, Any]], Any],
+    args: dict[str, Any],
+    executor: Callable[[dict[str, Any]], Any],
 ) -> Any:
     """Exécute un appel d'outil à travers le pipeline de middlewares.
 
@@ -156,6 +158,7 @@ def _make_middleware_chain(
 # Middlewares intégrés
 # ============================================================
 
+
 def logging_middleware(ctx: ToolContext, next_call: Callable) -> Any:
     """Middleware de logging : trace chaque appel d'outil."""
     logger.info("tool_call: %s args=%s", ctx.tool_name, ctx.args)
@@ -170,6 +173,7 @@ def logging_middleware(ctx: ToolContext, next_call: Callable) -> Any:
 def timing_middleware(ctx: ToolContext, next_call: Callable) -> Any:
     """Middleware de chronométrage : mesure la durée d'exécution."""
     import time
+
     start = time.perf_counter()
     result = next_call(ctx)
     duration_ms = (time.perf_counter() - start) * 1000.0

@@ -40,9 +40,7 @@ def docker_ps(all_containers: bool = False) -> list[dict]:
         argv.append("--all")
     argv += ["--format", "{{json .}}"]
 
-    code, out, err = run_subprocess(
-        argv, timeout=DOCKER_TIMEOUT_S, max_output_chars=_PS_MAX_CHARS
-    )
+    code, out, err = run_subprocess(argv, timeout=DOCKER_TIMEOUT_S, max_output_chars=_PS_MAX_CHARS)
     out = _ensure_docker_output(code, out, err, "ps")
 
     containers = []
@@ -137,8 +135,9 @@ def _ensure_container_allowed(container: str) -> None:
     )
 
 
-def docker_exec(container: str, command: list, workdir: str | None = None,
-                user: str | None = None) -> dict:
+def docker_exec(
+    container: str, command: list, workdir: str | None = None, user: str | None = None
+) -> dict:
     """Exécute `command` (LISTE d'arguments, sans shell) dans le conteneur.
 
     P1 SEC (confinement) : ``command`` DOIT être une liste — une chaîne est
@@ -151,7 +150,7 @@ def docker_exec(container: str, command: list, workdir: str | None = None,
     """
     if not isinstance(command, (list, tuple)) or not command:
         raise ValueError(
-            "'command' doit être une LISTE d'arguments (ex: [\"ls\", \"-la\"]), "
+            '\'command\' doit être une LISTE d\'arguments (ex: ["ls", "-la"]), '
             "jamais une chaîne — l'exécution via `sh -c` est bloquée (P1)."
         )
     if not str(container).strip():

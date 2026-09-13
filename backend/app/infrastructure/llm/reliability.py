@@ -27,9 +27,10 @@ import os
 import random
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Callable, Optional
+from enum import StrEnum
+from typing import Any
 
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
@@ -40,15 +41,15 @@ logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
 # ============================================================
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     """Familles d'erreurs remontées par le client LLM / le réseau."""
 
-    TIMEOUT = "timeout"        # délai dépassé (requests.Timeout)
+    TIMEOUT = "timeout"  # délai dépassé (requests.Timeout)
     CONNECTION = "connection"  # endpoint injoignable (requests.ConnectionError)
-    HTTP = "http"              # réponse HTTP avec statut hors 2xx
-    PROTOCOL = "protocol"      # erreur de flux / parsing (RequestException)
-    CIRCUIT = "circuit"        # appel refusé par le circuit breaker
-    UNKNOWN = "unknown"        # erreur non classée
+    HTTP = "http"  # réponse HTTP avec statut hors 2xx
+    PROTOCOL = "protocol"  # erreur de flux / parsing (RequestException)
+    CIRCUIT = "circuit"  # appel refusé par le circuit breaker
+    UNKNOWN = "unknown"  # erreur non classée
 
 
 # Statuts HTTP considérés comme éphémères / idempotents à re-tenter.
@@ -65,7 +66,7 @@ class ErrorClass:
 
     category: ErrorCategory
     retryable: bool
-    http_status: Optional[int] = None
+    http_status: int | None = None
     reason: str = ""
 
     def to_dict(self) -> dict:
@@ -107,9 +108,7 @@ def classify_llm_error(exc: BaseException) -> ErrorClass:
         if isinstance(exc, requests.exceptions.HTTPError):
             status = exc.response.status_code if exc.response is not None else None
             if status is not None and status in _RETRYABLE_HTTP_STATUS:
-                return ErrorClass(
-                    ErrorCategory.HTTP, True, status, reason="server_or_rate"
-                )
+                return ErrorClass(ErrorCategory.HTTP, True, status, reason="server_or_rate")
             return ErrorClass(ErrorCategory.HTTP, False, status, reason="client")
         if isinstance(exc, requests.exceptions.RequestException):
             # Erreur pendant la lecture du flux / encodage : réessayable une
@@ -120,6 +119,8 @@ def classify_llm_error(exc: BaseException) -> ErrorClass:
         return ErrorClass(ErrorCategory.CIRCUIT, False, reason="circuit_open")
 
     return ErrorClass(ErrorCategory.UNKNOWN, False, reason=type(exc).__name__)
+
+
 # ============================================================
 # RETRY À BACKOFF EXPONENTIEL
 # ============================================================
@@ -131,8 +132,8 @@ def retry(
     base_delay: float = 0.5,
     max_delay: float = 8.0,
     jitter: float = 0.2,
-    classify: Optional[Callable[[BaseException], ErrorClass]] = None,
-    on_retry: Optional[Callable[[int, BaseException, Optional[ErrorClass]], None]] = None,
+    classify: Callable[[BaseException], ErrorClass] | None = None,
+    on_retry: Callable[[int, BaseException, ErrorClass | None], None] | None = None,
 ) -> Any:
     """Exécute ``op()`` jusqu'à *attempts* fois avec backoff exponentiel.
 
@@ -151,7 +152,7 @@ def retry(
     dernière exception.
     """
     attempts = max(1, int(attempts))
-    last_exc: Optional[BaseException] = None
+    last_exc: BaseException | None = None
 
     for attempt in range(1, attempts + 1):
         try:
@@ -165,7 +166,9 @@ def retry(
             if not retryable:
                 logger.debug(
                     "retry_stop attempt=%d/%d retryable=%s category=%s err=%s",
-                    attempt, attempts, retryable,
+                    attempt,
+                    attempts,
+                    retryable,
                     ec.category.value if ec else "?",
                     type(exc).__name__,
                 )
@@ -175,7 +178,9 @@ def retry(
                 delay = max(0.0, delay * (1.0 + random.uniform(-jitter, jitter)))
             logger.warning(
                 "retry_wait attempt=%d/%d sleep=%.2fs category=%s err=%s",
-                attempt, attempts, delay,
+                attempt,
+                attempts,
+                delay,
                 ec.category.value if ec else "?",
                 type(exc).__name__,
             )
@@ -227,7 +232,8 @@ class CircuitBreaker:
         self._failures = 0
         self._opened_at = 0.0
         self._probe_held = False
-# --- Logique de décision ----------------------------------------------------
+
+    # --- Logique de décision ----------------------------------------------------
 
     def _maybe_enter_half_open(self) -> None:
         """Passe ``open`` -> ``half_open`` quand le cooldown est écoulé."""
@@ -241,9 +247,7 @@ class CircuitBreaker:
         self._opened_at = time.monotonic()
         self._failures = 0
         self._probe_held = False
-        logger.error(
-            "circuit_open name=%s cooldown=%.1fs", self.name, self.cooldown_seconds
-        )
+        logger.error("circuit_open name=%s cooldown=%.1fs", self.name, self.cooldown_seconds)
 
     def _record_failure(self) -> None:
         with self._lock:
@@ -284,8 +288,7 @@ class CircuitBreaker:
                     max(0.0, self.cooldown_seconds - (time.monotonic() - self._opened_at)),
                 )
                 raise CircuitBreaker.CallNotPermitted(
-                    f"circuit '{self.name}' ouvert : appels refusés jusqu'à "
-                    "expiration du cooldown"
+                    f"circuit '{self.name}' ouvert : appels refusés jusqu'à expiration du cooldown"
                 )
             half_open_probe = self._state == "half_open"
             if half_open_probe and self._probe_held:
@@ -301,7 +304,7 @@ class CircuitBreaker:
 
         try:
             result = op()
-        except BaseException as exc:  # noqa: BLE001 - propagée après comptage
+        except BaseException:  # noqa: BLE001 - propagée après comptage
             self._record_failure()
             raise
         else:

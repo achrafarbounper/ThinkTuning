@@ -25,15 +25,15 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Iterator
 from itertools import islice
 from pathlib import Path
-from typing import Iterator
 
 from .sandbox import get_sandbox_root, iso_from_timestamp, safe_resolve
 
 DEFAULT_MAX_WRITE_BYTES = 5 * 1024 * 1024  # 5 Mo, surchargeable via AGENT_MAX_WRITE_BYTES
-MAX_LINES_PER_SPLIT = 10_000      # borne haute pour le découpage (split_file)
-HASH_CHUNK_BYTES = 64 * 1024      # lecture par blocs (mémoire constante)
+MAX_LINES_PER_SPLIT = 10_000  # borne haute pour le découpage (split_file)
+HASH_CHUNK_BYTES = 64 * 1024  # lecture par blocs (mémoire constante)
 
 # Dossiers systématiquement exclus du balayage (cohérent avec search_tools).
 _SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "venv", ".venv", "node_modules"}

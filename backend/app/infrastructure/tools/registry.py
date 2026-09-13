@@ -41,10 +41,15 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
+# Vue bootstrap : dicts historiques du registre statique (mêmes objets — la
+# projection ci-dessous les mute PAR RÉFÉRENCE). Import relatif dans le
+# paquet « app.infrastructure.tools » (migré du legacy « ia/tools »).
+from .tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS
 from .tool_schema import (
     DEFAULT_SAFETY,
     TOOL_SCHEMA_VERSION,
@@ -54,17 +59,11 @@ from .tool_schema import (
     validate_tool_definition,
 )
 
-# Vue bootstrap : dicts historiques du registre statique (mêmes objets — la
-# projection ci-dessous les mute PAR RÉFÉRENCE). Import relatif dans le
-# paquet « app.infrastructure.tools » (migré du legacy « ia/tools »).
-from .tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS
-
 logger = logging.getLogger("thinktuning.tools.registry")
 
 
 class ToolRegistryError(ValueError):
     """Enregistrement/retrait de tool invalide (schéma, conflit, natif protégé)."""
-
 
 
 @dataclass
@@ -73,15 +72,15 @@ class RegisteredTool:
 
     name: str
     func: Callable[..., Any]
-    definition: Dict[str, Any]                 # standard thinktuning.tool/v1
-    dynamic: bool = False                      # False = tool natif (bootstrap)
-    registered_at: str = ""                    # ISO UTC (dynamique uniquement)
-    owner: str = ""                            # qui l'a enregistré (runtime)
-    source_file: str = ""                      # fichier sandbox du code généré
+    definition: dict[str, Any]  # standard thinktuning.tool/v1
+    dynamic: bool = False  # False = tool natif (bootstrap)
+    registered_at: str = ""  # ISO UTC (dynamique uniquement)
+    owner: str = ""  # qui l'a enregistré (runtime)
+    source_file: str = ""  # fichier sandbox du code généré
     enabled: bool = True
     experimental: bool = False
     deprecated: bool = False
-    meta: Dict[str, Any] = field(default_factory=dict)  # annotations libres
+    meta: dict[str, Any] = field(default_factory=dict)  # annotations libres
 
     # --- Lectures pratiques (design-time) ---
     @property
@@ -89,11 +88,11 @@ class RegisteredTool:
         return str(self.definition.get("description", ""))
 
     @property
-    def parameters(self) -> Dict[str, Any]:
+    def parameters(self) -> dict[str, Any]:
         return dict(self.definition.get("parameters", {}))
 
     @property
-    def required_args(self) -> List[str]:
+    def required_args(self) -> list[str]:
         return list(self.definition.get("required_args", []))
 
     @property
@@ -108,8 +107,9 @@ class RegisteredTool:
             return str(explicit)
         return str(approval_from_safety(self.definition.get("safety")) or "")
 
-    def to_json_schema(self) -> Dict[str, Any]:
+    def to_json_schema(self) -> dict[str, Any]:
         from .tool_schema import to_json_schema as _to_json_schema
+
         return _to_json_schema(self.definition)
 
 
@@ -123,7 +123,7 @@ class ToolRegistry:
 
     def __init__(self, *, max_dynamic_tools: int = 16):
         self._lock = threading.RLock()
-        self._tools: Dict[str, RegisteredTool] = {}
+        self._tools: dict[str, RegisteredTool] = {}
         self._version = 0
         self._max_dynamic_tools = max(1, int(max_dynamic_tools))
         self.from_static_registry()
@@ -141,7 +141,10 @@ class ToolRegistry:
             for name, func in TOOLS.items():
                 definition = from_meta_format(name, TOOL_META.get(name))
                 self._tools[name] = RegisteredTool(
-                    name=name, func=func, definition=definition, dynamic=False,
+                    name=name,
+                    func=func,
+                    definition=definition,
+                    dynamic=False,
                 )
 
     # --- Lecture -----------------------------------------------------------
@@ -159,18 +162,17 @@ class ToolRegistry:
         tool = self._tools.get(name)
         return tool is not None and not tool.dynamic
 
-    def get_tool(self, name: str) -> Optional[RegisteredTool]:
+    def get_tool(self, name: str) -> RegisteredTool | None:
         """Tool enregistré (natif ou dynamique), ``None`` si inconnu."""
         with self._lock:
             return self._tools.get(name)
 
-    def get_function(self, name: str) -> Optional[Callable[..., Any]]:
+    def get_function(self, name: str) -> Callable[..., Any] | None:
         with self._lock:
             tool = self._tools.get(name)
             return tool.func if tool is not None else None
 
-
-    def list_tools(self, *, dynamic_only: bool = False) -> List[Dict[str, Any]]:
+    def list_tools(self, *, dynamic_only: bool = False) -> list[dict[str, Any]]:
         """Définitions design-time (standard v1), triées par nom."""
         with self._lock:
             definitions = [
@@ -180,15 +182,12 @@ class ToolRegistry:
             ]
         return sorted(definitions, key=lambda d: str(d.get("name", "")))
 
-    def list_registered(self, *, dynamic_only: bool = False) -> List[RegisteredTool]:
+    def list_registered(self, *, dynamic_only: bool = False) -> list[RegisteredTool]:
         """Objets ``RegisteredTool`` complets (design-time + état runtime)."""
         with self._lock:
-            return [
-                rt for rt in self._tools.values()
-                if (rt.dynamic or not dynamic_only)
-            ]
+            return [rt for rt in self._tools.values() if (rt.dynamic or not dynamic_only)]
 
-    def dynamic_tool_names(self) -> List[str]:
+    def dynamic_tool_names(self) -> list[str]:
         with self._lock:
             return sorted(n for n, rt in self._tools.items() if rt.dynamic)
 
@@ -202,7 +201,7 @@ class ToolRegistry:
     def max_dynamic_tools(self) -> int:
         return self._max_dynamic_tools
 
-    def merged_registry(self) -> Tuple[Dict[str, Callable[..., Any]], Dict[str, List[str]]]:
+    def merged_registry(self) -> tuple[dict[str, Callable[..., Any]], dict[str, list[str]]]:
         """Vue fusionnée (natifs + dynamiques) pour construire un agent.
 
         Retourne ``(tools, required_args)`` — les dicts statiques enrichis des
@@ -217,22 +216,21 @@ class ToolRegistry:
                     required[name] = rt.required_args
         return tools, required
 
-
     # --- Écriture (SEULE voie de mutation) ---------------------------------
 
     def add_tool(
         self,
         func: Callable[..., Any],
-        definition: Optional[Dict[str, Any]] = None,
+        definition: dict[str, Any] | None = None,
         *,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        parameters: Optional[Dict[str, Any]] = None,
-        required_args: Optional[List[str]] = None,
+        name: str | None = None,
+        description: str | None = None,
+        parameters: dict[str, Any] | None = None,
+        required_args: list[str] | None = None,
         category: str = "custom",
         version: str = "1.0",
-        safety: Optional[Dict[str, Any]] = None,
-        allowed_binaries: Optional[List[str]] = None,
+        safety: dict[str, Any] | None = None,
+        allowed_binaries: list[str] | None = None,
         owner: str = "",
         source_file: str = "",
         experimental: bool = False,
@@ -262,10 +260,11 @@ class ToolRegistry:
             parameters = parameters or {}
             if required_args is None:
                 required_args = [
-                    p for p, spec in parameters.items()
+                    p
+                    for p, spec in parameters.items()
                     if isinstance(spec, dict) and spec.get("required")
                 ]
-            built: Dict[str, Any] = {
+            built: dict[str, Any] = {
                 "$schema": TOOL_SCHEMA_VERSION,
                 "name": name,
                 "description": description,
@@ -282,9 +281,7 @@ class ToolRegistry:
 
         ok, errors = validate_tool_definition(definition)
         if not ok:
-            raise ToolRegistryError(
-                "Définition de tool invalide : " + " ; ".join(errors)
-            )
+            raise ToolRegistryError("Définition de tool invalide : " + " ; ".join(errors))
 
         # Normalisation fail-closed : un tool dynamique sans déclaration de
         # sûreté est ``restricted`` (validation humaine). Sauf autorisation
@@ -309,8 +306,7 @@ class ToolRegistry:
             if existing is not None:
                 if not existing.dynamic:
                     raise ToolRegistryError(
-                        f"Conflit : « {tool_name} » est un tool NATIF du registre "
-                        "(non écrasable)."
+                        f"Conflit : « {tool_name} » est un tool NATIF du registre (non écrasable)."
                     )
                 if not overwrite:
                     raise ToolRegistryError(
@@ -330,7 +326,7 @@ class ToolRegistry:
                 func=func,
                 definition=definition,
                 dynamic=True,
-                registered_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                registered_at=datetime.now(UTC).isoformat(timespec="seconds"),
                 owner=owner,
                 source_file=source_file,
                 experimental=bool(experimental),
@@ -346,10 +342,11 @@ class ToolRegistry:
 
         logger.info(
             "tool_registry: add_tool(%s) dynamic=True owner=%s approval=%s",
-            tool_name, owner or "unknown", registered.approval or "default",
+            tool_name,
+            owner or "unknown",
+            registered.approval or "default",
         )
         return registered
-
 
     def remove_tool(self, name: str) -> bool:
         """Retire un tool DYNAMIQUE (projection dans les dicts incluse).
@@ -379,9 +376,9 @@ class ToolRegistry:
         self,
         name: str,
         *,
-        enabled: Optional[bool] = None,
-        experimental: Optional[bool] = None,
-        deprecated: Optional[bool] = None,
+        enabled: bool | None = None,
+        experimental: bool | None = None,
+        deprecated: bool | None = None,
     ) -> RegisteredTool:
         """Mute l'état RUNTIME d'un tool (activé, expérimental, déprécié)."""
         with self._lock:
@@ -400,7 +397,7 @@ class ToolRegistry:
 
 # --- Registry globale (singleton) ------------------------------------------
 
-_GLOBAL_REGISTRY: Optional[ToolRegistry] = None
+_GLOBAL_REGISTRY: ToolRegistry | None = None
 _GLOBAL_LOCK = threading.Lock()
 
 
@@ -412,7 +409,3 @@ def get_global_registry() -> ToolRegistry:
             if _GLOBAL_REGISTRY is None:
                 _GLOBAL_REGISTRY = ToolRegistry()
     return _GLOBAL_REGISTRY
-
-
-
-

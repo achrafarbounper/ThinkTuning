@@ -34,16 +34,27 @@ def reset_audit_store(path: str | None = None) -> None:
 
 
 def log_tool_call(
-    tool_name: str | None = None, args: dict[str, Any] | None = None,
-    result: Any = None, duration_ms: float = 0.0, success: bool = True,
-    error_message: str | None = None, job_id: str | None = None,
-    *, tool: str | None = None, **kwargs: Any,
+    tool_name: str | None = None,
+    args: dict[str, Any] | None = None,
+    result: Any = None,
+    duration_ms: float = 0.0,
+    success: bool = True,
+    error_message: str | None = None,
+    job_id: str | None = None,
+    *,
+    tool: str | None = None,
+    **kwargs: Any,
 ) -> str:
     actual = tool_name or tool
     if not actual:
         raise ValueError("tool_name (ou tool) est requis")
     return get_audit_store().log_tool_call(
-        actual, args or {}, result, duration_ms, success, error_message,
+        actual,
+        args or {},
+        result,
+        duration_ms,
+        success,
+        error_message,
         job_id or kwargs.get("job_id"),
     )
 

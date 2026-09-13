@@ -21,7 +21,6 @@ import math
 
 from .tool_registry import TOOL_META  # import relatif dual (tests + runtime)
 
-
 # Synonymes métier (français) par outil : amplifie le score quand le besoin
 # contient un de ces mots. Enrichissable librement.
 KEYWORDS = {

@@ -91,6 +91,10 @@ ignore = ["B008"]  # Depends() en signature FastAPI (idiome officiel)
 # sont causés par les imports fragmentés (structure préexistante + helpers
 # insérés en C3). L'épuration complète du fichier est prévue en Phase D2.
 "app/api/routes/agent.py" = ["E402"]
+# app/agent/legacy/system_prompt.py : TEMPLATE du prompt LLM (chaîne triple-quote).
+# Les lignes longues / fins de ligne font partie du TEXTE envoyé au modèle : les
+# reformater altérerait le prompt byte à byte — nié (coût nul, risque réel).
+"app/agent/legacy/system_prompt.py" = ["E501", "W291"]
 # Tests legacy : lignes longues dans les assertions/data (faible ROI de reformater).
 # E402 ajouté : imports après docstring/setup (structure legacy).
 "tests/test_audit.py" = ["E501"]

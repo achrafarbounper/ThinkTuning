@@ -109,7 +109,7 @@ def ensure_writable_target(target: Path) -> None:
     except ValueError:
         # Hors racine : safe_resolve l'a déjà refusé — rejet par prudence si
         # ce helper est appelé directement avec un chemin externe.
-        raise PermissionError(f"Chemin hors sandbox interdit : {target}")
+        raise PermissionError(f"Chemin hors sandbox interdit : {target}") from None
     if ".git" in relative.parts:
         raise PermissionError("Écriture sous '.git' interdite.")
     if classify_path_risk(str(target)):
@@ -298,11 +298,7 @@ def host_is_private(hostname: str) -> bool:
     try:
         ip = ipaddress.ip_address(name)
         return bool(
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
+            ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
         )
     except ValueError:
         pass  # nom DNS : résolution réelle ci-dessous
@@ -315,13 +311,7 @@ def host_is_private(hostname: str) -> bool:
             ip = ipaddress.ip_address(info[4][0])
         except ValueError:
             continue
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-        ):
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
             return True
     return False
 

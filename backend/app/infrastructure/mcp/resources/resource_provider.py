@@ -476,7 +476,9 @@ def _lazy_legacy_tool(name: str) -> Callable[[], Callable[..., dict]]:
 
         func = TOOLS.get(name)
         if func is None:
-            raise RuntimeError(f"Tool legacy « {name} » introuvable dans app.infrastructure.tools.tool_registry.")
+            raise RuntimeError(
+                f"Tool legacy « {name} » introuvable dans app.infrastructure.tools.tool_registry."
+            )
         return func
 
     return _resolve

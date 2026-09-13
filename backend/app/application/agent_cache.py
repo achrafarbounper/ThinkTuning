@@ -19,6 +19,10 @@ import threading
 import requests
 from fastapi import HTTPException
 
+from app.agent.legacy.agent_core import AgentCore  # noqa: E402
+from app.agent.legacy.orchestrator import MultiAgentCoordinator  # noqa: E402
+from app.agent.legacy.runner import AgentRunner  # noqa: E402
+from app.infrastructure.llm.legacy_client import LLMClient  # noqa: E402
 from app.infrastructure.persistence.agent_settings import get_agent_settings
 
 # File de validation humaine — ré-exportée pour les routes /api/agent/approvals.
@@ -35,11 +39,11 @@ from app.infrastructure.persistence.run_store import (
 from app.infrastructure.persistence.run_store import (
     get_run_store,
 )
-from app.agent.legacy.agent_core import AgentCore  # noqa: E402
-from app.infrastructure.llm.legacy_client import LLMClient  # noqa: E402
-from app.agent.legacy.orchestrator import MultiAgentCoordinator  # noqa: E402
-from app.agent.legacy.runner import AgentRunner  # noqa: E402
-from app.infrastructure.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
+from app.infrastructure.tools.tool_registry import (  # noqa: E402,F401
+    REQUIRED_ARGS,
+    TOOL_META,
+    TOOLS,
+)
 
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
 __all__ = [

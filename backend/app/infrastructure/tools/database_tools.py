@@ -39,8 +39,13 @@ def _cell(value):
 
 
 # --- PostgreSQL ---------------------------------------------------------------------
-def postgres_query(query: str, dsn: str | None = None, readonly: bool = True,
-                   max_rows: int = DEFAULT_MAX_ROWS, timeout_s: float = 30) -> dict:
+def postgres_query(
+    query: str,
+    dsn: str | None = None,
+    readonly: bool = True,
+    max_rows: int = DEFAULT_MAX_ROWS,
+    timeout_s: float = 30,
+) -> dict:
     """Exécute une requête SQL sur PostgreSQL.
 
     DSN : argument `dsn` ou variable d'environnement AGENT_PG_DSN, ex. :
@@ -80,9 +85,7 @@ def postgres_query(query: str, dsn: str | None = None, readonly: bool = True,
                 result.update(
                     {
                         "columns": columns,
-                        "rows": [
-                            [_cell(v) for v in row] for row in rows[: int(max_rows)]
-                        ],
+                        "rows": [[_cell(v) for v in row] for row in rows[: int(max_rows)]],
                         "row_count": min(len(rows), int(max_rows)),
                         "truncated": len(rows) > int(max_rows),
                     }

@@ -11,19 +11,25 @@ sont plafonnées, et la recherche ignore .git / venv / node_modules / caches.
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .sandbox import safe_resolve, truncate_output
 
 MAX_SEARCH_FILE_BYTES = 2 * 1024 * 1024  # 2 Mo : au-delà, fichier ignoré
 DEFAULT_LINE_PREVIEW_CHARS = 200
-MAX_TAIL_BUDGET_BYTES = 256 * 1024       # budget de lecture arrière pour tail
+MAX_TAIL_BUDGET_BYTES = 256 * 1024  # budget de lecture arrière pour tail
 TAIL_CHUNK_BYTES = 4096
 
 # Dossiers systématiquement exclus du balayage (volumineux / hors sujet).
 SKIP_DIRS = {
-    ".git", "__pycache__", ".pytest_cache", ".agent_tmp",
-    "venv", ".venv", "env", "node_modules",
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    ".agent_tmp",
+    "venv",
+    ".venv",
+    "env",
+    "node_modules",
 }
 
 
@@ -33,8 +39,7 @@ def _looks_binary(chunk: bytes) -> bool:
 
 
 # --- grep ---------------------------------------------------------------------------
-def search_in_files(pattern: str, path: str = ".", glob: str = "*",
-                    max_results: int = 100) -> dict:
+def search_in_files(pattern: str, path: str = ".", glob: str = "*", max_results: int = 100) -> dict:
     """Cherche `pattern` (regex Python, insensible à la casse) dans le contenu
     des fichiers sous `path`.
 
@@ -157,9 +162,7 @@ def tail_file(path: str, lines: int = 50) -> str:
     text = buffer.decode("utf-8", errors="replace")
     selected = "\n".join(text.splitlines()[-lines:])
     if not hit_start:
-        selected = (
-            f"[tronqué : seuls les derniers {len(buffer)} octets ont été lus]\n{selected}"
-        )
+        selected = f"[tronqué : seuls les derniers {len(buffer)} octets ont été lus]\n{selected}"
     return truncate_output(selected)
 
 
@@ -179,5 +182,5 @@ def append_file(path: str, content: str) -> str:
 def now(utc: bool = True) -> str:
     """Horodatage courant ISO lisible ('2026-08-25 14:03:27+00:00')."""
     if utc:
-        return datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+        return datetime.now(UTC).isoformat(sep=" ", timespec="seconds")
     return datetime.now().astimezone().isoformat(sep=" ", timespec="seconds")

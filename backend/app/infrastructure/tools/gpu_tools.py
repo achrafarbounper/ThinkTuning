@@ -13,7 +13,8 @@ from .sandbox import run_subprocess
 
 
 def _query_nvidia_smi() -> dict[int, dict]:
-    """Interroge nvidia-smi ; retourne {index: {utilisation_percent, memory_used_mb, memory_total_mb}}."""
+    """Interroge nvidia-smi ; retourne les métriques par GPU
+    (index -> {utilisation_percent, memory_used_mb, memory_total_mb})."""
     code, out, _err = run_subprocess(
         [
             "nvidia-smi",
@@ -73,12 +74,8 @@ def gpu_info() -> dict:
                     "total_memory_gb": round(props.total_memory / 1024**3, 2),
                 }
                 try:
-                    device["allocated_gb"] = round(
-                        torch.cuda.memory_allocated(i) / 1024**3, 2
-                    )
-                    device["reserved_gb"] = round(
-                        torch.cuda.memory_reserved(i) / 1024**3, 2
-                    )
+                    device["allocated_gb"] = round(torch.cuda.memory_allocated(i) / 1024**3, 2)
+                    device["reserved_gb"] = round(torch.cuda.memory_reserved(i) / 1024**3, 2)
                 except Exception:  # environnement CUDA partiel -> champs omis
                     pass
                 info["devices"].append(device)
@@ -111,7 +108,5 @@ def gpu_info() -> dict:
 
     info["device_count"] = len(info["devices"])
     if not info["devices"]:
-        info["message"] = (
-            "Aucun GPU détecté : ni CUDA/torch disponible, ni nvidia-smi exploitable."
-        )
+        info["message"] = "Aucun GPU détecté : ni CUDA/torch disponible, ni nvidia-smi exploitable."
     return info

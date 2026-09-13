@@ -28,9 +28,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-# Imports relatifs dans le paquet « app.infrastructure.tools » (migré du
-# legacy « ia/tools » — l'ancien hack sys.path est supprimé).
-from .math_tools import add
+from .calc_tools import calc
+from .custom_tools import call_api, run_shell  # SCRUM-99 (tools d'exemple)
+from .database_tools import postgres_query
+from .docker_tools import docker_exec, docker_logs, docker_ps
 from .file_tools import (
     count_lines,
     dedupe_lines,
@@ -44,23 +45,19 @@ from .file_tools import (
     write_file,
     write_json,
 )
-from .system_tools import (
-    copy_path,
-    find_file,
-    list_dir,
-    make_dir,
-    move_path,
-    read_file,
-    remove_path,
-)
-from .shell_tools import run_command, run_python
-from .network_tools import http_get, http_post
-from .web_tools import web_search, web_fetch, web_read
-from .docker_tools import docker_exec, docker_logs, docker_ps
 from .gpu_tools import gpu_info
-from .database_tools import postgres_query
-from .search_tools import append_file, now, search_in_files, tail_file
-from .calc_tools import calc
+
+# Imports relatifs dans le paquet « app.infrastructure.tools » (migré du
+# legacy « ia/tools » — l'ancien hack sys.path est supprimé).
+from .math_tools import add
+from .mcp_host_tools import (
+    git_branch,
+    git_commit,
+    github_get_pr,
+    github_get_workflow_run,
+    github_list_issues,
+    github_list_prs,
+)
 from .ml_tools import (
     cancel_training,
     dataset_stats,
@@ -72,8 +69,10 @@ from .ml_tools import (
     stop_training,
     train_model,
 )
+from .network_tools import http_get, http_post
 from .ops_tools import (
     disk_usage,
+    docker_stats,
     download_file,
     env_info,
     git_diff,
@@ -82,16 +81,18 @@ from .ops_tools import (
     unzip_file,
     zip_path,
 )
-from .ops_tools import docker_stats
-from .custom_tools import call_api, run_shell  # SCRUM-99 (tools d'exemple)
-from .mcp_host_tools import (
-    git_branch,
-    git_commit,
-    github_get_pr,
-    github_get_workflow_run,
-    github_list_issues,
-    github_list_prs,
+from .search_tools import append_file, now, search_in_files, tail_file
+from .shell_tools import run_command, run_python
+from .system_tools import (
+    copy_path,
+    find_file,
+    list_dir,
+    make_dir,
+    move_path,
+    read_file,
+    remove_path,
 )
+from .web_tools import web_fetch, web_read, web_search
 
 TOOLS: dict[str, Callable[..., Any]] = {
     # math
@@ -196,4 +197,6 @@ def required_args_of(name: str) -> list[str]:
 
 # Dérivé : un clé manquante dans le JSON est une source de divergence -> le
 # test anti-divergence échoue, plutôt que de produire un prompt incomplet.
-REQUIRED_ARGS: dict[str, list[str]] = {name: meta.get("required_args", []) for name, meta in TOOL_META.items()}
+REQUIRED_ARGS: dict[str, list[str]] = {
+    name: meta.get("required_args", []) for name, meta in TOOL_META.items()
+}

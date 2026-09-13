@@ -13,14 +13,13 @@ Contient :
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
-
+from typing import Any
 
 
 def build_planner_prompt(
     prompt: str,
-    role_names: List[str],
-    role_tools: Dict[str, List[str]] | None = None,
+    role_names: list[str],
+    role_tools: dict[str, list[str]] | None = None,
     intent: str | None = None,
     intent_confidence: float | None = None,
     allow_tool_proposals: bool = False,
@@ -52,14 +51,10 @@ def build_planner_prompt(
     capabilities = ""
     if role_tools:
         lines = [
-            f"- {role} : {', '.join(role_tools[role])}"
-            for role in role_names
-            if role in role_tools
+            f"- {role} : {', '.join(role_tools[role])}" for role in role_names if role in role_tools
         ]
         capabilities = (
-            "\nCAPACITÉS RÉELLES DES RÔLES (outils disponibles) :\n"
-            + "\n".join(lines)
-            + "\n"
+            "\nCAPACITÉS RÉELLES DES RÔLES (outils disponibles) :\n" + "\n".join(lines) + "\n"
         )
 
     intent_block = ""
@@ -142,13 +137,13 @@ def build_planner_prompt(
         "- DONNÉES (SQL) : rôle « data » ; uniquement SELECT/WITH/EXPLAIN/PRAGMA."
         " Toute mutation SQL (INSERT/UPDATE/DELETE/DROP…) est INTERDITE.\n"
         "- RECHERCHE / LECTURE WEB : rôle « web ».\n\n"
-        'Réponds UNIQUEMENT avec UN SEUL JSON, en français. Soit une liste '
-        'de tâches, soit :\n'
+        "Réponds UNIQUEMENT avec UN SEUL JSON, en français. Soit une liste "
+        "de tâches, soit :\n"
         '{"tasks": [\n'
         '  {"task_id": "task-1", "role": "<role>", "subtask": "Description précise"},\n'
         '  {"task_id": "task-2", "role": "<role>", "subtask": "...", '
         '"dependencies": ["task-1"]}\n'
-        ']}\n'
+        "]}\n"
         "Aucun texte autour du JSON."
     )
 
@@ -179,10 +174,12 @@ def truncate_context(prompt: str, max_chars: int = 2400) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + "…  [contexte global tronqué]"
+
+
 def build_synthesis_prompt(
     original_prompt: str,
-    workers: List[Dict[str, Any]],
-    unexecuted: List[Dict[str, Any]],
+    workers: list[dict[str, Any]],
+    unexecuted: list[dict[str, Any]],
 ) -> str:
     """Prompt du superviseur : produire la réponse finale cohérente.
 
@@ -259,7 +256,7 @@ def build_fallback_system() -> str:
     )
 
 
-def worker_budget_exceeded(task_id: str, role: str) -> Dict[str, Any]:
+def worker_budget_exceeded(task_id: str, role: str) -> dict[str, Any]:
     """Payload standard d'un worker qui a dépassé son budget de jetons."""
     return {
         "task_id": task_id,

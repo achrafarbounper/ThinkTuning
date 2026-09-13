@@ -100,4 +100,3 @@ def extract_json_blocks(text: str):
         cursor = brace + 1
 
     return blocks
-

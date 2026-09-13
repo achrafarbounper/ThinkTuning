@@ -88,6 +88,8 @@ class PlanRejected(ValueError):
     def __init__(self, reason: str):
         self.reason = reason
         super().__init__(reason)
+
+
 def _classify(subtask: str) -> str:
     """Catégorie métier d'une sous-tâche (heuristique déterministe).
 
@@ -173,8 +175,7 @@ def correct_plan(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if category == "web":
             if role == "ops" and not _DIAGNOSTIC_MARKERS.search(subtask):
                 new_task["role"] = "web"  # « cherche sur le web » ≠ diagnostic
-            if not re.search(r"\b(post|publie[rz]?|envoie[rz]?|soumet)\b", subtask,
-                             re.IGNORECASE):
+            if not re.search(r"\b(post|publie[rz]?|envoie[rz]?|soumet)\b", subtask, re.IGNORECASE):
                 new_task["auto_approve"] = True  # web_search/web_read/http_get = READ
             corrected.append(new_task)
             continue

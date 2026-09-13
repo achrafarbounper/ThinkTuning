@@ -19,11 +19,9 @@ LLM fourni par l'appelant (FakeLLM dans les tests).
 
 import re
 
+from app.infrastructure.persistence.feedback_store import get_feedback_store
 from app.infrastructure.tools.tool_discovery import suggest_tools
 from app.infrastructure.tools.tool_registry import REQUIRED_ARGS
-
-from app.infrastructure.persistence.feedback_store import get_feedback_store
-
 
 # --- Squelette d'arguments ----------------------------------------------------
 
@@ -85,14 +83,16 @@ def suggest_for_context(
         adjusted = max(0.0, min(1.0, item["score"] + boost))
         if adjusted <= 0:
             continue
-        suggestions.append({
-            "tool": tool,
-            "score": round(adjusted, 3),
-            "base_score": item["score"],
-            "reasons": item.get("reasons", []),
-            "required_args": list(REQUIRED_ARGS.get(tool, ())),
-            "args": args_skeleton(tool, draft),
-        })
+        suggestions.append(
+            {
+                "tool": tool,
+                "score": round(adjusted, 3),
+                "base_score": item["score"],
+                "reasons": item.get("reasons", []),
+                "required_args": list(REQUIRED_ARGS.get(tool, ())),
+                "args": args_skeleton(tool, draft),
+            }
+        )
     suggestions.sort(key=lambda s: (-s["score"], s["tool"]))
     return {"query": query, "suggestions": suggestions[: max(1, int(k))]}
 
@@ -142,10 +142,12 @@ def complete_text(llm, messages: list[dict] | None, draft: str) -> str:
     history = [m for m in (messages or []) if m.get("content")]
     call_messages = [{"role": "system", "content": _COMPLETION_SYSTEM}]
     call_messages.extend(history[-4:])
-    call_messages.append({
-        "role": "user",
-        "content": f"Brouillon en cours : « {draft} »",
-    })
+    call_messages.append(
+        {
+            "role": "user",
+            "content": f"Brouillon en cours : « {draft} »",
+        }
+    )
     try:
         completion = str(llm.call(call_messages) or "").strip()
     except Exception:

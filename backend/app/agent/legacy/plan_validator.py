@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
+
+from app.domain.utils.json_parser import extract_json_blocks
 
 from .errors import (
     PLAN_CYCLE,
@@ -22,7 +25,6 @@ from .errors import (
     TASK_INVALID,
     TASK_UNDEFINED,
 )
-from app.domain.utils.json_parser import extract_json_blocks
 
 
 class PlanTask:
@@ -37,8 +39,12 @@ class PlanTask:
     """
 
     __slots__ = (
-        "task_id", "role", "subtask", "dependencies",
-        "intent", "intent_confidence",
+        "task_id",
+        "role",
+        "subtask",
+        "dependencies",
+        "intent",
+        "intent_confidence",
     )
 
     def __init__(
@@ -46,7 +52,7 @@ class PlanTask:
         task_id: str,
         role: str,
         subtask: str,
-        dependencies: List[str],
+        dependencies: list[str],
         intent: str = "action",
         intent_confidence: float = 0.0,
     ):
@@ -62,19 +68,24 @@ class ValidationResult:
     """Résultat de la validation : succès (tasks) ou échec (error_code)."""
 
     __slots__ = (
-        "ok", "tasks", "error_code", "message", "valid_roles",
-        "tool_proposals", "tool_proposal_notes",
+        "ok",
+        "tasks",
+        "error_code",
+        "message",
+        "valid_roles",
+        "tool_proposals",
+        "tool_proposal_notes",
     )
 
     def __init__(
         self,
         ok: bool,
-        tasks: Optional[List[PlanTask]] = None,
+        tasks: list[PlanTask] | None = None,
         error_code: str = "",
         message: str = "",
-        valid_roles: Optional[List[str]] = None,
-        tool_proposals: Optional[List[Dict[str, Any]]] = None,
-        tool_proposal_notes: Optional[List[Dict[str, Any]]] = None,
+        valid_roles: list[str] | None = None,
+        tool_proposals: list[dict[str, Any]] | None = None,
+        tool_proposal_notes: list[dict[str, Any]] | None = None,
     ):
         self.ok = ok
         self.tasks = tasks or []
@@ -86,7 +97,7 @@ class ValidationResult:
         self.tool_proposals = tool_proposals or []
         self.tool_proposal_notes = tool_proposal_notes or []
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         if self.ok:
             payload = {
                 "ok": True,
@@ -118,7 +129,7 @@ class ValidationResult:
         return payload
 
 
-def _extract_plan(raw: str) -> Optional[List[Dict[str, Any]]]:
+def _extract_plan(raw: str) -> list[dict[str, Any]] | None:
     """Extrait la liste de tâches du plan brut (JSON tolérant).
 
     Deux formes sont acceptées :
@@ -161,10 +172,10 @@ def _extract_plan(raw: str) -> Optional[List[Dict[str, Any]]]:
     return None
 
 
-def _topo_order_ok(tasks: List[PlanTask]) -> bool:
+def _topo_order_ok(tasks: list[PlanTask]) -> bool:
     """Vrai si le graphe de dépendances est acyclique (tri topologique)."""
     by_id = {t.task_id: t for t in tasks}
-    visited: Dict[str, int] = {}  # 0 = en cours, 1 = terminé
+    visited: dict[str, int] = {}  # 0 = en cours, 1 = terminé
 
     def dfs(task_id: str) -> bool:
         state = visited.get(task_id)
@@ -190,8 +201,9 @@ _TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 
 
 def _extract_tool_proposal(
-    item: Dict[str, Any], fallback_task_id: str,
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    item: dict[str, Any],
+    fallback_task_id: str,
+) -> tuple[dict[str, Any] | None, str | None]:
     """Normalise une tâche ``propose_tool`` -> (proposition | None, raison).
 
     Validation minimale DÉTERMINISTE (la validation complète du standard
@@ -213,12 +225,13 @@ def _extract_tool_proposal(
     required_args = tool.get("required_args")
     if not isinstance(required_args, list):
         required_args = []
-    proposal: Dict[str, Any] = {
+    proposal: dict[str, Any] = {
         "name": name,
         "description": description.strip(),
         "category": (
-            tool.get("category") if isinstance(tool.get("category"), str)
-            and tool.get("category") else "custom"
+            tool.get("category")
+            if isinstance(tool.get("category"), str) and tool.get("category")
+            else "custom"
         ),
         "version": str(tool.get("version") or "1.0"),
         "required_args": [a for a in required_args if isinstance(a, str)],
@@ -233,9 +246,9 @@ def _extract_tool_proposal(
 
 def validate_plan(
     raw: str,
-    roles: List[str],
+    roles: list[str],
     max_roles: int = 5,
-    preprocess: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
+    preprocess: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
     max_tool_proposals: int = 1,
 ) -> ValidationResult:
     """Valide un plan brut contre les rôles connus et les contraintes d'intégrité.
@@ -294,53 +307,57 @@ def validate_plan(
             valid_roles=valid_roles,
         )
 
-    tasks: List[PlanTask] = []
+    tasks: list[PlanTask] = []
     seen_ids = set()
     seen_pairs = set()
-    errors: List[str] = []
+    errors: list[str] = []
     # SCRUM-99 : collecte des propositions de tools du plan.
-    tool_proposals: List[Dict[str, Any]] = []
-    tool_notes: List[Dict[str, Any]] = []
+    tool_proposals: list[dict[str, Any]] = []
+    tool_notes: list[dict[str, Any]] = []
 
     for index, item in enumerate(tasks_raw, start=1):
         task_id = item.get("task_id") if isinstance(item, dict) else None
         role = item.get("role") if isinstance(item, dict) else None
         subtask = item.get("subtask") if isinstance(item, dict) else None
-        dependencies = (
-            item.get("dependencies") if isinstance(item, dict) else None
-        )
+        dependencies = item.get("dependencies") if isinstance(item, dict) else None
 
         # SCRUM-99 : pseudo-rôle « propose_tool » — extraire, ne pas dispatch.
         if role == TOOL_PROPOSAL_ROLE:
             proposal_id = task_id if isinstance(task_id, str) and task_id else f"task-{index}"
             proposal, reason = _extract_tool_proposal(
-                item if isinstance(item, dict) else {}, proposal_id,
+                item if isinstance(item, dict) else {},
+                proposal_id,
             )
             if proposal is None:
                 tool_notes.append({"task_id": proposal_id, "reason": reason})
                 continue
             if any(p["name"] == proposal["name"] for p in tool_proposals):
-                tool_notes.append({
-                    "task_id": proposal_id, "name": proposal["name"],
-                    "reason": f"tool « {proposal['name']} » déjà proposé dans ce plan",
-                })
+                tool_notes.append(
+                    {
+                        "task_id": proposal_id,
+                        "name": proposal["name"],
+                        "reason": f"tool « {proposal['name']} » déjà proposé dans ce plan",
+                    }
+                )
                 continue
             if len(tool_proposals) >= max_tool_proposals:
-                tool_notes.append({
-                    "task_id": proposal_id, "name": proposal["name"],
-                    "reason": (
-                        f"plafond de {max_tool_proposals} proposition(s) "
-                        "de tool par plan atteint"
-                    ),
-                })
+                tool_notes.append(
+                    {
+                        "task_id": proposal_id,
+                        "name": proposal["name"],
+                        "reason": (
+                            f"plafond de {max_tool_proposals} proposition(s) "
+                            "de tool par plan atteint"
+                        ),
+                    }
+                )
                 continue
             tool_proposals.append(proposal)
             continue
 
         if not isinstance(role, str) or role not in roles:
             errors.append(
-                f"tâche #{index} : rôle « {role} » inconnu (valides : "
-                f"{', '.join(valid_roles)})"
+                f"tâche #{index} : rôle « {role} » inconnu (valides : {', '.join(valid_roles)})"
             )
             continue
         if not isinstance(subtask, str) or not subtask.strip():
@@ -353,9 +370,7 @@ def validate_plan(
             continue
         pair = (role, subtask.strip())
         if pair in seen_pairs:
-            errors.append(
-                f"tâche #{index} : sous-tâche dupliquée pour le rôle « {role} »"
-            )
+            errors.append(f"tâche #{index} : sous-tâche dupliquée pour le rôle « {role} »")
             continue
         if not isinstance(dependencies, list):
             dependencies = []

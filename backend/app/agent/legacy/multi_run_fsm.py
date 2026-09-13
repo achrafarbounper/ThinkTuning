@@ -55,38 +55,48 @@ class MultiRunState(StrEnum):
 _TERMINAL = frozenset({MultiRunState.COMPLETED, MultiRunState.ERROR})
 
 _TRANSITIONS: dict[MultiRunState, frozenset[MultiRunState]] = {
-    MultiRunState.PLANNING: frozenset({
-        MultiRunState.DISPATCH,
-        MultiRunState.FALLBACK_CHAT,  # plan vide + intention « chat » → réponse directe
-        MultiRunState.ERROR,
-    }),
-    MultiRunState.DISPATCH: frozenset(
-        {MultiRunState.WAITING_WORKERS, MultiRunState.ERROR}
+    MultiRunState.PLANNING: frozenset(
+        {
+            MultiRunState.DISPATCH,
+            MultiRunState.FALLBACK_CHAT,  # plan vide + intention « chat » → réponse directe
+            MultiRunState.ERROR,
+        }
     ),
-    MultiRunState.WAITING_WORKERS: frozenset({
-        MultiRunState.AWAITING_APPROVAL,
-        MultiRunState.FALLBACK_CHAT,  # toutes les sous-tâches filtrées par l'intention
-        MultiRunState.SYNTHESIZING,
-        MultiRunState.ERROR,
-    }),
-    MultiRunState.AWAITING_APPROVAL: frozenset({
-        MultiRunState.RESUMING,   # SEULE issue de poursuite (reprise native)
-        MultiRunState.ERROR,      # snapshot expiré / demande non approuvée
-    }),
-    MultiRunState.RESUMING: frozenset({
-        MultiRunState.WAITING_WORKERS,    # re-dispatch du worker repris
-        MultiRunState.SYNTHESIZING,       # reprise aboutie → synthèse finale
-        MultiRunState.AWAITING_APPROVAL,  # nouvelle validation requise
-        MultiRunState.ERROR,
-    }),
-    MultiRunState.FALLBACK_CHAT: frozenset({
-        MultiRunState.SYNTHESIZING,  # la réponse conversationnelle devient la réponse finale
-        MultiRunState.ERROR,
-    }),
-    MultiRunState.SYNTHESIZING: frozenset({
-        MultiRunState.COMPLETED,
-        MultiRunState.ERROR,
-    }),
+    MultiRunState.DISPATCH: frozenset({MultiRunState.WAITING_WORKERS, MultiRunState.ERROR}),
+    MultiRunState.WAITING_WORKERS: frozenset(
+        {
+            MultiRunState.AWAITING_APPROVAL,
+            MultiRunState.FALLBACK_CHAT,  # toutes les sous-tâches filtrées par l'intention
+            MultiRunState.SYNTHESIZING,
+            MultiRunState.ERROR,
+        }
+    ),
+    MultiRunState.AWAITING_APPROVAL: frozenset(
+        {
+            MultiRunState.RESUMING,  # SEULE issue de poursuite (reprise native)
+            MultiRunState.ERROR,  # snapshot expiré / demande non approuvée
+        }
+    ),
+    MultiRunState.RESUMING: frozenset(
+        {
+            MultiRunState.WAITING_WORKERS,  # re-dispatch du worker repris
+            MultiRunState.SYNTHESIZING,  # reprise aboutie → synthèse finale
+            MultiRunState.AWAITING_APPROVAL,  # nouvelle validation requise
+            MultiRunState.ERROR,
+        }
+    ),
+    MultiRunState.FALLBACK_CHAT: frozenset(
+        {
+            MultiRunState.SYNTHESIZING,  # la réponse conversationnelle devient la réponse finale
+            MultiRunState.ERROR,
+        }
+    ),
+    MultiRunState.SYNTHESIZING: frozenset(
+        {
+            MultiRunState.COMPLETED,
+            MultiRunState.ERROR,
+        }
+    ),
     MultiRunState.COMPLETED: frozenset(),
     MultiRunState.ERROR: frozenset(),
 }

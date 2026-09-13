@@ -75,7 +75,9 @@ def job_list(status: str | None = None, limit: int = DEFAULT_JOB_LIMIT) -> dict:
             "job_count": 0,
             "truncated": False,
             "jobs": [],
-            "message": "Aucune base de jobs (experiments/jobs.db absent) : aucun entraînement lancé.",
+            "message": (
+                "Aucune base de jobs (experiments/jobs.db absent) : aucun entraînement lancé."
+            ),
         }
 
     conn = _connect_readonly(db_path)
@@ -91,8 +93,7 @@ def job_list(status: str | None = None, limit: int = DEFAULT_JOB_LIMIT) -> dict:
         try:
             data = json.loads(payload_json)
         except json.JSONDecodeError:
-            data = {"job_id": job_id,
-                    "payload_corrupted": truncate_output(str(payload_json), 200)}
+            data = {"job_id": job_id, "payload_corrupted": truncate_output(str(payload_json), 200)}
         entry = {"updated_at": iso_from_timestamp(updated_at), **_compact_job(data)}
         if status is None or str(entry.get("status")) == str(status):
             filtered.append(entry)
@@ -136,7 +137,8 @@ def _get_predictor():
         from app.application.predictor_cache import get_predictor
     except ImportError as exc:
         raise RuntimeError(
-            "app.application.predictor_cache inaccessible : lancez l'agent depuis la racine du projet."
+            "app.application.predictor_cache inaccessible : lancez l'agent "
+            "depuis la racine du projet."
         ) from exc
     try:
         return get_predictor()
@@ -214,9 +216,7 @@ def dataset_stats(path: str, sample_rows: int = 2000) -> dict:
         "columns": [str(col) for col in frame.columns],
         "sample_rows_used": int(len(sample)),
         "missing": {
-            str(col): int(count)
-            for col, count in sample.isna().sum().items()
-            if int(count) > 0
+            str(col): int(count) for col, count in sample.isna().sum().items() if int(count) > 0
         },
     }
 
@@ -234,7 +234,8 @@ def dataset_stats(path: str, sample_rows: int = 2000) -> dict:
 # --- versions de modèles ------------------------------------------------------------------
 def model_versions(model_root: str = "experiments/models") -> dict:
     """Liste les versions de modèles entraînés visibles dans la sandbox
-    (mêmes conventions que app/infrastructure/persistence/model_versioning : nom de dossier contenant
+    (mêmes conventions que app/infrastructure/persistence/model_versioning :
+    nom de dossier contenant
     model.pt / pytorch_model.bin / model.safetensors ; tri décroissant,
     la première est la version 'active' par défaut de l'API)."""
     base = safe_resolve(model_root)
@@ -261,6 +262,7 @@ def model_versions(model_root: str = "experiments/models") -> dict:
             }
         )
     return {"model_root": str(base), "version_count": len(versions), "versions": versions}
+
 
 # --- lancement d'entraînements ------------------------------------------------------------
 # Champs acceptés par TrainRequest (app/domain/entities/models.py) : la validation pydantic de
@@ -294,7 +296,8 @@ def _get_job_store():
         from app.infrastructure.persistence.job_store import get_job_store
     except ImportError as exc:
         raise RuntimeError(
-            "app.infrastructure.persistence.job_store inaccessible : lancez l'agent depuis la racine du projet."
+            "app.infrastructure.persistence.job_store inaccessible : lancez "
+            "l'agent depuis la racine du projet."
         ) from exc
     return get_job_store()
 
@@ -325,8 +328,7 @@ def _build_train_request(params: dict):
     device = params.get("device")
     if device is not None and not str(device).startswith(_DEVICE_PREFIXES):
         raise ValueError(
-            f"Device invalide : '{device}'. Valeurs attendues : auto, cpu, cuda "
-            "(ou cuda:N)."
+            f"Device invalide : '{device}'. Valeurs attendues : auto, cpu, cuda (ou cuda:N)."
         )
     corrections = params.get("local_corrections_path")
     if corrections is not None:
@@ -391,9 +393,7 @@ def _launch_training_job(params: dict) -> dict:
     job = TrainJob(job_id=job_id, status=JobStatus.PENDING)
     store[job_id] = job
     started_status = job.status.value  # snapshot AVANT le démarrage du thread
-    threading.Thread(
-        target=_training_thread_target, args=(job_id, req), daemon=True
-    ).start()
+    threading.Thread(target=_training_thread_target, args=(job_id, req), daemon=True).start()
     return {"job_id": job_id, "store": store, "started_at_status": started_status}
 
 
@@ -466,7 +466,6 @@ def train_model(wait_timeout: float = TRAIN_DEFAULT_WAIT_TIMEOUT, **params) -> d
     }
 
 
-
 def _get_training_canceller():
     """Import paresseux de app.application.trainer_runner.cancel_training (qui importe
     torch/transformers) : c'est le même cancel_event que lit la boucle du
@@ -495,14 +494,11 @@ def cancel_training(job_id: str) -> dict:
     job = store.get(str(job_id))
     if job is None:
         raise ValueError(
-            f"Job introuvable : '{job_id}'. Utilisez job_list pour voir les "
-            "jobs existants."
+            f"Job introuvable : '{job_id}'. Utilisez job_list pour voir les jobs existants."
         )
     status = getattr(getattr(job, "status", None), "value", None)
     if status not in ("pending", "running"):
-        raise ValueError(
-            f"Job déjà terminé (statut={status}) : rien à annuler pour '{job_id}'."
-        )
+        raise ValueError(f"Job déjà terminé (statut={status}) : rien à annuler pour '{job_id}'.")
 
     cancelled = _get_training_canceller()(str(job_id))
     return {

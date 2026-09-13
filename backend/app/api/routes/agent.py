@@ -128,6 +128,11 @@ def _active_features() -> list[str]:
     return [name for name, active in get_agent_config().active_flags().items() if active]
 
 
+from app.application.copilot.suggestions import (  # Phase D (copilot)
+    complete_text,
+    suggest_for_context,
+)
+from app.infrastructure.persistence.feedback_store import get_feedback_store  # Phase D (copilot)
 from app.infrastructure.persistence.flow_store import (
     AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
 )
@@ -154,11 +159,6 @@ from app.infrastructure.persistence.run_store import (
 )
 from app.infrastructure.persistence.run_store import (
     get_run_store,
-)
-from app.infrastructure.persistence.feedback_store import get_feedback_store  # Phase D (copilot)
-from app.application.copilot.suggestions import (  # Phase D (copilot)
-    complete_text,
-    suggest_for_context,
 )
 from app.infrastructure.tools.plugin import loaded_plugins  # Phase B (plugins)
 from app.infrastructure.tools.registry import (  # SCRUM-99 (tools personnalisés)

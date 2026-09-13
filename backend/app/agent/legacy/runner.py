@@ -24,6 +24,7 @@ class AgentRunner:
         """
         try:
             from app.infrastructure.events.event_bus import get_event_bus as _get_bus
+
             return _get_bus()
         except ImportError:
             return None
@@ -50,7 +51,9 @@ class AgentRunner:
     def ask(self, prompt: str):
         return self.agent.run(prompt)
 
-    def ask_detailed(self, prompt: str, resume_request_id: str | None = None, history_messages=None):
+    def ask_detailed(
+        self, prompt: str, resume_request_id: str | None = None, history_messages=None
+    ):
         """Exécute le run complet et renvoie AgentResult(answer, thinking).
 
         ``resume_request_id`` relance une tâche en attente de validation après
@@ -64,7 +67,9 @@ class AgentRunner:
             history_messages=history_messages,
         )
 
-    def ask_detailed_streaming(self, prompt: str, on_thinking=None, on_tool_event=None, history_messages=None):
+    def ask_detailed_streaming(
+        self, prompt: str, on_thinking=None, on_tool_event=None, history_messages=None
+    ):
         """Comme ``ask_detailed``, mais la réflexion est diffusée EN TEMPS RÉEL.
 
         ``on_thinking`` (optionnel) est invoqué pour chaque fragment de la

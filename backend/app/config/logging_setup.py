@@ -49,10 +49,10 @@ class _AnsiColorFormatter(logging.Formatter):
     """Repli sans rich : colore la ligne entière selon son niveau."""
 
     COLORS = {
-        "DEBUG": "\033[36m",        # cyan
-        "INFO": "\033[32m",         # vert
-        "WARNING": "\033[33m",      # jaune
-        "ERROR": "\033[31m",        # rouge
+        "DEBUG": "\033[36m",  # cyan
+        "INFO": "\033[32m",  # vert
+        "WARNING": "\033[33m",  # jaune
+        "ERROR": "\033[31m",  # rouge
         "CRITICAL": "\033[97;41m",  # blanc sur fond rouge
     }
     RESET = "\033[0m"

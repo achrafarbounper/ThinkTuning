@@ -1,3 +1,5 @@
+import inspect
+
 SYSTEM_PROMPT = """
 Tu es un agent autonome capable d’appeler des outils Python.
 
@@ -140,9 +142,6 @@ RÈGLES DU MODE RÉFLEXION
 # typique : « qui a gagné la coupe du monde 2026 » sans recherche web.
 # ---------------------------------------------------------------------
 
-import inspect
-
-
 _DESC_MAX_CHARS = 140
 
 
@@ -224,8 +223,7 @@ def build_tools_section(tools, required_args) -> str:
         )
     if "find_file" in tools or "read_file" in tools:
         guidance.append(
-            "- Fichier ou répertoire → find_file (chemin inconnu) puis"
-            " read_file / list_dir."
+            "- Fichier ou répertoire → find_file (chemin inconnu) puis read_file / list_dir."
         )
     if {"file_info", "file_checksum", "head_file", "count_lines"} & set(tools):
         guidance.append(
@@ -270,9 +268,7 @@ def build_tools_section(tools, required_args) -> str:
         "------------------------------------------------------------------------------\n"
         + "\n".join(lines)
         + "\n\nQUAND UTILISER UN OUTIL ?\n"
-        "-------------------------\n"
-        + "\n".join(guidance)
-        + "\n"
+        "-------------------------\n" + "\n".join(guidance) + "\n"
     )
 
 
@@ -286,6 +282,7 @@ def build_system_prompt(tools=None, required_args=None) -> str:
     if tools is None or required_args is None:
         from app.infrastructure.tools.tool_registry import REQUIRED_ARGS as _REQUIRED
         from app.infrastructure.tools.tool_registry import TOOLS as _TOOLS
+
         tools = _TOOLS if tools is None else tools
         required_args = _REQUIRED if required_args is None else required_args
     return SYSTEM_PROMPT + build_tools_section(tools, required_args)

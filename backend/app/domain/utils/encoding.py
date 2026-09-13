@@ -12,7 +12,8 @@ déterministe et conservatrice qui ne touche jamais aux chaînes légitimes
 
 Le module ne dépend que de la bibliothèque standard, sans aucun import vers
 le reste du paquet ou du projet : il peut donc être importé par
-``app.infrastructure.persistence.session_store`` / ``app.api.routes`` sans risque d'import circulaire.
+``app.infrastructure.persistence.session_store`` / ``app.api.routes`` sans
+risque d'import circulaire.
 """
 
 from __future__ import annotations

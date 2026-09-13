@@ -47,9 +47,7 @@ def github_get_pr(owner: str, repo: str, number: int) -> dict[str, Any]:
     return _call("github_get_pr", owner=owner, repo=repo, number=number)
 
 
-def github_list_prs(
-    owner: str, repo: str, state: str = "open", limit: int = 20
-) -> dict[str, Any]:
+def github_list_prs(owner: str, repo: str, state: str = "open", limit: int = 20) -> dict[str, Any]:
     """List pull requests through the configured GitHub MCP backend."""
     return _call("github_list_prs", owner=owner, repo=repo, state=state, limit=limit)
 

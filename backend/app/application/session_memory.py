@@ -14,7 +14,6 @@ Note de migration : les imports legacy (``app.infrastructure.context.context``,
 from __future__ import annotations
 
 from app.agent.settings import agent_flag
-from app.infrastructure.persistence.session_store import get_session_store
 from app.infrastructure.context.context import (
     DEFAULT_HISTORY_BUDGET_TOKENS,
     format_memory_note,
@@ -22,6 +21,7 @@ from app.infrastructure.context.context import (
     summarize_conversation,
     update_memory_summary,
 )
+from app.infrastructure.persistence.session_store import get_session_store
 
 # Nombre maximal de paires user/assistant rejouées comme contexte de session
 # (mémoire de conversation en mode Agent). Borné pour ne pas exploser la

@@ -14,8 +14,7 @@ import ast
 import os
 import sys
 import uuid
-from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from .sandbox import (
     check_command_allowed,
@@ -34,8 +33,17 @@ DEFAULT_PYTHON_TIMEOUT_S = 30.0
 # d'exécution (system/popen/exec*/spawn*/startfile) sont bloqués.
 _BLOCKED_IMPORTS = frozenset(
     {
-        "socket", "urllib", "requests", "httpx", "http", "subprocess", "pty",
-        "ftplib", "telnetlib", "smtplib", "importlib",
+        "socket",
+        "urllib",
+        "requests",
+        "httpx",
+        "http",
+        "subprocess",
+        "pty",
+        "ftplib",
+        "telnetlib",
+        "smtplib",
+        "importlib",
     }
 )
 
@@ -48,9 +56,22 @@ _BLOCKED_CALL_NAMES = frozenset(
 # Attributs système d'exécution (os.system, os.popen, os.exec*, os.spawn*, …).
 _OS_EXEC_ATTRS = frozenset(
     {
-        "system", "popen", "startfile",
-        "execv", "execl", "execvp", "execle", "execve", "execvpe", "execlp", "execlpe",
-        "spawnl", "spawnv", "spawnve", "spawnvpe", "posix_spawn",
+        "system",
+        "popen",
+        "startfile",
+        "execv",
+        "execl",
+        "execvp",
+        "execle",
+        "execve",
+        "execvpe",
+        "execlp",
+        "execlpe",
+        "spawnl",
+        "spawnv",
+        "spawnve",
+        "spawnvpe",
+        "posix_spawn",
     }
 )
 
@@ -58,8 +79,16 @@ _OS_EXEC_ATTRS = frozenset(
 # clé API / token / DSN / mot de passe n'y figure : seules les variables
 # nécessaires à la bibliothèque standard et aux caches sont transmises.
 _ALLOWED_ENV_KEYS = (
-    "PATH", "SYSTEMROOT", "HOME", "USERPROFILE",
-    "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE",
+    "PATH",
+    "SYSTEMROOT",
+    "HOME",
+    "USERPROFILE",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
 )
 
 
@@ -82,9 +111,7 @@ def _scan_snippet_for_unsafe(code: str) -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             blocked_imports.extend(
-                alias.name
-                for alias in node.names
-                if alias.name.split(".")[0] in _BLOCKED_IMPORTS
+                alias.name for alias in node.names if alias.name.split(".")[0] in _BLOCKED_IMPORTS
             )
         elif isinstance(node, ast.ImportFrom):
             if node.module and node.module.split(".")[0] in _BLOCKED_IMPORTS:
@@ -149,21 +176,11 @@ def _snippet_preexec() -> Callable[[], None] | None:
 
     return _apply_limits
 
-from .sandbox import (
-    check_command_allowed,
-    get_sandbox_root,
-    run_subprocess,
-    safe_resolve,
-    truncate_output,
-)
-
-DEFAULT_COMMAND_TIMEOUT_S = 60.0
-DEFAULT_PYTHON_TIMEOUT_S = 30.0
-
 
 # --- Commandes externes ----------------------------------------------------------
-def run_command(command: list, timeout: float = DEFAULT_COMMAND_TIMEOUT_S,
-                cwd: str | None = None) -> dict:
+def run_command(
+    command: list, timeout: float = DEFAULT_COMMAND_TIMEOUT_S, cwd: str | None = None
+) -> dict:
     """Exécute une commande en liste d'arguments, ex : ["git", "--version"].
 
     L'exécutable (premier élément) doit figurer dans l'allowlist
@@ -171,7 +188,7 @@ def run_command(command: list, timeout: float = DEFAULT_COMMAND_TIMEOUT_S,
     """
     if isinstance(command, str):
         raise ValueError(
-            "'command' doit être une LISTE (ex: [\"git\", \"--version\"]), "
+            '\'command\' doit être une LISTE (ex: ["git", "--version"]), '
             "pas une chaîne — cela évite toute injection de shell."
         )
     check_command_allowed(command)

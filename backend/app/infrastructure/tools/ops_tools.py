@@ -12,9 +12,9 @@ Sécurité :
       lecteur refusés), extraction confinée au dossier cible de la sandbox.
 """
 
+import json
 import os
 import platform
-import json
 import shutil
 import sys
 import zipfile
@@ -41,14 +41,22 @@ DOCKER_TIMEOUT_S = 30.0
 # Versions de packages utiles au diagnostic (jamais de variables d'environnement :
 # elles peuvent contenir des secrets).
 _REPORTED_PACKAGES = (
-    "torch", "transformers", "datasets", "scikit-learn",
-    "pandas", "numpy", "fastapi", "requests", "psycopg2-binary",
+    "torch",
+    "transformers",
+    "datasets",
+    "scikit-learn",
+    "pandas",
+    "numpy",
+    "fastapi",
+    "requests",
+    "psycopg2-binary",
 )
 
 
 # --- téléchargement ------------------------------------------------------------------
-def download_file(url: str, filename: str, max_mb: int = 50,
-                  timeout: float = DEFAULT_DOWNLOAD_TIMEOUT_S) -> dict:
+def download_file(
+    url: str, filename: str, max_mb: int = 50, timeout: float = DEFAULT_DOWNLOAD_TIMEOUT_S
+) -> dict:
     """Télécharge un fichier http(s) DANS la sandbox, en streaming.
 
     - politique schéma/hôte identique à http_get (AGENT_BLOCK_PRIVATE_HOSTS) ;
@@ -68,9 +76,7 @@ def download_file(url: str, filename: str, max_mb: int = 50,
     response = requests.get(url, stream=True, timeout=timeout)
     if response.status_code >= 400:
         response.close()
-        raise RuntimeError(
-            f"Téléchargement impossible : HTTP {response.status_code} pour {url}"
-        )
+        raise RuntimeError(f"Téléchargement impossible : HTTP {response.status_code} pour {url}")
 
     written = 0
     try:
@@ -188,9 +194,13 @@ def zip_path(src: str, dst: str) -> dict:
         raise ValueError(f"L'archive doit finir par .zip (reçu : '{destination.name}').")
 
     files = (
-        [source] if source.is_file()
-        else [item for item in sorted(source.rglob("*"))
-              if item.is_file() and not (SKIP_DIRS & {p.name for p in item.parents})]
+        [source]
+        if source.is_file()
+        else [
+            item
+            for item in sorted(source.rglob("*"))
+            if item.is_file() and not (SKIP_DIRS & {p.name for p in item.parents})
+        ]
     )
     if len(files) > _MAX_ZIP_ENTRIES:
         raise ValueError(f"Trop de fichiers à compresser (> {_MAX_ZIP_ENTRIES}).")
@@ -227,14 +237,10 @@ def unzip_file(src: str, dst: str) -> dict:
         for member in archive.namelist():
             pure = PurePosixPath(member)
             if pure.is_absolute() or ".." in pure.parts or ":" in member:
-                raise PermissionError(
-                    f"Entrée dangereuse refusée dans l'archive : '{member}'"
-                )
+                raise PermissionError(f"Entrée dangereuse refusée dans l'archive : '{member}'")
             target = resolved_destination.joinpath(*pure.parts)
             if resolved_destination != target and resolved_destination not in target.parents:
-                raise PermissionError(
-                    f"Extraction hors du dossier cible refusée : '{member}'"
-                )
+                raise PermissionError(f"Extraction hors du dossier cible refusée : '{member}'")
             if member.endswith("/"):
                 target.mkdir(parents=True, exist_ok=True)
                 created_dirs += 1
@@ -296,9 +302,7 @@ def docker_stats(all_containers: bool = False) -> list[dict]:
         argv.append("--all")
     argv += ["--format", "{{json .}}"]
 
-    code, out, err = run_subprocess(
-        argv, timeout=DOCKER_TIMEOUT_S, max_output_chars=16000
-    )
+    code, out, err = run_subprocess(argv, timeout=DOCKER_TIMEOUT_S, max_output_chars=16000)
     out = _ensure_docker_output(code, out, err, "stats")
 
     containers: list[dict] = []

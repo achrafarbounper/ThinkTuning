@@ -4,9 +4,10 @@ import asyncio
 import logging
 import threading
 from collections import defaultdict
+from collections.abc import Callable
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger("thinktuning.agent.events")
 
@@ -15,7 +16,7 @@ class EventBus:
     """Bus d'evenements pub/sub avec isolation d'erreurs."""
 
     def __init__(self) -> None:
-        self._handlers: Dict[str, List[Callable]] = defaultdict(list)
+        self._handlers: dict[str, list[Callable]] = defaultdict(list)
         self._lock = threading.RLock()
         self._once_handlers: set[int] = set()
 
@@ -46,9 +47,9 @@ class EventBus:
         with self._lock:
             handlers = list(self._handlers.get(event_type, []))
 
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
         event_data = {"event_type": event_type, "timestamp": timestamp, **kwargs}
-        to_remove: List[int] = []
+        to_remove: list[int] = []
 
         for handler in handlers:
             try:
@@ -66,7 +67,7 @@ class EventBus:
                         h for h in self._handlers.get(event_type, []) if id(h) != hid
                     ]
 
-    def clear(self, event_type: Optional[str] = None) -> None:
+    def clear(self, event_type: str | None = None) -> None:
         """Supprime tous les handlers (ou seulement ceux d'un type)."""
         with self._lock:
             if event_type is None:
@@ -85,10 +86,10 @@ class EventBus:
         with self._lock:
             handlers = list(self._handlers.get(event_type, []))
 
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
         event_data = {"event_type": event_type, "timestamp": timestamp, **kwargs}
-        async_handlers: List[Callable] = []
-        sync_handlers: List[Callable] = []
+        async_handlers: list[Callable] = []
+        sync_handlers: list[Callable] = []
 
         for h in handlers:
             if asyncio.iscoroutinefunction(h):
@@ -103,24 +104,20 @@ class EventBus:
             )
             for result in results:
                 if isinstance(result, Exception):
-                    logger.warning(
-                        "event_bus: async handler error '%s': %s", event_type, result
-                    )
+                    logger.warning("event_bus: async handler error '%s': %s", event_type, result)
 
         for handler in sync_handlers:
             try:
                 handler(**event_data)
             except Exception as exc:
-                logger.warning(
-                    "event_bus: sync handler error '%s': %s", event_type, exc
-                )
+                logger.warning("event_bus: sync handler error '%s': %s", event_type, exc)
 
 
 # ============================================================
 # Singleton global
 # ============================================================
 
-_default_bus: Optional[EventBus] = None
+_default_bus: EventBus | None = None
 _bus_lock = threading.Lock()
 
 

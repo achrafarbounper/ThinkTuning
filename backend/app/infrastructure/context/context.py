@@ -22,7 +22,7 @@ hors ligne.
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
 # Budget par défaut du contexte rejoué (jetons estimés). Aligné sur la
 # fenêtre des modèles 8B courants (llama3.1:8b) : ~8k jetons au total,
@@ -33,9 +33,7 @@ DEFAULT_HISTORY_BUDGET_TOKENS = 1200
 MAX_MEMORY_SUMMARY_CHARS = 2000
 
 # Sentinelle insérée quand des tours ont été résumés/écartés.
-_TRUNCATION_NOTE = (
-    "[Contexte tronqué : {n} tour(s) plus ancien(s) résumé(s) ci-dessus.]"
-)
+_TRUNCATION_NOTE = "[Contexte tronqué : {n} tour(s) plus ancien(s) résumé(s) ci-dessus.]"
 
 
 def estimate_tokens(text: str) -> int:
@@ -58,7 +56,7 @@ def estimate_messages_tokens(messages: list[dict]) -> int:
 def optimize_history(
     messages: list[dict],
     max_tokens: int = DEFAULT_HISTORY_BUDGET_TOKENS,
-    summarize_fn: Optional[Callable[[str], str]] = None,
+    summarize_fn: Callable[[str], str] | None = None,
 ) -> tuple[list[dict], dict]:
     """Fenêtre glissante + résumé éventuel d'un historique de conversation.
 
@@ -73,7 +71,9 @@ def optimize_history(
     """
     if max_tokens <= 0 or not messages:
         return list(messages), {
-            "kept": len(messages), "dropped": 0, "summarized": False,
+            "kept": len(messages),
+            "dropped": 0,
+            "summarized": False,
             "estimated_tokens": estimate_messages_tokens(messages),
         }
 
@@ -130,8 +130,7 @@ def optimize_history(
 
     # Sans résumé : note de troncature seule (comportement dégradable).
     return (
-        [{"role": "user", "content": _TRUNCATION_NOTE.format(n=dropped_count)}]
-        + kept,
+        [{"role": "user", "content": _TRUNCATION_NOTE.format(n=dropped_count)}] + kept,
         meta,
     )
 
@@ -175,7 +174,7 @@ def update_memory_summary(
     return merged
 
 
-def format_memory_note(summary: str) -> Optional[dict]:
+def format_memory_note(summary: str) -> dict | None:
     """Message de contexte portant la mémoire des sessions précédentes.
 
     Retourne ``None`` si le résumé est vide — l'appelant n'injecte alors

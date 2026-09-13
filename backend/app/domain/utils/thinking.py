@@ -13,7 +13,6 @@ JSON des outils (json_parser.extract_json_blocks) ni la réponse affichée.
 """
 
 import re
-from typing import Tuple
 
 # Balises tolérantes aux variations de casse et d'espacement (« < think > »).
 # Ne capte PAS <thinking> : la fermeture « > » doit suivre directement « think ».
@@ -28,7 +27,7 @@ class ThinkingStreamSplitter:
         self._buffer = ""
         self._in_thinking = False
 
-    def feed(self, fragment: str) -> Tuple[str, str]:
+    def feed(self, fragment: str) -> tuple[str, str]:
         self._buffer += fragment
         content: list[str] = []
         thinking: list[str] = []
@@ -37,8 +36,8 @@ class ThinkingStreamSplitter:
             match = pattern.search(self._buffer)
             if match is not None:
                 target = thinking if self._in_thinking else content
-                target.append(self._buffer[:match.start()])
-                self._buffer = self._buffer[match.end():]
+                target.append(self._buffer[: match.start()])
+                self._buffer = self._buffer[match.end() :]
                 self._in_thinking = not self._in_thinking
                 continue
 
@@ -56,7 +55,7 @@ class ThinkingStreamSplitter:
             break
         return "".join(content), "".join(thinking)
 
-    def finish(self) -> Tuple[str, str]:
+    def finish(self) -> tuple[str, str]:
         target = self._buffer
         self._buffer = ""
         if self._in_thinking:
@@ -64,7 +63,7 @@ class ThinkingStreamSplitter:
         return target, ""
 
 
-def extract_thinking(text: str) -> Tuple[str, str]:
+def extract_thinking(text: str) -> tuple[str, str]:
     """Sépare la réflexion du reste de la réponse.
 
     Args:
@@ -94,13 +93,13 @@ def extract_thinking(text: str) -> Tuple[str, str]:
         if opener is None:
             cleaned_chunks.append(text[cursor:])
             break
-        cleaned_chunks.append(text[cursor:opener.start()])
+        cleaned_chunks.append(text[cursor : opener.start()])
 
         closer = _THINK_CLOSE.search(text, opener.end())
         if closer is None:
-            thinking_parts.append(text[opener.end():])
+            thinking_parts.append(text[opener.end() :])
             break
-        thinking_parts.append(text[opener.end():closer.start()])
+        thinking_parts.append(text[opener.end() : closer.start()])
         cursor = closer.end()
 
     cleaned = _THINK_CLOSE.sub("", "".join(cleaned_chunks)).strip()

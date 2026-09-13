@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 import shlex
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .network_tools import http_get, http_post
 from .shell_tools import run_command
@@ -33,14 +33,14 @@ DEFAULT_API_TIMEOUT_S = 30.0
 _TRUE_VALUES = ("1", "true", "yes", "on")
 
 
-def _dry_run_requested(dry_run: Optional[bool]) -> bool:
+def _dry_run_requested(dry_run: bool | None) -> bool:
     """Dry-run explicite OU global via AGENT_TOOLS_DRY_RUN (mode tests/CI)."""
     if dry_run is not None:
         return bool(dry_run)
     return os.getenv("AGENT_TOOLS_DRY_RUN", "").strip().lower() in _TRUE_VALUES
 
 
-def _normalize_command(command: Any) -> List[str]:
+def _normalize_command(command: Any) -> list[str]:
     """Liste d'arguments (une chaîne est découpée via shlex — jamais de shell)."""
     if isinstance(command, str):
         try:
@@ -51,8 +51,7 @@ def _normalize_command(command: Any) -> List[str]:
         command = list(command)
     if not isinstance(command, list) or not command:
         raise ValueError(
-            "'command' doit être une liste d'arguments non vide "
-            "(ex: [\"git\", \"--version\"])."
+            '\'command\' doit être une liste d\'arguments non vide (ex: ["git", "--version"]).'
         )
     if not all(isinstance(arg, str) for arg in command):
         raise ValueError("'command' doit être une liste de chaînes.")
@@ -62,9 +61,9 @@ def _normalize_command(command: Any) -> List[str]:
 def run_shell(
     command: Any,
     timeout: float = DEFAULT_SHELL_TIMEOUT_S,
-    cwd: Optional[str] = None,
-    dry_run: Optional[bool] = None,
-) -> Dict[str, Any]:
+    cwd: str | None = None,
+    dry_run: bool | None = None,
+) -> dict[str, Any]:
     """Exécute une commande SÛRE (allowlist, sans shell) — voir ``run_command``.
 
     ``command`` : liste d'arguments (ex. ``["git", "--version"]``) OU chaîne
@@ -95,17 +94,15 @@ def run_shell(
     return run_command(argv, timeout=timeout, cwd=cwd)
 
 
-
-
 def call_api(
     url: str,
     method: str = "GET",
-    headers: Optional[Dict[str, str]] = None,
-    body: Optional[str] = None,
-    json_payload: Optional[Dict[str, Any]] = None,
+    headers: dict[str, str] | None = None,
+    body: str | None = None,
+    json_payload: dict[str, Any] | None = None,
     timeout: float = DEFAULT_API_TIMEOUT_S,
     max_chars: int = 8000,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Appel HTTP générique GET/POST (délègue à ``http_get``/``http_post``).
 
     GET sans corps ; POST avec ``body`` brut OU ``json_payload`` (exclusifs,
@@ -119,15 +116,17 @@ def call_api(
         if body is not None or json_payload is not None:
             raise ValueError(
                 "Une requête GET n'accepte pas de corps (body/json_payload) : "
-                "utilisez method=\"POST\"."
+                'utilisez method="POST".'
             )
         return http_get(url, headers=headers, timeout=timeout, max_chars=max_chars)
     return http_post(
-        url, data=body, json_payload=json_payload, headers=headers,
-        timeout=timeout, max_chars=max_chars,
+        url,
+        data=body,
+        json_payload=json_payload,
+        headers=headers,
+        timeout=timeout,
+        max_chars=max_chars,
     )
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -137,13 +136,12 @@ def call_api(
 # git status, dry_run…). Un test anti-divergence vérifie la cohérence avec
 # tools_config.json (name / required_args / parameters).
 # ---------------------------------------------------------------------------
-EXAMPLE_TOOL_DEFINITIONS: Dict[str, Dict[str, Any]] = {
+EXAMPLE_TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "read_file": {
         "$schema": "thinktuning.tool/v1",
         "name": "read_file",
         "description": (
-            "Lit un fichier texte (UTF-8) DANS la sandbox ; tronque au-delà "
-            "de max_bytes."
+            "Lit un fichier texte (UTF-8) DANS la sandbox ; tronque au-delà de max_bytes."
         ),
         "version": "1.0",
         "category": "file",
@@ -210,7 +208,7 @@ EXAMPLE_TOOL_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                 "type": "array",
                 "required": True,
                 "description": (
-                    "Liste d'arguments, ex [\"git\", \"--version\"] ; une "
+                    'Liste d\'arguments, ex ["git", "--version"] ; une '
                     "chaîne est découpée via shlex (pas de shell)."
                 ),
             },
@@ -296,5 +294,3 @@ EXAMPLE_TOOL_DEFINITIONS: Dict[str, Dict[str, Any]] = {
 }
 
 # @@CHUNK_END@@
-
-

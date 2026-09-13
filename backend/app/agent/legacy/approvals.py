@@ -7,7 +7,8 @@ DPE — Décision de Policy d'un appel d'outil. Trois états déterministes :
       immédiatement, sans validation humaine.
     - APPROVE      : action potentiellement risquée (édition de fichier,
       commande sensible définie par la policy…) → validation humaine AVANT
-      toute exécution (via `app.infrastructure.persistence.approval_store`, endpoints /api/agent/approvals).
+      toute exécution (via `app.infrastructure.persistence.approval_store`,
+      endpoints /api/agent/approvals).
     - REJECT       : action bloquée immédiatement (chemins interdits —
       `.git`, racine sandbox —, binaire dangereux) → jamais exécutée.
 
@@ -24,13 +25,13 @@ chemin) qui ne sont jamais désactivables.
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-class Decision(str, Enum):
+class Decision(StrEnum):
     """Les trois états du système de décision."""
 
     AUTO_APPROVE = "auto_approve"
@@ -63,7 +64,7 @@ class PolicyDecision:
     """
 
     tool: str
-    args: Dict[str, Any]
+    args: dict[str, Any]
     decision: Decision
     category: str
     reason: str
@@ -95,7 +96,9 @@ def _summary(args: Any) -> Any:
     ``clé=valeur``) sont masqués avant persistance (complément du masquage
     par clés d'audit_store).
     """
-    from app.infrastructure.persistence.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+    from app.infrastructure.persistence.secrets_redact import (
+        redact_secrets,  # import paresseux (anti-cycle)
+    )
 
     if isinstance(args, dict):
         return {key: _summary(val) for key, val in args.items()}
@@ -109,7 +112,7 @@ def _summary(args: Any) -> Any:
     return text
 
 
-def _args_hash(args: Dict[str, Any]) -> str:
+def _args_hash(args: dict[str, Any]) -> str:
     """Empreinte SHA-256 déterministe du JSON des arguments."""
     payload = json.dumps(args, sort_keys=True, default=str, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -117,7 +120,7 @@ def _args_hash(args: Dict[str, Any]) -> str:
 
 def _timestamp() -> str:
     """Horodatage ISO 8601 UTC (millisecondes)."""
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _utcnow() -> str:
@@ -126,8 +129,10 @@ def _utcnow() -> str:
 
 # --- Accès sandbox & registre (imports absolus, paquet app.infrastructure.tools) -------
 
-from app.infrastructure.tools.sandbox import (
+from app.infrastructure.tools.sandbox import (  # noqa: E402
     get_sandbox_root as _get_sandbox_root,
+)
+from app.infrastructure.tools.sandbox import (  # noqa: E402
     safe_resolve as _sandbox_safe_resolve,
 )
 
@@ -137,7 +142,7 @@ def _sandbox_root() -> Path:
     return _get_sandbox_root()
 
 
-def _safe_resolve(token: str) -> Optional[Path]:
+def _safe_resolve(token: str) -> Path | None:
     """Résout un chemin dans la sandbox ; ``None`` si évasion (= interdit)."""
     try:
         return _sandbox_safe_resolve(str(token))
@@ -147,17 +152,35 @@ def _safe_resolve(token: str) -> Optional[Path]:
 
 # Outils dont un argument « path / filename / src / dst » MUTE le système de
 # fichiers : seuls ceux-ci sont soumis aux règles dures (`.git`, racine sandbox).
-_MUTATING_PATH_TOOLS = frozenset({
-    "write_file", "append_file", "make_dir", "copy_path", "move_path",
-    "remove_path", "zip_path", "unzip_file", "download_file",
-})
+_MUTATING_PATH_TOOLS = frozenset(
+    {
+        "write_file",
+        "append_file",
+        "make_dir",
+        "copy_path",
+        "move_path",
+        "remove_path",
+        "zip_path",
+        "unzip_file",
+        "download_file",
+    }
+)
 
 # Binaires jamais exécutables même avec validation humaine (rejet immédiat) :
 # ils permettraient d'exécuter n'importe quoi et annuleraient le filtrage.
-_BLOCKED_BINARIES = frozenset({
-    "cmd", "powershell", "pwsh", "bash", "sh", "zsh", "fish",
-    "wscript", "cscript",
-})
+_BLOCKED_BINARIES = frozenset(
+    {
+        "cmd",
+        "powershell",
+        "pwsh",
+        "bash",
+        "sh",
+        "zsh",
+        "fish",
+        "wscript",
+        "cscript",
+    }
+)
 
 # Commandes 100 % lecture seule (binaire entier allowlisté pour l'auto-approve).
 _READ_COMMANDS = frozenset({"nvidia-smi"})
@@ -170,32 +193,67 @@ _SAFE_SUBCOMMAND_BINARIES = {
 }
 
 # Outils sûrs par nature → AUTO_APPROVE (lecture, réseau en lecture, calculs).
-_AUTO_TOOLS = frozenset({
-    # fichiers / recherche (lecture)
-    "read_file", "list_dir", "find_file", "search_in_files", "tail_file",
-    # git / docker / ML / jobs (lecture)
-    "git_status", "git_log", "git_diff",
-    "docker_ps", "docker_logs", "docker_stats",
-    "job_list", "job_get", "model_versions", "dataset_stats",
-    "predict_sentiment",
-    # réseau en lecture
-    "web_search", "web_fetch", "web_read", "http_get",
-    # système / mathématiques
-    "env_info", "disk_usage", "gpu_info", "now", "calc", "add",
-})
+_AUTO_TOOLS = frozenset(
+    {
+        # fichiers / recherche (lecture)
+        "read_file",
+        "list_dir",
+        "find_file",
+        "search_in_files",
+        "tail_file",
+        # git / docker / ML / jobs (lecture)
+        "git_status",
+        "git_log",
+        "git_diff",
+        "docker_ps",
+        "docker_logs",
+        "docker_stats",
+        "job_list",
+        "job_get",
+        "model_versions",
+        "dataset_stats",
+        "predict_sentiment",
+        # réseau en lecture
+        "web_search",
+        "web_fetch",
+        "web_read",
+        "http_get",
+        # système / mathématiques
+        "env_info",
+        "disk_usage",
+        "gpu_info",
+        "now",
+        "calc",
+        "add",
+    }
+)
 
 # Outils potentiellement risqués → APPROVE (validation humaine avant exécution).
-_APPROVE_TOOLS = frozenset({
-    # mutations de fichiers
-    "write_file", "append_file", "make_dir", "copy_path", "move_path",
-    "remove_path", "zip_path", "unzip_file", "download_file",
-    # exécution de code / conteneurs / réseau en écriture
-    "run_command", "run_python", "docker_exec", "http_post",
-    # entraînements (créent un job et écrivent dans experiments/models)
-    "start_training", "train_model",
-    # arrêts d'entraînements (mutation de l'état d'un job)
-    "cancel_training", "stop_training",
-})
+_APPROVE_TOOLS = frozenset(
+    {
+        # mutations de fichiers
+        "write_file",
+        "append_file",
+        "make_dir",
+        "copy_path",
+        "move_path",
+        "remove_path",
+        "zip_path",
+        "unzip_file",
+        "download_file",
+        # exécution de code / conteneurs / réseau en écriture
+        "run_command",
+        "run_python",
+        "docker_exec",
+        "http_post",
+        # entraînements (créent un job et écrivent dans experiments/models)
+        "start_training",
+        "train_model",
+        # arrêts d'entraînements (mutation de l'état d'un job)
+        "cancel_training",
+        "stop_training",
+    }
+)
 
 _DB_QUERY_TOOLS = frozenset({"postgres_query"})
 
@@ -207,18 +265,19 @@ _APPROVAL_OVERRIDE_MAP = {
 }
 
 
-def _config_approval(tool: str) -> Optional[Decision]:
+def _config_approval(tool: str) -> Decision | None:
     """Surcharge déclarative d'un outil (« approval » dans tools_config.json).
 
     Valeurs reconnues : ``auto`` | ``manual`` | ``blocked``. Absent ou invalide
     → None (la classification par défaut s'applique).
     """
     from app.infrastructure.tools.tool_registry import get_tool_meta
+
     raw = str(get_tool_meta(tool).get("approval", "")).strip().lower()
     return _APPROVAL_OVERRIDE_MAP.get(raw)
 
 
-def _is_readonly_query(args: Dict[str, Any]) -> bool:
+def _is_readonly_query(args: dict[str, Any]) -> bool:
     """True si la requête SQL reste en lecture seule (défaut = readonly=true)."""
     val = args.get("readonly", True)
     if isinstance(val, str):
@@ -226,10 +285,10 @@ def _is_readonly_query(args: Dict[str, Any]) -> bool:
     return bool(val)
 
 
-
 # --- Matériaux pour le calcul des chemins interdits ------------------------------------
 
-def _path_tokens(args: Dict[str, Any]) -> list[str]:
+
+def _path_tokens(args: dict[str, Any]) -> list[str]:
     """Chemins candidats accessibles dans les arguments (jamais de secret)."""
     tokens = []
     for key in ("path", "filename", "src", "dst"):
@@ -239,7 +298,7 @@ def _path_tokens(args: Dict[str, Any]) -> list[str]:
     return tokens
 
 
-def _forbidden_path_reason(tool: str, args: Dict[str, Any]) -> Optional[str]:
+def _forbidden_path_reason(tool: str, args: dict[str, Any]) -> str | None:
     """Raison de blocage si un chemin de l'action est interdit, sinon None.
 
     Règles DURES (jamais surchargeables) pour les outils de mutation : écrire,
@@ -260,7 +319,7 @@ def _forbidden_path_reason(tool: str, args: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _classify_run_command(tool: str, args: Dict[str, Any]) -> tuple[str, str, Decision]:
+def _classify_run_command(tool: str, args: dict[str, Any]) -> tuple[str, str, Decision]:
     """Classification fine de run_command / run_python.
 
     - Binaire de lecture seule → auto_approve.
@@ -291,20 +350,16 @@ def _classify_run_command(tool: str, args: Dict[str, Any]) -> tuple[str, str, De
 
 def _reason_for(decision: Decision, tool: str, category: str) -> str:
     reasons = {
-        Decision.AUTO_APPROVE: (
-            f"Action sûre ({category}) exécutée automatiquement : {tool}"
-        ),
+        Decision.AUTO_APPROVE: (f"Action sûre ({category}) exécutée automatiquement : {tool}"),
         Decision.APPROVE: (
             f"Action potentiellement risquée ({category}) nécessite validation humaine : {tool}"
         ),
-        Decision.REJECT: (
-            f"Action bloquée par la policy (aucune exécution) : {tool}"
-        ),
+        Decision.REJECT: (f"Action bloquée par la policy (aucune exécution) : {tool}"),
     }
     return reasons[decision]
 
 
-def _registry_approval(tool: str) -> Optional[Decision]:
+def _registry_approval(tool: str) -> Decision | None:
     """Surcharge « registry » (SCRUM-99) : approval effectif d'un tool enregistré.
 
     Les tools DYNAMIQUES (proposés par le planner, relus par un humain) portent
@@ -339,7 +394,7 @@ def _registry_approval(tool: str) -> Optional[Decision]:
     return None
 
 
-def classify(tool: str, args: Dict[str, Any]) -> PolicyDecision:
+def classify(tool: str, args: dict[str, Any]) -> PolicyDecision:
     """Classe un appel d'outil et renvoie la décision structurée et horodatée.
 
     Ordre d'évaluation (du plus fort au plus souple) :
@@ -385,7 +440,8 @@ def classify(tool: str, args: Dict[str, Any]) -> PolicyDecision:
     if registry_decision is not None:
         category = _category_of(tool)
         return _badge(
-            registry_decision, category,
+            registry_decision,
+            category,
             _reason_for(registry_decision, tool, category),
         )
 
@@ -400,36 +456,64 @@ def classify(tool: str, args: Dict[str, Any]) -> PolicyDecision:
         category = CATEGORY_READ if _is_readonly_query(args) else CATEGORY_WRITE
         if category == CATEGORY_READ:
             return _badge(
-                Decision.AUTO_APPROVE, category,
+                Decision.AUTO_APPROVE,
+                category,
                 "requête SQL en lecture seule (readonly=true)",
             )
         return _badge(
-            Decision.APPROVE, category,
+            Decision.APPROVE,
+            category,
             "requête SQL en écriture (readonly=false) — validation humaine",
         )
 
     # 4. Listes statiques.
     if tool in _AUTO_TOOLS:
-        return _badge(Decision.AUTO_APPROVE, _category_of(tool), _reason_for(Decision.AUTO_APPROVE, tool, _category_of(tool)))
+        return _badge(
+            Decision.AUTO_APPROVE,
+            _category_of(tool),
+            _reason_for(Decision.AUTO_APPROVE, tool, _category_of(tool)),
+        )
     if tool in _APPROVE_TOOLS:
-        return _badge(Decision.APPROVE, _category_of(tool), _reason_for(Decision.APPROVE, tool, _category_of(tool)))
+        return _badge(
+            Decision.APPROVE,
+            _category_of(tool),
+            _reason_for(Decision.APPROVE, tool, _category_of(tool)),
+        )
 
     # 5. Défaut prudent.
-    return _badge(Decision.APPROVE, CATEGORY_UNKNOWN,
-                  f"Outil « {tool} » sans politique explicite — validation humaine")
+    return _badge(
+        Decision.APPROVE,
+        CATEGORY_UNKNOWN,
+        f"Outil « {tool} » sans politique explicite — validation humaine",
+    )
 
 
 def _category_of(tool: str) -> str:
     """Catégorie lisible d'un outil (pour l'UI / la trace)."""
     if tool in ("remove_path", "move_path"):
         return CATEGORY_DELETE
-    if tool in ("copy_path", "write_file", "write_json", "append_file", "touch",
-                "make_dir", "dedupe_lines", "split_file"):
+    if tool in (
+        "copy_path",
+        "write_file",
+        "write_json",
+        "append_file",
+        "touch",
+        "make_dir",
+        "dedupe_lines",
+        "split_file",
+    ):
         return CATEGORY_WRITE
     if tool in ("run_command", "run_python", "docker_exec", "run_shell"):
         return CATEGORY_EXEC
-    if tool in ("web_search", "web_fetch", "web_read", "http_get", "http_post",
-                "download_file", "call_api"):
+    if tool in (
+        "web_search",
+        "web_fetch",
+        "web_read",
+        "http_get",
+        "http_post",
+        "download_file",
+        "call_api",
+    ):
         return CATEGORY_NETWORK
     if tool in ("env_info", "disk_usage", "gpu_info", "now"):
         return CATEGORY_SYSTEM

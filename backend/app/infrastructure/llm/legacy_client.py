@@ -39,17 +39,18 @@ import json
 import logging
 import os
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import requests
 
-# Extraction des balises <think> inline : repli quand le serveur Ollama ne
-# sépare pas lui-même la réflexion dans le champ « message.thinking ».
-from app.domain.utils.thinking import ThinkingStreamSplitter, extract_thinking
 # Réparation conservatrice des doubles-encodages UTF-8 → Latin-1 → UTF-8
 # (voir app/domain/utils/encoding.py). Appliquée en dernier recours sur le contenu
 # final quand un provider renvoie du texte déjà relu en Latin-1.
 from app.domain.utils.encoding import repair_utf8_mojibake
+
+# Extraction des balises <think> inline : repli quand le serveur Ollama ne
+# sépare pas lui-même la réflexion dans le champ « message.thinking ».
+from app.domain.utils.thinking import ThinkingStreamSplitter, extract_thinking
 
 logger = logging.getLogger("thinktuning.agent")
 logger.setLevel(os.getenv("AGENT_LOG_LEVEL", "INFO").upper())
@@ -84,7 +85,7 @@ def _parse_chunk(line: str):
         line = line.decode("utf-8", errors="replace")
     line = line.strip()
     if line.startswith("data:"):
-        line = line[len("data:"):].lstrip()
+        line = line[len("data:") :].lstrip()
     if not line or line == "[DONE]":
         return None
     try:
@@ -165,7 +166,7 @@ class LLMClient:
         """
         return self.call_stream(messages)
 
-# -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Helpers réseau (fiabilité Phase A) : construction de la requête et
     # ouverture du flux, avec retry + circuit breaker optionnels.
     # -------------------------------------------------------------------------
@@ -228,9 +229,7 @@ class LLMClient:
                     stream=True,
                 )
             else:
-                resp = requests.post(
-                    self.url, json=payload, timeout=self.timeout, stream=True
-                )
+                resp = requests.post(self.url, json=payload, timeout=self.timeout, stream=True)
             resp.raise_for_status()
         except requests.exceptions.Timeout:
             logger.error(
@@ -256,7 +255,9 @@ class LLMClient:
             name = f"{self.provider}:{self.model}"
             cooldown = float(os.getenv("AGENT_LLM_CIRCUIT_COOLDOWN", "30"))
             failures_max = int(os.getenv("AGENT_LLM_CIRCUIT_FAILURES", "5"))
-            from app.infrastructure.llm.reliability import CircuitBreaker  # import local (flag-gated)
+            from app.infrastructure.llm.reliability import (
+                CircuitBreaker,  # import local (flag-gated)
+            )
 
             self._circuit_breaker = CircuitBreaker(
                 name=name, failures_max=failures_max, cooldown_seconds=cooldown
@@ -277,7 +278,10 @@ class LLMClient:
             return flag("reliability")
         except Exception:
             return os.getenv("AGENT_RELIABILITY", "").strip().lower() in {
-                "1", "true", "yes", "on",
+                "1",
+                "true",
+                "yes",
+                "on",
             }
 
     def _open_stream(self, payload):
@@ -322,8 +326,8 @@ class LLMClient:
     def call_stream(
         self,
         messages,
-        on_thinking: Optional[Callable[[str], None]] = None,
-        on_content: Optional[Callable[[str], None]] = None,
+        on_thinking: Callable[[str], None] | None = None,
+        on_content: Callable[[str], None] | None = None,
     ):
         """Appelle Ollama en streaming (`stream: true`) et réassemble la réponse.
 
@@ -340,7 +344,8 @@ class LLMClient:
         """
         started = time.perf_counter()
         logger.info(
-            "llm_request provider=%s url=%s model=%s messages=%d timeout=%s streaming=true num_ctx=%d",
+            "llm_request provider=%s url=%s model=%s messages=%d "
+            "timeout=%s streaming=true num_ctx=%d",
             self.provider,
             self.url,
             self.model,
@@ -352,7 +357,9 @@ class LLMClient:
         try:
             resp = self._open_stream(payload)
         except BaseException as exc:  # noqa: BLE001 - re-levée après classification
-            from app.infrastructure.llm.reliability import classify_llm_error  # import local, flag-driven
+            from app.infrastructure.llm.reliability import (
+                classify_llm_error,  # import local, flag-driven
+            )
 
             self.last_error = exc
             self.last_error_class = classify_llm_error(exc)
@@ -389,8 +396,7 @@ class LLMClient:
                 # sur une erreur de template / de validité.
                 if chunk.get("error"):
                     raise RuntimeError(
-                        "Erreur LLM en flux : "
-                        + json.dumps(chunk["error"], ensure_ascii=False)
+                        "Erreur LLM en flux : " + json.dumps(chunk["error"], ensure_ascii=False)
                     )
                 msg = chunk.get("message") or chunk.get("delta") or {}
                 delta = msg.get("content") or ""

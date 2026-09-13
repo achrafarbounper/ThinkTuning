@@ -139,7 +139,9 @@ def copy_path(src: str, dst: str) -> str:
 
     if source.is_dir():
         if destination.exists():
-            raise FileExistsError(f"Destination existante : {destination} (copie d'arborescence refusée).")
+            raise FileExistsError(
+                f"Destination existante : {destination} (copie d'arborescence refusée)."
+            )
         shutil.copytree(source, destination)
     else:
         final = destination / source.name if destination.is_dir() else destination
@@ -185,9 +187,7 @@ def remove_path(path: str, recursive: bool = False) -> str:
     if target.is_dir():
         non_empty = any(target.iterdir())
         if non_empty and not recursive:
-            raise ValueError(
-                f"Répertoire non vide : {target}. Relancez avec recursive=true."
-            )
+            raise ValueError(f"Répertoire non vide : {target}. Relancez avec recursive=true.")
         shutil.rmtree(target) if non_empty else target.rmdir()
     else:
         target.unlink()

@@ -12,13 +12,14 @@ les appels à un outil qui échoue répétitivement.
 import logging
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger("thinktuning.agent.circuit_breaker")
 
 
 class CircuitState:
     """États possibles du circuit breaker."""
+
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
@@ -89,7 +90,7 @@ class CircuitBreaker:
             self._state = CircuitState.CLOSED
 
     @property
-    def metrics(self) -> Dict[str, Any]:
+    def metrics(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "state": self._state,
@@ -103,11 +104,12 @@ class CircuitBreaker:
 # Registre global
 # ============================================================
 
+
 class CircuitBreakerRegistry:
     """Registre de circuit breakers par outil."""
 
     def __init__(self) -> None:
-        self._breakers: Dict[str, CircuitBreaker] = {}
+        self._breakers: dict[str, CircuitBreaker] = {}
         self._lock = threading.Lock()
 
     def get_or_create(
@@ -132,12 +134,12 @@ class CircuitBreakerRegistry:
         with self._lock:
             self._breakers.clear()
 
-    def get_all_states(self) -> Dict[str, str]:
+    def get_all_states(self) -> dict[str, str]:
         with self._lock:
             return {name: cb.state for name, cb in self._breakers.items()}
 
 
-_registry: Optional[CircuitBreakerRegistry] = None
+_registry: CircuitBreakerRegistry | None = None
 _registry_lock = threading.Lock()
 
 
@@ -176,6 +178,6 @@ def reset_circuit_breakers() -> None:
     get_registry().clear()
 
 
-def get_all_states() -> Dict[str, str]:
+def get_all_states() -> dict[str, str]:
     """Retourne l'état de tous les circuit breakers."""
     return get_registry().get_all_states()
