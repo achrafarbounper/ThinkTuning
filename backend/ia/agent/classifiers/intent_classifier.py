@@ -5,7 +5,7 @@ message « action » (demande d'exécution d'un outil : entraîner, chercher,
 lister…). L'architecture :
 
   - modèle HuggingFace ``AutoModelForSequenceClassification`` chargé depuis une
-    version valide de ``experiments/intent_models`` (voir ``app/legacy/core/intent_store``) ;
+    version valide de ``experiments/intent_models`` (voir ``app/infrastructure/persistence/intent_store``) ;
   - point de bascule : si AUCUN modèle entraîné n'est disponible (ou si son
     chargement échoue), les RÈGLES métier de ``ia/agent/classifiers/fallback``
     prennent le relais — continuité de service garantie ;
@@ -23,7 +23,7 @@ import os
 import time
 from typing import Any
 
-from app.legacy.core.intent_store import default_intent_labels, resolve_intent_model_dir
+from app.infrastructure.persistence.intent_store import default_intent_labels, resolve_intent_model_dir
 from ia.agent.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
 from ia.agent.classifiers.fallback import fallback_intent
 
@@ -127,7 +127,7 @@ class IntentClassifier(BaseClassifier):
             if self.engine == "onnx":
                 from transformers import AutoTokenizer
 
-                from app.legacy.core.onnx_exporter import ONNXClassificationEngine
+                from app.application.onnx_exporter import ONNXClassificationEngine
 
                 onnx_path = self._find_onnx(path)
                 self._onnx = ONNXClassificationEngine(

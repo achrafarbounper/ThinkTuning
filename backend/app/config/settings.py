@@ -5,7 +5,7 @@ l'agent (SCRUM-138 : la configuration de l'agent vit désormais dans le module
 de configuration de l'IHM, entièrement stockée et chargée depuis la base
 MongoDB) :
 
-    - module IHM (store persistant) : ``app/legacy/core/agent_settings.py`` ;
+    - module IHM (store persistant) : ``app/infrastructure/persistence/agent_settings.py`` ;
     - modèle typé du noyau v2        : ``app/agent/settings.py`` ;
     - use case API                   : ``app/application/agent_settings_usecase.py``.
 

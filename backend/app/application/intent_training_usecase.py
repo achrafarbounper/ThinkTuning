@@ -14,17 +14,17 @@ Même mécanique que ``training_usecase`` (noyau sentiment) :
 Le statut RÉUTILISE ``get_training_job_status`` (``training_usecase``) :
 même sémantique 404, message legacy « job_id introuvable » conservé.
 Le runner d'intention possède ses propres events d'annulation
-(``app.legacy.core.intent_trainer``) — distincts du runner sentiment.
+(``app.application.intent_trainer``) — distincts du runner sentiment.
 """
 
 from __future__ import annotations
 
+from app.domain.entities.models import IntentTrainRequest, JobListResponse, TrainJob
 from app.domain.ports.training_ports import (
     IntentTrainingRunnerPort,
     IntentVersioningPort,
     TrainingJobsPort,
 )
-from app.legacy.core.models import IntentTrainRequest, JobListResponse, TrainJob
 
 
 def start_intent_training_run(

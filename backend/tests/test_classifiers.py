@@ -15,8 +15,8 @@ import time
 
 import pytest
 
-from app.legacy.core.classifier_registry import get_registry, reset_registry
-from app.legacy.core.prediction_result_cache import PredictionResultCache
+from app.application.classifier_registry import get_registry, reset_registry
+from app.application.prediction_result_cache import PredictionResultCache
 from ia.agent.classifiers import sentiment_classifier as sc_module
 from ia.agent.classifiers.base import BaseClassifier, ClassifierMetrics, PredictionResult
 from ia.agent.classifiers.sentiment_classifier import SentimentClassifier

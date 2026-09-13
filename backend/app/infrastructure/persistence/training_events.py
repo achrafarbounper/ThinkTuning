@@ -10,7 +10,7 @@ polling court, compatible multi-workers et sans état local.
 import logging
 import os
 
-from app.legacy.core.job_store import get_job_store
+from app.infrastructure.persistence.job_store import get_job_store
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,8 @@ class MongoPollingEventsSource(TrainingEventsSource):
         return self._fetch_progress(job_id)
 
     def _fetch_logs(self, job_id: str, since_seq: int = 0) -> list[dict]:
-        from app.legacy.core.job_logs import get_logs  # import local : évite un cycle
+        from app.application.job_logs import get_logs  # import local : évite un cycle
+
         return get_logs(job_id, since_seq)
 
     async def get_logs(self, job_id: str, since_seq: int = 0) -> list[dict]:

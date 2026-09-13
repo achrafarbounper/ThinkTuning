@@ -8,7 +8,7 @@ statut final, résumé de la réponse, erreur éventuelle et TRAÇABILITÉ de la
 chaîne d'outils appelée (un événement JSON par outil : arguments tronqués,
 statut ok/error, aperçu du résultat, durée).
 
-Mêmes conventions que ``app/legacy/core/approval_store.py`` :
+Mêmes conventions que ``app/infrastructure/persistence/approval_store.py`` :
     - base SQLite dédiée (experiments/agent_runs.db, surchargeable via
       AGENT_RUN_PATH pour isoler les tests) ;
     - store thread-safe (l'API FastAPI appelle depuis plusieurs threads).
@@ -19,7 +19,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 AGENT_RUN_PATH = os.getenv("AGENT_RUN_PATH", os.path.join("experiments", "agent_runs.db"))
@@ -36,14 +36,13 @@ ERROR = "error"
 STATUSES = (RUNNING, COMPLETED, AWAITING_APPROVAL, REJECTED, ERROR)
 
 _SELECT_COLUMNS = (
-    "id, prompt, model, source, status, answer_summary, error, "
-    "tools_json, created_at, finished_at"
+    "id, prompt, model, source, status, answer_summary, error, tools_json, created_at, finished_at"
 )
 
 
 def _utcnow_iso() -> str:
     """Horodatage ISO 8601 UTC (millisecondes) — stable, triable."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 class RunStore:
@@ -97,7 +96,7 @@ class RunStore:
             "created_at",
             "finished_at",
         ]
-        data = dict(zip(keys, row))
+        data = dict(zip(keys, row, strict=False))
         try:
             data["tools"] = json.loads(data.pop("tools_json") or "[]")
         except ValueError:
@@ -113,7 +112,9 @@ class RunStore:
         source: str = "api",
     ) -> dict:
         """Crée un run ``running`` et retourne la ligne complète."""
-        from app.legacy.core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+        from app.infrastructure.persistence.secrets_redact import (
+            redact_secrets,
+        )  # import paresseux (anti-cycle)
 
         run_id = uuid.uuid4().hex[:12]
         with self._lock:
@@ -148,7 +149,9 @@ class RunStore:
         le flux d'exécution. P1 : les éventuels secrets contenus dans les
         arguments/résultats sont masqués AVANT persistance.
         """
-        from app.legacy.core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+        from app.infrastructure.persistence.secrets_redact import (
+            redact_secrets,
+        )  # import paresseux (anti-cycle)
 
         entry = {**redact_secrets(event), "at": _utcnow_iso()}
         with self._lock:
@@ -180,7 +183,9 @@ class RunStore:
         error: str | None = None,
     ) -> dict | None:
         """Clôture un run : statut final, résumé de réponse ou erreur."""
-        from app.legacy.core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+        from app.infrastructure.persistence.secrets_redact import (
+            redact_secrets,
+        )  # import paresseux (anti-cycle)
 
         if status not in STATUSES:
             raise ValueError(f"Statut de run inconnu : '{status}'")

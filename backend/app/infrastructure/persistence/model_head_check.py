@@ -1,6 +1,7 @@
 """Heuristics to detect a genuinely trained classification head in a version.-"""
-import os
+
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def _has_completed_training_report(dirpath):
     try:
         import json
 
-        with open(report_path, "r", encoding="utf-8") as fh:
+        with open(report_path, encoding="utf-8") as fh:
             report = json.load(fh)
     except (ValueError, OSError):
         return False
@@ -37,8 +38,9 @@ def _has_completed_training_report(dirpath):
     metrics = report.get("metrics") or {}
     return bool(metrics.get("accuracy_by_epoch") or metrics.get("f1_by_epoch"))
 
+
 def _tensor_std(t):
-    import torch
+
     try:
         return float(t.float().std().item())
     except Exception:
@@ -66,8 +68,11 @@ def load_head_tensors(dirpath):
                 with safe_open(fpath, framework="pt") as handle:
                     for key in handle.keys():
                         parts = key.split(".")
-                        if len(parts) == 2 and parts[0] in HEAD_CLASSIFIER_KEYS \
-                                and parts[1] == "weight":
+                        if (
+                            len(parts) == 2
+                            and parts[0] in HEAD_CLASSIFIER_KEYS
+                            and parts[1] == "weight"
+                        ):
                             head[key] = handle.get_tensor(key)
                 return head
             state = torch.load(fpath, map_location="cpu", weights_only=True)

@@ -38,11 +38,7 @@ _SENSITIVE_KEY = rf"(?:{_COMPOUND_KEY}|{_EXACT_KEY})"
 
 # 3. Paire clé=valeur : la VALEUR (jusqu'au premier séparateur espace/virgule/
 #    point-virgule/quote) est masquée.
-_KV_RE = re.compile(
-    r"(?i)(\b(?:"
-    + _SENSITIVE_KEY
-    + r")\s*[=:]\s*[\"']?)[^\"'\s,;]+"
-)
+_KV_RE = re.compile(r"(?i)(\b(?:" + _SENSITIVE_KEY + r")\s*[=:]\s*[\"']?)[^\"'\s,;]+")
 # 4. Mot porteur SANS valeur attachée (pas suivi de `=`/`:` avec valeur).
 _BARE_KEY_RE = re.compile(rf"(?i)\b(?:{_SENSITIVE_KEY})\b(?!\s*[=:])")
 

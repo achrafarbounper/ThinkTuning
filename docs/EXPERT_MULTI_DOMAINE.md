@@ -222,7 +222,7 @@ interface TrainJobTrackerProps { jobId: string; onComplete?: () => void; }
 |---|---|
 | **Ports & Adapters** | `app/domain/ports/` → `app/infrastructure/` |
 | **Strangler** | Migration legacy → v1 (coexistence via adaptateurs) |
-| **Factory** | `app/agent/factory.py`, `app/legacy/core/classifier_registry.py` |
+| **Factory** | `app/agent/factory.py`, `app/application/classifier_registry.py` |
 | **Strategy** | Classifieurs (Sentiment, Intent, Fallback) |
 | **Adapter** | `SqliteSessionStore`, `PredictorAdapter`, `ModelVersioningAdapter` |
 | **Observer** | `EventBusPort` (pub/sub pour SSE/audit/métriques) |

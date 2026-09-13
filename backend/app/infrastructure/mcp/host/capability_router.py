@@ -9,7 +9,7 @@ from app.domain.entities.plan import ActionCategory
 from app.domain.ports.mcp_ports import MCPHostPort, MCPHostTool, MCPRemoteCall
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.policy_adapter import decide
-from app.legacy.core.audit_store import ACT_MCP_CLIENT_TOOL_CALL
+from app.infrastructure.persistence.audit_store import ACT_MCP_CLIENT_TOOL_CALL
 
 from .config import load_capability_routes
 
@@ -50,7 +50,7 @@ class CapabilityRouter:
             )
             raise PermissionError(verdict.reason)
         if verdict.requires_approval:
-            from app.legacy.core.approval_store import get_approval_store
+            from app.infrastructure.persistence.approval_store import get_approval_store
 
             request_id = get_approval_store().create(
                 name,

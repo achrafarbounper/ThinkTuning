@@ -6,7 +6,7 @@ Checklist (docs/mcp/IMPLEMENTATION_PLAN.md, tâche 13) :
     - 5 resources supplémentaires au-dessus des 5 de la tâche 8 :
         thinktuning://jobs/{job_id}/logs   → logs d'un job (existence vérifiée
           par délégation job_get → 404 fail-closed ; lignes déléguées à
-          ``app.legacy.core.job_logs``, même source mémoire que le WebSocket
+          ``app.application.job_logs``, même source mémoire que le WebSocket
           /train/stream — vides pour un job antérieur au démarrage) ;
         thinktuning://models/{version}/info → métadonnées d'un modèle (scan
           délégué ``model_versions`` pour présence + drapeau actif, artefacts
@@ -16,7 +16,7 @@ Checklist (docs/mcp/IMPLEMENTATION_PLAN.md, tâche 13) :
           ``head_file`` plafonnée ; même règle de format que ``dataset_stats``
           — un ``.env`` est refusé AVANT toute lecture) ;
         thinktuning://metrics/{job_id} → métriques par epoch (existence par
-          ``job_get``, puis SELECT miroir de ``app/legacy/core/job_store.py`` sur une
+          ``job_get``, puis SELECT miroir de ``app/infrastructure/persistence/job_store.py`` sur une
           connexion ``mode=ro`` + ``PRAGMA query_only`` — jamais de création
           de base, jamais d'écriture) ;
         thinktuning://health → santé du système (délégation EXACTE au use case
@@ -595,8 +595,8 @@ def test_real_metrics_connection_is_query_only(sandbox_root) -> None:
 
 
 def test_real_job_logs_roundtrip(sandbox_root, legacy_provider) -> None:
-    """Logs réels : buffer mémoire de ``app.legacy.core.job_logs`` (source /train/stream)."""
-    from app.legacy.core import job_logs
+    """Logs réels : buffer mémoire de ``app.application.job_logs`` (source /train/stream)."""
+    from app.application import job_logs
 
     _seed_jobs_db(sandbox_root)
     job_logs.attach_job_logging("job-123")
@@ -622,7 +622,7 @@ def test_real_job_logs_known_job_without_capture_is_empty(
     sandbox_root, legacy_provider
 ) -> None:
     """Job connu (base réelle) mais logs perdus (restart) → 0 ligne, PAS 404."""
-    from app.legacy.core import job_logs
+    from app.application import job_logs
 
     _seed_jobs_db(sandbox_root)
     payload = json.loads(
@@ -735,13 +735,13 @@ def test_real_health_roundtrip(
     sandbox : les adaptateurs lisent ``experiments/`` relativement au process,
     aucun fichier du dépôt n'est créé)."""
     monkeypatch.chdir(sandbox_root)
-    # Isolation du store global : le singleton ``app.legacy.core.job_store`` est chargé
+    # Isolation du store global : le singleton ``app.infrastructure.persistence.job_store`` est chargé
     # en mémoire à l'import depuis ``backend/experiments/jobs.db`` (état
     # développeur local, ex. 12 RUNNING) et ne suit PAS le chdir. Sans cette
     # isolation, ``active_jobs`` dépend de la machine qui lance le test
     # (flake d'ordre : passe seul, casse en suite complète). On simule la
     # « base vierge » attendue (même pattern que test_api_v1_health).
-    monkeypatch.setattr("app.legacy.core.job_store.get_job_store", lambda: {})
+    monkeypatch.setattr("app.infrastructure.persistence.job_store.get_job_store", lambda: {})
     _make_model_version(sandbox_root)
     payload = json.loads(legacy_provider.read_resource("thinktuning://health"))
     assert payload["status"] == "ok"

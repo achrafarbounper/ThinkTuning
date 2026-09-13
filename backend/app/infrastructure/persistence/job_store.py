@@ -1,11 +1,12 @@
 # project/core/job_store.py
 
-import os
 import json
+import os
 import sqlite3
 import threading
 import time
-from app.legacy.core.models import TrainJob
+
+from app.domain.entities.models import TrainJob
 
 JOB_STORE_PATH = os.getenv("JOB_STORE_PATH", os.path.join("experiments", "jobs.db"))
 
@@ -35,9 +36,7 @@ class PersistentJobStore(dict):
             )
         """)
         # Index sur updated_at pour accélérer les requêtes de listing/pagination.
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at)")
         # SCRUM-73 : métriques d'entraînement par epoch (loss / F1 / accuracy)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS train_metrics (
@@ -118,9 +117,7 @@ class PersistentJobStore(dict):
         """Supprime une planification. Renvoie True si elle existait."""
         conn = self._connect()
         try:
-            cur = conn.execute(
-                "DELETE FROM scheduled_jobs WHERE schedule_id = ?", (schedule_id,)
-            )
+            cur = conn.execute("DELETE FROM scheduled_jobs WHERE schedule_id = ?", (schedule_id,))
             conn.commit()
         finally:
             conn.close()
@@ -148,13 +145,16 @@ class PersistentJobStore(dict):
         payload = self._serialize_job(value)
         with self._write_lock:
             conn = self._connect()
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO jobs (job_id, payload, updated_at)
                 VALUES (?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     payload = excluded.payload,
                     updated_at = excluded.updated_at
-            """, (key, payload, time.time()))
+            """,
+                (key, payload, time.time()),
+            )
             conn.commit()
             conn.close()
 
@@ -321,7 +321,7 @@ class PersistentJobStore(dict):
         if cur.rowcount > 0:
             # Purge aussi le buffer de logs du job (job_logs, cf. rétention).
             try:
-                from app.legacy.core.job_logs import reset_job_logs
+                from app.application.job_logs import reset_job_logs
 
                 reset_job_logs(job_id)
             except Exception:

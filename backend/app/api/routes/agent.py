@@ -63,6 +63,16 @@ from app.agent.core import RunStatus
 from app.agent.factory import build_agent_core, new_core_enabled
 from app.agent.settings import agent_flag, get_agent_config
 from app.api.dependencies.auth import require_api_key, ws_is_authorized
+from app.application.agent_cache import (
+    REQUIRED_ARGS,
+    TOOL_META,
+    TOOLS,
+    _hf_chat_url,
+    _lm_studio_chat_url,
+    _openrouter_chat_url,
+    agent_config,
+    reload_agent_runner,
+)
 from app.application.agent_settings_usecase import (
     get_effective_settings,
     update_settings,
@@ -87,23 +97,13 @@ from app.infrastructure.events.in_memory import InMemoryEventBus
 from app.infrastructure.legacy_approval_store import build_approval_store
 from app.infrastructure.legacy_multi_agent_adapter import build_multi_agent_orchestrator
 from app.infrastructure.legacy_settings_adapter import build_settings_port
-from app.legacy.core.agent_cache import (
-    REQUIRED_ARGS,
-    TOOL_META,
-    TOOLS,
-    _hf_chat_url,
-    _lm_studio_chat_url,
-    _openrouter_chat_url,
-    agent_config,
-    reload_agent_runner,
-)
-from app.legacy.core.approval_store import (
+from app.infrastructure.persistence.approval_store import (
     APPROVED,
     REJECTED,
     STATUSES,
     get_approval_store,
 )
-from app.legacy.core.audit_store import (  # Phase A (audit / conformité)
+from app.infrastructure.persistence.audit_store import (  # Phase A (audit / conformité)
     ACT_APPROVAL,
     ACT_CONNECT,
     ACT_RUN,
@@ -128,31 +128,31 @@ def _active_features() -> list[str]:
     return [name for name, active in get_agent_config().active_flags().items() if active]
 
 
-from app.legacy.core.flow_store import (
+from app.infrastructure.persistence.flow_store import (
     AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
 )
-from app.legacy.core.flow_store import (
+from app.infrastructure.persistence.flow_store import (
     COMPLETED as FLOW_COMPLETED,
 )
-from app.legacy.core.flow_store import (
+from app.infrastructure.persistence.flow_store import (
     ERROR as FLOW_ERROR,
 )
-from app.legacy.core.flow_store import (
+from app.infrastructure.persistence.flow_store import (
     REJECTED as FLOW_REJECTED,
 )
-from app.legacy.core.flow_store import (
+from app.infrastructure.persistence.flow_store import (
     STATUSES as FLOW_STATUSES,
 )
-from app.legacy.core.flow_store import (
+from app.infrastructure.persistence.flow_store import (
     get_flow_store,
 )
-from app.legacy.core.run_store import (
+from app.infrastructure.persistence.run_store import (
     ERROR as RUN_ERROR,
 )
-from app.legacy.core.run_store import (
+from app.infrastructure.persistence.run_store import (
     STATUSES as RUN_STATUSES,
 )
-from app.legacy.core.run_store import (
+from app.infrastructure.persistence.run_store import (
     get_run_store,
 )
 from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
@@ -278,7 +278,8 @@ class AskRequest(BaseModel):
     )
     session_id: str | None = Field(
         None,
-        description="Session de conversation (app/legacy/core/session_store) où journaliser "
+        description="Session de conversation "
+        "(app/infrastructure/persistence/session_store) où journaliser "
         "l'échange ; absent : aucune persistance côté serveur.",
     )
     model: str | None = Field(
@@ -850,7 +851,7 @@ def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     if not request.draft.strip():
         return {"completion": ""}
     try:
-        from app.legacy.core.agent_cache import get_agent_runner
+        from app.application.agent_cache import get_agent_runner
 
         llm = get_agent_runner().agent.llm
     except Exception:

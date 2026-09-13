@@ -6,7 +6,7 @@ from collections import OrderedDict
 
 from fastapi import HTTPException
 
-from app.legacy.core.model_versioning import resolve_model_dir
+from app.infrastructure.persistence.model_versioning import resolve_model_dir
 from src.inference.predictor import Predictor
 
 # Nombre maximal de versions de modèles gardées en mémoire (LRU).
@@ -106,4 +106,3 @@ def evict_cached_model(model_name: str | None = None) -> bool:
             # présent en cache (ou None si le cache est vide).
             _predictor = next(reversed(_cache.values()), None) if _cache else None
     return removed
-

@@ -12,7 +12,7 @@
     WS     /api/v1/train/stream/{job_id}        métriques temps réel (délégation)
 
 Choix assumés (pragmatisme strangler) :
-    - les modèles de réponse sont les modèles partagés ``app.legacy.core.models`` (kernel
+    - les modèles de réponse sont les modèles partagés ``app.domain.entities.models`` (kernel
       avec le worker ``trainer_runner``) : shapes identiques au legacy PAR
       CONSTRUCTION, zéro risque de divergence de contrat ;
     - le WebSocket DÉLÈGUE au handler legacy partagé
@@ -54,12 +54,7 @@ from app.application.training_usecase import (
     schedule_training,
     start_training_run,
 )
-from app.domain.ports.training_ports import (
-    TrainingJobsPort,
-    TrainingRunnerPort,
-    TrainingSchedulesPort,
-)
-from app.legacy.core.models import (
+from app.domain.entities.models import (
     JobListResponse,
     JobStatus,
     ScheduledJob,
@@ -68,6 +63,11 @@ from app.legacy.core.models import (
     TrainHistoryResponse,
     TrainJob,
     TrainRequest,
+)
+from app.domain.ports.training_ports import (
+    TrainingJobsPort,
+    TrainingRunnerPort,
+    TrainingSchedulesPort,
 )
 
 router = APIRouter(tags=["Training v1"])

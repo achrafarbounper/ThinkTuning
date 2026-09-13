@@ -22,8 +22,8 @@ import subprocess
 import sys
 import time
 
-from app.legacy.core.models import PipelineRequest
-from app.legacy.core.pipeline_runner import build_finetune_cmd, PROJECT_ROOT, run_labeling
+from app.domain.entities.models import PipelineRequest
+from app.application.pipeline_runner import build_finetune_cmd, PROJECT_ROOT, run_labeling
 
 logger = logging.getLogger(__name__)
 

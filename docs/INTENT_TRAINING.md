@@ -24,7 +24,7 @@ Le classifieur d'intention distingue, pour chaque message de l'agent :
 - **`chat`** — une interaction conversationnelle (remarque, remerciement, …).
 
 Le modèle (MiniLM multilingue par défaut) est entraîné via **`scripts/train_intent.py`**
-historique, puis refactorisé en module importable (`app/legacy/core/intent_trainer.py`,
+historique, puis refactorisé en module importable (`app/application/intent_trainer.py`,
 SCRUM-95) et **exposé par l'API** (`POST /train/intent`). Contrairement au
 fine-tuning LLM, **aucune sous-position GPU n'est exigée** pour l'inférence :
 le classifieur possède un **fallback règles** (`ia/agent/classifiers/fallback.py`)
@@ -34,7 +34,7 @@ qui prend le relais quand aucun modèle entraîné n'existe.
 
 | Entraînement | Encodeur (classification) | LLM causal (génération texte) |
 |---|---|---|
-| Module | `app/legacy/core/intent_trainer.py` / `scripts/train_intent.py` | `finetune_llm.py` |
+| Module | `app/application/intent_trainer.py` / `scripts/train_intent.py` | `finetune_llm.py` |
 | Modèle | `AutoModelForSequenceClassification` | `AutoModelForCausalLM` |
 | Dataset | JSONL local `{text,label}` | JSONL Alpaca `instruction/input/output` (issu du labeling) |
 | Sortie | Versions `experiments/intent_models/<ts>` | Adapter `experiments/pipeline/<job>/lora_model` |
@@ -55,7 +55,7 @@ qui prend le relais quand aucun modèle entraîné n'existe.
   scripts/train_intent.py │          │   POST /train/intent  (+ /api/v1)
                            │          │   GET  /train/intent/status/{job_id}
                            ▼          │   POST /train/intent/cancel/{job_id}
-            app/legacy/core/intent_trainer.py    │   GET  /train/intent/jobs   (kind="intent")
+            app/application/intent_trainer.py    │   GET  /train/intent/jobs   (kind="intent")
         (Thread daemon par job)      │   GET  /train/intent/versions
           · loading_dataset            │   POST /train/intent/activate
           · splitting_dataset          │
@@ -90,13 +90,13 @@ Format (une ligne JSON par exemple) :
 {"text": "Merci pour ton aide", "label": "chat"}
 ```
 
-`app/legacy/core/intent_store.default_intent_labels()` renvoie le **jeu de labels fixe**
+`app/infrastructure/persistence/intent_store.default_intent_labels()` renvoie le **jeu de labels fixe**
 et immuable `(chat, action)` (ordre = indices de la tête de classification) —
 toute autre valeur est rejetée par validation (422/ValueError).
 
 ### 3.2 Split train/val — déterministe, stratifié, avant tokenisation
 
-`app/legacy/core/intent_trainer._split_records(records, test_size=0.1, seed=42)` :
+`app/application/intent_trainer._split_records(records, test_size=0.1, seed=42)` :
 
 - **split stratifié** via `sklearn.model_selection.train_test_split(
   stratify=[r["label"] for r in records], random_state=42)` — la proportion
@@ -115,7 +115,7 @@ toute autre valeur est rejetée par validation (422/ValueError).
 > conservés, cf. 5.6), donc la validation n'est évaluée qu'entre deux epochs complètes.
 ### 3.3 Labels et validation précoce
 
-`app/legacy/core/intent_trainer._run_intent_pipeline` valide très tôt :
+`app/application/intent_trainer._run_intent_pipeline` valide très tôt :
 
 - **dataset vide** → `ValueError("Dataset vide.")` → job `FAILED` ;
 - **labels inconnus** → `ValueError(f"Labels inconnus dans le dataset : {unknown}")`
@@ -138,7 +138,7 @@ ni génération de labels par un modèle. L'entrée est directement exploitable.
 
 ---
 
-## 4. Orchestration — `app/legacy/core/intent_trainer.py`
+## 4. Orchestration — `app/application/intent_trainer.py`
 
 Refactor du CLI `scripts/train_intent.py` en module importable, exécuté dans un
 **thread daemon** par la route `POST /train/intent` (même pattern que
@@ -151,7 +151,7 @@ léger — MiniLM — que l'API peut charger dans le thread).
 queued → loading_dataset → splitting_dataset → loading_model → training → saving_model → done
 ```
 
-Correspond exactement à `INTENT_TRAIN_JOB_STEPS` (`app/legacy/core/models.py`) et à
+Correspond exactement à `INTENT_TRAIN_JOB_STEPS` (`app/domain/entities/models.py`) et à
 `INTENT_TRAIN_STEPS` (`frontend/src/api/jobSteps.ts` — à garder alignés).
 
 `run_intent_training(job_id, req)` :
@@ -196,7 +196,7 @@ Structure partagée avec le sentiment (`_set_step_progress` / `_update_train_pro
 Le `global_pct` progresse entre 20 et 90 selon `epoch / num_train_epochs`
 ### 4.4 Capture de logs et diffusion temps réel
 
-`app/legacy/core/job_logs.py` : un `JobLogHandler` global capte les records du thread via
+`app/application/job_logs.py` : un `JobLogHandler` global capte les records du thread via
 un mapping `thread ident → job_id`, puis le WebSocket `/train/stream/{job_id}`
 les rejoue au dashboard :
 
@@ -338,7 +338,7 @@ _save_model(model, tokenizer, output_dir)   # config.json + model.safetensors + 
 
 ## 6. Inférence, versions et activation
 
-### 6.1 Store de versions — `app/legacy/core/intent_store.py`
+### 6.1 Store de versions — `app/infrastructure/persistence/intent_store.py`
 
 - `INTENT_MODEL_ROOT = experiments/intent_models` (séparé de `experiments/models`
   sentiment) ;
@@ -358,7 +358,7 @@ _save_model(model, tokenizer, output_dir)   # config.json + model.safetensors + 
 - **store vs runtime sont séparés** : poser `active.json` ne recharge pas le
   classifieur en mémoire — le dashboard chaîne `POST /classifiers/intent/reload`
   (cf. `CLASSIFIERS.md` §6 et `IntentClassifier` côté `ia/agent/classifiers/`) ;
-- même convention que le sentiment (`app/legacy/core/model_activation.py` pour `active.json`).
+- même convention que le sentiment (`app/application/model_activation.py` pour `active.json`).
 
 ### 6.3 Inférence — `IntentClassifier` (résumé, cf. `CLASSIFIERS.md` §2-3)
 
@@ -411,7 +411,7 @@ démotion dégrade : val règles acc 0.667 / modèle acc 0.967 (seed 42).
 
 ## 8. Persistance et artefacts
 
-### 8.1 Store SQLite — `app/legacy/core/job_store.py`
+### 8.1 Store SQLite — `app/infrastructure/persistence/job_store.py`
 
 - `PersistentJobStore` (dict + SQLite), **partagé** sentiment/intention/pipeline ;
 - table `jobs` avec colonne `kind` (`intent`/`sentiment`/`pipeline`) ;
@@ -532,10 +532,10 @@ curl -X POST "$API/classifiers/intent/reload" -H "X-API-Key:$KEY"
 
 `_compute_metrics` expose désormais le **`classification_report` sklearn** dans
 `on_evaluate` (helper pur `_intent_classification_report` + formateur
-`_format_intent_report` dans `app/legacy/core/intent_trainer.py`, parité CLI) : rapport
+`_format_intent_report` dans `app/application/intent_trainer.py`, parité CLI) : rapport
 précision/rappel/F1 par classe + macro, **matrice de confusion** logguée à
 chaque évaluation → les confusions `chat ↔ action` sont visibles, y compris
-dans le flux `/train/stream` (capture `app/legacy/core/job_logs`). Le F1 macro est aussi
+dans le flux `/train/stream` (capture `app/application/job_logs`). Le F1 macro est aussi
 persisté dans la table `train_metrics` (champ `f1_macro`, auparavant `NULL`).
 
 ### 📊 1. Dataset (levier le plus puissant — **compatible CPU**)

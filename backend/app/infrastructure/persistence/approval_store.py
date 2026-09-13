@@ -8,7 +8,7 @@ nécessitent une décision humaine (``approve``) et celles bloquées (``reject``
 pour garantir la TRAÇABILITÉ : chaque entrée porte un identifiant stable, le
 JSON des arguments, la catégorie, la raison et un horodatage ISO (UTC).
 
-Mêmes conventions que ``app/legacy/core/agent_settings.py`` :
+Mêmes conventions que ``app/infrastructure/persistence/agent_settings.py`` :
     - base SQLite dédiée (experiments/agent_approvals.db, surchargeable via
       AGENT_APPROVAL_PATH pour isoler les tests) ;
     - une table unique ``agent_approvals`` avec un store thread-safe.
@@ -27,7 +27,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 AGENT_APPROVAL_PATH = os.getenv(
     "AGENT_APPROVAL_PATH", os.path.join("experiments", "agent_approvals.db")
@@ -60,7 +60,7 @@ _COLUMNS = [
 
 def _utcnow_iso() -> str:
     """Horodatage ISO 8601 UTC (millisecondes) — stable, triable, horodaté."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 class ApprovalStore:
@@ -110,7 +110,7 @@ class ApprovalStore:
     def _row_to_dict(self, row) -> dict | None:
         if row is None:
             return None
-        data = dict(zip(_COLUMNS, row))
+        data = dict(zip(_COLUMNS, row, strict=False))
         data["args"] = json.loads(data.pop("args_json"))
         return data
 
@@ -185,8 +185,7 @@ class ApprovalStore:
             try:
                 if status:
                     rows = conn.execute(
-                        "SELECT * FROM agent_approvals WHERE status = ? "
-                        "ORDER BY created_at DESC",
+                        "SELECT * FROM agent_approvals WHERE status = ? ORDER BY created_at DESC",
                         (status,),
                     ).fetchall()
                 else:

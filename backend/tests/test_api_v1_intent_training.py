@@ -22,7 +22,7 @@ from app.api.dependencies.composition import (
     get_training_jobs_port,
 )
 from app.domain.errors import NotFoundError, ValidationError
-from app.legacy.core.models import IntentTrainRequest, JobStatus, TrainJob
+from app.domain.entities.models import IntentTrainRequest, JobStatus, TrainJob
 
 client = TestClient(app)
 

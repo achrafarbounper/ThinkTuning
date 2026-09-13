@@ -1,6 +1,7 @@
 """Store des versions du modèle d'intention (Phase 4).
 
-Parallèle minimal de ``app/legacy/core/model_versioning.py`` pour le système d'intention
+Parallèle minimal de ``app/infrastructure/persistence/model_versioning.py`` pour le système
+d'intention
 (chat/action), qui vit dans ``experiments/intent_models/`` (le dossier
 ``experiments/models`` reste dédié au sentiment). Chaque version est un dossier
 horodaté contenant ``config.json`` + ``model.safetensors`` (compatible
@@ -56,9 +57,7 @@ def _root() -> Path:
 def list_intent_model_versions() -> list[str]:
     """Versions valides, triées par nom décroissant (plus récente d'abord)."""
     versions = [
-        entry.name
-        for entry in _root().iterdir()
-        if entry.is_dir() and _is_valid_version(entry)
+        entry.name for entry in _root().iterdir() if entry.is_dir() and _is_valid_version(entry)
     ]
     return sorted(versions, reverse=True)
 
@@ -76,12 +75,11 @@ def resolve_intent_model_dir(model_name: str | None = None) -> str:
         candidate = root / model_name
         if not _is_valid_version(candidate):
             raise RuntimeError(
-                f"Version du modèle d'intention {model_name!r} introuvable ou "
-                f"invalide dans {root}."
+                f"Version du modèle d'intention {model_name!r} introuvable ou invalide dans {root}."
             )
         return str(candidate)
 
-    # Pointeur actif (même convention que app/legacy/core/model_activation).
+    # Pointeur actif (même convention que app/application/model_activation).
     active_file = root / _ACTIVE_FILE
     if active_file.is_file():
         try:

@@ -50,9 +50,7 @@ class ModelWarmup:
         with self._lock:
             self._warmed[name] = ok
             self._reports[name] = report
-        logger.info(
-            "Warmup %s : %s", name, "OK" if ok else "ÉCHEC (modèle indisponible ?)"
-        )
+        logger.info("Warmup %s : %s", name, "OK" if ok else "ÉCHEC (modèle indisponible ?)")
         return report
 
     def warm_in_background(

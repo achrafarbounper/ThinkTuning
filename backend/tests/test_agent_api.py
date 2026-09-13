@@ -5,13 +5,13 @@ Historique : ce fichier couvrait le serveur autonome `ia/api_server.py`,
 supprimé au profit des routes `/api/agent/*` du package `api` (couvertes par
 tests/test_api_ai_chat.py). On teste ici :
     - AgentCore directement : boucle multi-round, auto-correction, budget ;
-    - app.legacy.core.agent_cache.ask_agent : traduction des erreurs réseau LLM en HTTP
+    - app.application.agent_cache.ask_agent : traduction des erreurs réseau LLM en HTTP
       (Timeout -> 504, ConnectionError/HTTPError -> 502).
 
 Complète tests/test_api_ai_chat.py (cas basiques) avec l'auto-correction de
 l'agent et la traduction des erreurs réseau en codes HTTP. Aucun appel
 réseau : le LLM (Ollama) est remplacé par un FakeLLM scripté injecté dans
-le cache `app.legacy.core.agent_cache`.
+le cache `app.application.agent_cache`.
 Lance avec : pytest tests/test_agent_api.py -v
 """
 
@@ -25,7 +25,7 @@ import pytest  # noqa: E402
 import requests  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
-from app.legacy.core import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
+from app.application import agent_cache  # noqa: E402  (point d'entrée historique, plus de hack sys.path)
 
 AgentCore = agent_cache.AgentCore
 AgentRunner = agent_cache.AgentRunner
@@ -158,7 +158,7 @@ def test_agentcore_stops_at_max_rounds_budget():
     assert "Tool inconnu" in answer
 
 
-# --- app.legacy.core.agent_cache.ask_agent : intégration API -----------------------------------
+# --- app.application.agent_cache.ask_agent : intégration API -----------------------------------
 
 def _inject_runner(monkeypatch, llm):
     """Remplace le runner mis en cache par un runner adossé au FakeLLM."""

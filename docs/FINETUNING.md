@@ -36,7 +36,7 @@ Références historiques :
 | Ticket | Contenu |
 |---|---|
 | SCRUM-12 | Création de `finetune_llm.py` (LoRA/QLoRA, CLI autonome). |
-| SCRUM-39 | Pipeline end-to-end `label_dataset → finetune_llm` en une commande (`pipeline.py`) + jobs asynchrones persistés (`app/legacy/core/pipeline_runner.py`, routes `/pipeline`). |
+| SCRUM-39 | Pipeline end-to-end `label_dataset → finetune_llm` en une commande (`pipeline.py`) + jobs asynchrones persistés (`app/application/pipeline_runner.py`, routes `/pipeline`). |
 | SCRUM-52 | Benchmark `DistilBERT vs LLM fine-tuné` (`benchmark.py`, `predict_llm.py`). |
 | SCRUM-106 | Branche courante (déploiement/calibrage) — le fine-tuning reste inchangé. |
 
@@ -52,11 +52,11 @@ Références historiques :
                      │        │                    app/api/routes/v1/pipeline.py        │
                      │        └──────────┬───────────────────────────┘             │
                      │                   ▼                                          │
-                     │   app/legacy/core/pipeline_runner.py  (Thread daemon par job)          │
+                     │   app/application/pipeline_runner.py  (Thread daemon par job)          │
                      │   · run_labeling     → label_dataset.py (DistilBERT)       │
                      │   · filtrage         → min_confidence + garde-fou vide     │
                      │   · run_finetune     → SUBPROCESS finetune_llm.py          │
-                     │   · job persisté     → app/legacy/core/job_store (SQLite jobs.db)     │
+                     │   · job persisté     → app/infrastructure/persistence/job_store (SQLite jobs.db)     │
                      └───────────────┬─────────────────────────────────────────────┘
                                      ▼
                  ┌─────────────────────────────────────────────────┐
@@ -74,7 +74,7 @@ Références historiques :
 1. **Isolation process** : le fine-tuning est lancé en **subprocess**
    (`python finetune_llm.py ...`) pour isoler torch / les modèles chargés et
    **réutiliser la CLI existante sans refactor** (cf. docstring de
-   `app/legacy/core/pipeline_runner.py`). Les imports lourds (torch, transformers, peft,
+   `app/application/pipeline_runner.py`). Les imports lourds (torch, transformers, peft,
    datasets) ne sont donc jamais importés par la couche API/runner au premier plan.
 2. **Réutilisation du contrat de jobs** : mêmes `TrainJob` / `JobStatus` que
    l'entraînement sentiment, avec `kind="pipeline"` pour distinguer les jobs.
@@ -144,7 +144,7 @@ CSV/JSON/JSONL/TXT ─▶ label_dataset.py ─▶ [filtrage min_confidence] ─�
 
 ---
 
-## 4. Orchestration asynchrone — `app/legacy/core/pipeline_runner.py`
+## 4. Orchestration asynchrone — `app/application/pipeline_runner.py`
 
 Module central partagé par le CLI (`pipeline.py`) et l'API (`/pipeline`),
 conformément à `app/api/routes/pipeline.py` (« même pattern de jobs que /train »).
@@ -430,7 +430,7 @@ rechargement de l'adapter. Sortie : tableau `rich` + métriques par modèle
 - Route legacy : `app/api/routes/pipeline.py` ;
 - **Strangler** : `app/api/routes/v1/pipeline.py` délègue aux handlers legacy avec
   conversion d'erreurs HTTP (`convert_legacy_http_error`) et réutilise
-  `app.legacy.core.models` (zéro dérive de contrat).
+  `app.domain.entities.models` (zéro dérive de contrat).
 
 ### 7.2 `PipelineRequest` — paramètres
 
@@ -465,7 +465,7 @@ dashboard (`PipelineJobTracker`, poll 4 s, étapes `PIPELINE_STEPS` de
 
 ### 8.1 Store SQLite — `experiments/jobs.db`
 
-- `app/legacy/core/job_store.py` → `PersistentJobStore` (dict + SQLite), chemin via
+- `app/infrastructure/persistence/job_store.py` → `PersistentJobStore` (dict + SQLite), chemin via
   `JOB_STORE_PATH` (défaut `experiments/jobs.db` ; en Docker
   `/app/experiments/jobs.db`) ;
 - table `jobs` persistante : survit aux redémarrages ; `kind` distingue les jobs
@@ -724,7 +724,7 @@ token `\n` décale la distribution générée. **Action** : aligner les deux
 #### c) Consolider le template en un point de vérité unique
 Trois constantes dupliquées : `DEFAULT_TEMPLATE` (`finetune_llm.py`),
 `INSTRUCTION` (`predict_llm.py`), `DEFAULT_INSTRUCTION` (`label_dataset.py`).
-Extraire un module partagé (ex. `app/legacy/core/prompt_template.py`) qui expose
+Extraire un module partagé (ex. `app/application/prompt_template.py`) qui expose
 instruction + template + aliasing et le faire référencer par les trois modules.
 C'est le pré-requis du §14.6b : une divergence train/inf ici annule tous les
 gains de format strict.
@@ -853,7 +853,7 @@ prime sur la perfection : meilleure latence totale qu'un régénération.
 | 1 | Relever `min_confidence` → 0.85-0.9 (+ audit volume) | `pipeline.example.yaml`, `PipelineRequest` (défaut) ; CLI | ⭐⭐⭐ | aucune |
 | 2 | Corriger le collator (masquage prompt) | `finetune_llm.py` → `Trainer(data_collator=...)` | ⭐⭐⭐ | aucune |
 | 3 | Réconcilier le `\n` final train/inf | `finetune_llm.py` (rsplit) + `predict_llm.py` (build_prompt) | ⭐⭐ | aucune |
-| 4 | Template unique + format strict (consigne vocabulaire) | nouveau `app/legacy/core/prompt_template.py` ; 3 modules | ⭐⭐⭐ | aucune |
+| 4 | Template unique + format strict (consigne vocabulaire) | nouveau `app/application/prompt_template.py` ; 3 modules | ⭐⭐⭐ | aucune |
 | 5 | Relecture manuelle 200-300 cas + hard negatives `neutral` | workflow review existant ; concat au train | ⭐⭐⭐ | humaine |
 | 6 | Stop strings + `max_new_tokens=16` | `predict_llm.py` `generate()` | ⭐⭐ | aucune |
 | 7 | Sweep LR → r/α → warmup → epochs (early stopping actif) | `finetune_llm.py` args ; grille §14.4 | ⭐⭐ | GPU (sauf lr/warmup CPU) |

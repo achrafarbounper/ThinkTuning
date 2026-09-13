@@ -2,7 +2,7 @@
 """Tâche 18 (v2.0.0) — notifie les clients MCP enregistrés du breaking change.
 
 Compose le message de migration (texte + HTML + blocks Slack) et le diffuse
-aux clients MCP inscrits (``app/legacy/core/mcp_client_store``) via les canaux
+aux clients MCP inscrits (``app/infrastructure/persistence/mcp_client_store``) via les canaux
 configurés (email SMTP et/ou webhook Slack). L'envoi est non bloquant :
 un échec de canal est loggé, jamais propagé.
 
@@ -97,7 +97,7 @@ def main() -> int:
 
 def _dry_run() -> int:
     """Prévisualise la notification : clients ciblés + message composé."""
-    from app.legacy.core.mcp_client_store import get_mcp_client_store
+    from app.infrastructure.persistence.mcp_client_store import get_mcp_client_store
 
     clients = get_mcp_client_store().list()
     email_targets = [c["client_id"] for c in clients if "@" in c.get("client_id", "")]

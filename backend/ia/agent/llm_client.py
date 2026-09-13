@@ -266,13 +266,13 @@ class LLMClient:
     def _reliability_enabled(self) -> bool:
         """Flag `AGENT_RELIABILITY` lu de façon robuste.
 
-        Chemin canonique : ``app.legacy.core.feature_flags`` (racine du projet). Repli :
+        Chemin canonique : ``app.application.feature_flags`` (racine du projet). Repli :
         lecture directe de l'env quand le paquet ``core`` n'est pas importable
         (harness de tests isolés du paquet ``ia``) — même convention duale que
         le reste de l'agent.
         """
         try:
-            from app.legacy.core.feature_flags import flag  # noqa: E402
+            from app.application.feature_flags import flag  # noqa: E402
 
             return flag("reliability")
         except Exception:

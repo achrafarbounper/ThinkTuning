@@ -1,6 +1,7 @@
 # project/app/domain/entities/__init__.py
 """Entités du domaine (imports publics)."""
 
+from . import models  # noqa: F401  (DTOs entraînement/pipeline — ex app/legacy/core/models.py)
 from .mcp import (  # noqa: F401
     DEFAULT_MCP_VERSION,
     MCPPromptArgument,

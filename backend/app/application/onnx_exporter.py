@@ -61,9 +61,7 @@ def export_model_to_onnx(
         sample = tokenizer(probe_text, return_tensors="pt")
         input_names = list(sample.keys())
         dynamic_axes: dict[str, dict[int, str]] = {
-            name: {0: "batch", 1: "sequence"}
-            for name in input_names
-            if sample[name].dim() > 1
+            name: {0: "batch", 1: "sequence"} for name in input_names if sample[name].dim() > 1
         }
         dynamic_axes["logits"] = {0: "batch"}
         # Tuple positionnel aligné sur input_names : la forward du modèle
@@ -157,8 +155,7 @@ class ONNXClassificationEngine:
                 import onnxruntime as ort
             except ImportError as exc:  # pragma: no cover - message clair
                 raise RuntimeError(
-                    "onnxruntime est requis pour l'inférence ONNX "
-                    "(pip install onnxruntime)."
+                    "onnxruntime est requis pour l'inférence ONNX (pip install onnxruntime)."
                 ) from exc
             with self._session_lock:
                 if self._session is None:

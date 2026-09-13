@@ -17,7 +17,7 @@ import pytest
 def test_store_crypto_roundtrip(monkeypatch) -> None:
     from cryptography.fernet import Fernet
 
-    from app.legacy.core.store_crypto import decrypt_text, encrypt_text, is_crypto_enabled
+    from app.infrastructure.persistence.store_crypto import decrypt_text, encrypt_text, is_crypto_enabled
 
     monkeypatch.setenv("STORE_ENCRYPTION_KEY", Fernet.generate_key().decode())
     assert is_crypto_enabled()
@@ -27,7 +27,7 @@ def test_store_crypto_roundtrip(monkeypatch) -> None:
 
 
 def test_store_crypto_passthrough_without_key(monkeypatch) -> None:
-    from app.legacy.core.store_crypto import encrypt_text
+    from app.infrastructure.persistence.store_crypto import encrypt_text
 
     monkeypatch.delenv("STORE_ENCRYPTION_KEY", raising=False)
     # Mode passthrough (dev) : valeur inchangée, aucun préfixe.
@@ -37,7 +37,7 @@ def test_store_crypto_passthrough_without_key(monkeypatch) -> None:
 def test_store_crypto_encrypted_without_key_unreadable(monkeypatch) -> None:
     from cryptography.fernet import Fernet
 
-    from app.legacy.core.store_crypto import StoreCryptoError, decrypt_text, encrypt_text
+    from app.infrastructure.persistence.store_crypto import StoreCryptoError, decrypt_text, encrypt_text
 
     monkeypatch.setenv("STORE_ENCRYPTION_KEY", Fernet.generate_key().decode())
     enc = encrypt_text("secret-data")
@@ -50,7 +50,7 @@ def test_store_crypto_encrypted_without_key_unreadable(monkeypatch) -> None:
 def test_store_crypto_wrong_key_fails_closed(monkeypatch) -> None:
     from cryptography.fernet import Fernet
 
-    from app.legacy.core.store_crypto import StoreCryptoError, decrypt_text, encrypt_text
+    from app.infrastructure.persistence.store_crypto import StoreCryptoError, decrypt_text, encrypt_text
 
     monkeypatch.setenv("STORE_ENCRYPTION_KEY", Fernet.generate_key().decode())
     enc = encrypt_text("secret-data")
@@ -62,7 +62,7 @@ def test_store_crypto_wrong_key_fails_closed(monkeypatch) -> None:
 def test_store_crypto_legacy_plaintext_readable(monkeypatch) -> None:
     from cryptography.fernet import Fernet
 
-    from app.legacy.core.store_crypto import decrypt_text
+    from app.infrastructure.persistence.store_crypto import decrypt_text
 
     monkeypatch.setenv("STORE_ENCRYPTION_KEY", Fernet.generate_key().decode())
     # Lignes legacy en clair (préfixe absent) restent lisibles (zéro migration).
@@ -75,7 +75,7 @@ def test_store_crypto_legacy_plaintext_readable(monkeypatch) -> None:
 
 
 def test_training_gate_serializes_concurrent_runs() -> None:
-    from app.legacy.core.training_gate import TrainingBusyError, TrainingGate
+    from app.application.training_gate import TrainingBusyError, TrainingGate
 
     gate = TrainingGate(max_concurrent_runs=1, max_queue=0, queue_timeout_s=0.5)
     with gate.slot("job-1"):
@@ -90,7 +90,7 @@ def test_training_gate_serializes_concurrent_runs() -> None:
 def test_training_gate_queue_overflow_is_429() -> None:
     import time
 
-    from app.legacy.core.training_gate import TrainingBusyError, TrainingGate
+    from app.application.training_gate import TrainingBusyError, TrainingGate
 
     gate = TrainingGate(max_concurrent_runs=1, max_queue=1, queue_timeout_s=2.0)
     gate.acquire("job-1")  # active=1
@@ -126,7 +126,7 @@ def test_training_gate_queue_overflow_is_429() -> None:
 
 def test_training_busy_error_maps_to_429() -> None:
     from app.domain.errors import DomainError
-    from app.legacy.core.training_gate import TrainingBusyError
+    from app.application.training_gate import TrainingBusyError
 
     assert issubclass(TrainingBusyError, DomainError)
     assert TrainingBusyError("busy").http_status == 429
@@ -134,7 +134,7 @@ def test_training_busy_error_maps_to_429() -> None:
 
 
 def test_training_gate_unlimited_when_zero() -> None:
-    from app.legacy.core.training_gate import TrainingGate
+    from app.application.training_gate import TrainingGate
 
     gate = TrainingGate(max_concurrent_runs=0)
     for i in range(10):

@@ -6,7 +6,7 @@ les requêtes concurrentes. Cet executor délègue les appels bloquants à un po
 de threads dédié et expose une surcouche ``async`` nativement awaitable.
 
 Singleton global : ``get_executor()`` / ``reset_executor()`` (même pattern que
-``ia/agent/circuit_breaker.py`` et ``app/legacy/core/classifier_registry.py``).
+``ia/agent/circuit_breaker.py`` et ``app/application/classifier_registry.py``).
 """
 
 from __future__ import annotations

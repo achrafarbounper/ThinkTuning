@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field, StringConstraints
 
 import app.api as api
 from app.api.dependencies.auth import require_api_key, require_read_api_key
-from app.legacy.core.dynamic_batcher import DynamicBatcher
-from app.legacy.core.inference_executor import get_executor
-from app.legacy.core.predictor_cache import reload_predictor
+from app.application.dynamic_batcher import DynamicBatcher
+from app.application.inference_executor import get_executor
+from app.application.predictor_cache import reload_predictor
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +247,7 @@ def reload_model(_: bool = Depends(require_api_key)):
 
     # SCRUM-74 : sanity check après rechargement — on refuse de confirmer le
     # rechargement avec un modèle non entraîné / fallback (erreur explicite).
-    from app.legacy.core.model_sanity import VERDICT_OK, run_model_sanity
+    from app.application.model_sanity import VERDICT_OK, run_model_sanity
 
     report = run_model_sanity(api._get_predictor())
     if report["verdict"] != VERDICT_OK:

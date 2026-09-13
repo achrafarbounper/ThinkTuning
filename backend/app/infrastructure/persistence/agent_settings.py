@@ -2,7 +2,7 @@
 
 """Paramètres persistants de l'agent IA — module de configuration de l'IHM.
 
-Même schéma de code que ``app/legacy/core/job_store.py`` : une base dédiée
+Même schéma de code que ``app/infrastructure/persistence/job_store.py`` : une base dédiée
 (experiments/agent_settings.db en SQLite, surchargeable via AGENT_SETTINGS_PATH)
 ou, en mode ``PERSISTENCE_BACKEND=mongodb``, la collection ``agent_settings`` de
 MongoDB (``MongoAgentSettingsStore``) — le MÊME backend que tous les autres
@@ -116,15 +116,18 @@ FLAG_NAMES = (
 # Clés booléennes : la valeur persistée (JSON) et la valeur env sont coercées
 # en bool pour que les consommateurs (payload IHM, AgentConfig) reçoivent un
 # booléen réel — jamais la chaîne "true" issue de l'environnement.
-_BOOL_KEYS = ("mcp_first", "mcp_auth_required", "ssrf_enabled", "train_use_back_translation") + tuple(
-    f"flag_{name}" for name in FLAG_NAMES
-)
+_BOOL_KEYS = (
+    "mcp_first",
+    "mcp_auth_required",
+    "ssrf_enabled",
+    "train_use_back_translation",
+) + tuple(f"flag_{name}" for name in FLAG_NAMES)
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 VALEURS_PAR_DEFAUT: dict[str, Any] = {
     # Connexion LLM : défauts vides — le consommateur applique le défaut
-    # dépendant du provider (cf. app/legacy/core/agent_cache.agent_config).
+    # dépendant du provider (cf. app/application/agent_cache.agent_config).
     "provider": "ollama",
     "model": "",
     "ollama_url": "",
@@ -211,9 +214,7 @@ class AgentSettingsStore:
 
     def save_many(self, values: dict) -> dict:
         """Upsert transactionnel des clés connues ; renvoie ce qui a été écrit."""
-        filtered = {
-            key: values[key] for key in SETTING_KEYS if key in values
-        }
+        filtered = {key: values[key] for key in SETTING_KEYS if key in values}
         if not filtered:
             return {}
         now = time.time()
@@ -265,7 +266,7 @@ def get_settings_store() -> AgentSettingsStore:
     """Store persistant des paramètres (SQLite ou MongoDB selon PERSISTENCE_BACKEND).
 
     Point d'accès PUBLIC unique (SCRUM-137) : la lecture
-    (``get_agent_settings``, consommée par ``app/legacy/core/agent_cache.agent_config``)
+    (``get_agent_settings``, consommée par ``app/application/agent_cache.agent_config``)
     et les adaptateurs d'écriture (``LegacySettingsAdapter``) doivent résoudre
     le MÊME backend — sans quoi une sauvegarde du dashboard reste invisible du
     runtime et le rechargement de l'agent s'appuie sur des valeurs périmées.
@@ -383,9 +384,7 @@ def env_and_defaults() -> dict[str, Any]:
     # seule l'ABSENCE laisse le défaut s'appliquer.
     for key in _BOOL_KEYS:
         env_key = (
-            key.upper()
-            if not key.startswith("flag_")
-            else f"AGENT_{key[len('flag_'):].upper()}"
+            key.upper() if not key.startswith("flag_") else f"AGENT_{key[len('flag_') :].upper()}"
         )
         flag_value = _env_bool(env_key)
         if flag_value is not None:
@@ -483,9 +482,7 @@ def get_agent_settings() -> dict:
         "context_length": entry("context_length", "AGENT_CONTEXT_LENGTH", None),
         "temperature": entry("temperature", None, None),
         "train_max_per_lang": entry("train_max_per_lang", "TRAIN_MAX_PER_LANG", 500),
-        "train_augment_fraction": entry(
-            "train_augment_fraction", "TRAIN_AUGMENT_FRACTION", 0.4
-        ),
+        "train_augment_fraction": entry("train_augment_fraction", "TRAIN_AUGMENT_FRACTION", 0.4),
         "train_variants_per_example": entry(
             "train_variants_per_example", "TRAIN_VARIANTS_PER_EXAMPLE", 2
         ),
@@ -506,9 +503,7 @@ def get_agent_settings() -> dict:
         "max_tool_calls": entry("max_tool_calls", "AGENT_MAX_TOOL_CALLS", None),
         "log_level": entry("log_level", "AGENT_LOG_LEVEL", None),
         "mcp_first": _bool_entry("mcp_first", "MCP_FIRST", stored, False),
-        "mcp_auth_required": _bool_entry(
-            "mcp_auth_required", "MCP_AUTH_REQUIRED", stored, True
-        ),
+        "mcp_auth_required": _bool_entry("mcp_auth_required", "MCP_AUTH_REQUIRED", stored, True),
         # Sécurité réseau (bac à sable SSRF) : base > env > défaut fail-closed.
         "ssrf_enabled": _ssrf_enabled_entry(stored),
         "ssrf_allowlist": entry("ssrf_allowlist", "AGENT_PRIVATE_HOST_ALLOWLIST", ""),
@@ -522,9 +517,7 @@ def get_agent_settings() -> dict:
     # « "openrouter" » restée en base) : retirés en durcissement (SCRUM-137)
     # pour que LLMClient ne lève jamais « Provider LLM inconnu ».
     raw_provider = settings["provider"]["value"] or "ollama"
-    settings["provider"]["value"] = (
-        str(raw_provider).strip().strip("\"'").lower() or "ollama"
-    )
+    settings["provider"]["value"] = str(raw_provider).strip().strip("\"'").lower() or "ollama"
     for text_key in ("model", "ollama_url", "openrouter_url", "hf_url", "lm_studio_url"):
         raw = settings[text_key]["value"]
         settings[text_key]["value"] = raw.strip() if isinstance(raw, str) else raw
@@ -563,12 +556,8 @@ def validate_agent_settings(values: dict) -> list[str]:
     """Validation métier des valeurs avant sauvegarde (liste d'erreurs vide=ok)."""
     errors: list[str] = []
     provider = values.get("provider")
-    if provider is not None and provider not in (
-        "ollama", "openrouter", "hf", "lm_studio"
-    ):
-        errors.append(
-            "provider doit valoir 'ollama', 'openrouter', 'hf' ou 'lm_studio'."
-        )
+    if provider is not None and provider not in ("ollama", "openrouter", "hf", "lm_studio"):
+        errors.append("provider doit valoir 'ollama', 'openrouter', 'hf' ou 'lm_studio'.")
 
     timeout = values.get("timeout_seconds")
     if timeout is not None:
@@ -628,9 +617,7 @@ def validate_agent_settings(values: dict) -> list[str]:
     if log_level is not None and log_level != "":
         level = str(log_level).strip().upper()
         if level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
-            errors.append(
-                "log_level doit valoir 'DEBUG', 'INFO', 'WARNING' ou 'ERROR'."
-            )
+            errors.append("log_level doit valoir 'DEBUG', 'INFO', 'WARNING' ou 'ERROR'.")
         else:
             values["log_level"] = level
 
@@ -642,9 +629,7 @@ def validate_agent_settings(values: dict) -> list[str]:
                 if lowered in ("",) or lowered in _TRUE_VALUES | {"false", "0", "no", "off"}:
                     values[bool_key] = lowered in _TRUE_VALUES
                 else:
-                    errors.append(
-                        f"{bool_key} doit être un booléen (true/false/1/0/yes/no)."
-                    )
+                    errors.append(f"{bool_key} doit être un booléen (true/false/1/0/yes/no).")
             elif isinstance(raw_flag, (int, float)):
                 values[bool_key] = bool(raw_flag)
             else:
@@ -657,9 +642,7 @@ def validate_agent_settings(values: dict) -> list[str]:
         if not isinstance(ssrf_allowlist, str):
             errors.append("ssrf_allowlist doit être une chaîne CSV d'hôtes.")
         else:
-            cleaned = ", ".join(
-                part.strip() for part in ssrf_allowlist.split(",") if part.strip()
-            )
+            cleaned = ", ".join(part.strip() for part in ssrf_allowlist.split(",") if part.strip())
             if len(cleaned) > 500:
                 errors.append("ssrf_allowlist ne peut pas dépasser 500 caractères.")
             else:
@@ -674,9 +657,7 @@ def validate_agent_settings(values: dict) -> list[str]:
     ):
         # Une sauvegarde explicite d'une clé vide alors que openrouter est
         # choisi est refusée : elle rendrait tout appel LLM impossible.
-        errors.append(
-            "openrouter_api_key ne peut pas être vide quand provider=openrouter."
-        )
+        errors.append("openrouter_api_key ne peut pas être vide quand provider=openrouter.")
     hf_api_key = values.get("hf_api_key")
     if (
         provider == "hf"
@@ -686,7 +667,5 @@ def validate_agent_settings(values: dict) -> list[str]:
     ):
         # Même règle qu'OpenRouter : une clé vide explicite rendrait tout
         # appel LLM impossible côté Hugging Face Inference Providers.
-        errors.append(
-            "hf_api_key ne peut pas être vide quand provider=hf."
-        )
+        errors.append("hf_api_key ne peut pas être vide quand provider=hf.")
     return errors

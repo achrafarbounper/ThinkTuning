@@ -45,11 +45,11 @@ def test_create_dataloaders_returns_valid_loaders():
 
 
 def test_run_training_splits_dataset_before_creating_loaders():
-    # Depuis SCRUM-48, le runner vit dans app.legacy.core.trainer_runner (et non plus dans
+    # Depuis SCRUM-48, le runner vit dans app.application.trainer_runner (et non plus dans
     # api). run_training y référence ses dépendances par imports directs au
     # niveau du module (create_dataloaders, load_config, ...). Il faut donc
-    # patcher app.legacy.core.trainer_runner.* — patcher api.* est un no-op à l'exécution.
-    from app.legacy.core import trainer_runner as _runner
+    # patcher app.application.trainer_runner.* — patcher api.* est un no-op à l'exécution.
+    from app.application import trainer_runner as _runner
 
     raw = Dataset.from_dict({
         "text": ["Bonjour", "Hello", "Très bien", "Good"],
@@ -101,9 +101,9 @@ def test_run_training_splits_dataset_before_creating_loaders():
 
 
 def test_cancel_training_marks_job_cancelled_and_sets_event():
-    # Depuis SCRUM-48, cancel_training vit dans app.legacy.core.trainer_runner et suit son
+    # Depuis SCRUM-48, cancel_training vit dans app.application.trainer_runner et suit son
     # propre dict _job_cancel_events (pas celui exposé par api).
-    from app.legacy.core import trainer_runner as _runner
+    from app.application import trainer_runner as _runner
     job_id = "job-cancel"
     _jobs[job_id] = TrainJob(job_id=job_id, status=JobStatus.RUNNING)
     _runner._job_cancel_events[job_id] = threading.Event()

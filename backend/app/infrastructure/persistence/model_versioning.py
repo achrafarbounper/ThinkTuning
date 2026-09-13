@@ -1,8 +1,8 @@
 # project/core/model_versioning.py
 
-import os
 import json
 import logging
+import os
 from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
@@ -21,8 +21,7 @@ def list_model_versions() -> list[str]:
         path = os.path.join(MODEL_ROOT, name)
         if os.path.isdir(path):
             if any(
-                os.path.isfile(os.path.join(path, f))
-                and os.path.getsize(os.path.join(path, f)) > 0
+                os.path.isfile(os.path.join(path, f)) and os.path.getsize(os.path.join(path, f)) > 0
                 for f in MODEL_FILES
             ):
                 versions.append(name)
@@ -52,7 +51,7 @@ def resolve_model_dir(model_name: str | None = None) -> str:
     # Import paresseux pour eviter une dependance circulaire (model_activation
     # importe MODEL_ROOT / list_model_versions depuis ce module).
     try:
-        from app.legacy.core.model_activation import get_active_model_dir
+        from app.application.model_activation import get_active_model_dir
 
         active_dir = get_active_model_dir()
         if active_dir and os.path.isdir(active_dir):
@@ -103,7 +102,7 @@ def resolve_model_path(model_arg: str | None = None) -> str:
         logger.debug(f"resolve_model_path : terminé -> {resolved}")
         return resolved
     except RuntimeError as exc:
-        raise FileNotFoundError(f"Aucun modèle disponible : {exc}")
+        raise FileNotFoundError(f"Aucun modèle disponible : {exc}") from exc
 
 
 def _json_safe(value):
@@ -146,8 +145,8 @@ def _validate_saved_model(model_dir, trainer=None):
 
     # 2. Tête de classification réellement entraînée ? (heuristique std OU
     #    attestation d'entraînement — une tête DistilBERT fine-tunée sur un
-    #    petit dataset garde std ≈ 0.02, cf. app/legacy/core/model_head_check.py.)
-    from app.legacy.core.model_head_check import is_model_version_trained
+    #    petit dataset garde std ≈ 0.02, cf. app/infrastructure/persistence/model_head_check.py.)
+    from app.infrastructure.persistence.model_head_check import is_model_version_trained
 
     if not is_model_version_trained(model_dir):
         raise RuntimeError(
@@ -162,7 +161,7 @@ def _validate_saved_model(model_dir, trainer=None):
     #    persistance (le poids sur disque ne correspondrait plus au modèle
     #    réellement entraîné).
     if trainer is not None:
-        from app.legacy.core.model_head_check import head_matches_reference
+        from app.infrastructure.persistence.model_head_check import head_matches_reference
 
         model = getattr(trainer, "model", None)
         try:
@@ -170,7 +169,7 @@ def _validate_saved_model(model_dir, trainer=None):
         except Exception:
             reference_state = None
         if reference_state:
-            from app.legacy.core.model_head_check import load_head_tensors
+            from app.infrastructure.persistence.model_head_check import load_head_tensors
 
             saved_head = load_head_tensors(model_dir)
             if saved_head and not head_matches_reference(model_dir, reference_state):
@@ -207,25 +206,23 @@ def _write_training_attestation(trainer, tmp_dir):
             "provisional": True,
             "metrics": {
                 "accuracy_by_epoch": [
-                    entry.get("accuracy") for entry in epoch_metrics
+                    entry.get("accuracy")
+                    for entry in epoch_metrics
                     if isinstance(entry, dict) and entry.get("accuracy") is not None
                 ],
                 "f1_by_epoch": [
-                    entry.get("f1_macro") for entry in epoch_metrics
+                    entry.get("f1_macro")
+                    for entry in epoch_metrics
                     if isinstance(entry, dict) and entry.get("f1_macro") is not None
                 ],
             },
         }
         if final_metrics:
             report["metrics"].update(_json_safe(final_metrics))
-        with open(
-            os.path.join(tmp_dir, "training_report.json"), "w", encoding="utf-8"
-        ) as fh:
+        with open(os.path.join(tmp_dir, "training_report.json"), "w", encoding="utf-8") as fh:
             json.dump(report, fh, indent=2, default=str)
     except Exception:
-        logger.exception(
-            "Échec de l'écriture de l'attestation d'entraînement (non bloquant)"
-        )
+        logger.exception("Échec de l'écriture de l'attestation d'entraînement (non bloquant)")
 
 
 def _save_trained_model(trainer, model_dir):
@@ -312,7 +309,7 @@ def _save_trained_model(trainer, model_dir):
     # sha256.json liste l'empreinte de CHAQUE fichier ; vérifié au chargement
     # par src/inference/predictor.py (MODEL_SIGNING_REQUIRED=1 en prod).
     try:
-        from app.legacy.core.model_signing import write_signature_manifest
+        from app.application.model_signing import write_signature_manifest
 
         write_signature_manifest(model_dir)
     except Exception as exc:  # pragma: no cover - défensif, ne rompt pas le run
@@ -354,7 +351,8 @@ def write_label_mappings(trainer, model_dir):
 def _ensure_state_dict_pt(trainer, model_dir):
     """Persiste model_state_dict.pt si aucun fichier de poids lisible n'existe deja."""
     if any(
-        os.path.isfile(os.path.join(model_dir, f)) and os.path.getsize(os.path.join(model_dir, f)) > 0
+        os.path.isfile(os.path.join(model_dir, f))
+        and os.path.getsize(os.path.join(model_dir, f)) > 0
         for f in MODEL_FILES
     ):
         return
@@ -388,13 +386,14 @@ def validate_model_version(version_dir: str) -> dict:
         errors.append("config.json absent")
     else:
         try:
-            with open(config_path, "r", encoding="utf-8") as fh:
+            with open(config_path, encoding="utf-8") as fh:
                 json.load(fh)
         except Exception as exc:
             errors.append(f"config.json illisible : {exc}")
 
     if not any(
-        os.path.isfile(os.path.join(version_dir, f)) and os.path.getsize(os.path.join(version_dir, f)) > 0
+        os.path.isfile(os.path.join(version_dir, f))
+        and os.path.getsize(os.path.join(version_dir, f)) > 0
         for f in MODEL_FILES
     ):
         errors.append("aucun fichier de poids non vide")
@@ -405,29 +404,31 @@ def validate_model_version(version_dir: str) -> dict:
         errors.append("id2label.json / label2id.json absents")
     else:
         try:
-            with open(id2label_path, "r", encoding="utf-8") as fh:
+            with open(id2label_path, encoding="utf-8") as fh:
                 id2label = json.load(fh)
-            with open(label2id_path, "r", encoding="utf-8") as fh:
+            with open(label2id_path, encoding="utf-8") as fh:
                 label2id = json.load(fh)
             if {v for v in id2label.values()} != set(label2id.keys()):
                 errors.append("id2label / label2id incoherents")
         except Exception as exc:
             errors.append(f"mappings illisibles : {exc}")
 
-    from app.legacy.core.model_head_check import is_model_version_trained
+    from app.infrastructure.persistence.model_head_check import is_model_version_trained
 
     if not is_model_version_trained(version_dir):
-        errors.append("tete de classification non entrainee (ecart-type <= 0.03) ou poids illisibles")
+        errors.append(
+            "tete de classification non entrainee (ecart-type <= 0.03) ou poids illisibles"
+        )
 
     if errors:
-        raise ValueError(
-            f"Version invalide ({version_dir}) : " + "; ".join(errors) + "."
-        )
+        raise ValueError(f"Version invalide ({version_dir}) : " + "; ".join(errors) + ".")
     logger.info("Version validee : %s", version_dir)
     return {"version_dir": version_dir, "valid": True}
 
 
-def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at):
+def save_model_version(
+    tokenizer, trainer, job_id, train_examples, val_examples, started_at, finished_at
+):
     logger.info(
         f"Sauvegarde du modèle | job_id={job_id} | {train_examples} train / {val_examples} val"
     )
@@ -467,9 +468,7 @@ def save_model_version(tokenizer, trainer, job_id, train_examples, val_examples,
     metrics = _json_safe(
         {
             **final_metrics,
-            "accuracy_by_epoch": [
-                entry.get("accuracy") for entry in epoch_metrics
-            ],
+            "accuracy_by_epoch": [entry.get("accuracy") for entry in epoch_metrics],
             "f1_by_epoch": [entry.get("f1_macro") for entry in epoch_metrics],
             "epochs": len(epoch_metrics),
         }

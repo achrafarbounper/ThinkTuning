@@ -68,6 +68,8 @@ def queue_timeout() -> float:
         return max(0.0, float(raw)) if raw else DEFAULT_QUEUE_TIMEOUT_S
     except (TypeError, ValueError):
         return DEFAULT_QUEUE_TIMEOUT_S
+
+
 class TrainingGate:
     """Compteur de runs actifs + file d'attente FIFO bornée (thread-safe)."""
 
@@ -107,9 +109,7 @@ class TrainingGate:
                     self._waiting(),
                     job_id,
                 )
-                raise TrainingBusyError(
-                    f"file d'attente d'entraînement pleine ({self._waiting()})"
-                )
+                raise TrainingBusyError(f"file d'attente d'entraînement pleine ({self._waiting()})")
             self._queue.append(job_id)
             logger.info(
                 "train busy : job %s en file d'attente (position %d)",

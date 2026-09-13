@@ -26,19 +26,19 @@ if PROJECT_ROOT not in sys.path:
 os.environ.setdefault("API_KEY", "test-key")
 
 # Isolation GLOBALE des paramètres persistants de l'agent : pendant les tests,
-# la base SQLite de app.legacy.core.agent_settings doit pointer vers un fichier temporaire
+# la base SQLite de app.infrastructure.persistence.agent_settings doit pointer vers un fichier temporaire
 # (jamais experiments/agent_settings.db) pour qu'aucun test n'écrase la
 # configuration réelle ni ne dépende d'une config sauvegardée manuellement.
 # L'env var doit être posée AVANT le premier agent_config() ; le store étant
 # créé paresseusement, chaque module qui en a besoin peut aussi appeler
-# app.legacy.core.agent_settings.reset_store_for_tests(...) pour un fichier par test.
+# app.infrastructure.persistence.agent_settings.reset_store_for_tests(...) pour un fichier par test.
 if not os.getenv("AGENT_SETTINGS_PATH"):
     os.environ["AGENT_SETTINGS_PATH"] = os.path.join(
         tempfile.gettempdir(), "thinktuning-test-agent-settings.db"
     )
 
 # Isolation de la FILE D'APPROBATION de l'agent : pendant les tests, la base
-# SQLite de app.legacy.core.approval_store pointe vers un fichier temporaire (jamais la
+# SQLite de app.infrastructure.persistence.approval_store pointe vers un fichier temporaire (jamais la
 # vraie base experiments/agent_approvals.db) pour ne pas polluer ni partager
 # les demandes d'un test à l'autre.
 if not os.getenv("AGENT_APPROVAL_PATH"):

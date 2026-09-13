@@ -2,7 +2,7 @@
 
 """Intégration de l'agent IA du paquet `ia/` dans l'API principale.
 
-Même schéma que `app/legacy/core/predictor_cache.py` : une instance unique construite
+Même schéma que `app/application/predictor_cache.py` : une instance unique construite
 paresseusement au premier appel puis mise en cache (accès protégé par un
 verrou), avec rechargement explicite via `reload_agent_runner()`.
 
@@ -18,11 +18,20 @@ import threading
 import requests
 from fastapi import HTTPException
 
-from app.legacy.core.agent_settings import get_agent_settings
-from app.legacy.core.run_store import (
+from app.infrastructure.persistence.agent_settings import get_agent_settings
+
+# File de validation humaine — ré-exportée pour les routes /api/agent/approvals.
+from app.infrastructure.persistence.approval_store import ApprovalStore  # noqa: E402,F401
+from app.infrastructure.persistence.run_store import (
     AWAITING_APPROVAL as MULTI_RUN_AWAITING,
+)
+from app.infrastructure.persistence.run_store import (
     COMPLETED as MULTI_RUN_COMPLETED,
+)
+from app.infrastructure.persistence.run_store import (
     ERROR as MULTI_RUN_ERROR,
+)
+from app.infrastructure.persistence.run_store import (
     get_run_store,
 )
 from ia.agent.agent_core import AgentCore  # noqa: E402
@@ -30,10 +39,6 @@ from ia.agent.llm_client import LLMClient  # noqa: E402
 from ia.agent.orchestrator import MultiAgentCoordinator  # noqa: E402
 from ia.agent.runner import AgentRunner  # noqa: E402
 from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
-
-# File de validation humaine — ré-exportée pour les routes /api/agent/approvals.
-from app.legacy.core.approval_store import ApprovalStore  # noqa: E402,F401
-from app.legacy.core.approval_store import get_approval_store as _get_approval_store  # noqa: E402
 
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
 __all__ = [
@@ -104,6 +109,8 @@ _runner: AgentRunner | None = None
 # mis en cache par nom de modèle pour éviter de reconstruire à chaque message.
 _override_runners: dict[str, AgentRunner] = {}
 _runner_lock = threading.Lock()
+
+
 def _openrouter_chat_url(url: str | None) -> str:
     """Normalise une URL OpenRouter vers l'endpoint chat complet.
 
@@ -149,13 +156,10 @@ def _lm_studio_chat_url(url: str | None) -> str:
     return f"{url}/chat/completions"
 
 
-
-
-
 def agent_config() -> dict:
     """Configuration courante de l'agent, relue à chaque appel.
 
-    Sources par priorité décroissante (via ``app.legacy.core.agent_settings``) :
+    Sources par priorité décroissante (via ``app.infrastructure.persistence.agent_settings``) :
         1. base SQLite des paramètres (page Paramètres du dashboard) ;
         2. variables d'environnement ;
         3. défauts historiques du module.
@@ -196,22 +200,14 @@ def agent_config() -> dict:
     return {
         "provider": provider,
         "ollama_url": val("ollama_url") or DEFAULT_OLLAMA_URL,
-        "openrouter_url": _openrouter_chat_url(
-            val("openrouter_url") or DEFAULT_OPENROUTER_URL
-        ),
+        "openrouter_url": _openrouter_chat_url(val("openrouter_url") or DEFAULT_OPENROUTER_URL),
         "openrouter_api_key": val("openrouter_api_key") or "",
         "hf_url": _hf_chat_url(val("hf_url") or DEFAULT_HF_URL),
         "hf_api_key": val("hf_api_key") or "",
-        "lm_studio_url": _lm_studio_chat_url(
-            val("lm_studio_url") or DEFAULT_LM_STUDIO_URL
-        ),
+        "lm_studio_url": _lm_studio_chat_url(val("lm_studio_url") or DEFAULT_LM_STUDIO_URL),
         "model": model,
-        "timeout": (
-            float(timeout_raw) if timeout_raw is not None else DEFAULT_TIMEOUT_SECONDS
-        ),
-        "context_length": (
-            int(context_raw) if context_raw is not None else DEFAULT_CONTEXT_LENGTH
-        ),
+        "timeout": (float(timeout_raw) if timeout_raw is not None else DEFAULT_TIMEOUT_SECONDS),
+        "context_length": (int(context_raw) if context_raw is not None else DEFAULT_CONTEXT_LENGTH),
         # None -> LLMClient applique son DEFAULT_TEMPERATURE historique.
         "temperature": float(temperature_raw) if temperature_raw is not None else None,
     }
@@ -385,9 +381,7 @@ def list_llm_models() -> dict:
 
     base_url = _ollama_base_url()
     try:
-        response = requests.get(
-            f"{base_url}/api/tags", timeout=LIST_MODELS_TIMEOUT_SECONDS
-        )
+        response = requests.get(f"{base_url}/api/tags", timeout=LIST_MODELS_TIMEOUT_SECONDS)
         response.raise_for_status()
         payload = response.json()
     except requests.exceptions.Timeout:
@@ -405,13 +399,9 @@ def list_llm_models() -> dict:
         )
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(
-            status_code=502, detail=f"Erreur renvoyée par Ollama (HTTP {status})."
-        )
+        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par Ollama (HTTP {status}).") from exc
     except ValueError as exc:  # réponse non JSON
-        raise HTTPException(
-            status_code=502, detail=f"Réponse illisible du serveur Ollama ({exc})."
-        )
+        raise HTTPException(status_code=502, detail=f"Réponse illisible du serveur Ollama ({exc}).") from exc
 
     active_model = agent_config()["model"]
     models = []
@@ -488,11 +478,11 @@ def _list_openrouter_models(cfg: dict) -> dict:
                 f"Erreur renvoyée par OpenRouter (HTTP {status})."
                 + (" Clé OPENROUTER_API_KEY invalide ?" if status == 401 else "")
             ),
-        )
+        ) from exc
     except ValueError as exc:  # réponse non JSON
         raise HTTPException(
             status_code=502, detail=f"Réponse illisible de l'API OpenRouter ({exc})."
-        )
+        ) from exc
 
     active_model = cfg["model"]
     models = []
@@ -560,11 +550,11 @@ def _list_hf_models(cfg: dict) -> dict:
                 f"Erreur renvoyée par Hugging Face (HTTP {status})."
                 + (" Clé HF_API_KEY invalide ?" if status == 401 else "")
             ),
-        )
+        ) from exc
     except ValueError as exc:  # réponse non JSON
         raise HTTPException(
             status_code=502, detail=f"Réponse illisible de l'API Hugging Face ({exc})."
-        )
+        ) from exc
 
     active_model = cfg["model"]
     models = []
@@ -630,11 +620,11 @@ def _list_lm_studio_models(cfg: dict) -> dict:
         status = exc.response.status_code if exc.response is not None else "?"
         raise HTTPException(
             status_code=502, detail=f"Erreur renvoyée par LM Studio (HTTP {status})."
-        )
+        ) from exc
     except ValueError as exc:  # réponse non JSON
         raise HTTPException(
             status_code=502, detail=f"Réponse illisible du serveur LM Studio ({exc})."
-        )
+        ) from exc
 
     active_model = cfg["model"]
     models = []
@@ -682,21 +672,19 @@ def _ask_runner_with_http_errors(
         raise HTTPException(
             status_code=504,
             detail=(
-                f"Le LLM ({effective_model}) n'a pas répondu en "
-                f"{agent_config()['timeout']:.0f}s."
+                f"Le LLM ({effective_model}) n'a pas répondu en {agent_config()['timeout']:.0f}s."
             ),
         )
     except requests.exceptions.ConnectionError:
         raise HTTPException(
             status_code=502,
             detail=(
-                f"LLM injoignable sur {agent_config()['ollama_url']}. "
-                "Vérifiez qu'Ollama tourne."
+                f"LLM injoignable sur {agent_config()['ollama_url']}. Vérifiez qu'Ollama tourne."
             ),
         )
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).")
+        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).") from exc
 
 
 def ask_agent(prompt: str, model: str | None = None) -> str:
@@ -770,23 +758,19 @@ def ask_agent_detailed_streaming(
         raise HTTPException(
             status_code=504,
             detail=(
-                f"Le LLM ({effective_model}) n'a pas répondu en "
-                f"{agent_config()['timeout']:.0f}s."
+                f"Le LLM ({effective_model}) n'a pas répondu en {agent_config()['timeout']:.0f}s."
             ),
         )
     except requests.exceptions.ConnectionError:
         raise HTTPException(
             status_code=502,
             detail=(
-                f"LLM injoignable sur {agent_config()['ollama_url']}. "
-                "Vérifiez qu'Ollama tourne."
+                f"LLM injoignable sur {agent_config()['ollama_url']}. Vérifiez qu'Ollama tourne."
             ),
         )
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(
-            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
-        )
+        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).") from exc
     return {"answer": result.answer, "thinking": result.thinking}
 
 
@@ -812,8 +796,6 @@ def _build_llm_client(model_name: str | None = None) -> LLMClient:
         provider=cfg["provider"],
         api_key=api_key,
     )
-
-
 
 
 # Coordinateurs dedies aux modeles explicitement demandes (selecteur du
@@ -857,7 +839,10 @@ def _multi_coordinator_kwargs() -> dict:
     if _os.getenv("AGENT_MULTI_THINKING", "").strip().lower() in _true:
         kwargs["enable_thinking"] = True
     if _os.getenv("AGENT_MULTI_INTENT", "1").strip().lower() not in {
-        "0", "false", "no", "off",
+        "0",
+        "false",
+        "no",
+        "off",
     }:
         # Approche B (multi-agents) : classification d'intention au superviseur.
         # Instance PARTAGÉE (le modèle n'est chargé qu'une fois) ; tout échec
@@ -884,6 +869,7 @@ def _get_shared_intent_classifier():
     global _intent_classifier_shared
     if _intent_classifier_shared is None:
         from ia.agent.classifiers.intent_classifier import IntentClassifier
+
         _intent_classifier_shared = IntentClassifier()
     return _intent_classifier_shared
 
@@ -902,13 +888,16 @@ def _trace_multi_run(prompt: str, outcome: dict) -> None:
         row = store.start_run(prompt, model="", source="multi")
         for worker in outcome.get("workers", []) or []:
             if worker.get("status") == "awaiting_approval":
-                store.append_tool_event(row["id"], {
-                    "event": "worker_approval",
-                    "task_id": worker.get("task_id"),
-                    "role": worker.get("role"),
-                    "request_id": worker.get("request_id"),
-                    "tool": (worker.get("approval") or {}).get("tool", ""),
-                })
+                store.append_tool_event(
+                    row["id"],
+                    {
+                        "event": "worker_approval",
+                        "task_id": worker.get("task_id"),
+                        "role": worker.get("role"),
+                        "request_id": worker.get("request_id"),
+                        "tool": (worker.get("approval") or {}).get("tool", ""),
+                    },
+                )
         status_map = {
             "completed": MULTI_RUN_COMPLETED,
             "awaiting_approval": MULTI_RUN_AWAITING,
@@ -1001,9 +990,7 @@ def ask_multi_agent(
         )
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(
-            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
-        )
+        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).") from exc
 
 
 def ask_multi_agent_streaming(
@@ -1046,6 +1033,4 @@ def ask_multi_agent_streaming(
         )
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(
-            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
-        )
+        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).") from exc

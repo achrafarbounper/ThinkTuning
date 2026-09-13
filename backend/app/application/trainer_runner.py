@@ -1,25 +1,27 @@
 # project/core/trainer_runner.py
 
-import time
-import threading
 import logging
+import threading
+import time
 
-from app.legacy.core.models import TrainJob, JobStatus, TRAIN_JOB_STEPS
-from app.legacy.core.job_store import get_job_store
-from app.legacy.core import job_logs
-from app.legacy.core.model_versioning import (
-    save_model_version,
-    resolve_model_dir,
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+from app.application import job_logs
+from app.domain.entities.models import TRAIN_JOB_STEPS, JobStatus
+from app.infrastructure.persistence.job_store import get_job_store
+from app.infrastructure.persistence.model_versioning import (
     MODEL_ROOT,
+    resolve_model_dir,
+    save_model_version,
 )
-from src.dataset.loader import load_raw_dataset, augment_dataset
+from src.dataset.loader import augment_dataset, load_raw_dataset
 from src.dataset.preprocess import create_dataloaders
 from src.model.distilbert import build_model
 from src.model.trainer import Trainer, compute_class_weights
 from src.utils.config import load_config
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from src.utils.flags import TEST_MODE
-import torch
+
 logger = logging.getLogger(__name__)
 _job_cancel_events: dict[str, threading.Event] = {}
 
@@ -45,7 +47,7 @@ def load_source_f1(base_model_version: str):
 
     report_path = os.path.join(MODEL_ROOT, base_model_version, "training_report.json")
     try:
-        with open(report_path, "r", encoding="utf-8") as fh:
+        with open(report_path, encoding="utf-8") as fh:
             report = json.load(fh)
         f1 = (report.get("metrics") or {}).get("f1_macro")
         return float(f1) if f1 is not None else None
@@ -87,9 +89,7 @@ def _persist_epoch_metrics(store, job_id: str, records):
         store.save_epoch_metrics(job_id, records)
         logger.info(f"Métriques par epoch persistées | job_id={job_id} | {len(records)} epoch(s)")
     except Exception:
-        logger.exception(
-            "Échec de la persistance des métriques par epoch | job_id=%s", job_id
-        )
+        logger.exception("Échec de la persistance des métriques par epoch | job_id=%s", job_id)
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +108,9 @@ EVAL_FRACTION_OF_EPOCH = 0.3
 _PREP_STEPS = TRAIN_JOB_STEPS[: TRAIN_JOB_STEPS.index("training")]
 
 
-def _compute_global_pct(step, phase=None, epoch=None, epochs_total=None,
-                        batch=None, batches_total=None) -> float:
+def _compute_global_pct(
+    step, phase=None, epoch=None, epochs_total=None, batch=None, batches_total=None
+) -> float:
     """Pourcentage global du pipeline (0-100), toutes étapes confondues."""
     if step == "done":
         return 100.0
@@ -202,8 +203,12 @@ def _update_batch_progress(store, job_id: str, info: dict):
             }
         )
         prog["global_pct"] = _compute_global_pct(
-            "training", info.get("phase"), info.get("epoch"),
-            info.get("epochs_total"), info.get("step"), info.get("total"),
+            "training",
+            info.get("phase"),
+            info.get("epoch"),
+            info.get("epochs_total"),
+            info.get("step"),
+            info.get("total"),
         )
         job.progress = prog
     except Exception:
@@ -381,9 +386,7 @@ def run_training(job_id: str, req):
                 f"{req.base_model_version} -> {base_dir}"
             )
         else:
-            tokenizer = AutoTokenizer.from_pretrained(
-                cfg["model_name"], trust_remote_code=False
-            )
+            tokenizer = AutoTokenizer.from_pretrained(cfg["model_name"], trust_remote_code=False)
             model = build_model(cfg)
             logger.info(f"Modèle chargé : {cfg['model_name']} sur {cfg['device']}")
 
@@ -466,9 +469,7 @@ def run_training(job_id: str, req):
         # les epochs déjà réalisées (si un trainer existe).
         _trainer = locals().get("trainer")
         if _trainer is not None:
-            _persist_epoch_metrics(
-                store, job_id, getattr(_trainer, "epoch_metrics", None) or []
-            )
+            _persist_epoch_metrics(store, job_id, getattr(_trainer, "epoch_metrics", None) or [])
 
     job.finished_at = time.time()
     store[job_id] = job

@@ -8,7 +8,7 @@ de log, surface MCP et feature flags.
 
 Source des valeurs (SCRUM-138 — plus AUCUNE configuration d'agent dans
 ``app/config/settings.py``) : le store persistant du module de configuration
-de l'IHM (``app/legacy/core/agent_settings.py``), c'est-à-dire la collection
+de l'IHM (``app/infrastructure/persistence/agent_settings.py``), c'est-à-dire la collection
 ``agent_settings`` de **MongoDB** en mode ``PERSISTENCE_BACKEND=mongodb`` —
 la même base que la page Paramètres du dashboard. Priorité décroissante :
 
@@ -49,7 +49,7 @@ class AgentProvider(StrEnum):
 
 
 # Noms canoniques des feature flags (convention ``AGENT_<NOM>``,
-# cf. app/legacy/core/feature_flags.py — les valeurs vivent désormais en base).
+# cf. app/application/feature_flags.py — les valeurs vivent désormais en base).
 AGENT_FLAG_NAMES = (
     "reliability",
     "audit",
@@ -153,7 +153,8 @@ class AgentConfig(BaseModel):
     def _coerce_provider(cls, value: Any) -> Any:
         """Accepte « ollama » (base/env) comme ``AgentProvider.OLLAMA``.
 
-        Normalisation identique à ``app.legacy.core.agent_settings.get_agent_settings`` :
+        Normalisation identique à
+        ``app.infrastructure.persistence.agent_settings.get_agent_settings`` :
         trim + guillemets survivant à un double-encodage JSON + casse.
         """
         if isinstance(value, AgentProvider):
@@ -228,7 +229,7 @@ class AgentConfig(BaseModel):
         return url, api_key
 
     def active_flags(self) -> dict[str, bool]:
-        """Snapshot des feature flags (compatibilité app/legacy/core/feature_flags.features())."""
+        """Snapshot des feature flags (compatibilité app/application/feature_flags.features())."""
         return {name: getattr(self, f"flag_{name}") for name in AGENT_FLAG_NAMES}
 
 
@@ -241,9 +242,9 @@ def get_agent_config(port: AgentSettingsPort | None = None) -> AgentConfig:
     ``PERSISTENCE_BACKEND=mongodb``, sinon le store SQLite de développement.
     La base est TOUJOURS prioritaire : une sauvegarde du dashboard est
     immédiatement effective au prochain run (aucun cache, même sémantique que
-    ``app.legacy.core.agent_cache.agent_config``).
+    ``app.application.agent_cache.agent_config``).
     """
-    from app.legacy.core.agent_settings import env_and_defaults
+    from app.infrastructure.persistence.agent_settings import env_and_defaults
 
     if port is None:
         from app.infrastructure.legacy_settings_adapter import build_settings_port

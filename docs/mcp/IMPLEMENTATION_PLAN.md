@@ -161,7 +161,7 @@
 > 3 resources statiques + 2 paramétrées (``jobs/{job_id}``,
 > ``datasets/{path}/stats``), résolues par DÉLÉGATION aux tools internes
 > read-only (``job_list``/``job_get``/``model_versions``/``dataset_stats``
-> legacy + ``app.legacy.core.agent_cache.agent_config``) : zéro règle réimplémentée.
+> legacy + ``app.application.agent_cache.agent_config``) : zéro règle réimplémentée.
 > Sécurité défense en profondeur : (1) parsing strict des URI par routes
 > regex ancrées — traversée (``..``), backslash, caractères de contrôle,
 > double-encodage (``%`` résiduel post-``unquote``) et segments vides refusés
@@ -219,7 +219,7 @@
   - `client_id`, `tenant_id`, `role`, `visible_tools`, `visible_resources`
   - `visible_prompts`, `sampling_enabled`, `rate_limit_per_minute`
   - `destructive_quota`, `revoked`, `revoked_at`, `revoked_reason`
-- [x] `app/legacy/core/mcp_client_store.py` → `MCPClientStore` :
+- [x] `app/infrastructure/persistence/mcp_client_store.py` → `MCPClientStore` :
   - `register(client_id, secret, scope)` → crée un client
   - `revoke(client_id, reason)` → révoque un client
   - `list()` → liste les clients
@@ -254,7 +254,7 @@
 > rate limit burst + isolation + refill, partage de la primitive).
 
 ### Tâche 12 : Audit Trail MCP
-- [x] `app/legacy/core/audit_store.py` → ajouter les events :
+- [x] `app/infrastructure/persistence/audit_store.py` → ajouter les events :
   - `ACT_MCP_TOOL_CALL = "mcp_tool_call"`
   - `ACT_MCP_RESOURCE_READ = "mcp_resource_read"`
   - `ACT_MCP_PROMPT_GET = "mcp_prompt_get"`
@@ -264,7 +264,7 @@
 - [x] Dashboard interne : métriques MCP (error rate, call volume, revoked clients)
 - [x] Test : `test_mcp_audit.py` — vérifie que chaque call est auditée
 
-> **Livré (S4)** : `app/legacy/core/audit_store.py` — les 5 actions normalisées MCP +
+> **Livré (S4)** : `app/infrastructure/persistence/audit_store.py` — les 5 actions normalisées MCP +
 > regroupement `MCP_ACTIONS` (ordre stable d'agrégation) + `mcp_metrics()`
 > (volume total, répartition par action, erreurs `is_error: true`, error rate —
 > molécule stable, jamais de clé manquante). Infrastructure :
@@ -309,14 +309,14 @@
 > ``..``/``.``/``''``, anti double-encodage, backslash, octets nul/contrôle,
 > plafond 200 chars) AVANT toute I/O. Chaque nouvelle route DÉLÈGUE aux
 > sources internes (zéro règle réimplémentée) : ``jobs/{job_id}/logs`` →
-> existence via ``job_get`` + lignes via ``app.legacy.core.job_logs`` (même source
+> existence via ``job_get`` + lignes via ``app.application.job_logs`` (même source
 > mémoire que le WS ``/train/stream``) ; ``models/{version}/info`` →
 > présence via ``model_versions`` + drapeau actif, artefacts +
 > ``training_report.json``/``id2label.json`` lus sous racine sandbox
 > revalidée ``safe_resolve`` ; ``datasets/{path}/preview`` → ``head_file``
 > plafonnée à 50 lignes, même règle de format que ``dataset_stats``
 > (``.env`` refusé AVANT lecture) ; ``metrics/{job_id}`` → existence via
-> ``job_get`` puis SELECT miroir de ``app/legacy/core/job_store.py`` sur connexion
+> ``job_get`` puis SELECT miroir de ``app/infrastructure/persistence/job_store.py`` sur connexion
 > ``mode=ro`` + ``PRAGMA query_only`` (ne crée JAMAIS la base) ;
 > ``health`` → délégation exacte au use case hexagonal
 > ``run_health_check`` + adaptateurs legacy par défaut (shape

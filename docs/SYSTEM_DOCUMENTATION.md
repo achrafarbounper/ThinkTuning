@@ -43,7 +43,7 @@ Les composants agentiques sont pilotés par des feature flags (`AGENT_RELIABILIT
 
 - **Boucle applicative** : `app/agent/core.py` (`AgentCore`), moteur du noyau v2, bâti exclusivement sur les ports du domaine — testable sans réseau ni SQLite via des fakes.
 - **Composition root** : `app/agent/factory.py` assemble le noyau avec le client LLM legacy (retry + circuit breaker + streaming) et l'adaptateur du registre d'outils, en lisant `app/config/settings.py` (Pydantic Settings, fail-fast sur les clés API).
-- **Ports (6)** : `LLMClientPort`, `ToolRegistryPort`, `SessionStorePort`, `AuditStorePort`, `RunStorePort`, `ApprovalStorePort` — implémentés par le legacy (`ia/agent/llm_client.py`, `ia/tools/tool_registry.py`, `app/legacy/core/session_store.py`, `app/legacy/core/audit_store.py`, `app/legacy/core/run_store.py`, `app/legacy/core/approval_store.py`). Des tests de conformité verrouillent l'alignement Protocols ↔ implémentations.
+- **Ports (6)** : `LLMClientPort`, `ToolRegistryPort`, `SessionStorePort`, `AuditStorePort`, `RunStorePort`, `ApprovalStorePort` — implémentés par le legacy (`ia/agent/llm_client.py`, `ia/tools/tool_registry.py`, `app/infrastructure/persistence/session_store.py`, `app/infrastructure/persistence/audit_store.py`, `app/infrastructure/persistence/run_store.py`, `app/infrastructure/persistence/approval_store.py`). Des tests de conformité verrouillent l'alignement Protocols ↔ implémentations.
 - **Bascule** : sans `AGENT_NEW_CORE=1`, l'endpoint `/ask/core` renvoie 503 et le comportement historique est strictement préservé (rollout incrémental, flags désactivés par défaut).
 
 ### Responsabilités
@@ -59,7 +59,7 @@ Les composants agentiques sont pilotés par des feature flags (`AGENT_RELIABILIT
 2. **Plan** : le planner (LLM) propose un plan JSON ; parsing tolérant (JSON direct, liste, fences markdown, prose autour). Une réponse **sans JSON est une réponse finale légitime** (salutation, explication) renvoyée telle quelle.
 3. **Policy** (par action) : `sandbox_policy.py` décide :
    - `AUTO_APPROVE` → exécution immédiate (lecture, réseau lisible) ;
-   - `APPROVE` → validation humaine obligatoire (écriture, exécution) : le run se termine en `pending_approval`, l'action est persistée dans `app/legacy/core/approval_store`, le client approuve via `POST /api/agent/approvals/{id}/approve` puis relance avec `resume_request_id`. La reprise n'accorde que l'action dont l'empreinte SHA-256 des arguments correspond exactement à la demande approuvée ;
+   - `APPROVE` → validation humaine obligatoire (écriture, exécution) : le run se termine en `pending_approval`, l'action est persistée dans `app/infrastructure/persistence/approval_store`, le client approuve via `POST /api/agent/approvals/{id}/approve` puis relance avec `resume_request_id`. La reprise n'accorde que l'action dont l'empreinte SHA-256 des arguments correspond exactement à la demande approuvée ;
    - `REJECT` → règle dure, jamais exécutée : SQL mutant (seuls `SELECT/WITH/EXPLAIN/PRAGMA` passent), POST vers hôte privé (anti-SSRF), chemins sensibles (`.git`, `.env`, clés privées). Anti-boucle : une même action rejetée deux fois (empreinte) arrête le run.
 4. **Budget** : plafonnement des rounds LLM et appels d'outils ; dépassement → `BUDGET_EXHAUSTED`.
 5. **Action** : exécution via `ToolRegistryPort` ; erreur outil → renvoyée au LLM (auto-correction).
@@ -75,7 +75,7 @@ Les composants agentiques sont pilotés par des feature flags (`AGENT_RELIABILIT
 - **Inputs** :
   - Requête HTTP `POST /api/agent/ask/core` (prompt utilisateur, session_id, rôle) ;
   - System prompt généré dynamiquement depuis le registre d'outils (`tools_config.json`) ;
-  - Historique de session + mémoire inter-sessions (`app/legacy/core/session_store.py`, table `agent_memory`) ;
+  - Historique de session + mémoire inter-sessions (`app/infrastructure/persistence/session_store.py`, table `agent_memory`) ;
   - Réglages : provider LLM (`ollama` / `openrouter` / `hf`), modèle, timeout, budgets.
 - **Outputs** :
   - `AgentRunResult` : réponse finale, statut terminal, trace de réflexion (« thinking »), traces d'actions (outil, args, décision, statut, résumé de résultat), budget consommé ;
@@ -207,7 +207,7 @@ Les composants agentiques sont pilotés par des feature flags (`AGENT_RELIABILIT
 
 - **Rôle / mission** : gestion avancée du contexte (Phase C, flag `AGENT_CONTEXT`) : borner le contexte rejoué au LLM et maintenir une mémoire inter-sessions.
 - **Inputs** : historique de messages, budget en jetons, fonction de résumé LLM optionnelle.
-- **Outputs** : historique optimisé (fenêtre glissante : tours récents conservés, anciens résumés en un message ou écartés avec note de troncature) ; note de mémoire inter-sessions (plafonnée à 2000 caractères) persistée dans `app/legacy/core/session_store.py` (table `agent_memory`).
+- **Outputs** : historique optimisé (fenêtre glissante : tours récents conservés, anciens résumés en un message ou écartés avec note de troncature) ; note de mémoire inter-sessions (plafonnée à 2000 caractères) persistée dans `app/infrastructure/persistence/session_store.py` (table `agent_memory`).
 - **APIs / services** : heuristique d'estimation de tokens (~4 caractères/jeton, budget défaut 1200 tokens) ; résumé via LLM injecté par l'appelant (aucune I/O réseau dans le module) ; store de sessions SQLite.
 - **Logique de décision** : parcours du plus récent au plus ancien tant que le budget n'est pas dépassé ; les tours débordants sont résumés (un seul appel LLM) si une fonction de résumé est fournie, sinon écartés avec note explicite.
 - **Cas d'usage typiques** : conversations longues avec modèles à fenêtre réduite (8B, ~8k tokens), reprise de contexte entre sessions.

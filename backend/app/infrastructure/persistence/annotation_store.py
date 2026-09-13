@@ -1,6 +1,6 @@
 """Persistiere annotation store oder Active Learning review cycle."""
 
-import hashlib
+import builtins
 import json
 import logging
 import os
@@ -8,17 +8,15 @@ import threading
 import time
 import unicodedata
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # Empty-string literal built at runtime (avoids any adjacent-quote run in source).
-E = str()
+E = ""
 
 LABEL_TO_INT = {"negative": 0, "neutral": 1, "positive": 2}
 INT_TO_LABEL = {v: k for k, v in LABEL_TO_INT.items()}
 LABEL_ALIASES = {
-    "negatif": "negative",
     "negatif": "negative",
     "neutre": "neutral",
     "positif": "positive",
@@ -32,8 +30,7 @@ def get_annotations_path() -> str:
 
 def _fold_accents(text: str) -> str:
     return E.join(
-        ch for ch in unicodedata.normalize("NFD", text)
-        if unicodedata.category(ch) != "Mn"
+        ch for ch in unicodedata.normalize("NFD", text) if unicodedata.category(ch) != "Mn"
     )
 
 
@@ -65,18 +62,18 @@ def _text_key(text) -> str:
 class AnnotationStore:
     """Thread-safe JSONL annotation journal, deduplicated by normalized text."""
 
-    def __init__(self, path: Optional[str] = None):
+    def __init__(self, path: str | None = None):
         self.path = path or get_annotations_path()
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        self._annotations: Dict[str, Dict] = {}
+        self._annotations: dict[str, dict] = {}
         self._load()
 
     def _load(self):
         records = {}
         if os.path.isfile(self.path):
             try:
-                with open(self.path, "r", encoding="utf-8") as handle:
+                with open(self.path, encoding="utf-8") as handle:
                     for line in handle:
                         line = line.strip()
                         if not line:
@@ -95,7 +92,7 @@ class AnnotationStore:
                 handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
         os.replace(tmp, self.path)
 
-    def annotate(self, text: str, label, force: bool = False) -> Dict:
+    def annotate(self, text: str, label, force: bool = False) -> dict:
         text = str(text or E).strip()
         if not text:
             raise ValueError("Texte vide : impossible annote.")
@@ -120,7 +117,7 @@ class AnnotationStore:
             self._persist()
             return dict(rec)
 
-    def list(self, limit: Optional[int] = None, offset: int = 0) -> List[Dict]:
+    def list(self, limit: int | None = None, offset: int = 0) -> list[dict]:
         records = sorted(
             self._annotations.values(),
             key=lambda r: float(r.get("updated_at", 0.0)),
@@ -141,14 +138,14 @@ class AnnotationStore:
                 return True
         return False
 
-    def corrections(self) -> List[Dict]:
+    def corrections(self) -> builtins.list[dict]:
         return [
-            {"text": rec["text"], "label": int(rec["label"])}
-            for rec in self._annotations.values()
+            {"text": rec["text"], "label": int(rec["label"])} for rec in self._annotations.values()
         ]
 
-    def export_review_csv(self, output_path: Optional[str] = None) -> str:
+    def export_review_csv(self, output_path: str | None = None) -> str:
         import csv
+
         out = output_path or os.path.join(os.path.dirname(self.path), "annotations_review.csv")
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         rows = sorted(
@@ -162,21 +159,24 @@ class AnnotationStore:
             writer.writeheader()
             for rec in rows:
                 label_name = INT_TO_LABEL[int(rec["label"])]
-                writer.writerow({
-                    "text": rec["text"],
-                    "predicted_label": label_name,
-                    "manual_label": label_name,
-                    "status": "reviewed",
-                })
+                writer.writerow(
+                    {
+                        "text": rec["text"],
+                        "predicted_label": label_name,
+                        "manual_label": label_name,
+                        "status": "reviewed",
+                    }
+                )
         return out
 
     def merge_annotations(
         self,
-        output_path: Optional[str] = None,
+        output_path: str | None = None,
         source: str = "hf",
         default_lang_code: str = "fr",
-    ) -> Dict:
+    ) -> dict:
         from merge_reviewed_data import load_source_records, merge_corrections_into_source
+
         corrections = self.corrections()
         source_records = load_source_records(source, ["fr", "en"], None)
         merged, stats = merge_corrections_into_source(
@@ -188,11 +188,17 @@ class AnnotationStore:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w", encoding="utf-8") as handle:
             for rec in merged:
-                handle.write(json.dumps({
-                    "text": rec["text"],
-                    "label": int(rec["label"]),
-                    "lang_code": rec["lang_code"],
-                }, ensure_ascii=False) + "\n")
+                handle.write(
+                    json.dumps(
+                        {
+                            "text": rec["text"],
+                            "label": int(rec["label"]),
+                            "lang_code": rec["lang_code"],
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
         stats["output_path"] = out
         return stats
 

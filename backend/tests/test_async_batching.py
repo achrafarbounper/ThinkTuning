@@ -14,9 +14,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from app.legacy.core.dynamic_batcher import DynamicBatcher
-from app.legacy.core.inference_executor import InferenceExecutor
-from app.legacy.core.model_warmup import ModelWarmup
+from app.application.dynamic_batcher import DynamicBatcher
+from app.application.inference_executor import InferenceExecutor
+from app.application.model_warmup import ModelWarmup
 from ia.agent.classifiers.base import BaseClassifier, PredictionResult
 
 

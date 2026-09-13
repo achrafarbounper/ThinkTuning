@@ -1,12 +1,11 @@
 # project/core/models.py
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, field_validator
-from typing import List, Optional, Dict
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -20,25 +19,25 @@ class TrainRequest(BaseModel):
     # JSONL avec colonnes text, label, lang_code) produit par le workflow
     # d'active learning (SCRUM-56 : merge_reviewed_data.py). ConcatÃ©nÃ© au
     # dataset HF avant split/augmentation. None => comportement inchangÃ©.
-    local_corrections_path: Optional[str] = None
+    local_corrections_path: str | None = None
     # Continual training : nom d'une version existante dans experiments/models
     # (ex. "20260819T151459Z") à partir de laquelle reprendre l'entraînement
     # (poids + tokenizer) au lieu du modèle de base Hugging Face. None =>
     # comportement historique (from scratch sur le modèle de base).
-    base_model_version: Optional[str] = None
+    base_model_version: str | None = None
     augment_fraction: float = 0.4
     variants_per_example: int = 2
     # Back-translation FRâ†’ENâ†’FR via Helsinki-NLP/opus-mt : dÃ©sactivÃ©e par
     # dÃ©faut (tÃ©lÃ©chargement de modÃ¨les + coÃ»t CPU/GPU au premier appel).
     use_back_translation: bool = False
-    class_augment_weights: Optional[Dict[str, float]] = None
-    epochs: Optional[int] = None
-    batch_size: Optional[int] = None
-    num_workers: Optional[int] = None
-    max_length: Optional[int] = None
-    learning_rate: Optional[float] = None
-    weight_decay: Optional[float] = None
-    warmup_ratio: Optional[float] = None
+    class_augment_weights: dict[str, float] | None = None
+    epochs: int | None = None
+    batch_size: int | None = None
+    num_workers: int | None = None
+    max_length: int | None = None
+    learning_rate: float | None = None
+    weight_decay: float | None = None
+    warmup_ratio: float | None = None
     device: str = "auto"
     # Exemple affichÃ©/prÃ©-rempli dans Swagger UI ("Try it out") : sans lui,
     # les dicts libres sont prÃ©-remplis avec des placeholders 'additionalProp1'
@@ -48,7 +47,6 @@ class TrainRequest(BaseModel):
             "examples": [
                 {
                     "max_per_lang": 500,
-
                     "local_corrections_path": None,
                     "base_model_version": None,
                     "augment_fraction": 0.4,
@@ -70,7 +68,7 @@ class TrainRequest(BaseModel):
 
     @field_validator("class_augment_weights")
     @classmethod
-    def validate_class_augment_weights(cls, v: Optional[Dict[str, float]]) -> Optional[Dict[str, float]]:
+    def validate_class_augment_weights(cls, v: dict[str, float] | None) -> dict[str, float] | None:
         """Rejette tÃ´t (HTTP 422) les clÃ©s non numÃ©riques et les poids négatifs.
 
         Les clÃ©s 'additionalProp1', 'additionalProp2'... sont les placeholders
@@ -80,7 +78,7 @@ class TrainRequest(BaseModel):
         """
         if v is None:
             return v
-        cleaned: Dict[str, float] = {}
+        cleaned: dict[str, float] = {}
         for key, weight in v.items():
             try:
                 label = int(str(key).strip())
@@ -90,7 +88,7 @@ class TrainRequest(BaseModel):
                     "Attendu un label de classe entier (ex. 0, 1, 2). Les clÃ©s "
                     "'additionalProp1', 'additionalProp2'... sont des valeurs "
                     "d'exemple Swagger UI non modifiÃ©es : remplacez-les par de "
-                    "vrais labels (ex. {\"1\": 3.0}) ou supprimez le champ."
+                    'vrais labels (ex. {"1": 3.0}) ou supprimez le champ.'
                 ) from None
             if float(weight) < 0:
                 raise ValueError(
@@ -113,7 +111,7 @@ class IntentTrainRequest(BaseModel):
 
     dataset_path: str = "data/intent_dataset.jsonl"
     base_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    base_model_version: Optional[str] = None
+    base_model_version: str | None = None
     epochs: int = 3
     batch_size: int = 32
     learning_rate: float = 2e-5
@@ -173,14 +171,14 @@ class TrainJob(BaseModel):
     # antérieurs (sans kind) restent lisibles (None) et les routes existantes
     # ne filtrent pas, donc aucun changement de comportement.
     kind: str = "train"
-    started_at: Optional[float] = None
-    finished_at: Optional[float] = None
-    error: Optional[str] = None
-    model_path: Optional[str] = None
+    started_at: float | None = None
+    finished_at: float | None = None
+    error: str | None = None
+    model_path: str | None = None
     # Garde-fou anti-régression (continual training) : True si le F1 macro
     # de la nouvelle version est inférieur à celui de la version source.
     regression: bool = False
-    regression_detail: Optional[str] = None
+    regression_detail: str | None = None
     # Avancement temps réel (batch-par-batch + état des étapes du pipeline).
     # Dict sérialisé en JSON par le PersistentJobStore : aucune migration
     # SQLite nécessaire. Structure :
@@ -189,10 +187,10 @@ class TrainJob(BaseModel):
     #    "phase": "train|eval", "epoch": N, "epochs_total": N,
     #    "batch": N, "batches_total": N, "batch_pct": float,
     #    "global_pct": float, "rate_it_s": float, "eta": float}
-    progress: Optional[Dict] = None
+    progress: dict | None = None
 
 
-# Ordre canonique des étapes du pipeline d'entraînement (app/legacy/core/trainer_runner.py
+# Ordre canonique des étapes du pipeline d'entraînement (app/application/trainer_runner.py
 # et frontend/src/api/jobSteps.ts — à garder alignés).
 TRAIN_JOB_STEPS = [
     "queued",
@@ -208,7 +206,7 @@ TRAIN_JOB_STEPS = [
 ]
 
 # Ordre canonique des étapes de l'entraînement d'intention
-# (app/legacy/core/intent_trainer.py et frontend/src/api/jobSteps.ts — à garder
+# (app/application/intent_trainer.py et frontend/src/api/jobSteps.ts — à garder
 # alignés). Plus court que le sentiment : dataset JSONL local, pas d'EDA,
 # pas de poids de classe (SCRUM-95).
 INTENT_TRAIN_JOB_STEPS = [
@@ -221,20 +219,23 @@ INTENT_TRAIN_JOB_STEPS = [
     "done",
 ]
 
+
 class JobListResponse(BaseModel):
     """RÃ©ponse paginÃ©e pour GET /train/jobs."""
+
     total: int
-    items: List[TrainJob]
+    items: list[TrainJob]
     limit: int
     offset: int
 
 
 class EpochMetric(BaseModel):
     """MÃ©triques d'entraÃ®nement pour une epoch (SCRUM-73)."""
+
     epoch: int
-    loss: Optional[float] = None
-    f1_macro: Optional[float] = None
-    accuracy: Optional[float] = None
+    loss: float | None = None
+    f1_macro: float | None = None
+    accuracy: float | None = None
 
 
 class ScheduleRequest(BaseModel):
@@ -244,13 +245,14 @@ class ScheduleRequest(BaseModel):
     fourni (sinon 422). ``train`` contient les paramÃ¨tres passÃ©s Ã  chaque
     exÃ©cution (identiques Ã  POST /train).
     """
+
     train: TrainRequest
-    cron: Optional[str] = None              # ex. "0 2 * * *" (5 champs, cron standard)
-    interval_minutes: Optional[int] = None  # ex. 60 : toutes les heures
+    cron: str | None = None  # ex. "0 2 * * *" (5 champs, cron standard)
+    interval_minutes: int | None = None  # ex. 60 : toutes les heures
 
     @field_validator("cron")
     @classmethod
-    def validate_cron(cls, v: Optional[str]) -> Optional[str]:
+    def validate_cron(cls, v: str | None) -> str | None:
         if v is None:
             return v
         fields = v.strip().split()
@@ -276,32 +278,35 @@ class ScheduleRequest(BaseModel):
 
 class ScheduledJob(BaseModel):
     """Une planification d'entraÃ®nement rÃ©currente (SCRUM-34)."""
+
     schedule_id: str
     status: str = "scheduled"  # scheduled | removed
-    trigger: str               # "cron" ou "interval"
-    cron: Optional[str] = None
-    interval_minutes: Optional[int] = None
-    next_run_at: Optional[float] = None
+    trigger: str  # "cron" ou "interval"
+    cron: str | None = None
+    interval_minutes: int | None = None
+    next_run_at: float | None = None
     created_at: float
     train_request: TrainRequest
 
 
 class ScheduleListResponse(BaseModel):
     """RÃ©ponse de GET /train/schedules."""
+
     total: int
-    items: List[ScheduledJob]
+    items: list[ScheduledJob]
 
 
 class TrainHistoryResponse(BaseModel):
     """Historique des mÃ©triques par epoch pour un job (GET /train/history/{job_id})."""
+
     job_id: str
-    epochs: List[EpochMetric]
+    epochs: list[EpochMetric]
 
 
 class ModelVersion(BaseModel):
     name: str
     path: str
-    created_at: Optional[float] = None
+    created_at: float | None = None
     active: bool = False
 
 
@@ -312,26 +317,27 @@ class PipelineRequest(BaseModel):
     Les champs optionnels Ã  None signifient Â« utiliser la valeur par dÃ©faut
     du script cible Â» (aucun argument correspondant n'est transmis).
     """
+
     # --- Ã‰tape labeling + filtrage (label_dataset.py) ---
     input_path: str
-    labeled_output: Optional[str] = None
-    model_path: Optional[str] = None
+    labeled_output: str | None = None
+    model_path: str | None = None
     text_column: str = "text"
     min_confidence: float = 0.7
     label_batch_size: int = 32
     # --- Ã‰tape fine-tuning (finetune_llm.py) ---
-    output_dir: Optional[str] = None
-    base_model: Optional[str] = None
-    validation_file: Optional[str] = None
-    epochs: Optional[int] = None
-    finetune_batch_size: Optional[int] = None
-    gradient_accumulation_steps: Optional[int] = None
-    learning_rate: Optional[float] = None
-    max_seq_length: Optional[int] = None
-    lora_r: Optional[int] = None
-    lora_alpha: Optional[int] = None
-    lora_dropout: Optional[float] = None
-    target_modules: Optional[str] = None
+    output_dir: str | None = None
+    base_model: str | None = None
+    validation_file: str | None = None
+    epochs: int | None = None
+    finetune_batch_size: int | None = None
+    gradient_accumulation_steps: int | None = None
+    learning_rate: float | None = None
+    max_seq_length: int | None = None
+    lora_r: int | None = None
+    lora_alpha: int | None = None
+    lora_dropout: float | None = None
+    target_modules: str | None = None
     use_qlora: bool = True
     seed: int = 42
 
@@ -343,8 +349,9 @@ class CycleRequest(BaseModel):
     ``local_corrections_path`` et ``base_model_version`` sont ecrases par le
     cycle (fusion des annotations / continual training depuis la version active).
     """
+
     auto_activate: bool = True
-    train: Optional[TrainRequest] = None
+    train: TrainRequest | None = None
 
 
 class ActiveLearningRequest(BaseModel):
@@ -353,15 +360,17 @@ class ActiveLearningRequest(BaseModel):
     Fournir ``texts`` (liste explicite) et/ou ``dataset_path`` (JSONL/CSV avec
     colonne ``text``). Par defaut, le dataset enrichi data/train_enriched.jsonl.
     """
-    texts: Optional[List[str]] = None
-    dataset_path: Optional[str] = None
-    top_n: Optional[int] = 50
+
+    texts: list[str] | None = None
+    dataset_path: str | None = None
+    top_n: int | None = 50
     batch_size: int = 32
-    model_version: Optional[str] = None
+    model_version: str | None = None
 
 
 class AnnotateRequest(BaseModel):
     """Requete POST /annotate : correction manuelle d'un exemple."""
+
     text: str
     label: str  # negative / neutral / positive (alias FR acceptes)
     force: bool = False
@@ -369,7 +378,7 @@ class AnnotateRequest(BaseModel):
 
 class AnnotateListResponse(BaseModel):
     total: int
-    items: List[dict]
+    items: list[dict]
 
 
 class MergeAnnotationsResponse(BaseModel):

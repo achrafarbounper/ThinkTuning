@@ -2,7 +2,8 @@
 """Flow Map MCP — traçage des appels MCP dans le journal « Agent Flow Map ».
 
 Miroir de ``mcp_audit.py`` (S4, tâche 12) : chaque appel MCP d'ACTION est
-persisté dans ``app/legacy/core/flow_store`` (sessions ``agent_flows``) pour apparaître
+persisté dans ``app/infrastructure/persistence/flow_store`` (sessions ``agent_flows``) pour
+apparaître
 dans le dashboard (« Agent Flow Map » — modes Replay / Heatmap) aux côtés des
 sessions ``agent.*`` (orchestration multi-agents) et ``core.*`` (noyau v2).
 
@@ -79,7 +80,8 @@ MCP_HOST_CALL = "mcp_host.call"
 MCP_HOST_RESULT = "mcp_host.result"
 
 # Statut du run (RunStatus / libellé API) → statut de session Flow Map
-# (``app/legacy/core/flow_store.STATUSES`` — aligné sur ``run_lifecycle.RUN_STATUS_TO_API``).
+# (``app/infrastructure/persistence/flow_store.STATUSES`` — aligné sur
+``run_lifecycle.RUN_STATUS_TO_API``).
 _RUN_TO_FLOW: dict[str, str] = {
     "completed": "completed",
     "pending_approval": "awaiting_approval",
@@ -185,7 +187,7 @@ class MCPFlowRecorder:
         if self._finished:
             return
         try:
-            from app.legacy.core.flow_store import get_flow_store
+            from app.infrastructure.persistence.flow_store import get_flow_store
 
             at_ms = (time.perf_counter() - self._t0) * 1000.0
             get_flow_store().append_event(self.flow_id, event, dict(data or {}), at_ms)
@@ -240,7 +242,7 @@ class MCPFlowRecorder:
         except Exception:  # pragma: no cover - défensif
             pass
         try:
-            from app.legacy.core.flow_store import get_flow_store
+            from app.infrastructure.persistence.flow_store import get_flow_store
 
             get_flow_store().finish_flow(
                 self.flow_id,
@@ -289,7 +291,7 @@ def begin_orchestrate_flow(
     if ctx is None:
         return None
     try:
-        from app.legacy.core.flow_store import get_flow_store
+        from app.infrastructure.persistence.flow_store import get_flow_store
 
         row = get_flow_store().start_flow(prompt, model=_resolve_model(), source="mcp")
         recorder = MCPFlowRecorder(
@@ -348,9 +350,9 @@ def trace_action_flow(
     if not _MCP_FLOW_ENABLED:
         return
     try:
-        from app.legacy.core.flow_store import COMPLETED as FLOW_COMPLETED
-        from app.legacy.core.flow_store import ERROR as FLOW_ERROR
-        from app.legacy.core.flow_store import get_flow_store
+        from app.infrastructure.persistence.flow_store import COMPLETED as FLOW_COMPLETED
+        from app.infrastructure.persistence.flow_store import ERROR as FLOW_ERROR
+        from app.infrastructure.persistence.flow_store import get_flow_store
 
         method = str(method or "")
         is_error = _is_error_response(response)
@@ -570,7 +572,7 @@ def host_call_started(
             return {"recorder": recorder, "data": data, "standalone": False}
         if not _MCP_HOST_STANDALONE:
             return None
-        from app.legacy.core.flow_store import get_flow_store
+        from app.infrastructure.persistence.flow_store import get_flow_store
 
         row = get_flow_store().start_flow(
             f"[MCP host] {server or '?'} · {remote or tool}",
@@ -607,8 +609,8 @@ def host_call_finished(
         data["summary"] = summary or ""
         recorder.record(MCP_HOST_RESULT, data)
         if token.get("standalone"):
-            from app.legacy.core.flow_store import COMPLETED as FLOW_COMPLETED
-            from app.legacy.core.flow_store import ERROR as FLOW_ERROR
+            from app.infrastructure.persistence.flow_store import COMPLETED as FLOW_COMPLETED
+            from app.infrastructure.persistence.flow_store import ERROR as FLOW_ERROR
 
             recorder.finish(
                 FLOW_ERROR if is_error else FLOW_COMPLETED,

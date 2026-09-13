@@ -1,4 +1,4 @@
-"""Tests P1 SEC — masquage des secrets (``app/legacy/core/secrets_redact.py``) et son
+"""Tests P1 SEC — masquage des secrets (``app/infrastructure/persistence/secrets_redact.py``) et son
 câblage dans run_store (prompt, événements d'outils, résumé, erreur), la
 policy d'approbation (``_summary``) et le redact d'audit_store.
 
@@ -8,9 +8,9 @@ Lance avec : pytest tests/test_secrets_redact.py -v
 import json
 import os
 
-from app.legacy.core import run_store
-from app.legacy.core.audit_store import redact
-from app.legacy.core.secrets_redact import redact_secrets
+from app.infrastructure.persistence import run_store
+from app.infrastructure.persistence.audit_store import redact
+from app.infrastructure.persistence.secrets_redact import redact_secrets
 
 # --- Primitives -------------------------------------------------------------------
 

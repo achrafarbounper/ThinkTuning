@@ -18,13 +18,7 @@ tests injectent des fakes.
 
 from __future__ import annotations
 
-from app.domain.errors import NotFoundError, ValidationError
-from app.domain.ports.training_ports import (
-    TrainingJobsPort,
-    TrainingRunnerPort,
-    TrainingSchedulesPort,
-)
-from app.legacy.core.models import (
+from app.domain.entities.models import (
     EpochMetric,
     JobListResponse,
     ScheduledJob,
@@ -33,6 +27,12 @@ from app.legacy.core.models import (
     TrainHistoryResponse,
     TrainJob,
     TrainRequest,
+)
+from app.domain.errors import NotFoundError, ValidationError
+from app.domain.ports.training_ports import (
+    TrainingJobsPort,
+    TrainingRunnerPort,
+    TrainingSchedulesPort,
 )
 
 

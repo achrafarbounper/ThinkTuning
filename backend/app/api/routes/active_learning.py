@@ -19,10 +19,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies.auth import require_api_key
-from app.legacy.core.annotation_store import get_annotation_store
-from app.legacy.core.cycle_runner import run_cycle
-from app.legacy.core.job_store import get_job_store
-from app.legacy.core.models import (
+from app.application.cycle_runner import run_cycle
+from app.domain.entities.models import (
     ActiveLearningRequest,
     AnnotateListResponse,
     AnnotateRequest,
@@ -32,6 +30,8 @@ from app.legacy.core.models import (
     TrainJob,
     TrainRequest,
 )
+from app.infrastructure.persistence.annotation_store import get_annotation_store
+from app.infrastructure.persistence.job_store import get_job_store
 
 router = APIRouter(tags=["Active Learning"])
 

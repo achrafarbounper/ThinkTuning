@@ -40,16 +40,16 @@ from app.application.intent_training_usecase import (
     start_intent_training_run,
 )
 from app.application.training_usecase import get_training_job_status
-from app.domain.ports.training_ports import (
-    IntentTrainingRunnerPort,
-    IntentVersioningPort,
-    TrainingJobsPort,
-)
-from app.legacy.core.models import (
+from app.domain.entities.models import (
     IntentTrainRequest,
     JobListResponse,
     JobStatus,
     TrainJob,
+)
+from app.domain.ports.training_ports import (
+    IntentTrainingRunnerPort,
+    IntentVersioningPort,
+    TrainingJobsPort,
 )
 
 router = APIRouter(tags=["Intent Training v1"])

@@ -6,13 +6,16 @@ resolvent desormais vers cette version active; sinon ils retombent sur la dernie
 version valide.
 """
 
-import os
 import json
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import UTC, datetime
 
-from app.legacy.core.model_versioning import MODEL_ROOT, list_model_versions, resolve_model_dir
-from app.legacy.core.model_head_check import is_model_version_trained
+from app.infrastructure.persistence.model_head_check import is_model_version_trained
+from app.infrastructure.persistence.model_versioning import (
+    MODEL_ROOT,
+    list_model_versions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +32,7 @@ def read_active_pointer() -> dict | None:
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict) and data.get("version"):
             return data
@@ -46,7 +49,7 @@ def write_active_pointer(version: str, path: str, f1_macro: float | None = None)
         "version": version,
         "path": os.path.abspath(path),
         "f1_macro": float(f1_macro) if f1_macro is not None else None,
-        "activated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "activated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     tmp = path_ptr + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -88,7 +91,7 @@ def read_version_f1(version: str) -> float | None:
     if not os.path.isfile(report):
         return None
     try:
-        with open(report, "r", encoding="utf-8") as fh:
+        with open(report, encoding="utf-8") as fh:
             data = json.load(fh)
         return data.get("metrics", {}).get("f1_macro")
     except Exception:

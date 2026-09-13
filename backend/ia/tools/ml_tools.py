@@ -4,11 +4,11 @@ de sentiment, profil de dataset et versions de modèles.
 Donne à l'agent une vue STRUCTURÉE de la plateforme sans lui faire écrire du
 SQL brut ni importer torch inutilement :
     - job_list / job_get : experiments/jobs.db en lecture seule stricte ;
-    - predict_sentiment  : prédicteur courant via le cache app/legacy/core/predictor_cache
+    - predict_sentiment  : prédicteur courant via le cache app/application/predictor_cache
       (import paresseux : tests et environnements sans modèle fonctionnent) ;
     - dataset_stats      : profil CSV/TSV/JSONL via pandas ;
     - model_versions     : scan sandbox de experiments/models (mêmes conventions
-      que app/legacy/core/model_versioning.py) ;
+      que app/infrastructure/persistence/model_versioning.py) ;
     - start_training     : lance un entraînement en arrière-plan (même
       mécanique que POST /train) et rend la main immédiatement ;
     - train_model        : variante bloquante qui attend la fin du job
@@ -33,7 +33,7 @@ from .sandbox import iso_from_timestamp, safe_resolve, truncate_output
 JOBS_DB_RELATIVE = Path("experiments") / "jobs.db"
 DEFAULT_JOB_LIMIT = 20
 
-# Miroir des valeurs de app.legacy.core.models.JobStatus : évite un import croisé, ce
+# Miroir des valeurs de app.domain.entities.models.JobStatus : évite un import croisé, ce
 # module doit rester importable seul (runtime ia/tools comme tests tools/*).
 VALID_STATUSES = frozenset({"pending", "running", "completed", "failed", "cancelled"})
 
@@ -133,10 +133,10 @@ def job_get(job_id: str) -> dict:
 def _get_predictor():
     """Import paresseux du cache de prédicteurs de l'API (testable par monkeypatch)."""
     try:
-        from app.legacy.core.predictor_cache import get_predictor
+        from app.application.predictor_cache import get_predictor
     except ImportError as exc:
         raise RuntimeError(
-            "app.legacy.core.predictor_cache inaccessible : lancez l'agent depuis la racine du projet."
+            "app.application.predictor_cache inaccessible : lancez l'agent depuis la racine du projet."
         ) from exc
     try:
         return get_predictor()
@@ -234,7 +234,7 @@ def dataset_stats(path: str, sample_rows: int = 2000) -> dict:
 # --- versions de modèles ------------------------------------------------------------------
 def model_versions(model_root: str = "experiments/models") -> dict:
     """Liste les versions de modèles entraînés visibles dans la sandbox
-    (mêmes conventions que app/legacy/core/model_versioning : nom de dossier contenant
+    (mêmes conventions que app/infrastructure/persistence/model_versioning : nom de dossier contenant
     model.pt / pytorch_model.bin / model.safetensors ; tri décroissant,
     la première est la version 'active' par défaut de l'API)."""
     base = safe_resolve(model_root)
@@ -263,7 +263,7 @@ def model_versions(model_root: str = "experiments/models") -> dict:
     return {"model_root": str(base), "version_count": len(versions), "versions": versions}
 
 # --- lancement d'entraînements ------------------------------------------------------------
-# Champs acceptés par TrainRequest (app/legacy/core/models.py) : la validation pydantic de
+# Champs acceptés par TrainRequest (app/domain/entities/models.py) : la validation pydantic de
 # l'API est réutilisée telle quelle (y compris le validateur class_augment_weights).
 TRAIN_REQUEST_FIELDS = (
     "max_per_lang",
@@ -289,23 +289,23 @@ MAX_TRAIN_WAIT_TIMEOUT = 24 * 3600.0
 
 
 def _get_job_store():
-    """Import paresseux du job store persistant (app.legacy.core.job_store)."""
+    """Import paresseux du job store persistant (app.infrastructure.persistence.job_store)."""
     try:
-        from app.legacy.core.job_store import get_job_store
+        from app.infrastructure.persistence.job_store import get_job_store
     except ImportError as exc:
         raise RuntimeError(
-            "app.legacy.core.job_store inaccessible : lancez l'agent depuis la racine du projet."
+            "app.infrastructure.persistence.job_store inaccessible : lancez l'agent depuis la racine du projet."
         ) from exc
     return get_job_store()
 
 
 def _get_trainer_runner():
-    """Import paresseux de app.legacy.core.trainer_runner (qui importe torch/transformers)."""
+    """Import paresseux de app.application.trainer_runner (qui importe torch/transformers)."""
     try:
-        from app.legacy.core.trainer_runner import run_training
+        from app.application.trainer_runner import run_training
     except ImportError as exc:
         raise RuntimeError(
-            "app.legacy.core.trainer_runner inaccessible (torch/transformers manquants ?) : "
+            "app.application.trainer_runner inaccessible (torch/transformers manquants ?) : "
             "lancez l'agent depuis la racine du projet avec les requirements."
         ) from exc
     return run_training
@@ -314,7 +314,7 @@ def _get_trainer_runner():
 def _build_train_request(params: dict):
     """Valide les hyperparamètres via le modèle pydantic TrainRequest de l'API
     (mêmes règles que POST /train) et retourne l'instance correspondante."""
-    from app.legacy.core.models import TrainRequest  # pydantic uniquement, sans torch
+    from app.domain.entities.models import TrainRequest  # pydantic uniquement, sans torch
 
     unknown = sorted(set(params) - set(TRAIN_REQUEST_FIELDS))
     if unknown:
@@ -364,7 +364,7 @@ def _training_thread_target(job_id: str, req) -> None:
         _get_trainer_runner()(job_id, req)
     except Exception as exc:  # le thread ne doit jamais laisser un job orphelin
         try:
-            from app.legacy.core.models import JobStatus
+            from app.domain.entities.models import JobStatus
 
             store = _get_job_store()
             job = store.get(job_id)
@@ -381,7 +381,7 @@ def _launch_training_job(params: dict) -> dict:
     """Point commun start_training / train_model : validation des hyperparamètres,
     garde anti-concurrence, création du TrainJob PENDING puis démarrage du thread
     d'entraînement (même mécanique que POST /train dans api/routes/train.py)."""
-    from app.legacy.core.models import JobStatus, TrainJob  # pydantic uniquement, sans torch
+    from app.domain.entities.models import JobStatus, TrainJob  # pydantic uniquement, sans torch
 
     req = _build_train_request(params)
     store = _get_job_store()
@@ -468,14 +468,14 @@ def train_model(wait_timeout: float = TRAIN_DEFAULT_WAIT_TIMEOUT, **params) -> d
 
 
 def _get_training_canceller():
-    """Import paresseux de app.legacy.core.trainer_runner.cancel_training (qui importe
+    """Import paresseux de app.application.trainer_runner.cancel_training (qui importe
     torch/transformers) : c'est le même cancel_event que lit la boucle du
     Trainer pour s'arrêter proprement au prochain point de contrôle."""
     try:
-        from app.legacy.core.trainer_runner import cancel_training
+        from app.application.trainer_runner import cancel_training
     except ImportError as exc:
         raise RuntimeError(
-            "app.legacy.core.trainer_runner inaccessible (torch/transformers manquants ?) : "
+            "app.application.trainer_runner inaccessible (torch/transformers manquants ?) : "
             "lancez l'agent depuis la racine du projet avec les requirements."
         ) from exc
     return cancel_training

@@ -8,7 +8,7 @@ from typing import Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from app.legacy.core.model_versioning import resolve_model_path
+from app.infrastructure.persistence.model_versioning import resolve_model_path
 from src.inference.predictor import Predictor
 
 DEFAULT_INSTRUCTION = (

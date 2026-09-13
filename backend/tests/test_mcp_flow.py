@@ -3,7 +3,7 @@
 """Tests du traçage Flow Map MCP (plan Flow Map MCP — É3 : hook ``MCPServer``).
 
 Contrat vérifié (``app/infrastructure/mcp/mcp_flow.py``) : chaque appel MCP
-d'ACTION crée une session du journal « Agent Flow Map » (``app/legacy/core/flow_store``,
+d'ACTION crée une session du journal « Agent Flow Map » (``app/infrastructure/persistence/flow_store``,
 collection ``agent_flows``) à côté des sessions ``agent.*`` / ``core.*`` :
 
     - ``tools/call orchestrate`` → session RICHE ``source="mcp"`` :
@@ -42,7 +42,7 @@ from app.infrastructure.mcp.mcp_flow import mcp_flow_enabled
 from app.infrastructure.mcp.mcp_server import ToolError
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.protocol import empty_input_schema
-from app.legacy.core import flow_store as fs
+from app.infrastructure.persistence import flow_store as fs
 
 
 @pytest.fixture(autouse=True)
@@ -239,7 +239,7 @@ def test_flow_non_blocking_when_store_fails(monkeypatch):
     def _broken_get_flow_store():
         return _BrokenStore()
 
-    # Les hooks flow résolvent le store en paresseux (``from app.legacy.core.flow_store
+    # Les hooks flow résolvent le store en paresseux (``from app.infrastructure.persistence.flow_store
     # import get_flow_store``) : on casse le getter partagé du module.
     monkeypatch.setattr(fs, "get_flow_store", _broken_get_flow_store)
 

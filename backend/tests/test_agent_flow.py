@@ -1,6 +1,6 @@
 """Tests du backend « Agent Flow Map » — persistance des sessions multi-agents.
 
-Couvre ``app/legacy/core/flow_store.py`` et les endpoints :
+Couvre ``app/infrastructure/persistence/flow_store.py`` et les endpoints :
     - GET  /api/agent/flow         liste des sessions (résumé + compteurs) ;
     - GET  /api/agent/flow/{id}    détail avec la timeline horodatée ;
     - DELETE /api/agent/flow/{id}  nettoyage ;
@@ -23,7 +23,7 @@ from starlette.testclient import TestClient  # noqa: E402
 
 import app.api.routes.agent as agent_routes  # noqa: E402
 from app.agent.core import AgentRunResult, RunStatus  # noqa: E402
-from app.legacy.core import flow_store as fs  # noqa: E402
+from app.infrastructure.persistence import flow_store as fs  # noqa: E402
 
 API_KEY = "test-flow-key"
 HEADERS = {"X-API-Key": API_KEY}

@@ -12,11 +12,11 @@
 | 1. Capabilities platform | `app/agent/core.py` (AgentCore) | Expose comme `orchestrate` tool MCP |
 | 2. MCP = surface principale | `app/api/routes/agent.py` (`GET /tools`) | Remplace par `ListTools` MCP |
 | 3. Protocol interne = config | `ia/tools/tools_config.json` + `tool_schema.py` | Source de configuration → génère le manifeste MCP |
-| 4. Product Council | `app/legacy/core/audit_store.py` + `app/legacy/core/mcp_client_store.py` (nouveau) | Gouvernance + tracking clients |
+| 4. Product Council | `app/infrastructure/persistence/audit_store.py` + `app/infrastructure/persistence/mcp_client_store.py` (nouveau) | Gouvernance + tracking clients |
 | 5. Versioning | `app/config/settings.py` (Pydantic Settings) | Ajouter `MCP_VERSION` |
 | 6. Orchestrate tool | `app/agent/factory.py` (`build_agent_core`) | Wrap `AgentCore.run()` → tool MCP |
 | 7. Security scope | `ia/agent/approvals.py` + `sandbox_policy.py` | `decide_action()` → MCP annotations + scope filter |
-| 8. Audit MCP | `app/legacy/core/audit_store.py` (`ACT_TOOL`, `ACT_RUN`) | Ajouter `ACT_MCP_TOOL_CALL` etc. |
+| 8. Audit MCP | `app/infrastructure/persistence/audit_store.py` (`ACT_TOOL`, `ACT_RUN`) | Ajouter `ACT_MCP_TOOL_CALL` etc. |
 | 9. Branding MCP | `ia/agent/system_prompt.py` (descriptions) | `build_tools_section()` → descriptions MCP humaines |
 | 10. Roadmap | `ARCHITECTURE.md` §6 (backlog) | Aligné sur la roadmap MCP |
 | 11. Avantage compétitif | `ia/tools/sandbox.py` (fail-closed) | Export comme `annotations.destructiveHint` |
@@ -57,7 +57,7 @@
   `PolicyGateToolProvider` (gate `tools/call` : auto/approve/reject).
 
 ### Rec. 8 : Audit
-- **Existant** : `app/legacy/core/audit_store.py` → `ACT_TOOL`, `ACT_RUN`, `ACT_APPROVAL`
+- **Existant** : `app/infrastructure/persistence/audit_store.py` → `ACT_TOOL`, `ACT_RUN`, `ACT_APPROVAL`
 - **Nouveau** : `ACT_MCP_TOOL_CALL`, `ACT_MCP_RESOURCE_READ`, etc. → dans la même table
 
 ### Rec. 9 : Branding

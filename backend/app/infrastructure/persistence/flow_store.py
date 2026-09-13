@@ -9,7 +9,8 @@ Chaque invocation de ``POST /api/agent/multi/ask/stream`` crée une ligne
 au début de la session : c'est exactement la timeline rejouable qu'affiche le
 dashboard (« Agent Flow Map » — modes Replay et Heatmap).
 
-Mêmes conventions que ``app/legacy/core/run_store.py`` / ``app/legacy/core/approval_store.py`` :
+Mêmes conventions que ``app/infrastructure/persistence/run_store.py`` /
+``app/infrastructure/persistence/approval_store.py`` :
     - base SQLite dédiée (``experiments/agent_flows.db``, surchargeable via
       ``AGENT_FLOW_PATH`` pour isoler les tests) ;
     - store thread-safe (le worker SSE tourne dans un thread dédié).
@@ -37,8 +38,7 @@ ERROR = "error"
 STATUSES = (RUNNING, COMPLETED, AWAITING_APPROVAL, REJECTED, ERROR)
 
 _SELECT_COLUMNS = (
-    "id, prompt, model, source, status, answer_summary, error, "
-    "events_json, created_at, finished_at"
+    "id, prompt, model, source, status, answer_summary, error, events_json, created_at, finished_at"
 )
 
 
@@ -83,9 +83,7 @@ class FlowStore:
         # ``mcp_host`` = host sortant). Garde OperationalError : la colonne
         # existe déjà (bases créées avant la migration).
         try:
-            conn.execute(
-                "ALTER TABLE agent_flows ADD COLUMN source TEXT NOT NULL DEFAULT 'api'"
-            )
+            conn.execute("ALTER TABLE agent_flows ADD COLUMN source TEXT NOT NULL DEFAULT 'api'")
         except sqlite3.OperationalError:
             pass  # colonne déjà présente
         conn.commit()
@@ -95,8 +93,18 @@ class FlowStore:
     def _row_to_dict(row):
         if row is None:
             return None
-        keys = ["id", "prompt", "model", "source", "status", "answer_summary", "error",
-                "events_json", "created_at", "finished_at"]
+        keys = [
+            "id",
+            "prompt",
+            "model",
+            "source",
+            "status",
+            "answer_summary",
+            "error",
+            "events_json",
+            "created_at",
+            "finished_at",
+        ]
         data = dict(zip(keys, row, strict=True))
         try:
             data["events"] = json.loads(data.pop("events_json") or "[]")
@@ -108,7 +116,8 @@ class FlowStore:
         return conn.execute(
             f"SELECT {_SELECT_COLUMNS} FROM agent_flows WHERE id = ?", (str(flow_id),)
         ).fetchone()
-# --- Cycle de vie ------------------------------------------------------------
+
+    # --- Cycle de vie ------------------------------------------------------------
 
     def start_flow(
         self,
@@ -269,25 +278,20 @@ class FlowStore:
             item["tool_calls"] = sum(
                 1
                 for e in events
-                if e.get("event")
-                in ("agent.worker.tool", "core.tool", "mcp.tool", "mcp_host.call")
+                if e.get("event") in ("agent.worker.tool", "core.tool", "mcp.tool", "mcp_host.call")
                 and (e.get("data") or {}).get("event") != "tool_result"
             )
             roles: set[str] = set()
             for e in events:
                 # ``mcp.orchestrate.start`` / ``mcp.call`` / ``mcp_host.call``
                 # portent un rôle (« Agent MCP » / « MCP » / « MCP Host »).
-                if (
-                    e.get("event")
-                    in (
-                        "agent.worker.start",
-                        "core.start",
-                        "mcp.orchestrate.start",
-                        "mcp.call",
-                        "mcp_host.call",
-                    )
-                    and e.get("data")
-                ):
+                if e.get("event") in (
+                    "agent.worker.start",
+                    "core.start",
+                    "mcp.orchestrate.start",
+                    "mcp.call",
+                    "mcp_host.call",
+                ) and e.get("data"):
                     r = e["data"].get("role")
                     if r:
                         roles.add(str(r))
@@ -300,9 +304,7 @@ class FlowStore:
         with self._lock:
             conn = self._connect()
             try:
-                cur = conn.execute(
-                    "DELETE FROM agent_flows WHERE id = ?", (str(flow_id),)
-                )
+                cur = conn.execute("DELETE FROM agent_flows WHERE id = ?", (str(flow_id),))
                 conn.commit()
                 return cur.rowcount > 0
             finally:

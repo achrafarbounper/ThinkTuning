@@ -5,14 +5,15 @@
 Refactor du script ``scripts/train_intent.py`` en module importable : la
 logique d'entraînement est exécutée dans un thread daemon par la route
 ``POST /train/intent`` (api/routes/intent_train.py) et suit le même contrat de
-job que l'entraînement sentiment (``app/legacy/core/trainer_runner.py``) :
+job que l'entraînement sentiment (``app/application/trainer_runner.py``) :
 
-  - job persisté dans le store partagé (app/legacy/core/job_store.py) avec ``kind="intent"`` ;
+  - job persisté dans le store partagé (app/infrastructure/persistence/job_store.py) avec
+  ``kind="intent"`` ;
   - étapes canoniques ``INTENT_TRAIN_JOB_STEPS`` reflétées dans ``job.step`` et
     ``job.progress`` (même structure que le sentiment) ;
   - métriques par epoch persistées dans la table ``train_metrics`` existante
     (le WebSocket /train/stream les diffuse sans changement) ;
-  - logs du thread capturés par app/legacy/core/job_logs.py (événements ``log``) ;
+  - logs du thread capturés par app/application/job_logs.py (événements ``log``) ;
   - annulation coopérative : un ``threading.Event`` par job, vérifié entre les
     étapes et à chaque batch via un callback HF ``TrainerCallback``.
 
@@ -21,7 +22,7 @@ Différences assumées avec l'entraînement sentiment :
   - encodeur ``AutoModelForSequenceClassification`` entraîné avec le ``Trainer``
     Hugging Face (pas le ``Trainer`` maison de src/model/trainer.py) ;
   - versions dans ``experiments/intent_models/<horodatage>`` via
-    app/legacy/core/intent_store.py (activation = pointeur ``active.json``) ;
+    app/infrastructure/persistence/intent_store.py (activation = pointeur ``active.json``) ;
   - métriques : accuracy + confiance moyenne + F1 macro/par-classe
     (classification_report diagnostic chat↔action, cf. §13).
 
@@ -47,21 +48,21 @@ import threading
 import time
 from pathlib import Path
 
-from app.legacy.core import job_logs
-from app.legacy.core.intent_store import (
+from app.application import job_logs
+from app.domain.entities.models import (
+    INTENT_TRAIN_JOB_STEPS,
+    IntentTrainRequest,
+    JobStatus,
+    TrainJob,
+)
+from app.infrastructure.persistence.intent_store import (
     INTENT_MODEL_ROOT,
     default_intent_labels,
     list_intent_model_versions,
     resolve_intent_model_dir,
     set_active_intent_version,
 )
-from app.legacy.core.job_store import get_job_store
-from app.legacy.core.models import (
-    INTENT_TRAIN_JOB_STEPS,
-    IntentTrainRequest,
-    JobStatus,
-    TrainJob,
-)
+from app.infrastructure.persistence.job_store import get_job_store
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,7 @@ def cancel_intent_training(job_id: str) -> TrainJob:
 # ---------------------------------------------------------------------------
 # Helpers dataset / versions (extraits de scripts/train_intent.py)
 # ---------------------------------------------------------------------------
+
 
 def _load_records(dataset_path: Path) -> list:
     """Charge un dataset JSONL ``{"text", "label"}`` (une ligne = un exemple)."""
@@ -262,8 +264,8 @@ def _scheduler_training_args() -> dict:
 # epoch est rechargé avant la sauvegarde finale, à la place du dernier (mode
 # horodatage historique) — et l'entraînement s'arrête si la val stagne.
 BEST_CHECKPOINT_METRIC = "accuracy"  # eval_accuracy produite par _compute_metrics
-EARLY_STOPPING_PATIENCE = 2          # epochs sans amélioration avant arrêt
-SAVE_TOTAL_LIMIT = 2                 # borne disque des checkpoints intermédiaires
+EARLY_STOPPING_PATIENCE = 2  # epochs sans amélioration avant arrêt
+SAVE_TOTAL_LIMIT = 2  # borne disque des checkpoints intermédiaires
 
 
 def _best_checkpoint_training_args(has_eval: bool) -> dict:
@@ -304,6 +306,7 @@ def _best_checkpoint_training_args(has_eval: bool) -> dict:
 # ---------------------------------------------------------------------------
 # Avancement temps réel (job.progress) — même structure que trainer_runner
 # ---------------------------------------------------------------------------
+
 
 def _default_steps_dict() -> dict:
     """État initial des étapes canoniques dans job.progress["steps"]."""
@@ -401,9 +404,7 @@ def _persist_epoch_metrics(store, job_id: str, records) -> None:
             len(records),
         )
     except Exception:
-        logger.exception(
-            "Échec de la persistance des métriques par epoch | job_id=%s", job_id
-        )
+        logger.exception("Échec de la persistance des métriques par epoch | job_id=%s", job_id)
 
 
 def _intent_classification_report(preds, labels_true, label_names: list[str]) -> dict:
@@ -431,9 +432,7 @@ def _intent_classification_report(preds, labels_true, label_names: list[str]) ->
     )
     matrix = confusion_matrix(labels_true, preds, labels=labels)
     f1_macro = float(report.get("macro avg", {}).get("f1-score", 0.0))
-    f1_per_class = {
-        name: float(report.get(name, {}).get("f1-score", 0.0)) for name in label_names
-    }
+    f1_per_class = {name: float(report.get(name, {}).get("f1-score", 0.0)) for name in label_names}
     return {
         "report": report,
         "confusion_matrix": matrix.tolist(),
@@ -488,6 +487,7 @@ def _set_step(job, store, job_id: str, step: str) -> None:
 # ---------------------------------------------------------------------------
 # Runner (Command exécuté dans un thread daemon par la route)
 # ---------------------------------------------------------------------------
+
 
 def run_intent_training(job_id: str, req: IntentTrainRequest) -> None:
     """Exécute l'entraînement d'intention pour le job *job_id*.
@@ -568,9 +568,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         raise ValueError("Dataset vide.")
     unknown = sorted({r["label"] for r in records} - set(labels))
     if unknown:
-        raise ValueError(
-            f"Labels inconnus dans le dataset : {unknown} (attendus : {labels})"
-        )
+        raise ValueError(f"Labels inconnus dans le dataset : {unknown} (attendus : {labels})")
     counts = {label: sum(1 for r in records if r["label"] == label) for label in labels}
     logger.info("Dataset chargé : %d lignes (%s)", len(records), counts)
 
@@ -605,9 +603,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         # Continual training : reprise des poids + tokenizer d'une version
         # d'intention existante (validée tôt par la route ; revalidée ici).
         base_dir = resolve_intent_model_dir(req.base_model_version)
-        tokenizer = AutoTokenizer.from_pretrained(
-            base_dir, use_fast=False, trust_remote_code=False
-        )
+        tokenizer = AutoTokenizer.from_pretrained(base_dir, use_fast=False, trust_remote_code=False)
         model = AutoModelForSequenceClassification.from_pretrained(
             base_dir, num_labels=len(labels), trust_remote_code=False
         )
@@ -672,7 +668,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         top = probs[np.arange(preds.shape[0]), preds]
 
         diag = _intent_classification_report(preds, labels_true, labels)
-        # Diagnostic loggué dans le flux du job (capturé par app/legacy/core/job_logs) :
+        # Diagnostic loggué dans le flux du job (capturé par app/application/job_logs) :
         # rend visible la matrice de confusion chat↔action + F1 par classe.
         logger.info(
             "Classification report (chat↔action) :\n%s",
@@ -725,8 +721,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
                 ],
             )
             logger.info(
-                "Epoch %d évaluée | accuracy=%.3f | f1_macro=%.3f | "
-                "confiance moyenne=%.3f",
+                "Epoch %d évaluée | accuracy=%.3f | f1_macro=%.3f | confiance moyenne=%.3f",
                 epoch,
                 float(metrics.get("eval_accuracy", 0.0)),
                 float(metrics.get("eval_f1_macro", 0.0)),
@@ -753,7 +748,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
         logging_steps=20,
         seed=42,
         report_to=[],
-        disable_tqdm=True,   # pas de barres tqdm dans les logs serveur
+        disable_tqdm=True,  # pas de barres tqdm dans les logs serveur
         # Bucketisation par longueur (padding dynamique) — §13 checklist #3 :
         # moins de padding par batch → RAM/CPU libérés (compatible CPU).
         train_sampling_strategy=padding_cfg["training_args"]["train_sampling_strategy"],
@@ -761,9 +756,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
 
     callbacks: list = [_IntentJobCallback(cancel_event)]
     if best_ckpt:
-        callbacks.append(
-            EarlyStoppingCallback(early_stopping_patience=EARLY_STOPPING_PATIENCE)
-        )
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=EARLY_STOPPING_PATIENCE))
 
     trainer = Trainer(
         model=model,
@@ -810,9 +803,7 @@ def _run_intent_pipeline(job, store, job_id: str, req, cancel_event) -> None:
             model = quant.quantize_dynamic(model, dtype=torch.qint8)
             logger.info("Quantification dynamique INT8 appliquée.")
         except Exception as exc:  # pragma: no cover - matériel/dépendances
-            logger.warning(
-                "Quantisation INT8 indisponible (%s) ; modèle FP32 conservé.", exc
-            )
+            logger.warning("Quantisation INT8 indisponible (%s) ; modèle FP32 conservé.", exc)
 
     # 6) Sauvegarde de la version + activation conditionnelle -------------------
     _check_cancelled()

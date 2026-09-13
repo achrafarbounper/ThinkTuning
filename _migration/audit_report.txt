@@ -1,0 +1,11 @@
+=== .py (doit être VIDE) ===
+  backend\app\application\__init__.py:8: Services réabsorbés de ``app/legacy/core`` (paquet supprimé) : runners
+  backend\app\domain\entities\__init__.py:4: from . import models  # noqa: F401  (DTOs entraînement/pipeline — ex app/legacy/core/models.py)
+  backend\app\infrastructure\persistence\__init__.py:3: Regroupe les stores réabsorbés de ``app/legacy/core`` (paquet supprimé) :
+=== autres (docs/config — à vérifier) ===
+  ARCHITECTURE.md:236: les stores (réabsorbés de `app/legacy/core`, **supprimé**) vivent dans
+  ARCHITECTURE.md:245: `app/infrastructure/` sont désormais couverts — `app/legacy/` supprimé).
+  backend\pyproject.toml:116: # app/legacy absorbé : les stores vivent désormais dans app/infrastructure/persistence/.
+  docs\CLASSIFIERS.md:163: | `app/legacy/core/circuit_breaker.py`→`ia/agent/circuit_breaker.py` | Pattern Circuit Breaker existant (réutilisé par `ResilientC
+
+py=3  autres=4

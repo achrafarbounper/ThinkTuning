@@ -97,7 +97,7 @@ def ensure_store_crypto_configured() -> None:
         raise RuntimeError(
             f"{ENV_KEY_NAME} absente en production : les stores sessions/audit "
             "contenant des données personnelles doivent être chiffrés au repos. "
-            "Générez une clé : python -c \"from cryptography.fernet import "
+            'Générez une clé : python -c "from cryptography.fernet import '
             'Fernet; print(Fernet.generate_key().decode())".'
         )
     if not is_crypto_enabled():

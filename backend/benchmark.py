@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from app.legacy.core.model_versioning import resolve_model_path
+from app.infrastructure.persistence.model_versioning import resolve_model_path
 
 logger = logging.getLogger(__name__)
 

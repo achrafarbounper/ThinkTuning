@@ -9,7 +9,8 @@ avec, pour chaque entrée, un identifiant stable, l'acteur, l'action, le sujet,
 le détail JSON, l'IP d'origine, et le run/requête lié — le tout horodaté en
 ISO UTC (millisecondes).
 
-Mêmes conventions que ``app/legacy/core/approval_store.py`` / ``app/legacy/core/run_store.py`` :
+Mêmes conventions que ``app/infrastructure/persistence/approval_store.py`` /
+``app/infrastructure/persistence/run_store.py`` :
 
     - base SQLite dédiée (experiments/agent_audit.db, surchargeable via
       AGENT_AUDIT_PATH pour isoler les tests) ;
@@ -28,31 +29,29 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
-AGENT_AUDIT_PATH = os.getenv(
-    "AGENT_AUDIT_PATH", os.path.join("experiments", "agent_audit.db")
-)
+AGENT_AUDIT_PATH = os.getenv("AGENT_AUDIT_PATH", os.path.join("experiments", "agent_audit.db"))
 
 # Actions d'audit normalisées (le code appelant peut en définir d'autres).
-ACT_RUN = "agent_run"            # lancement / issue d'un run
-ACT_TOOL = "tool_execution"      # appel d'un outil
-ACT_APPROVAL = "approval"        # décision approve / reject
-ACT_CONFIG = "config_change"     # modification de la configuration LLM
-ACT_CONNECT = "connectivity"     # sonde de connectivité provider
+ACT_RUN = "agent_run"  # lancement / issue d'un run
+ACT_TOOL = "tool_execution"  # appel d'un outil
+ACT_APPROVAL = "approval"  # décision approve / reject
+ACT_CONFIG = "config_change"  # modification de la configuration LLM
+ACT_CONNECT = "connectivity"  # sonde de connectivité provider
 
 # Actions d'audit MCP (S4, tâche 12 — docs/mcp/MCP_SECURITY.md) : chaque appel
 # MCP (tools/call, resources/read, prompts/get, sampling/create, orchestrate)
 # est tracé dans la MÊME table agent_audit que les actions de l'agent —
 # ``subject`` porte toujours le ``client_id`` MCP, ``detail`` la description
 # de l'appel (tool/URI/prompt, arguments anonymisés, is_error, scope).
-ACT_MCP_TOOL_CALL = "mcp_tool_call"        # outils/call (hors orchestrate)
+ACT_MCP_TOOL_CALL = "mcp_tool_call"  # outils/call (hors orchestrate)
 ACT_MCP_RESOURCE_READ = "mcp_resource_read"  # resources/read
-ACT_MCP_PROMPT_GET = "mcp_prompt_get"      # prompts/get
-ACT_MCP_SAMPLING = "mcp_sampling"          # sampling/create
-ACT_MCP_ORCHESTRATE = "mcp_orchestrate"    # tools/call sur le tool ``orchestrate``
+ACT_MCP_PROMPT_GET = "mcp_prompt_get"  # prompts/get
+ACT_MCP_SAMPLING = "mcp_sampling"  # sampling/create
+ACT_MCP_ORCHESTRATE = "mcp_orchestrate"  # tools/call sur le tool ``orchestrate``
 ACT_MCP_CLIENT_TOOL_CALL = "mcp_client_tool_call"  # outbound host call
 
 # Regroupement des actions MCP — ordre stable pour l'agrégation (mcp_metrics)
@@ -102,7 +101,7 @@ _COLUMNS = [
 
 def _utcnow_iso() -> str:
     """Horodatage ISO 8601 UTC (millisecondes) — stable, triable, horodaté."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def _truncate(text: str) -> str:
@@ -124,7 +123,9 @@ def redact(value):
     - les chaînes trop longues sont tronquées ;
     - les listes/objets volumineux sont bornés pour garder une trace lisible.
     """
-    from app.legacy.core.secrets_redact import redact_secrets  # import local : anti-cycle
+    from app.infrastructure.persistence.secrets_redact import (
+        redact_secrets,
+    )  # import local : anti-cycle
 
     if isinstance(value, dict):
         out = {}
@@ -149,6 +150,8 @@ def _dumps(detail) -> str:
         return json.dumps(redact(detail or {}), ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         return json.dumps({"__detail_error__": str(detail)[:200]}, ensure_ascii=False)
+
+
 class AuditStore:
     """Journal d'audit au-dessus d'une table SQLite (thread-safe)."""
 
@@ -185,9 +188,7 @@ class AuditStore:
         # migration ALTER pour les bases créées avant cette colonne.
         columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_audit)").fetchall()}
         if "is_error" not in columns:
-            conn.execute(
-                "ALTER TABLE agent_audit ADD COLUMN is_error INTEGER NOT NULL DEFAULT 0"
-            )
+            conn.execute("ALTER TABLE agent_audit ADD COLUMN is_error INTEGER NOT NULL DEFAULT 0")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_ts ON agent_audit(ts)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON agent_audit(action)")
         conn.commit()
@@ -197,12 +198,12 @@ class AuditStore:
     def _row_to_dict(row) -> dict | None:
         if row is None:
             return None
-        data = dict(zip(_COLUMNS, row))
+        data = dict(zip(_COLUMNS, row, strict=False))
         raw_detail = data.pop("detail_json") or "{}"
         try:
             # P2 lot 16 : déchiffrement transparent (préfixe ``enc:`` si
             # chiffrement actif — valeurs legacy en clair inchangées).
-            from app.legacy.core.store_crypto import decrypt_text
+            from app.infrastructure.persistence.store_crypto import decrypt_text
 
             raw_detail = decrypt_text(raw_detail)
             data["detail"] = json.loads(raw_detail)
@@ -230,7 +231,7 @@ class AuditStore:
         # Booléen agrégé hors chiffrement (métriques MCP sans passer par le
         # détail JSON chiffré).
         is_error = 1 if _IS_ERROR_KEY in dumped else 0
-        from app.legacy.core.store_crypto import encrypt_text
+        from app.infrastructure.persistence.store_crypto import encrypt_text
 
         stored_detail = encrypt_text(dumped)
         with self._lock:
@@ -269,17 +270,13 @@ class AuditStore:
         """
         from datetime import datetime as _dt
 
-        cutoff = _dt.now(timezone.utc).timestamp() - int(max_age_days) * 86400
-        cutoff_iso = _dt.fromtimestamp(cutoff, tz=timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%S.%f"
-        )[:-3] + "Z"
+        cutoff = _dt.now(UTC).timestamp() - int(max_age_days) * 86400
+        cutoff_iso = _dt.fromtimestamp(cutoff, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         with self._lock:
             conn = self._connect()
             try:
                 with conn:
-                    cursor = conn.execute(
-                        "DELETE FROM agent_audit WHERE ts < ?", (cutoff_iso,)
-                    )
+                    cursor = conn.execute("DELETE FROM agent_audit WHERE ts < ?", (cutoff_iso,))
                     deleted = cursor.rowcount
             finally:
                 conn.close()
@@ -314,23 +311,27 @@ class AuditStore:
         offset = max(0, int(offset))
         conditions, params = [], []
         if action:
-            conditions.append("action = ?"); params.append(action)
+            conditions.append("action = ?")
+            params.append(action)
         if subject:
-            conditions.append("subject = ?"); params.append(subject)
+            conditions.append("subject = ?")
+            params.append(subject)
         if actor:
-            conditions.append("actor = ?"); params.append(actor)
+            conditions.append("actor = ?")
+            params.append(actor)
         if run_id:
-            conditions.append("run_id = ?"); params.append(run_id)
+            conditions.append("run_id = ?")
+            params.append(run_id)
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
         with self._lock:
             conn = self._connect()
             try:
                 total = conn.execute(
-                    f"SELECT COUNT(*) FROM agent_audit{where}", params,
+                    f"SELECT COUNT(*) FROM agent_audit{where}",
+                    params,
                 ).fetchone()[0]
                 rows = conn.execute(
-                    f"SELECT * FROM agent_audit{where}"
-                    " ORDER BY ts DESC, id LIMIT ? OFFSET ?",
+                    f"SELECT * FROM agent_audit{where} ORDER BY ts DESC, id LIMIT ? OFFSET ?",
                     [*params, limit, offset],
                 ).fetchall()
             finally:
@@ -368,8 +369,7 @@ class AuditStore:
                     actions,
                 ).fetchall()
                 total = conn.execute(
-                    f"SELECT COUNT(*) AS n FROM agent_audit "
-                    f"WHERE action IN ({placeholders})",
+                    f"SELECT COUNT(*) AS n FROM agent_audit WHERE action IN ({placeholders})",
                     actions,
                 ).fetchone()[0]
                 errors = conn.execute(

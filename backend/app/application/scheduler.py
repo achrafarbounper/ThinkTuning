@@ -18,7 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from app.legacy.core.job_store import get_job_store
+from app.infrastructure.persistence.job_store import get_job_store
 
 logger = logging.getLogger("scheduler")
 
@@ -42,8 +42,8 @@ def _execute_scheduled_training(schedule: dict):
     dans le store + thread daemon sur ``run_training``.
     """
     # Imports locaux pour éviter tout cycle au chargement du module.
-    from app.legacy.core.trainer_runner import run_training
-    from app.legacy.core.models import TrainJob, JobStatus, TrainRequest
+    from app.application.trainer_runner import run_training
+    from app.domain.entities.models import JobStatus, TrainJob, TrainRequest
 
     job_id = str(uuid.uuid4())
     store = get_job_store()
@@ -95,14 +95,11 @@ def ensure_scheduler_started():
             _register_schedule(schedule)
             logger.info("Planification %s rechargée", schedule["schedule_id"])
         except Exception:
-            logger.exception(
-                "Impossible de recharger la planification %s", schedule["schedule_id"]
-            )
+            logger.exception("Impossible de recharger la planification %s", schedule["schedule_id"])
     return scheduler
 
 
-def create_schedule(cron=None, interval_minutes=None, train_request=None,
-                    schedule_id=None):
+def create_schedule(cron=None, interval_minutes=None, train_request=None, schedule_id=None):
     """Crée une planification récurrente, la persiste et l'enregistre.
 
     Raises:
@@ -110,9 +107,7 @@ def create_schedule(cron=None, interval_minutes=None, train_request=None,
             positif, ou les deux champs fournis / absents à la fois).
     """
     if (cron is None) == (interval_minutes is None):
-        raise ValueError(
-            "Exactement un des deux champs 'cron' ou 'interval_minutes' est requis."
-        )
+        raise ValueError("Exactement un des deux champs 'cron' ou 'interval_minutes' est requis.")
 
     if schedule_id is None:
         schedule_id = str(uuid.uuid4())

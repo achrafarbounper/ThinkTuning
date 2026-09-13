@@ -1,0 +1,553 @@
+================================================================================
+PART 1 — legacy modules: size + first docstring + top-level imports
+================================================================================
+
+### __init__.py (4 lines)
+    DOC: # Legacy stores/runners layer (ex-backend/core) : models, job store, # versioning, scheduler, caches — absorbé progressivement dans les couches # hexagonales (cf. app/legacy/__init__.py). 
+
+### agent_cache.py (1051 lines)
+    DOC: # project/core/agent_cache.py  """Intégration de l'agent IA du paquet `ia/` dans l'API principale.  Même schéma que `app/legacy/core/predictor_cache.py` : une instance unique construite paresseusement au premier appel puis mise en cache (accès protégé par un v
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.agent_settings import get_agent_settings
+      from app.legacy.core.run_store import (
+      from app.legacy.core.approval_store import ApprovalStore  # noqa: E402,F401
+      from app.legacy.core.approval_store import get_approval_store as _get_approval_store  # noqa: E402
+    EXTERNAL IMPORTS (sample): ['import threading', 'import requests', 'from fastapi import HTTPException', 'from ia.agent.agent_core import AgentCore  # noqa: E402', 'from ia.agent.llm_client import LLMClient  # noqa: E402', 'from ia.agent.orchestrator import MultiAgentCoordinator  # noqa: E402', 'from ia.agent.runner import AgentRunner  # noqa: E402', 'from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401']
+
+### agent_settings.py (692 lines)
+    DOC: # project/core/agent_settings.py  """Paramètres persistants de l'agent IA — module de configuration de l'IHM.  Même schéma de code que ``app/legacy/core/job_store.py`` : une base dédiée (experiments/agent_settings.db en SQLite, surchargeable via AGENT_SETTINGS
+    EXTERNAL IMPORTS (sample): ['import json', 'import os', 'import sqlite3', 'import time', 'from typing import Any']
+
+### annotation_store.py (211 lines)
+    DOC: """Persistiere annotation store oder Active Learning review cycle."""  import hashlib import json import logging import os import threading import time import unicodedata from pathlib import Path from typing import Dict, List, Optional 
+    EXTERNAL IMPORTS (sample): ['import hashlib', 'import json', 'import logging', 'import os', 'import threading', 'import time', 'import unicodedata', 'from pathlib import Path']
+
+### approval_store.py (269 lines)
+    DOC: # project/core/approval_store.py  """File de validation humaine des actions de l'agent IA (SQLite).  Le moteur de décision (``ia/agent/approvals.py``) classe chaque appel d'outil en auto_approve / approve / reject. Ce module persiste les actions qui nécessiten
+    EXTERNAL IMPORTS (sample): ['import json', 'import os', 'import sqlite3', 'import threading', 'import uuid', 'from datetime import datetime, timezone']
+
+### audit_store.py (436 lines)
+    DOC: # project/core/audit_store.py  """Journal d'audit & conformité des actions sensibles de l'agent (SQLite).  Répond aux exigences de conformité (Phase A — Security & Compliance) : toute action à fort enjeu (lancement de run, exécution d'outil, décision de valida
+    EXTERNAL IMPORTS (sample): ['import json', 'import logging', 'import os', 'import sqlite3', 'import threading', 'import uuid', 'from datetime import datetime, timezone']
+
+### classifier_monitoring.py (81 lines)
+    DOC: """ClassifierMonitoring : agrégation des métriques des classifieurs (Phase 5).  Unifie en un point unique l'observabilité des classifieurs enregistrés dans le ``ClassifierRegistry`` : métadonnées du modèle, compteurs d'activité (prédictions, cache hit-rate, er
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.classifier_registry import ClassifierRegistry
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import logging', 'import time', 'from typing import Any']
+
+### classifier_registry.py (94 lines)
+    DOC: """Registre centralisé des instances de classifieurs.  Singleton thread-safe : un classifieur par nom (``sentiment``, ``intention``, ...). Le registre ne possède pas les modèles — chaque classifieur encapsule son moteur d'inférence (ex. ``app.legacy.core.predi
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import threading', 'from collections.abc import Callable', 'from typing import TYPE_CHECKING']
+
+### cycle_runner.py (132 lines)
+    DOC: """Orchestrateur du cycle complet Active Learning (SCRUM-55).  Sequence : 1. Fusion des annotations manuelles dans un dataset local (app.legacy.core.annotation_store.AnnotationStore.merge_annotations) ; 2. Construction d'un TrainRequest (continual training dep
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.annotation_store import get_annotation_store
+      from app.legacy.core.model_activation import (
+      from app.legacy.core.model_versioning import list_model_versions
+    EXTERNAL IMPORTS (sample): ['import logging', 'import os', 'import time', 'from typing import Any']
+
+### dynamic_batcher.py (219 lines)
+    DOC: """DynamicBatcher : regroupement adaptatif des prédictions en lots.  But : sous charge burst, traiter les textes un par un gaspille le coût du prétraitement (tokenisation incluse). Ce batcher accumule les demandes pendant une courte fenêtre (``window_seconds``
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import logging', 'import threading', 'import time', 'from collections import deque', 'from collections.abc import Callable', 'from typing import Any']
+
+### feature_flags.py (67 lines)
+    DOC: # project/core/feature_flags.py  """Feuilles de route (« feature flags ») des enhancements de l'agent.  Toutes les fonctionnalités nouvelles de l'agent (fiabilité, audit, analytique d'outils, gestion du contexte, copilot, websocket) sont livrées DÉSACTIVÉES pa
+    EXTERNAL IMPORTS (sample): ['import os']
+
+### flow_store.py (344 lines)
+    DOC: # project/core/flow_store.py  """Journal des sessions d'orchestration multi-agents (« Flow Map ») — SQLite.  Chaque invocation de ``POST /api/agent/multi/ask/stream`` crée une ligne ``running`` (session de flux) puis est clôturée en fin d'exécution. Tous les é
+    EXTERNAL IMPORTS (sample): ['import json', 'import os', 'import sqlite3', 'import threading', 'import uuid', 'from datetime import UTC, datetime', 'from typing import Any']
+
+### inference_executor.py (118 lines)
+    DOC: """InferenceExecutor : exécution de l'inférence hors du loop d'événements.  Les routes FastAPI ``async`` ne doivent jamais exécuter de travail CPU lourd (tokenisation + forward) sur le thread de l'event loop : cela gèlerait TOUTES les requêtes concurrentes. Ce
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import asyncio', 'import logging', 'import os', 'import threading', 'from collections.abc import Callable', 'from concurrent.futures import Future, ThreadPoolExecutor', 'from functools import partial']
+
+### intent_store.py (122 lines)
+    DOC: """Store des versions du modèle d'intention (Phase 4).  Parallèle minimal de ``app/legacy/core/model_versioning.py`` pour le système d'intention (chat/action), qui vit dans ``experiments/intent_models/`` (le dossier ``experiments/models`` reste dédié au sentim
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import json', 'import logging', 'import os', 'from datetime import UTC, datetime', 'from pathlib import Path']
+
+### intent_trainer.py (827 lines)
+    DOC: # project/core/intent_trainer.py  """Runner d'entraînement du classifieur d'intention (chat/action) — SCRUM-95.  Refactor du script ``scripts/train_intent.py`` en module importable : la logique d'entraînement est exécutée dans un thread daemon par la route ``P
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core import job_logs
+      from app.legacy.core.intent_store import (
+      from app.legacy.core.job_store import get_job_store
+      from app.legacy.core.models import (
+    EXTERNAL IMPORTS (sample): ["import de l'API), conformément à la règle du projet sur la couche classifiers.", 'from __future__ import annotations', 'import datetime', 'import json', 'import logging', 'import math', 'import random', 'import threading']
+
+### job_logs.py (150 lines)
+    DOC: # project/core/job_logs.py  """Capture des logs serveur par job d'entraînement (flux WebSocket).  Un ``JobLogHandler`` est attaché au logger racine une seule fois ; il capture les records émis par le thread qui exécute ``run_training`` (via un mapping ``thread
+    EXTERNAL IMPORTS (sample): ['import logging', 'import threading', 'import time', 'from collections import deque', 'from typing import Dict, List, Optional']
+
+### job_store.py (409 lines)
+    DOC: # project/core/job_store.py  import os import json import sqlite3 import threading import time from app.legacy.core.models import TrainJob  JOB_STORE_PATH = os.getenv("JOB_STORE_PATH", os.path.join("experiments", "jobs.db"))  
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.models import TrainJob
+    EXTERNAL IMPORTS (sample): ['import os', 'import json', 'import sqlite3', 'import threading', 'import time']
+
+### mcp_client_store.py (686 lines)
+    DOC: # project/core/mcp_client_store.py  """Persistence des clients MCP — registre + révocation + métriques (SQLite).  Ce module est la SOURCE DE VÉRITÉ des clients MCP inscrits. Il stocke : - l'identité du client (client_id, secret_hash) - le scope de sécurité (MC
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import hashlib', 'import json', 'import os', 'import sqlite3', 'import threading', 'from datetime import UTC, datetime']
+
+### model_activation.py (109 lines)
+    DOC: """Activation explicite d'une version de modele (SCRUM-55).  Un pointeur experiments/models/active.json (env ACTIVE_MODEL_POINTER) designe la version active parmi les versions valides. /predict et resolve_model_dir(None) resolvent desormais vers cette version 
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.model_versioning import MODEL_ROOT, list_model_versions, resolve_model_dir
+      from app.legacy.core.model_head_check import is_model_version_trained
+    EXTERNAL IMPORTS (sample): ['import os', 'import json', 'import logging', 'from datetime import datetime, timezone']
+
+### model_head_check.py (147 lines)
+    DOC: """Heuristics to detect a genuinely trained classification head in a version.-""" import os import logging  logger = logging.getLogger(__name__)  MODEL_WEIGHT_FILES = [ "model.pt", "pytorch_model.bin", "model.safetensors", "model_state_dict.pt", ]
+    EXTERNAL IMPORTS (sample): ['import os', 'import logging']
+
+### model_sanity.py (182 lines)
+    DOC: # project/core/model_sanity.py """Sanity check comportemental du modèle de sentiment (SCRUM-74).  Exécute ``Predictor.predict()`` sur un jeu fixe de phrases FR/EN clairement polarisées afin de détecter : - un modèle NON ENTRAÎNÉ (bug SCRUM-55 : ``neutral`` uni
+    EXTERNAL IMPORTS (sample): ['import logging', 'import os']
+
+### model_signing.py (183 lines)
+    DOC: # project/core/model_signing.py """Signature et vérification d'intégrité des modèles (P2 lot 15).  Supply-chain ML : chaque dossier de version modèle publié dans ``experiments/models/<version>`` porte un manifeste ``sha256.json`` listant l'empreinte SHA-256 de
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import hashlib', 'import json', 'import logging', 'from pathlib import Path']
+
+### model_versioning.py (493 lines)
+    DOC: # project/core/model_versioning.py  import os import json import logging from datetime import UTC, datetime  logger = logging.getLogger(__name__)  MODEL_ROOT = os.path.join("experiments", "models") MODELS_ROOT = MODEL_ROOT MODEL_FILES = ["model.pt", "pytorch_m
+    EXTERNAL IMPORTS (sample): ['import os', 'import json', 'import logging', 'from datetime import UTC, datetime']
+
+### model_warmup.py (129 lines)
+    DOC: """ModelWarmup : préchargement des modèles en arrière-plan.  Objectif : réduire à ≈0 le « cold start » perçu — le premier appel à un classifieur ne doit pas payer la totalisation du chargement du modèle. Au démarrage de l'API, chaque classifieur est réchauffé 
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import logging', 'import threading', 'from collections.abc import Callable', 'from typing import Any', 'from ia.agent.classifiers.base import BaseClassifier']
+
+### models.py (376 lines)
+    DOC: # project/core/models.py  from enum import Enum  from pydantic import BaseModel, ConfigDict, field_validator from typing import List, Optional, Dict   class JobStatus(str, Enum): PENDING = "pending" RUNNING = "running" COMPLETED = "completed"
+    EXTERNAL IMPORTS (sample): ['from enum import Enum', 'from pydantic import BaseModel, ConfigDict, field_validator', 'from typing import List, Optional, Dict']
+
+### onnx_exporter.py (214 lines)
+    DOC: """Export PyTorch -> ONNX et moteur d'inférence ONNX Runtime (Phase 3).  Le pipeline reste inchangé par défaut (``SentimentClassifier``/``Predictor`` en PyTorch) ; l'export ONNX est une optimisation additive : même tokenizer, mêmes logits, même post-traitement
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import logging', 'import threading', 'from pathlib import Path', 'from typing import Any', 'import numpy as np']
+
+### pipeline_runner.py (252 lines)
+    DOC: # project/core/pipeline_runner.py """Pipeline end-to-end : labeling (label_dataset) → filtrage par confidence → fine-tuning LLM (finetune_llm).  Fonctions partagées par : - pipeline.py (CLI autonome, une commande pour tout enchaîner) ; - api/routes/pipeline.py
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.models import PipelineRequest, TrainJob, JobStatus
+      from app.legacy.core.job_store import get_job_store
+    EXTERNAL IMPORTS (sample): ['import logging', 'import os', 'import subprocess', 'import sys', 'import threading', 'import time']
+
+### prediction_result_cache.py (105 lines)
+    DOC: """Cache de RÉSULTATS de prédiction (LRU + TTL).  Différent de ``app/legacy/core/predictor_cache.py`` (qui met en cache les INSTANCES de modèles) : ici on met en cache les résultats déjà calculés pour un texte, afin d'éviter de re-tokeniser / re-inférer les en
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import hashlib', 'import logging', 'import threading', 'import time', 'from collections import OrderedDict', 'from typing import Any']
+
+### predictor_cache.py (109 lines)
+    DOC: # project/core/predictor_cache.py  import os import threading from collections import OrderedDict  from fastapi import HTTPException  from app.legacy.core.model_versioning import resolve_model_dir from src.inference.predictor import Predictor  # Nombre maximal
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.model_versioning import resolve_model_dir
+    EXTERNAL IMPORTS (sample): ['import os', 'import threading', 'from collections import OrderedDict', 'from fastapi import HTTPException', 'from src.inference.predictor import Predictor']
+
+### run_store.py (298 lines)
+    DOC: # project/core/run_store.py  """Journal des exécutions de l'agent IA (« runs ») — SQLite.  Chaque invocation de l'agent via l'API (POST /api/agent/ask, POST /api/agent/ask/stream) crée une ligne ``running`` puis est clôturée à la fin : statut final, résumé de 
+    EXTERNAL IMPORTS (sample): ['import json', 'import os', 'import sqlite3', 'import threading', 'import uuid', 'from datetime import datetime, timezone', 'from typing import Any']
+
+### scheduler.py (179 lines)
+    DOC: # project/core/scheduler.py  """ Planification d'entraînements récurrents (SCRUM-34).  Singleton ``BackgroundScheduler`` (APScheduler 3.x) qui déclenche des jobs d'entraînement périodiquement. Les définitions sont persistées dans le SQLite existant de ``Persis
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.job_store import get_job_store
+    EXTERNAL IMPORTS (sample): ['import logging', 'import threading', 'import time', 'import uuid', 'from apscheduler.schedulers.background import BackgroundScheduler', 'from apscheduler.triggers.cron import CronTrigger', 'from apscheduler.triggers.interval import IntervalTrigger']
+
+### secrets_redact.py (74 lines)
+    DOC: """Masquage de secrets dans des chaînes / structures (P1 SEC, point 10c).  Complémentaire du ``redact()`` par CLÉS d'``audit_store`` (qui écrasent une valeur sous une clé nommée ``api_key``/``token``/…), ce module masque les secrets qui apparaissent dans le TE
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import re', 'from typing import Any']
+
+### session_store.py (448 lines)
+    DOC: # project/core/session_store.py  """Persistance des conversations de l'assistant (« sessions ») — SQLite.  Permet au dashboard de retrouver ses conversations après un rechargement : chaque session porte un titre (auto-dérivé du premier message utilisateur), un
+    EXTERNAL IMPORTS (sample): ['import json', 'import logging', 'import os', 'import sqlite3', 'import threading', 'import uuid', 'from datetime import datetime, timezone', 'from ia.agent.encoding import repair_utf8_mojibake']
+
+### store_crypto.py (156 lines)
+    DOC: # project/core/store_crypto.py  """Chiffrement au repos des stores (P2 durable, lot 16) — sessions & audit.  Les contenus conversationnels (``content`` / ``thinking`` / ``tool_calls_json`` de ``agent_session_messages``) et le détail d'audit (``detail_json`` d'
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import base64', 'import logging', 'import os', 'from functools import lru_cache']
+
+### trainer_runner.py (476 lines)
+    DOC: # project/core/trainer_runner.py  import time import threading import logging  from app.legacy.core.models import TrainJob, JobStatus, TRAIN_JOB_STEPS from app.legacy.core.job_store import get_job_store from app.legacy.core import job_logs from app.legacy.core
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.models import TrainJob, JobStatus, TRAIN_JOB_STEPS
+      from app.legacy.core.job_store import get_job_store
+      from app.legacy.core import job_logs
+      from app.legacy.core.model_versioning import (
+    EXTERNAL IMPORTS (sample): ['import time', 'import threading', 'import logging', 'from src.dataset.loader import load_raw_dataset, augment_dataset', 'from src.dataset.preprocess import create_dataloaders', 'from src.model.distilbert import build_model', 'from src.model.trainer import Trainer, compute_class_weights', 'from src.utils.config import load_config']
+
+### training_events.py (163 lines)
+    DOC: # project/core/training_events.py  """Source d'événements d'entraînement pour le flux WebSocket /train/stream.  Abstraction ``TrainingEventsSource`` : l'endpoint WebSocket consomme cette interface et non le store directement. L'implémentation MongoDB effectue 
+    INTERNAL/LEGACY IMPORTS:
+      from app.legacy.core.job_store import get_job_store
+    EXTERNAL IMPORTS (sample): ['import logging', 'import os']
+
+### training_gate.py (194 lines)
+    DOC: # project/core/training_gate.py """Limitation de concurrence des entraînements + file d'attente (P2 lot 16).  Un entraînement charge la stack ML complète (torch + transformers + modèle) : lancer N runs simultanés sur une petite instance fait fondre la RAM (OOM
+    EXTERNAL IMPORTS (sample): ['from __future__ import annotations', 'import logging', 'import os', 'import threading', 'from collections import deque', 'from contextlib import contextmanager']
+
+================================================================================
+PART 2 — all files referencing 'legacy' (code refs)
+================================================================================
+196 files referencing legacy
+
+  37     _migration\scan_report.txt
+  21     docs\CLASSIFIERS.md
+  19 PY  backend\ia\tools\ml_tools.py
+  16     ARCHITECTURE.md
+  14 PY  backend\app\api\routes\agent.py
+  14     docs\INTENT_TRAINING.md
+  12 PY  backend\app\infrastructure\persistence\mongodb.py
+  11 PY  backend\app\infrastructure\mcp\mcp_flow.py
+  10 PY  backend\app\domain\ports\ports.py
+   9 PY  backend\app\infrastructure\mcp\resources\resource_provider.py
+   9 PY  backend\app\infrastructure\training\training_adapter.py
+   9 PY  backend\app\legacy\core\cycle_runner.py
+   9 PY  backend\app\legacy\core\intent_trainer.py
+   9 PY  backend\tests\test_p2_privacy_llmsec.py
+   9     docs\FINETUNING.md
+   8 PY  backend\app\api\routes\train.py
+   8 PY  backend\app\infrastructure\ml\predictor_adapter.py
+   8 PY  backend\tests\test_job_progress.py
+   7 PY  backend\app\api\routes\intent_train.py
+   7 PY  backend\app\infrastructure\training\intent_training_adapter.py
+   7 PY  backend\app\legacy\core\model_versioning.py
+   7 PY  backend\tests\test_intent_classifier.py
+   7 PY  backend\tests\test_mcp_resources_10.py
+   7 PY  backend\tests\test_run_lifecycle_contract.py
+   7     docs\SYSTEM_DOCUMENTATION.md
+   7 PY  _migration\scan.py
+   6 PY  backend\app\agent\settings.py
+   6 PY  backend\app\api\main.py
+   6 PY  backend\app\api\__init__.py
+   6 PY  backend\app\application\agent_settings_usecase.py
+   6 PY  backend\app\legacy\core\agent_cache.py
+   6 PY  backend\tests\test_api_v1_health.py
+   6 PY  backend\tests\test_pipeline.py
+   6     docs\mcp\IMPLEMENTATION_PLAN.md
+   5 PY  backend\app\api\routes\ai_chat.py
+   5 PY  backend\app\api\routes\health.py
+   5 PY  backend\app\api\routes\mcp.py
+   5 PY  backend\app\api\routes\models.py
+   5 PY  backend\app\api\routes\pipeline.py
+   5 PY  backend\app\domain\ports\prediction_ports.py
+   5 PY  backend\app\infrastructure\mcp\mcp_audit.py
+   5 PY  backend\app\legacy\core\audit_store.py
+   5 PY  backend\tests\test_agent_openrouter.py
+   5 PY  backend\tests\test_preprocess.py
+   4 PY  backend\app\api\routes\active_learning.py
+   4 PY  backend\app\api\routes\predict.py
+   4 PY  backend\app\domain\ports\training_ports.py
+   4 PY  backend\app\infrastructure\legacy_multi_agent_adapter.py
+   4 PY  backend\app\infrastructure\legacy_settings_adapter.py
+   4 PY  backend\app\infrastructure\system_status_adapter.py
+   4 PY  backend\app\legacy\core\run_store.py
+   4 PY  backend\app\legacy\core\session_store.py
+   4 PY  backend\app\legacy\core\trainer_runner.py
+   4 PY  backend\ia\agent\classifiers\sentiment_classifier.py
+   4 PY  backend\scripts\retention.py
+   4 PY  backend\src\inference\predictor.py
+   4 PY  backend\tests\test_agent_api.py
+   4 PY  backend\tests\test_agent_context_length.py
+   4 PY  backend\tests\test_domain_ports.py
+   4 PY  backend\tests\test_intent_trainer.py
+   4 PY  backend\tests\test_job_cleanup.py
+   4 PY  backend\tests\test_p2_auth_supplychain.py
+   4 PY  backend\tests\test_secrets_redact.py
+   4     docs\mcp\MCP_IMPLEMENTATION_MAPPING.md
+   3     README.md
+   3 PY  backend\calibrate.py
+   3 PY  backend\conftest.py
+   3 PY  backend\app\agent\core.py
+   3 PY  backend\app\application\run_lifecycle.py
+   3 PY  backend\app\application\session_memory.py
+   3 PY  backend\app\domain\entities\plan.py
+   3 PY  backend\app\infrastructure\legacy_approval_store.py
+   3 PY  backend\app\infrastructure\mcp\security\scope_enforcer.py
+   3 PY  backend\app\infrastructure\ml\__init__.py
+   3 PY  backend\app\legacy\core\agent_settings.py
+   3 PY  backend\app\legacy\core\pipeline_runner.py
+   3 PY  backend\app\legacy\core\scheduler.py
+   3 PY  backend\ia\agent\agent_core.py
+   3 PY  backend\ia\agent\approvals.py
+   3 PY  backend\ia\agent\classifiers\intent_classifier.py
+   3 PY  backend\tests\test_agent_context.py
+   3 PY  backend\tests\test_agent_hf.py
+   3 PY  backend\tests\test_api_explain.py
+   3 PY  backend\tests\test_async_batching.py
+   3 PY  backend\tests\test_mcp_audit.py
+   3 PY  backend\tests\test_mcp_flow.py
+   3 PY  backend\tests\test_model_persistence.py
+   3 PY  backend\tests\test_multi_agent_resume.py
+   3 PY  backend\tests\test_sys_path_guard.py
+   3     docs\mcp\MCP_SECURITY.md
+   2     backend\openapi.json
+   2 PY  backend\pipeline.py
+   2     backend\pyproject.toml
+   2 PY  backend\app\api\routes\classifiers.py
+   2 PY  backend\app\api\routes\explain.py
+   2 PY  backend\app\api\routes\sessions.py
+   2 PY  backend\app\api\routes\v1\pipeline.py
+   2 PY  backend\app\api\routes\v1\training.py
+   2 PY  backend\app\application\intent_training_usecase.py
+   2 PY  backend\app\domain\entities\prediction.py
+   2 PY  backend\app\domain\entities\run.py
+   2 PY  backend\app\infrastructure\mcp\host\capability_router.py
+   2 PY  backend\app\infrastructure\mcp\notifications\notification_service.py
+   2 PY  backend\app\infrastructure\mcp\resources\__init__.py
+   2 PY  backend\app\infrastructure\ml\model_repository_adapter.py
+   2 PY  backend\app\legacy\core\classifier_monitoring.py
+   2 PY  backend\app\legacy\core\flow_store.py
+   2 PY  backend\app\legacy\core\intent_store.py
+   2 PY  backend\app\legacy\core\job_store.py
+   2 PY  backend\app\legacy\core\models.py
+   2 PY  backend\app\legacy\core\model_activation.py
+   2 PY  backend\app\legacy\core\training_events.py
+   2 PY  backend\ia\agent\context.py
+   2 PY  backend\ia\agent\llm_client.py
+   2 PY  backend\ia\agent\system_prompt.py
+   2 PY  backend\ia\tools\registry.py
+   2 PY  backend\scripts\notify_mcp_v2_breaking_change.py
+   2 PY  backend\scripts\train_intent.py
+   2 PY  backend\tests\conftest.py
+   2 PY  backend\tests\test_agent_flow.py
+   2 PY  backend\tests\test_agent_settings_storage.py
+   2 PY  backend\tests\test_api_ai_chat.py
+   2 PY  backend\tests\test_api_v1_active_learning.py
+   2 PY  backend\tests\test_api_v1_agent.py
+   2 PY  backend\tests\test_api_v1_training.py
+   2 PY  backend\tests\test_classifiers.py
+   2 PY  backend\tests\test_loader_local_corrections.py
+   2 PY  backend\tests\test_mcp_notifications.py
+   2 PY  backend\tests\test_model_sanity.py
+   2 PY  backend\tests\test_persistence_ports.py
+   2 PY  backend\tests\test_regression_guard.py
+   2 PY  backend\tests\test_trainer.py
+   2     docs\TOOL_STANDARD.md
+   1     .clinerules\EXPERT_MULTI_DOMAINE.md
+   1 PY  backend\active_learning.py
+   1 PY  backend\benchmark.py
+   1 PY  backend\label_dataset.py
+   1 PY  backend\predict.py
+   1 PY  backend\train.py
+   1 PY  backend\app\agent\memory\long_term.py
+   1 PY  backend\app\agent\policies\sandbox_policy.py
+   1 PY  backend\app\api\routes\v1\active_learning.py
+   1 PY  backend\app\api\routes\v1\intent_training.py
+   1 PY  backend\app\api\routes\v1\models.py
+   1 PY  backend\app\application\models_usecase.py
+   1 PY  backend\app\application\training_usecase.py
+   1 PY  backend\app\config\settings.py
+   1 PY  backend\app\domain\ports\model_versioning_ports.py
+   1 PY  backend\app\infrastructure\llm\__init__.py
+   1 PY  backend\app\infrastructure\mcp\mcp_server.py
+   1 PY  backend\app\infrastructure\mcp\mcp_server_sse.py
+   1 PY  backend\app\infrastructure\mcp\tools\orchestrate_tool.py
+   1 PY  backend\app\infrastructure\ml\model_versioning_adapter.py
+   1 PY  backend\app\infrastructure\security\service_accounts.py
+   1 PY  backend\app\infrastructure\security\vault.py
+   1 PY  backend\app\infrastructure\security\authz\factory.py
+   1 PY  backend\app\legacy\__init__.py
+   1 PY  backend\app\legacy\core\approval_store.py
+   1 PY  backend\app\legacy\core\classifier_registry.py
+   1 PY  backend\app\legacy\core\inference_executor.py
+   1 PY  backend\app\legacy\core\mcp_client_store.py
+   1 PY  backend\app\legacy\core\model_sanity.py
+   1 PY  backend\app\legacy\core\model_signing.py
+   1 PY  backend\app\legacy\core\prediction_result_cache.py
+   1 PY  backend\app\legacy\core\predictor_cache.py
+   1 PY  backend\app\legacy\core\__init__.py
+   1 PY  backend\ia\agent\encoding.py
+   1 PY  backend\ia\agent\orchestrator.py
+   1 PY  backend\ia\agent\runner.py
+   1 PY  backend\ia\agent\classifiers\base.py
+   1 PY  backend\ia\tools\sandbox.py
+   1 PY  backend\ia\tools\tool_registry.py
+   1 PY  backend\scripts\calibrate_intent_threshold.py
+   1 PY  backend\scripts\export_onnx.py
+   1 PY  backend\src\utils\flags.py
+   1 PY  backend\tests\test_agent_logging.py
+   1 PY  backend\tests\test_agent_settings_usecase.py
+   1 PY  backend\tests\test_annotation_store.py
+   1 PY  backend\tests\test_api_v1_intent_training.py
+   1 PY  backend\tests\test_api_v1_models.py
+   1 PY  backend\tests\test_api_v1_pipeline.py
+   1 PY  backend\tests\test_api_v1_sessions.py
+   1 PY  backend\tests\test_auth_jwt_dual.py
+   1 PY  backend\tests\test_class_augment_weights_validation.py
+   1 PY  backend\tests\test_mcp_client_store.py
+   1 PY  backend\tests\test_mcp_orchestrate.py
+   1 PY  backend\tests\test_mcp_resources.py
+   1 PY  backend\tests\test_model_activation.py
+   1 PY  backend\tests\test_onnx_exporter.py
+   1 PY  backend\tests\test_system_prompt_tools.py
+   1     docs\ARCHITECTURE_DECOUPLAGE.md
+   1     docs\ARCHITECTURE_RECOMMENDATIONS.md
+   1     docs\EXPERT_MULTI_DOMAINE.md
+   1     docs\mcp\CHANGELOG.md
+   1     docs\mcp\MANIFEST.md
+   1     frontend\TRAIN_JOB_TRACKER.md
+
+=> 176 .py files, 20 non-py files
+
+================================================================================
+PART 3 — distinct legacy reference forms (frequency)
+================================================================================
+   54  app.legacy.core.models
+   49  app.legacy.core
+   39  app.legacy.core.job_store
+   33  app.legacy.core.agent_cache
+   27  app.legacy.core.model_versioning
+   20  app/legacy/core/audit_store
+   19  app.legacy.core.trainer_runner
+   18  app/legacy/core/approval_store
+   18  app/legacy/core/agent_cache
+   18  app.legacy.core.approval_store
+   18  app.legacy.core.audit_store
+   18  app.legacy.core.flow_store
+   17  app.legacy.core.predictor_cache
+   16  app.legacy.core.agent_settings
+   15  app/legacy/core/session_store
+   14  app.legacy.core.intent_store
+   12  app/legacy/core/job_store
+   12  app.legacy.core.mcp_client_store
+   11  app/legacy/core/agent_settings
+   11  app.legacy.core.session_store
+   11  app.legacy.core.model_head_check
+   10  app/legacy/core/model_versioning
+   10  app.legacy.core.secrets_redact
+   10  app.legacy.core.model_sanity
+   10  app.legacy.core.store_crypto
+   10  app.legacy.core.run_store
+   10  app.legacy.core.intent_trainer
+   10  app/legacy/core/predictor_cache
+   10  app.legacy.core.job_logs
+   10  app/legacy/core/intent_trainer
+    9  app/legacy/core/run_store
+    8  app/legacy/core/mcp_client_store
+    7  app/legacy/core
+    7  app.legacy.core.annotation_store
+    7  app.legacy.core.training_gate
+    7  app/legacy/core/job_logs
+    6  app/legacy/core/intent_store
+    6  app/legacy/core/trainer_runner
+    6  app.legacy.core.model_signing
+    6  app.legacy
+    5  app/legacy/core/feature_flags
+    5  app.legacy.core.feature_flags
+    5  app.legacy.core.classifier_registry
+    5  app/legacy/core/flow_store
+    5  app/legacy/core/models
+    5  app/legacy/core/pipeline_runner
+    4  app/legacy/core/classifier_registry
+    4  app.legacy.core.model_activation
+    4  app.legacy.core.onnx_exporter
+    3  app.legacy.core.pipeline_runner
+    3  app/legacy
+    3  app.legacy.core.model_warmup
+    3  app.legacy.core.scheduler
+    3  app.legacy.core.inference_executor
+    2  app.legacy.core.dynamic_batcher
+    2  app.legacy.core.training_events
+    2  app/legacy/core/model_activation
+    2  app/legacy/__init__
+    2  app.legacy.core.prediction_result_cache
+    2  app/legacy/core/prediction_result_cache
+    2  app/legacy/core/prompt_template
+    1  app/legacy/core/training_events
+    1  app.legacy.core.cycle_runner
+    1  app.legacy.core.classifier_monitoring
+    1  app/legacy/core/model_head_check
+    1  app/legacy/core/secrets_redact
+    1  app/legacy/core/inference_executor
+    1  app/legacy/core/dynamic_batcher
+    1  app/legacy/core/model_warmup
+    1  app/legacy/core/circuit_breaker
+    1  app/legacy/core/onnx_exporter
+    1  app/legacy/core/classifier_monitoring
+    1  app/legacy/core/model_versio
+    1  app.legacy.core.predi
+
+================================================================================
+PART 4 — py files with 'from app.legacy' import statements (module -> symbols)
+================================================================================
+  agent_cache: ['REQUIRED_ARGS', 'TOOLS', 'TOOL_META', '_hf_chat_url', '_lm_studio_chat_url', '_openrouter_chat_url', 'agent_config', 'agent_config  # import paresseux', 'ask_agent_detailed_streaming', 'ask_multi_agent as _legacy_run', 'ask_multi_agent_streaming as _legacy_streaming', 'get_agent_runner', 'list_llm_models', 'reload_agent_runner']
+  agent_settings: ['SETTING_KEYS', 'SETTING_KEYS  # noqa: F401', 'env_and_defaults', 'get_settings_store']
+  annotation_store: ['AnnotationStore', 'get_annotation_store', 'normalize_label', 'normalize_text']
+  approval_store: ['APPROVED', 'ApprovalStore', 'REJECTED', 'STATUSES', 'get_approval_store', 'get_approval_store  # import local', 'get_approval_store  # lazy', 'get_approval_store as _get_store', 'get_approval_store as legacy_approvals']
+  audit_store: ['# Phase A (audit / conformité', '# S4', 'ACT_APPROVAL as LEGACY_APPROVAL', 'ACT_MCP_CLIENT_TOOL_CALL', 'ACT_MCP_ORCHESTRATE', 'ACT_MCP_PROMPT_GET', 'ACT_MCP_RESOURCE_READ', 'ACT_MCP_SAMPLING', 'ACT_MCP_TOOL_CALL', 'ACT_RUN as LEGACY_RUN', 'AuditStore', 'MCP_ACTIONS', 'get_audit_store', 'redact', 'reset_audit_store', "tâche 12 : actions d'audit normalisées MCP     ACT_MCP_ORCHESTRATE"]
+  classifier_monitoring: ['classifier_snapshot', 'classifier_snapshots', 'health_summary']
+  classifier_registry: ['get_registry', 'reset_registry']
+  cycle_runner: ['run_cycle']
+  dynamic_batcher: ['DynamicBatcher']
+  feature_flags: ['flag', 'flag  # import paresseux', 'flag  # noqa: E402']
+  flow_store: ['AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL', 'COMPLETED as FLOW_COMPLETED', 'ERROR as FLOW_ERROR', 'REJECTED as FLOW_REJECTED', 'STATUSES', 'STATUSES as FLOW_STATUSES', 'get_flow_store']
+  inference_executor: ['InferenceExecutor', 'get_executor']
+  intent_store: ['# noqa: E402     INTENT_MODEL_ROOT', 'default_intent_labels', 'list_intent_model_versions', 'resolve_intent_model_dir', 'set_active_intent_version']
+  intent_trainer: ['# noqa: E402     EARLY_STOPPING_PATIENCE', '# noqa: E402     _format_intent_report', 'EARLY_STOPPING_PATIENCE', '_best_checkpoint_training_args', '_format_intent_report', '_intent_classification_report', '_padding_bucket_config', '_scheduler_training_args', '_split_records', 'cancel_intent_training', 'get_intent_cancel_event', 'run_intent_training']
+  job_logs: ['get_logs  # import paresseux']
+  job_store: ['PersistentJobStore', 'cleanup_old_jobs', 'get_job_store']
+  mcp_client_store: ['MCPClientAlreadyExistsError', 'MCPClientNotFoundError', 'MCPClientRevokedError', 'MCPClientStore', 'get_mcp_client_store']
+  model_activation: ['activate_model', 'is_active', 'read_active_pointer']
+  model_head_check: ['HEAD_CLASSIFIER_MIN_STD', '_classifier_std', '_load_head_state', 'head_matches_reference', 'is_model_version_trained']
+  model_sanity: ['SANITY_PHRASES', 'VERDICT_FALLBACK', 'VERDICT_OK', 'VERDICT_UNTRAINED', 'resolve_min_confidence', 'run_model_sanity']
+  model_signing: ['ModelSignatureError', 'verify_model_signature', 'write_signature_manifest']
+  model_versioning: ['MODELS_ROOT', 'MODEL_ROOT', 'list_model_versions', 'resolve_model_dir', 'resolve_model_path', 'save_model_version', 'validate_model_version']
+  model_warmup: ['ModelWarmup', 'get_warmup']
+  models: ['ActiveLearningRequest', 'AnnotateListResponse', 'AnnotateRequest', 'CycleRequest', 'EpochMetric', 'IntentTrainRequest', 'JobListResponse', 'JobStatus', 'MergeAnnotationsResponse', 'ModelVersion', 'PipelineRequest', 'ScheduleListResponse', 'ScheduleRequest', 'ScheduledJob', 'TRAIN_JOB_STEPS', 'TrainHistoryResponse', 'TrainJob', 'TrainJob  # pydantic uniquement', 'TrainRequest', 'TrainRequest  # pydantic uniquement', 'sans torch']
+  onnx_exporter: ['# noqa: E402     ONNXClassificationEngine', 'ONNXClassificationEngine', 'export_model_to_onnx', 'export_model_to_onnx  # noqa: E402', 'softmax_logits']
+  pipeline_runner: ['PROJECT_ROOT', 'build_finetune_cmd', 'cancel_pipeline', 'get_cancel_event', 'run_labeling', 'run_pipeline']
+  prediction_result_cache: ['PredictionResultCache']
+  predictor_cache: ['evict_cached_model', 'get_predictor', 'get_predictor as _get_predictor', 'reload_predictor']
+  run_store: ['ERROR as RUN_ERROR', 'RunStore', 'STATUSES', 'STATUSES as RUN_STATUSES', 'get_run_store', 'get_run_store as legacy_runs']
+  scheduler: ['ensure_scheduler_started  # noqa: E402']
+  secrets_redact: ['redact_secrets', 'redact_secrets  # import paresseux', 'redact_secrets  # lazy import']
+  session_store: ['SessionStore', 'get_session_store', 'reset_session_store  # noqa: E402']
+  store_crypto: ['StoreCryptoError', 'decrypt_text', 'encrypt_text', 'ensure_store_crypto_configured', 'is_crypto_enabled']
+  trainer_runner: ['cancel_training', 'run_training', 'run_training as _run_training']
+  training_events: ['ACTIVE_POLL_SECONDS', 'MongoPollingEventsSource', 'STALL_MINUTES', 'get_training_events_source']
+  training_gate: ['TrainingBusyError', 'TrainingGate', 'get_training_gate']
+
+Package-level imports (from app.legacy[.core] import ...):
+  backend\app\api\routes\explain.py: from app.legacy.core import agent_cache
+  backend\app\api\routes\train.py: from app.legacy.core import scheduler as schedule_manager
+  backend\app\infrastructure\system_status_adapter.py: from app.legacy.core import job_store as _legacy_jobs
+  backend\app\infrastructure\ml\model_repository_adapter.py: from app.legacy.core import model_versioning as _legacy
+  backend\app\infrastructure\ml\predictor_adapter.py: from app.legacy.core import ...``) et
+  backend\app\infrastructure\ml\predictor_adapter.py: from app.legacy.core import model_sanity as _legacy_sanity
+  backend\app\infrastructure\ml\predictor_adapter.py: from app.legacy.core import predictor_cache as _legacy_cache
+  backend\app\infrastructure\training\intent_training_adapter.py: from app.legacy.core import intent_store, intent_trainer
+  backend\app\infrastructure\training\training_adapter.py: from app.legacy.core import scheduler as schedule_manager
+  backend\app\infrastructure\training\training_adapter.py: from app.legacy.core import trainer_runner
+  backend\app\legacy\core\intent_trainer.py: from app.legacy.core import job_logs
+  backend\app\legacy\core\trainer_runner.py: from app.legacy.core import job_logs
+  backend\ia\agent\classifiers\sentiment_classifier.py: from app.legacy.core import predictor_cache
+  backend\ia\agent\classifiers\sentiment_classifier.py: from app.legacy.core import predictor_cache
+  backend\tests\conftest.py: from app.legacy.core import agent_settings as agent_settings_module
+  backend\tests\test_agent_api.py: from app.legacy.core import agent_cache  # noqa: E402  
+  backend\tests\test_agent_context_length.py: from app.legacy.core import agent_cache  # noqa: E402  
+  backend\tests\test_agent_flow.py: from app.legacy.core import flow_store as fs  # noqa: E402
+  backend\tests\test_agent_hf.py: from app.legacy.core import agent_cache  # noqa: E402
+  backend\tests\test_agent_hf.py: from app.legacy.core import agent_settings as agent_settings_module  # noqa: E402
+  backend\tests\test_agent_logging.py: from app.legacy.core import agent_cache  # noqa: E402  
+  backend\tests\test_agent_openrouter.py: from app.legacy.core import agent_cache  # noqa: E402
+  backend\tests\test_agent_openrouter.py: from app.legacy.core import agent_settings as agent_settings_module  # noqa: E402
+  backend\tests\test_api_ai_chat.py: from app.legacy.core import agent_cache  # noqa: E402  
+  backend\tests\test_api_explain.py: from app.legacy.core import agent_cache  # noqa: E402  
+  backend\tests\test_job_progress.py: from app.legacy.core import job_logs, trainer_runner
+  backend\tests\test_loader_local_corrections.py: from app.legacy.core import trainer_runner as _runner
+  backend\tests\test_mcp_flow.py: from app.legacy.core import flow_store as fs
+  backend\tests\test_mcp_resources_10.py: from app.legacy.core import job_logs
+  backend\tests\test_mcp_resources_10.py: from app.legacy.core import job_logs
+  backend\tests\test_model_activation.py: from app.legacy.core import model_activation, model_versioning
+  backend\tests\test_model_persistence.py: from app.legacy.core import model_versioning
+  backend\tests\test_multi_agent_resume.py: from app.legacy.core import approval_store as approval_store_module
+  backend\tests\test_multi_agent_resume.py: from app.legacy.core import approval_store as approval_store_module
+  backend\tests\test_pipeline.py: from app.legacy.core import pipeline_runner
+  backend\tests\test_preprocess.py: from app.legacy.core import trainer_runner as _runner
+  backend\tests\test_preprocess.py: from app.legacy.core import trainer_runner as _runner
+  backend\tests\test_regression_guard.py: from app.legacy.core import trainer_runner
+  backend\tests\test_run_lifecycle_contract.py: from app.legacy.core import run_store as legacy
+  backend\tests\test_run_lifecycle_contract.py: from app.legacy.core import run_store as legacy
+  backend\tests\test_secrets_redact.py: from app.legacy.core import run_store
+  backend\tests\test_system_prompt_tools.py: from app.legacy.core import agent_cache  # noqa: E402
+  backend\tests\test_trainer.py: from app.legacy.core import model_versioning as _mv
+  backend\tests\test_trainer.py: from app.legacy.core import model_versioning as _mv

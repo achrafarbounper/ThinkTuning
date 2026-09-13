@@ -21,7 +21,7 @@ AUTH = {"X-API-Key": "test-key"}
 
 
 class FakeSessionStore:
-    """Miroir du contrat HTTP de app.legacy.core.session_store.SessionStore."""
+    """Miroir du contrat HTTP de app.infrastructure.persistence.session_store.SessionStore."""
 
     def __init__(self) -> None:
         self.sessions: dict[str, dict] = {}

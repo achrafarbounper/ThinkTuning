@@ -19,13 +19,13 @@ from fastapi import HTTPException
 
 from app.api.routes import evaluate as evaluate_module
 from app.api.routes import models as models_module
+from app.domain.entities.models import ModelVersion
 from app.domain.errors import ModelNotAvailableError
 from app.domain.ports.model_versioning_ports import (
     EvaluationPort,
     ModelVersioningPort,
 )
 from app.infrastructure.legacy_errors import convert_legacy_http_error
-from app.legacy.core.models import ModelVersion
 
 # Le 503 legacy de ce domaine signifie « aucun modèle exploitable »
 # (même contrat que /predict) — override du mapping commun.

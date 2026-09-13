@@ -11,11 +11,11 @@ global — les routes v1 ne dupliquent aucun try/except.
 
 from __future__ import annotations
 
+from app.domain.entities.models import ModelVersion
 from app.domain.ports.model_versioning_ports import (
     EvaluationPort,
     ModelVersioningPort,
 )
-from app.legacy.core.models import ModelVersion
 
 
 def list_model_details(*, versioning: ModelVersioningPort) -> list[ModelVersion]:

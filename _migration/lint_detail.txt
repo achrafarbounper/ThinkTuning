@@ -1,0 +1,70 @@
+app\agent\core.py:22:101: E501 Line too long (103 > 100)
+app\agent\memory\long_term.py:4:101: E501 Line too long (102 > 100)
+app\agent\settings.py:156:101: E501 Line too long (104 > 100)
+app\api\routes\agent.py:281:101: E501 Line too long (108 > 100)
+app\api\routes\intent_train.py:10:101: E501 Line too long (103 > 100)
+app\api\routes\pipeline.py:5:101: E501 Line too long (107 > 100)
+app\api\routes\sessions.py:3:101: E501 Line too long (102 > 100)
+app\application\agent_cache.py:388:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:396:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:402:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:404:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:461:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:469:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:475:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:483:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:533:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:541:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:547:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:555:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:604:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:612:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:621:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:625:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:672:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:679:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:687:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:758:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:765:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:773:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:982:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:987:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:993:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:1025:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:1030:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_cache.py:1036:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\application\agent_settings_usecase.py:18:101: E501 Line too long (108 > 100)
+app\application\agent_settings_usecase.py:89:101: E501 Line too long (102 > 100)
+app\application\intent_trainer.py:10:101: E501 Line too long (109 > 100)
+app\application\run_lifecycle.py:13:101: E501 Line too long (104 > 100)
+app\application\session_memory.py:9:101: E501 Line too long (104 > 100)
+app\domain\entities\plan.py:56:101: E501 Line too long (108 > 100)
+app\domain\entities\run.py:40:101: E501 Line too long (109 > 100)
+app\domain\ports\ports.py:14:101: E501 Line too long (141 > 100)
+app\domain\ports\ports.py:215:101: E501 Line too long (103 > 100)
+app\domain\ports\ports.py:290:101: E501 Line too long (103 > 100)
+app\domain\ports\ports.py:327:101: E501 Line too long (114 > 100)
+app\domain\ports\prediction_ports.py:56:101: E501 Line too long (112 > 100)
+app\infrastructure\legacy_approval_store.py:1:101: E501 Line too long (101 > 100)
+app\infrastructure\legacy_approval_store.py:21:101: E501 Line too long (108 > 100)
+app\infrastructure\legacy_settings_adapter.py:24:101: E501 Line too long (108 > 100)
+app\infrastructure\mcp\mcp_audit.py:2:101: E501 Line too long (113 > 100)
+app\infrastructure\mcp\mcp_audit.py:19:101: E501 Line too long (103 > 100)
+app\infrastructure\mcp\mcp_audit.py:56:101: E501 Line too long (103 > 100)
+app\infrastructure\mcp\mcp_flow.py:5:101: E501 Line too long (102 > 100)
+app\infrastructure\mcp\mcp_flow.py:82:101: E501 Line too long (108 > 100)
+app\infrastructure\mcp\mcp_server.py:58:101: E501 Line too long (106 > 100)
+app\infrastructure\mcp\resources\resource_provider.py:589:101: E501 Line too long (102 > 100)
+app\infrastructure\mcp\security\scope_enforcer.py:19:101: E501 Line too long (105 > 100)
+app\infrastructure\persistence\annotation_store.py:48:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\infrastructure\persistence\audit_store.py:12:101: E501 Line too long (126 > 100)
+app\infrastructure\persistence\flow_store.py:12:101: E501 Line too long (126 > 100)
+app\infrastructure\persistence\intent_store.py:3:101: E501 Line too long (103 > 100)
+app\infrastructure\persistence\model_versioning.py:105:9: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\infrastructure\persistence\mongodb.py:659:101: E501 Line too long (103 > 100)
+app\infrastructure\persistence\session_store.py:10:101: E501 Line too long (126 > 100)
+app\infrastructure\persistence\session_store.py:28:1: E402 Module level import not at top of file
+app\infrastructure\system_status_adapter.py:3:101: E501 Line too long (102 > 100)
+Found 67 errors.
+
+rc = 1

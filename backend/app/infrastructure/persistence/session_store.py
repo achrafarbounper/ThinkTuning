@@ -7,7 +7,8 @@ chaque session porte un titre (auto-dérivé du premier message utilisateur),
 un modèle LLM et une liste ordonnée de messages (rôle, contenu, appels
 d'outils éventuels en JSON pour le mode Agent).
 
-Mêmes conventions que ``app/legacy/core/approval_store.py`` / ``app/legacy/core/run_store.py`` :
+Mêmes conventions que ``app/infrastructure/persistence/approval_store.py`` /
+``app/infrastructure/persistence/run_store.py`` :
 base SQLite dédiée (experiments/agent_sessions.db, surchargeable via
 AGENT_SESSION_PATH) et store thread-safe.
 """
@@ -18,7 +19,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ _SELECT_MESSAGE = "id, session_id, role, content, thinking, tool_calls_json, cre
 
 def _utcnow_iso() -> str:
     """Horodatage ISO 8601 UTC (millisecondes) — stable, triable."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 class SessionStore:
@@ -89,19 +90,14 @@ class SessionStore:
         # n'est exécuté que si la colonne manque, les appels suivants sont
         # sans effet.
         columns = {
-            row[1]
-            for row in conn.execute(
-                "PRAGMA table_info(agent_session_messages)"
-            ).fetchall()
+            row[1] for row in conn.execute("PRAGMA table_info(agent_session_messages)").fetchall()
         }
         if "thinking" not in columns:
             conn.execute(
-                "ALTER TABLE agent_session_messages "
-                "ADD COLUMN thinking TEXT NOT NULL DEFAULT ''"
+                "ALTER TABLE agent_session_messages ADD COLUMN thinking TEXT NOT NULL DEFAULT ''"
             )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_messages ON "
-            "agent_session_messages(session_id)"
+            "CREATE INDEX IF NOT EXISTS idx_session_messages ON agent_session_messages(session_id)"
         )
         conn.commit()
         conn.close()
@@ -110,7 +106,7 @@ class SessionStore:
     def _session_row(row):
         if row is None:
             return None
-        data = dict(zip(("id", "title", "model", "created_at", "updated_at"), row))
+        data = dict(zip(("id", "title", "model", "created_at", "updated_at"), row, strict=False))
         # Réparation des doublons d'encodage éventuels persistés avant la
         # correction de la cause racine (voir ia/agent/encoding.py).
         data["title"] = repair_utf8_mojibake(data.get("title") or "")
@@ -120,11 +116,23 @@ class SessionStore:
     def _message_row(row):
         if row is None:
             return None
-        data = dict(zip(("id", "session_id", "role", "content", "thinking",
-                         "tool_calls_json", "created_at"), row))
+        data = dict(
+            zip(
+                (
+                    "id",
+                    "session_id",
+                    "role",
+                    "content",
+                    "thinking",
+                    "tool_calls_json",
+                    "created_at",
+                ),
+                row, strict=False,
+            )
+        )
         # P2 lot 16 : déchiffrement transparent au repos (préfixe ``enc:`` si
         # STORE_ENCRYPTION_KEY est posée — valeurs legacy en clair inchangées).
-        from app.legacy.core.store_crypto import decrypt_text
+        from app.infrastructure.persistence.store_crypto import decrypt_text
 
         data["content"] = repair_utf8_mojibake(decrypt_text(data.get("content") or ""))
         data["thinking"] = repair_utf8_mojibake(decrypt_text(data.get("thinking") or ""))
@@ -242,7 +250,7 @@ class SessionStore:
             raise ValueError(f"Rôle inconnu : '{role}'. Attendus : {', '.join(_ROLES)}")
         payload = json.dumps(tool_calls or [], ensure_ascii=False)
         # P2 lot 16 : chiffrement au repos (content/thinking/tool_calls).
-        from app.legacy.core.store_crypto import encrypt_text
+        from app.infrastructure.persistence.store_crypto import encrypt_text
 
         stored_content = encrypt_text(content or "")
         stored_thinking = encrypt_text(thinking or "")
@@ -261,8 +269,14 @@ class SessionStore:
                         "INSERT INTO agent_session_messages (session_id, role,"
                         " content, thinking, tool_calls_json, created_at)"
                         " VALUES (?, ?, ?, ?, ?, ?)",
-                        (str(session_id), role, stored_content, stored_thinking,
-                         stored_payload, now),
+                        (
+                            str(session_id),
+                            role,
+                            stored_content,
+                            stored_thinking,
+                            stored_payload,
+                            now,
+                        ),
                     )
                     conn.execute(
                         "UPDATE agent_sessions SET updated_at = ? WHERE id = ?",
@@ -286,8 +300,7 @@ class SessionStore:
                                 (title, str(session_id)),
                             )
                 row = conn.execute(
-                    f"SELECT {_SELECT_MESSAGE} FROM agent_session_messages"
-                    " ORDER BY id DESC LIMIT 1"
+                    f"SELECT {_SELECT_MESSAGE} FROM agent_session_messages ORDER BY id DESC LIMIT 1"
                 ).fetchone()
             finally:
                 conn.close()
@@ -368,9 +381,7 @@ class SessionStore:
             conn = self._connect()
             try:
                 self._ensure_memory_table(conn)
-                conn.execute(
-                    "DELETE FROM agent_memory WHERE key = ?", (str(key),)
-                )
+                conn.execute("DELETE FROM agent_memory WHERE key = ?", (str(key),))
                 conn.commit()
             finally:
                 conn.close()
@@ -385,7 +396,7 @@ class SessionStore:
         """
         from datetime import timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(max_age_days)))
+        cutoff = datetime.now(UTC) - timedelta(days=max(1, int(max_age_days)))
         cutoff_iso = cutoff.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         with self._lock:
             conn = self._connect()
@@ -427,6 +438,7 @@ class SessionStore:
 
 _store: SessionStore | None = None
 _store_lock = threading.Lock()
+
 
 def get_session_store() -> SessionStore:
     """Store partagé de l'application (instance unique paresseuse)."""

@@ -37,14 +37,46 @@ MIN_ACCURACY = 0.5
 # ambiguïté. Toute confusion systématique est un signal de modèle cassé.
 # ---------------------------------------------------------------------------
 SANITY_PHRASES = [
-    {"text": "Ce produit est absolument fantastique, je suis très satisfait !", "lang": "fr", "expected": "positive"},
-    {"text": "Service client déplorable, je suis extrêmement déçu.", "lang": "fr", "expected": "negative"},
-    {"text": "Quelle expérience merveilleuse, tout était parfait, merci beaucoup !", "lang": "fr", "expected": "positive"},
-    {"text": "Qualité catastrophique, une vraie perte de temps et d'argent.", "lang": "fr", "expected": "negative"},
-    {"text": "Absolutely fantastic experience, I love it, best purchase ever!", "lang": "en", "expected": "positive"},
-    {"text": "Terrible quality, complete waste of money. I hate it.", "lang": "en", "expected": "negative"},
-    {"text": "The team was amazing and the food was delicious, highly recommended.", "lang": "en", "expected": "positive"},
-    {"text": "Awful support, the app keeps crashing and nobody helps. Very angry.", "lang": "en", "expected": "negative"},
+    {
+        "text": "Ce produit est absolument fantastique, je suis très satisfait !",
+        "lang": "fr",
+        "expected": "positive",
+    },
+    {
+        "text": "Service client déplorable, je suis extrêmement déçu.",
+        "lang": "fr",
+        "expected": "negative",
+    },
+    {
+        "text": "Quelle expérience merveilleuse, tout était parfait, merci beaucoup !",
+        "lang": "fr",
+        "expected": "positive",
+    },
+    {
+        "text": "Qualité catastrophique, une vraie perte de temps et d'argent.",
+        "lang": "fr",
+        "expected": "negative",
+    },
+    {
+        "text": "Absolutely fantastic experience, I love it, best purchase ever!",
+        "lang": "en",
+        "expected": "positive",
+    },
+    {
+        "text": "Terrible quality, complete waste of money. I hate it.",
+        "lang": "en",
+        "expected": "negative",
+    },
+    {
+        "text": "The team was amazing and the food was delicious, highly recommended.",
+        "lang": "en",
+        "expected": "positive",
+    },
+    {
+        "text": "Awful support, the app keeps crashing and nobody helps. Very angry.",
+        "lang": "en",
+        "expected": "negative",
+    },
 ]
 
 
@@ -78,7 +110,7 @@ def _is_head_trained(predictor) -> bool | None:
     if not model_dir or not os.path.isdir(model_dir):
         return None
     try:
-        from app.legacy.core.model_head_check import is_model_version_trained
+        from app.infrastructure.persistence.model_head_check import is_model_version_trained
 
         return is_model_version_trained(model_dir)
     except Exception:
@@ -104,15 +136,17 @@ def run_model_sanity(predictor, min_confidence: float | None = None) -> dict:
     preds = predictor.predict(texts)
 
     results = []
-    for phrase, pred in zip(SANITY_PHRASES, preds):
-        results.append({
-            "text": phrase["text"],
-            "lang": phrase["lang"],
-            "expected": phrase["expected"],
-            "predicted": pred["sentiment"],
-            "confidence": float(pred["confidence"]),
-            "correct": pred["sentiment"] == phrase["expected"],
-        })
+    for phrase, pred in zip(SANITY_PHRASES, preds, strict=False):
+        results.append(
+            {
+                "text": phrase["text"],
+                "lang": phrase["lang"],
+                "expected": phrase["expected"],
+                "predicted": pred["sentiment"],
+                "confidence": float(pred["confidence"]),
+                "correct": pred["sentiment"] == phrase["expected"],
+            }
+        )
 
     n = len(results)
     n_correct = sum(1 for r in results if r["correct"])
@@ -151,8 +185,7 @@ def run_model_sanity(predictor, min_confidence: float | None = None) -> dict:
             )
         if accuracy < MIN_ACCURACY:
             reasons.append(
-                f"précision {accuracy:.0%} < {MIN_ACCURACY:.0%} sur les "
-                f"{n} phrases de référence"
+                f"précision {accuracy:.0%} < {MIN_ACCURACY:.0%} sur les {n} phrases de référence"
             )
         return {
             "status": "unhealthy",
@@ -179,4 +212,3 @@ def run_model_sanity(predictor, min_confidence: float | None = None) -> dict:
         "accuracy": accuracy,
         "results": results,
     }
-

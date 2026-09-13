@@ -20,7 +20,6 @@ import logging
 import threading
 import time
 from collections import deque
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +31,13 @@ CAPTURE_LEVEL = logging.INFO
 
 _lock = threading.Lock()
 # job_id -> deque de {"seq", "ts", "level", "step", "message"}
-_buffers: Dict[str, deque] = {}
+_buffers: dict[str, deque] = {}
 # job_id -> dernier seq attribué
-_sequences: Dict[str, int] = {}
+_sequences: dict[str, int] = {}
 # threading.get_ident() -> job_id (un job = un thread daemon dédié)
-_thread_jobs: Dict[int, str] = {}
+_thread_jobs: dict[int, str] = {}
 # threading.get_ident() -> étape courante du pipeline pour ce job
-_thread_steps: Dict[int, Optional[str]] = {}
+_thread_steps: dict[int, str | None] = {}
 
 
 class JobLogHandler(logging.Handler):
@@ -58,7 +57,7 @@ class JobLogHandler(logging.Handler):
         _append(job_id, message, level=record.levelname, step=step)
 
 
-_handler: Optional[JobLogHandler] = None
+_handler: JobLogHandler | None = None
 
 
 def ensure_job_log_handler() -> None:
@@ -94,7 +93,7 @@ def attach_job_logging(job_id: str) -> None:
         _sequences.setdefault(job_id, 0)
 
 
-def set_job_log_step(step: Optional[str]) -> None:
+def set_job_log_step(step: str | None) -> None:
     """Met à jour l'étape courante du pipeline pour le job du thread courant.
 
     Les lignes émises après cet appel seront taguées avec cette étape.
@@ -113,7 +112,7 @@ def detach_job_logging() -> None:
         _thread_steps.pop(ident, None)
 
 
-def _append(job_id: str, message: str, level: str, step: Optional[str]) -> None:
+def _append(job_id: str, message: str, level: str, step: str | None) -> None:
     with _lock:
         buf = _buffers.get(job_id)
         if buf is None:
@@ -131,7 +130,7 @@ def _append(job_id: str, message: str, level: str, step: Optional[str]) -> None:
         )
 
 
-def get_logs(job_id: str, since_seq: int = 0) -> List[dict]:
+def get_logs(job_id: str, since_seq: int = 0) -> list[dict]:
     """Renvoie les lignes de log du job avec ``seq > since_seq``, triées.
 
     Rejeu à la connexion du WebSocket : ``since_seq=0`` renvoie tout l'historique.

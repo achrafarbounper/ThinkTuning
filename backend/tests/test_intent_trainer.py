@@ -1,4 +1,4 @@
-"""Tests des helpers purs de ``app.legacy.core.intent_trainer`` (INTENT_TRAINING.md §13).
+"""Tests des helpers purs de ``app.application.intent_trainer`` (INTENT_TRAINING.md §13).
 
 Checklist #1 — diagnostic classification_report chat↔action :
 les confusions ``chat ↔ action`` (invisibles avec l'accuracy seule) pendant
@@ -7,7 +7,7 @@ l'entraînement :
   - ``_intent_classification_report`` : rapport sklearn (précision/rappel/F1
     par classe + macro), matrice de confusion et F1 macro / F1 par classe ;
   - ``_format_intent_report`` : mise en forme logs lisible (parité CLI/API,
-    le bloc est capturé par ``app.legacy.core.job_logs`` → ``/train/stream``).
+    le bloc est capturé par ``app.application.job_logs`` → ``/train/stream``).
 
 Checklist #2 — split train/val stratifié :
   - ``_split_records`` : ``train_test_split(stratify=labels)`` → répartition
@@ -42,7 +42,7 @@ from collections import Counter
 
 import pytest
 
-from app.legacy.core.intent_trainer import (
+from app.application.intent_trainer import (
     EARLY_STOPPING_PATIENCE,
     _best_checkpoint_training_args,
     _format_intent_report,
@@ -174,7 +174,7 @@ class TestSplitRecords:
         # sklearn) → repli shuffle documenté, l'entraînement ne plante pas.
         records = [{"text": f"x{i}", "label": "chat"} for i in range(19)]
         records.append({"text": "phrase rare", "label": "rare"})
-        with caplog.at_level(logging.WARNING, logger="app.legacy.core.intent_trainer"):
+        with caplog.at_level(logging.WARNING, logger="app.application.intent_trainer"):
             train, val = _split_records(records, 0.1)
         assert len(train) + len(val) == len(records)
         assert val

@@ -1,6 +1,7 @@
 # project/app/api/routes/sessions.py
 
-"""CRUD des conversations persistées de l'assistant (app/legacy/core/session_store.py).
+"""CRUD des conversations persistées de l'assistant
+(app/infrastructure/persistence/session_store.py).
 
     GET    /api/sessions                 liste (les plus actives d'abord)
     POST   /api/sessions                 création {title?, model?}
@@ -16,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.dependencies.auth import require_api_key
-from app.legacy.core.session_store import get_session_store
+from app.infrastructure.persistence.session_store import get_session_store
 
 router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
 

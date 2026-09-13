@@ -4,7 +4,7 @@ Aligné sur l'existant du dépôt :
 
   - ``src/inference/predictor.py`` : contrat ``predict(list[str]) -> list[dict]``
     avec les clés standardisées ``text`` / ``sentiment`` / ``confidence`` ;
-  - ``app/legacy/core/predictor_cache.py`` : cache des *instances* de modèles (LRU).
+  - ``app/application/predictor_cache.py`` : cache des *instances* de modèles (LRU).
 
 Ce module ne réinvente pas l'inférence : il normalise le contrat entre les
 routes API, l'agent et le monitoring. Chaque classifieur concret (sentiment,

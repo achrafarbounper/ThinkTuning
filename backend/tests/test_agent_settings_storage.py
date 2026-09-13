@@ -21,8 +21,8 @@ bout forcent ``PERSISTENCE_BACKEND=sqlite`` avec un store isolé par test.
 
 from __future__ import annotations
 
-import app.legacy.core.agent_cache as agent_cache
-import app.legacy.core.agent_settings as settings_store
+import app.application.agent_cache as agent_cache
+import app.infrastructure.persistence.agent_settings as settings_store
 from app.infrastructure.persistence.mongodb import _decode_settings_value
 
 # --- Décodage Mongo (helper pur, aucun I/O) --------------------------------

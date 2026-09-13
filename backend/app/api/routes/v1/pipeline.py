@@ -3,7 +3,7 @@
 """Pipeline end-to-end versionné (strangler — Phase 3d-5).
 
 Même mécanique que le noyau training 3d-1 : délégation aux handlers legacy,
-modèles Pydantic partagés (``app.legacy.core.models`` — zéro dérive de DTO), auth
+modèles Pydantic partagés (``app.domain.entities.models`` — zéro dérive de DTO), auth
 X-API-Key OU Bearer JWT (status/jobs en lecture, start/cancel en action).
 """
 
@@ -13,8 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
 from app.api.routes import pipeline as legacy
+from app.domain.entities.models import JobListResponse, JobStatus, PipelineRequest, TrainJob
 from app.infrastructure.legacy_errors import convert_legacy_http_error
-from app.legacy.core.models import JobListResponse, JobStatus, PipelineRequest, TrainJob
 
 router = APIRouter(prefix="/pipeline", tags=["Pipeline (v1)"])
 

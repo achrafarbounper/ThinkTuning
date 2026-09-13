@@ -19,8 +19,8 @@ import sys
 import threading
 import time
 
-from app.legacy.core.models import PipelineRequest, TrainJob, JobStatus
-from app.legacy.core.job_store import get_job_store
+from app.domain.entities.models import JobStatus, PipelineRequest, TrainJob
+from app.infrastructure.persistence.job_store import get_job_store
 
 logger = logging.getLogger(__name__)
 
@@ -69,14 +69,17 @@ def run_labeling(params: PipelineRequest, labeled_output: str):
     ``min_confidence`` avant l'export JSONL Alpaca. Retourne la liste des
     records conservés (écrits dans ``labeled_output``).
     """
-    from app.legacy.core.model_versioning import resolve_model_path
+    from app.infrastructure.persistence.model_versioning import resolve_model_path
     from label_dataset import label_dataset
 
     model_dir = resolve_model_path(params.model_path)
     logger.info(
         "Labeling : input=%s output=%s model=%s min_confidence=%s batch_size=%s",
-        params.input_path, labeled_output, model_dir,
-        params.min_confidence, params.label_batch_size,
+        params.input_path,
+        labeled_output,
+        model_dir,
+        params.min_confidence,
+        params.label_batch_size,
     )
     records = label_dataset(
         input_path=params.input_path,
@@ -98,8 +101,10 @@ def build_finetune_cmd(params: PipelineRequest, train_file: str, output_dir: str
     cmd = [
         sys.executable,
         os.path.join(PROJECT_ROOT, "finetune_llm.py"),
-        "--train_file", train_file,
-        "--output_dir", output_dir,
+        "--train_file",
+        train_file,
+        "--output_dir",
+        output_dir,
     ]
     optional = {
         "--base_model": params.base_model,
@@ -159,11 +164,10 @@ def run_finetune(cmd, cancel_event: threading.Event | None = None, cwd: str = PR
         tail = "\n".join(output.splitlines()[-20:]) if output else ""
         logger.error(
             "finetune_llm.py a échoué (code %s) :\n%s",
-            ret, tail,
+            ret,
+            tail,
         )
-        raise RuntimeError(
-            f"finetune_llm.py a échoué (code {ret}).\n{tail}".rstrip()
-        )
+        raise RuntimeError(f"finetune_llm.py a échoué (code {ret}).\n{tail}".rstrip())
     if output:
         logger.debug("Sortie finetune_llm.py :\n%s", output)
     else:
@@ -209,9 +213,9 @@ def run_pipeline(job_id: str, req: PipelineRequest):
         # Garde-fou : inutile de lancer un fine-tuning sur un dataset vide.
         if not records:
             logger.warning(
-                "Pipeline %s — dataset vide après filtrage confidence %s : "
-                "finetuning non lancé",
-                job_id, req.min_confidence,
+                "Pipeline %s — dataset vide après filtrage confidence %s : finetuning non lancé",
+                job_id,
+                req.min_confidence,
             )
             raise RuntimeError(
                 "Aucun record au-dessus du seuil de confidence "

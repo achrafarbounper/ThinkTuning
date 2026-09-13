@@ -6,5 +6,5 @@ import os
 # package api afin que les modules bas niveau (src.*, core.*) puissent les lire
 # sans importer l'application FastAPI — ce qui provoquait des imports circulaires :
 #   predictor -> api -> app.api.main -> app.api.routes.predict
-#   -> app.legacy.core.predictor_cache -> predictor (module partiellement initialisé)
+#   -> app.application.predictor_cache -> predictor (module partiellement initialisé)
 TEST_MODE = os.getenv("TEST_MODE", "0") == "1"

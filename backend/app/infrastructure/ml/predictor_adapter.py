@@ -1,4 +1,4 @@
-"""Adaptateur : cache de prédicteurs legacy (app.legacy.core.predictor_cache) -> PredictionPort.
+"""Adaptateur : cache de prédicteurs legacy (app.application.predictor_cache) -> PredictionPort.
 
 Premier adaptateur du flux critique ML (prédiction + santé). AUCUNE logique
 métier nouvelle : il délègue au legacy, normalise les types (dicts -> value
@@ -10,10 +10,10 @@ Frontière anti-corruption : le booléen ``ok`` d'un ``SanityReport`` est
 calculé ICI par comparaison avec ``core.model_sanity.VERDICT_OK`` — le
 domaine ne connaît pas le vocabulaire legacy des verdicts.
 
-Les imports passent par l'identité de module (``from app.legacy.core import ...``) et
+Les imports passent par l'identité de module (``from app.application import ...``) et
 les appels par attribut (``_cache.get_predictor(...)``) : les tests qui
-monkeypatchent ``app.legacy.core.predictor_cache.get_predictor`` ou
-``app.legacy.core.model_sanity.run_model_sanity`` continuent de fonctionner.
+monkeypatchent ``app.application.predictor_cache.get_predictor`` ou
+``app.application.model_sanity.run_model_sanity`` continuent de fonctionner.
 """
 
 from __future__ import annotations
@@ -23,6 +23,11 @@ import os
 
 from fastapi import HTTPException
 
+# Legacy : imports par identité de PAQUET réel, appels par attribut de MODULE
+# (cf. app/infrastructure/legacy_registry.py) — les monkeypatchs des tests sur
+# app.application.predictor_cache.* / app.application.model_sanity.* restent donc effectifs.
+from app.application import model_sanity as _legacy_sanity
+from app.application import predictor_cache as _legacy_cache
 from app.domain.entities.prediction import (
     PredictionResult,
     SanityCaseResult,
@@ -30,12 +35,6 @@ from app.domain.entities.prediction import (
 )
 from app.domain.errors import ModelNotAvailableError
 from app.domain.ports.prediction_ports import PredictionPort
-
-# Legacy : imports par identité de PAQUET réel, appels par attribut de MODULE
-# (cf. app/infrastructure/legacy_registry.py) — les monkeypatchs des tests sur
-# app.legacy.core.predictor_cache.* / app.legacy.core.model_sanity.* restent donc effectifs.
-from app.legacy.core import model_sanity as _legacy_sanity
-from app.legacy.core import predictor_cache as _legacy_cache
 
 logger = logging.getLogger(__name__)
 

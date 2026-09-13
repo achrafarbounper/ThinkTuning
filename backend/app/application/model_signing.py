@@ -21,7 +21,7 @@ Garanties :
       altéré (poids modifiés, fichier injecté ou supprimé) est REFUSÉ
       (``ModelSignatureError``) — fail-closed si le manifeste existe ;
     - ``write_signature_manifest(model_dir)`` est appelé après la publication
-      d'une version (``app/legacy/core/model_versioning._save_trained_model``) ;
+      d'une version (``app/infrastructure/persistence/model_versioning._save_trained_model``) ;
     - vérification déterministe et hors-ligne (aucun appel réseau) ;
     - ``trust_remote_code=False`` est appliqué systématiquement aux appels
       ``from_pretrained`` (interdiction d'exécuter du code téléchargé).
@@ -58,6 +58,8 @@ def sha256_file(path: Path) -> str:
         while chunk := fh.read(_CHUNK):
             digest.update(chunk)
     return digest.hexdigest()
+
+
 def _payload_files(model_dir: Path) -> list[Path]:
     """Fichiers signés : tout fichier EXCEPTÉ le manifeste lui-même et les
     temporaires (``*.tmp``, dossiers ``.tmp``)."""
@@ -88,9 +90,7 @@ def write_signature_manifest(model_dir: str | Path) -> str:
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    logger.info(
-        "Manifeste de signature écrit : %s (%d fichier(s))", manifest_path, len(files)
-    )
+    logger.info("Manifeste de signature écrit : %s (%d fichier(s))", manifest_path, len(files))
     return manifest_path.as_posix()
 
 

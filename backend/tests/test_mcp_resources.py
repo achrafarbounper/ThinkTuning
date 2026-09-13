@@ -27,7 +27,7 @@ Deux niveaux : UNITAIRES (callables fakes injectés — aucune I/O) et
 INTÉGRATION (tools legacy RÉELS dans une sandbox temporaire
 ``AGENT_SANDBOX_ROOT`` : jobs.db en lecture seule, dataset CSV, évasion de
 chemin bloquée). Aucun appel réseau ; ``thinktuning://config`` n'est JAMAIS
-lu avec l'implémentation réelle (``app.legacy.core.agent_cache`` écrirait une base — les
+lu avec l'implémentation réelle (``app.application.agent_cache`` écrirait une base — les
 fakes couvrent la route et le masquage).
 """
 

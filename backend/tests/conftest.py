@@ -1,7 +1,7 @@
 """Fixtures globales des tests backend.
 
 Isolation du store de paramètres de l'agent (module de configuration IHM,
-``app/legacy/core/agent_settings.py``) : chaque test part d'une base vide (SQLite
+``app/infrastructure/persistence/agent_settings.py``) : chaque test part d'une base vide (SQLite
 temporaire, backend ``sqlite`` forcé) — les tests qui vérifient une valeur
 POSÉE en base passent leur propre store isolé. Sans cette isolation, un
 ``experiments/agent_settings.db`` de développement (ou un
@@ -45,7 +45,7 @@ def _isolated_agent_settings_store(monkeypatch, tmp_path):
     suite. Le chemin du store est restauré en sortie (les tests de module qui
     repointent eux-mêmes ``reset_store_for_tests`` restent indépendants).
     """
-    from app.legacy.core import agent_settings as agent_settings_module
+    from app.infrastructure.persistence import agent_settings as agent_settings_module
 
     monkeypatch.setenv("PERSISTENCE_BACKEND", "mongodb")
     monkeypatch.setenv("MONGODB_MOCK", "1")

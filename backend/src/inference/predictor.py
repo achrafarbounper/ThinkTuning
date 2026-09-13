@@ -78,7 +78,7 @@ def _resolve_model_dir(model_path: str) -> str:
             # dont la tête de classification est réellement entraînée (et dont les
             # poids sont non vides) — plutôt que le premier dossier avec un
             # ``config.json``, qui peut cacher une tête aléatoire.
-            from app.legacy.core.model_head_check import is_model_version_trained
+            from app.infrastructure.persistence.model_head_check import is_model_version_trained
 
             trained_candidates = []
             fallback_candidates = []
@@ -108,7 +108,7 @@ def _check_head_trained(model):
     silencieux avec un modèle inexploitable (qui renverrait du `neutral`
     universel, softmax ≈ uniforme)."""
     try:
-        from app.legacy.core.model_head_check import _classifier_std, _load_head_state
+        from app.infrastructure.persistence.model_head_check import _classifier_std, _load_head_state
         import tempfile, os as _os
 
         # On sauvegarde temporairement pour réutiliser le check basé sur fichiers.
@@ -123,7 +123,7 @@ def _check_head_trained(model):
             std = _classifier_std(state)
             import logging as _logging
 
-            from app.legacy.core.model_head_check import HEAD_CLASSIFIER_MIN_STD
+            from app.infrastructure.persistence.model_head_check import HEAD_CLASSIFIER_MIN_STD
 
             _logger = _logging.getLogger(__name__)
             # Un classifier HF initialisé via normal(0, 0.02) garde un
@@ -182,7 +182,7 @@ class Predictor:
         # modèle altéré/injecté est refusé — fail-closed si manifeste présent,
         # warning sinon, blocage si MODEL_SIGNING_REQUIRED=1).
         if not TEST_MODE:
-            from app.legacy.core.model_signing import verify_model_signature
+            from app.application.model_signing import verify_model_signature
 
             verify_model_signature(resolved_model_path)
         # MODE TEST : TinyModel + TinyTokenizer (toujours sur CPU).

@@ -8,7 +8,7 @@ Ce module est la SOURCE DE VÉRITÉ des clients MCP inscrits. Il stocke :
 - les métriques d'usage (call_count, error_count, scope_usage JSON)
 
 Conventions :
-- thread-safe (RLock comme app/legacy/core/session_store.py)
+- thread-safe (RLock comme app/infrastructure/persistence/session_store.py)
 - base SQLite dédiée, surchargeable via MCP_CLIENT_STORE_PATH
 - secrets : hash SHA-256 (pas bcrypt ici — le domaine ne gère pas le crypto,
   l'infrastructure fait le hash/salt à l'entrée ; ce store reste simple pour S4)
@@ -40,6 +40,7 @@ def _utcnow_iso() -> str:
 # DOMAIN ERRORS (légers, sans dépendance au domaine pour ce store)
 # ============================================================================
 
+
 class MCPClientStoreError(Exception):
     """Erreur de stockage du registre MCP."""
 
@@ -67,6 +68,7 @@ class MCPClientRevokedError(MCPClientStoreError):
 # ============================================================================
 # DOMAIN MODEL — représentation interne d'un client MCP (non exposé au domaine)
 # ============================================================================
+
 
 class _MCPClientRecord:
     """Ligne du registre — utilisé en interne pour l'accès SQLite.
@@ -109,9 +111,7 @@ class _MCPClientRecord:
         self.updated_at = row["updated_at"] if "updated_at" in cols else ""
         self.revoked = bool(row["revoked"])
         self.revoked_at = row["revoked_at"] if "revoked_at" in cols else None
-        self.revoked_reason = (
-            row["revoked_reason"] if "revoked_reason" in cols else ""
-        ) or ""
+        self.revoked_reason = (row["revoked_reason"] if "revoked_reason" in cols else "") or ""
 
     @property
     def scope(self) -> MCPSecurityScope:
@@ -149,6 +149,7 @@ class _MCPClientRecord:
 # ============================================================================
 # MCP CLIENT STORE — registre thread-safe SQLite
 # ============================================================================
+
 
 class MCPClientStore:
     """Registre des clients MCP avec révocation et métriques (SQLite thread-safe).
@@ -274,9 +275,7 @@ class MCPClientStore:
                     (client_id,),
                 ).fetchone()
                 if row is not None:
-                    raise MCPClientAlreadyExistsError(
-                        f"Le client '{client_id}' existe déjà."
-                    )
+                    raise MCPClientAlreadyExistsError(f"Le client '{client_id}' existe déjà.")
 
                 scope_json = self._scope_to_json(scope)
                 secret_hash = self._hash_secret(secret)
@@ -346,9 +345,7 @@ class MCPClientStore:
                     (client_id,),
                 ).fetchone()
                 if row is None:
-                    raise MCPClientNotFoundError(
-                        f"Le client '{client_id}' est introuvable."
-                    )
+                    raise MCPClientNotFoundError(f"Le client '{client_id}' est introuvable.")
 
                 record = _MCPClientRecord(row)
                 if record.revoked:
@@ -445,16 +442,12 @@ class MCPClientStore:
                     (client_id,),
                 ).fetchone()
                 if row is None:
-                    raise MCPClientNotFoundError(
-                        f"Le client '{client_id}' est introuvable."
-                    )
+                    raise MCPClientNotFoundError(f"Le client '{client_id}' est introuvable.")
 
                 record = _MCPClientRecord(row)
                 call_count = record.call_count
                 error_count = record.error_count
-                error_rate = (
-                    error_count / call_count if call_count > 0 else 0.0
-                )
+                error_rate = error_count / call_count if call_count > 0 else 0.0
                 return {
                     "client_id": client_id,
                     "call_count": call_count,
@@ -497,15 +490,12 @@ class MCPClientStore:
                     (client_id,),
                 ).fetchone()
                 if row is None:
-                    raise MCPClientNotFoundError(
-                        f"Le client '{client_id}' est introuvable."
-                    )
+                    raise MCPClientNotFoundError(f"Le client '{client_id}' est introuvable.")
 
                 record = _MCPClientRecord(row)
                 if record.revoked:
                     raise MCPClientRevokedError(
-                        f"Le client '{client_id}' est révoqué "
-                        f"(motif : {record.revoked_reason})."
+                        f"Le client '{client_id}' est révoqué (motif : {record.revoked_reason})."
                     )
 
                 scope_usage = record.scope_usage
@@ -551,14 +541,11 @@ class MCPClientStore:
                     (client_id,),
                 ).fetchone()
                 if row is None:
-                    raise MCPClientNotFoundError(
-                        f"Le client '{client_id}' est introuvable."
-                    )
+                    raise MCPClientNotFoundError(f"Le client '{client_id}' est introuvable.")
                 record = _MCPClientRecord(row)
                 if record.revoked:
                     raise MCPClientRevokedError(
-                        f"Le client '{client_id}' est révoqué "
-                        f"(motif : {record.revoked_reason})."
+                        f"Le client '{client_id}' est révoqué (motif : {record.revoked_reason})."
                     )
                 return record.scope
             finally:
@@ -629,9 +616,7 @@ class MCPClientStore:
         with self._lock:
             conn = self._connect()
             try:
-                row = conn.execute(
-                    "SELECT COUNT(*) AS cnt FROM mcp_clients"
-                ).fetchone()
+                row = conn.execute("SELECT COUNT(*) AS cnt FROM mcp_clients").fetchone()
                 return row["cnt"]
             finally:
                 conn.close()
@@ -672,7 +657,7 @@ _client_store_singleton_lock = threading.Lock()
 # fois puis réutilisé — même sémantique que le singleton SQLite (_client_store_singleton).
 # Annoté avec le type de retour du getter (la classe ``MongoMCPClientStore`` n'est
 # importable qu'en lazy : import de module circulaire).
-_mongo_client_store_singleton: "MCPClientStore | None" = None
+_mongo_client_store_singleton: MCPClientStore | None = None
 
 
 def get_mcp_client_store() -> MCPClientStore:
