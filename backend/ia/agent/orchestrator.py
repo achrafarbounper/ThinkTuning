@@ -1116,7 +1116,7 @@ class MultiAgentCoordinator:
     def _approval_row(request_id: str) -> Optional[Dict[str, Any]]:
         """Charge une demande d'approbation (store legacy partagé, import lazy)."""
         try:
-            from core.approval_store import get_approval_store  # import local
+            from app.legacy.core.approval_store import get_approval_store  # import local
             return get_approval_store().get(request_id)
         except Exception:  # pragma: no cover - store indisponible : refuse la reprise
             return None

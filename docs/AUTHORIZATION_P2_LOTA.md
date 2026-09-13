@@ -1,5 +1,9 @@
 # Autorisation agentique — P2 Lot A (PDP Casbin embarquée)
 
+> **Statut (septembre 2026)** — Fonctionnalité optionnelle : Casbin est embarqué
+> et désactivé par défaut (`AGENT_SECURITY_AUTHZ_CASBIN`). Le reste du document
+> décrit l'implémentation et ses limites, pas un service Casbin distant.
+
 Ce document décrit la **refonte de l'autorisation métier des outils
 agentiques** (Lot A du plan P2 « Auth moderne »). Il est livré indépendamment
 de l'authentification (Lot B) et des secrets (Lot C) : le lot A ne change

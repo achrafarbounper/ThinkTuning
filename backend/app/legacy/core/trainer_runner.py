@@ -4,10 +4,10 @@ import time
 import threading
 import logging
 
-from core.models import TrainJob, JobStatus, TRAIN_JOB_STEPS
-from core.job_store import get_job_store
-from core import job_logs
-from core.model_versioning import (
+from app.legacy.core.models import TrainJob, JobStatus, TRAIN_JOB_STEPS
+from app.legacy.core.job_store import get_job_store
+from app.legacy.core import job_logs
+from app.legacy.core.model_versioning import (
     save_model_version,
     resolve_model_dir,
     MODEL_ROOT,

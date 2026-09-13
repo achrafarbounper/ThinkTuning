@@ -74,7 +74,7 @@ class SecretSource(Protocol):
 def _audit_secret_access(name: str, source: str, ok: bool) -> None:
     """Audit d'un accès secret (la valeur n'est JAMAIS journalisée)."""
     try:
-        from core.audit_store import get_audit_store
+        from app.legacy.core.audit_store import get_audit_store
 
         get_audit_store().log(
             action=ACT_SECRET_ACCESS,

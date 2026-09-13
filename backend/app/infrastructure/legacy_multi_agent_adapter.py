@@ -1,4 +1,4 @@
-"""Adaptateur : orchestrateur multi-agents legacy (core/agent_cache.py) -> port.
+"""Adaptateur : orchestrateur multi-agents legacy (app/legacy/core/agent_cache.py) -> port.
 
 Encapsule les fonctions ``ask_multi_agent`` / ``ask_multi_agent_streaming``
 derrière ``MultiAgentOrchestratorPort`` sans aucune logique nouvelle.
@@ -12,15 +12,15 @@ from typing import Any
 from app.domain.ports import MultiAgentOrchestratorPort
 
 try:
-    from core.agent_cache import (
+    from app.legacy.core.agent_cache import (
         ask_multi_agent as _legacy_run,
     )
-    from core.agent_cache import (
+    from app.legacy.core.agent_cache import (
         ask_multi_agent_streaming as _legacy_streaming,
     )
 except ImportError as _exc:
     raise ImportError(
-        "core.agent_cache introuvable : adaptateur multi-agents inutilisable."
+        "app.legacy.core.agent_cache introuvable : adaptateur multi-agents inutilisable."
     ) from _exc
 
 

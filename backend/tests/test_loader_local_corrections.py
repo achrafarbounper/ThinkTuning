@@ -2,7 +2,7 @@
 Tests du chargement des corrections locales dans le pipeline d'entraînement
 (SCRUM-57) : load_local_corrections / load_raw_dataset(local_corrections_path=...),
 rétrocompatibilité sans le paramètre, erreurs explicites sur fichier manquant
-ou mal formé, et propagation depuis TrainRequest via core.trainer_runner.
+ou mal formé, et propagation depuis TrainRequest via app.legacy.core.trainer_runner.
 
 Le hub Hugging Face est stubé (patch de src.dataset.loader.load_dataset) pour
 que les tests restent offline et déterministes — même approche que
@@ -228,7 +228,7 @@ def test_load_raw_dataset_with_empty_corrections_file_keeps_base(tmp_path, patch
 # ------------------------------------------------------------------ #
 def test_run_training_propagates_local_corrections_to_loader():
     from app.api import JobStatus, TrainJob, TrainRequest, _jobs
-    from core import trainer_runner as _runner
+    from app.legacy.core import trainer_runner as _runner
 
     raw = Dataset.from_dict({
         "text": ["Bonjour", "Hello", "Très bien", "Good"],

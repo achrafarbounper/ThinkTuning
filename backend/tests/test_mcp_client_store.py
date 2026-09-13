@@ -18,7 +18,7 @@ from datetime import datetime
 import pytest
 
 from app.domain.ports.mcp_ports import MCPSecurityScope
-from core.mcp_client_store import (
+from app.legacy.core.mcp_client_store import (
     MCPClientAlreadyExistsError,
     MCPClientNotFoundError,
     MCPClientRevokedError,

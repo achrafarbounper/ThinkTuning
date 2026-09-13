@@ -9,7 +9,7 @@ Chaque invocation de ``POST /api/agent/multi/ask/stream`` crée une ligne
 au début de la session : c'est exactement la timeline rejouable qu'affiche le
 dashboard (« Agent Flow Map » — modes Replay et Heatmap).
 
-Mêmes conventions que ``core/run_store.py`` / ``core/approval_store.py`` :
+Mêmes conventions que ``app/legacy/core/run_store.py`` / ``app/legacy/core/approval_store.py`` :
     - base SQLite dédiée (``experiments/agent_flows.db``, surchargeable via
       ``AGENT_FLOW_PATH`` pour isoler les tests) ;
     - store thread-safe (le worker SSE tourne dans un thread dédié).

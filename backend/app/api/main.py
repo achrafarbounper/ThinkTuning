@@ -34,8 +34,8 @@ from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 def _run_startup_model_sanity() -> None:
     import logging
 
-    from core.model_sanity import VERDICT_OK, run_model_sanity
-    from core.predictor_cache import get_predictor
+    from app.legacy.core.model_sanity import VERDICT_OK, run_model_sanity
+    from app.legacy.core.predictor_cache import get_predictor
 
     _logger = logging.getLogger(__name__)
     try:
@@ -67,8 +67,8 @@ def _run_startup_classifier_warmup() -> None:
 
     _logger = logging.getLogger(__name__)
     try:
-        from core.classifier_registry import get_registry
-        from core.model_warmup import get_warmup
+        from app.legacy.core.classifier_registry import get_registry
+        from app.legacy.core.model_warmup import get_warmup
         from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
 
         classifier = get_registry().get_or_create(SentimentClassifier.name, SentimentClassifier)
@@ -86,7 +86,7 @@ async def lifespan(_app: FastAPI):
     # P2 lot 16 (privacy) : fail-closed production — refus de démarrer SANS
     # STORE_ENCRYPTION_KEY (sessions/audit chiffrés au repos) ; en dev/test,
     # warning non bloquant. Lève RuntimeError en prod sans clé.
-    from core.store_crypto import ensure_store_crypto_configured
+    from app.legacy.core.store_crypto import ensure_store_crypto_configured
 
     ensure_store_crypto_configured()
     # Le sanity check charge potentiellement le modèle (plusieurs secondes) :
@@ -118,7 +118,7 @@ from app.api.middlewares.maintenance import maintenance_mode_middleware  # noqa:
 from app.api.middlewares.metrics import request_metrics_middleware  # noqa: E402
 from app.api.middlewares.rate_limit import rate_limit_middleware  # noqa: E402
 from app.api.middlewares.request_id import request_id_middleware  # noqa: E402
-from core.scheduler import ensure_scheduler_started  # noqa: E402
+from app.legacy.core.scheduler import ensure_scheduler_started  # noqa: E402
 
 
 def _cors_allowed_origins() -> list[str]:

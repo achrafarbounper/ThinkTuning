@@ -1,6 +1,6 @@
 """Store des versions du modèle d'intention (Phase 4).
 
-Parallèle minimal de ``core/model_versioning.py`` pour le système d'intention
+Parallèle minimal de ``app/legacy/core/model_versioning.py`` pour le système d'intention
 (chat/action), qui vit dans ``experiments/intent_models/`` (le dossier
 ``experiments/models`` reste dédié au sentiment). Chaque version est un dossier
 horodaté contenant ``config.json`` + ``model.safetensors`` (compatible
@@ -81,7 +81,7 @@ def resolve_intent_model_dir(model_name: str | None = None) -> str:
             )
         return str(candidate)
 
-    # Pointeur actif (même convention que core/model_activation).
+    # Pointeur actif (même convention que app/legacy/core/model_activation).
     active_file = root / _ACTIVE_FILE
     if active_file.is_file():
         try:

@@ -13,14 +13,14 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import app.api as api# noqa: E402, F401
 from app.api import app  # noqa: E402
-from core.models import TrainJob
+from app.legacy.core.models import TrainJob
 
 client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
 
 
 class _FakeAnnotationStore:
-    """Miroir du contrat HTTP de core.annotation_store.AnnotationStore."""
+    """Miroir du contrat HTTP de app.legacy.core.annotation_store.AnnotationStore."""
 
     def __init__(self) -> None:
         self.items: list[dict] = []

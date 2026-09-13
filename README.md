@@ -1,5 +1,11 @@
 # Système d'analyse de sentiments multilingue avec recomposition (EDA)
 
+> **Statut (septembre 2026)** — Démarrage actuel du backend dans `backend/` et
+> du frontend dans `frontend/`. API active sous `/api/v1` (SSE/WebSocket selon
+> les flux), MCP 2.0 sous `/mcp`; les anciens chemins non versionnés et les
+> mentions de dashboard monolithique sont historiques. Stack : Python 3.11
+> dev/CI, image backend Python 3.13, React 19/TypeScript 6/Vite 8.
+
 Pipeline complet : recomposition de données (augmentation) + fine-tuning d'un
 modèle multilingue pour la classification de sentiments (positif / neutre / négatif),
 en français et anglais.
@@ -11,7 +17,7 @@ ThinkTuning/
 ├── backend/             # Racine du projet Python (API + ML) — les chemins relatifs (configs/, data/, experiments/) y résolvent
 │   ├── api/             # API FastAPI (routes v1, middlewares, auth par clé)
 │   ├── app/             # Noyau hexagonal : domain / application / infrastructure
-│   ├── core/            # Stores SQLite, versionnage des modèles, cache predictor
+│   ├── app/legacy/core/  # Stores SQLite, versionnage des modèles, cache predictor
 │   ├── ia/              # Agent IA (Ollama/OpenRouter/HF/LM Studio) + outils sandboxés
 │   ├── src/             # ML : dataset, augmentation (EDA : SR/RI/RS/RD), entraînement, inférence
 │   ├── train.py         # Fine-tuning de XLM-RoBERTa sur le dataset augmenté
@@ -275,7 +281,12 @@ curl -H "X-API-Key: change-me-super-secret" http://localhost:8000/models
 - Si la limite est dépassée, l'API répond avec un 429 Too Many Requests et envoie l'en-tête Retry-After (en secondes).
 - La logique est implémentée en Python avec un token bucket simple, sans dépendance externe.
 
-### Lancer un entraînement
+### Lancer un entraînement (API historique, conservée pour compatibilité)
+
+> **État actuel** : les routes publiques sont versionnées sous `/api/v1`.
+> Les exemples `/train`, `/predict` et `/models` ci-dessous décrivent la
+> surface legacy utilisée par certains scripts locaux ; utilisez les routes
+> `/api/v1/...` pour les nouveaux clients.
 
 ```bash
 curl -X POST http://localhost:8000/train \
@@ -296,7 +307,7 @@ curl http://localhost:8000/train/status/<job_id>
 ### Prédire
 
 ```bash
-curl -X POST http://localhost:8000/predict \
+curl -X POST http://localhost:8000/api/v1/predict \
   -H "Content-Type: application/json" \
   -d '{"texts": ["Ce produit est fantastique !", "This is terrible."]}'
 ```
@@ -357,7 +368,7 @@ Options principales :
 
 L'agent LLM (Ollama + outils sandboxés) est intégré à l'API principale sous le
 préfixe `/api/agent` (l'ancien serveur autonome `ia/api_server.py` a été retiré ;
-`core/agent_cache.py` est le point d'entrée unique vers l'agent) :
+`app/legacy/core/agent_cache.py` est le point d'entrée unique vers l'agent) :
 
 ```bash
 uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
@@ -662,7 +673,7 @@ SSE sans buffering) vers le service API :
 ```bash
 docker compose build
 docker compose --profile app up -d
-# Dashboard  → http://localhost:8080
+# Frontend    → http://localhost:8080
 # API        → http://localhost:8000  (doc interactive : /docs)
 ```
 
@@ -768,7 +779,7 @@ GET /train/stream/{job_id}?token=<DASHBOARD_WS_TOKEN ou API_KEY>
   actif le serveur scrute le store toutes les 0,5 s ; dès que le statut est
   terminal, événement `end` + fermeture — pas de connexion ouverte inutile.
 - **Architecture** : l'endpoint consomme une abstraction
-  `TrainingEventsSource` (`core/training_events.py`) dont l'implémentation
+  `TrainingEventsSource` (`app/legacy/core/training_events.py`) dont l'implémentation
   actuelle, `MongoPollingEventsSource`, scrute le store partagé (compatible
   multi-workers). Pour passer à une diffusion push (Redis pub/sub, NATS, ...)
   plus tard, il suffit d'implémenter la même interface — l'endpoint ne change

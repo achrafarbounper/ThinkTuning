@@ -82,7 +82,7 @@ def main(args):
     if args.base_model_version:
         # Continual training : reprise des poids + tokenizer d'une version
         # précédente (experiments/models/<version>) au lieu du modèle de base.
-        from core.model_versioning import resolve_model_dir
+        from app.legacy.core.model_versioning import resolve_model_dir
 
         base_dir = resolve_model_dir(args.base_model_version)
         tokenizer = AutoTokenizer.from_pretrained(base_dir)

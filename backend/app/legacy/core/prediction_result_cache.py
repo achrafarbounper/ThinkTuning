@@ -1,6 +1,6 @@
 """Cache de RÉSULTATS de prédiction (LRU + TTL).
 
-Différent de ``core/predictor_cache.py`` (qui met en cache les INSTANCES de
+Différent de ``app/legacy/core/predictor_cache.py`` (qui met en cache les INSTANCES de
 modèles) : ici on met en cache les résultats déjà calculés pour un texte,
 afin d'éviter de re-tokeniser / re-inférer les entrées répétées.
 

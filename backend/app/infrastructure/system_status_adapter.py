@@ -1,9 +1,10 @@
 """Adaptateur : état opérationnel legacy (job_store + maintenance) -> SystemStatusPort.
 
-Consultation seule : le compteur de jobs RUNNING (source ``core.job_store``)
+Consultation seule : le compteur de jobs RUNNING (source ``app.legacy.core.job_store``)
 et l'état de maintenance (source ``app.api.middlewares.maintenance``). Les appels
 par attribut de module préservent les monkeypatchs des tests
-(``core.job_store.get_job_store``, ``app.api.middlewares.maintenance.is_maintenance_mode``).
+(``app.legacy.core.job_store.get_job_store``,
+``app.api.middlewares.maintenance.is_maintenance_mode``).
 
 IMPORTANT — l'import de ``app.api.middlewares.maintenance`` est PARESSEUX (dans la
 méthode) : un import au niveau module amorce le package ``api`` (façade
@@ -15,8 +16,8 @@ doit jamais tirer le package ``api`` au chargement.
 
 from __future__ import annotations
 
-from core import job_store as _legacy_jobs
-from core.models import JobStatus
+from app.legacy.core import job_store as _legacy_jobs
+from app.legacy.core.models import JobStatus
 
 
 class LegacySystemStatusAdapter:

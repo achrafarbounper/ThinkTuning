@@ -2,7 +2,7 @@
 
 """Gestion avancée du contexte conversationnel — Phase C.
 
-Activé par le flag ``AGENT_CONTEXT`` (cf. ``core/feature_flags.py``). Trois
+Activé par le flag ``AGENT_CONTEXT`` (cf. ``app/legacy/core/feature_flags.py``). Trois
 briques indépendantes, toutes best-effort et sans dépendance externe :
 
     - ``estimate_tokens(text)`` : estimation de coût en jetons (heuristique
@@ -12,7 +12,7 @@ briques indépendantes, toutes best-effort et sans dépendance externe :
       tours plus anciens sont résumés via ``summarize_fn`` (appel LLM
       optionnel) ou, à défaut, écartés avec une note de troncature ;
     - mémoire inter-sessions : ``format_memory_note`` + helpers SQLite dans
-      ``core/session_store.py`` (table ``agent_memory``), qui permettent à
+      ``app/legacy/core/session_store.py`` (table ``agent_memory``), qui permettent à
       une NOUVELLE session de retrouver l'essentiel des sessions précédentes.
 
 Toutes les fonctions sont pures côté texte : aucune I/O réseau ici (le

@@ -24,7 +24,7 @@ from app.domain.ports.training_ports import (
     TrainingRunnerPort,
     TrainingSchedulesPort,
 )
-from core.models import (
+from app.legacy.core.models import (
     EpochMetric,
     JobListResponse,
     ScheduledJob,

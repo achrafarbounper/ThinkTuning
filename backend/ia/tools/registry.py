@@ -11,7 +11,7 @@ CONTRAT « SOURCE DE VÉRITÉ UNIQUE » :
        ``remove_tool`` sont les SEULES voies de mutation, et elles PROJETTENT
        l'état dans les dicts historiques (mutés par référence) pour que toute
        l'intégration existante (system_prompt, API /tools, AgentCore,
-       core/agent_cache — qui importe ``ia.tools.tool_registry``) voie
+       app/legacy/core/agent_cache — qui importe ``ia.tools.tool_registry``) voie
        immédiatement les tools dynamiques sans aucune modification ;
     3. personne d'autre n'écrit dans les dicts (``plugin.py`` est refondu
        pour enregistrer via la registry).
@@ -338,7 +338,7 @@ class ToolRegistry:
             self._tools[tool_name] = registered
             # PROJECTION (compat) : les dicts historiques voient le tool.
             # Toute l'intégration existante — system_prompt, API /tools,
-            # AgentCore, core/agent_cache — le découvre immédiatement.
+            # AgentCore, app/legacy/core/agent_cache — le découvre immédiatement.
             TOOLS[tool_name] = func
             TOOL_META[tool_name] = to_meta_format(definition)
             REQUIRED_ARGS[tool_name] = list(definition.get("required_args", []))

@@ -1,5 +1,5 @@
 """
-Rétention des jobs : purge des jobs terminés obsolètes (core.job_store.cleanup_old_jobs).
+Rétention des jobs : purge des jobs terminés obsolètes (app.legacy.core.job_store.cleanup_old_jobs).
 
 Contrat :
     - seuls les jobs TERMINAUX (completed/failed/cancelled) expirés sont supprimés ;
@@ -12,8 +12,8 @@ import time
 
 os.environ.setdefault("API_KEY", "test-key")
 
-from core.job_store import PersistentJobStore, cleanup_old_jobs
-from core.models import JobStatus, TrainJob
+from app.legacy.core.job_store import PersistentJobStore, cleanup_old_jobs
+from app.legacy.core.models import JobStatus, TrainJob
 
 
 def _make_store(tmp_path):
@@ -71,7 +71,7 @@ def test_cleanup_dry_run_lists_without_deleting(tmp_path):
 def test_cleanup_module_function_operates_on_shared_store(tmp_path):
     """Contrat du CLI cleanup_old_jobs.py : (max_age_days, dry_run) sur le
     store partagé (MongoDB est l'unique backend — plus de paramètre db_path)."""
-    from core.job_store import get_job_store
+    from app.legacy.core.job_store import get_job_store
 
     store = get_job_store()
     store["module-cli-job"] = _aged("module-cli-job", JobStatus.COMPLETED, 40)

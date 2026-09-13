@@ -33,8 +33,8 @@ from app.api.dependencies.composition import (
     get_training_schedules_port,
 )
 from app.domain.errors import NotFoundError
-from core.job_store import get_job_store
-from core.models import JobStatus, TrainJob, TrainRequest
+from app.legacy.core.job_store import get_job_store
+from app.legacy.core.models import JobStatus, TrainJob, TrainRequest
 
 client = TestClient(app)
 

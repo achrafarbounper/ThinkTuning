@@ -16,7 +16,7 @@ Architecture (hexagonale, docs/mcp/MCP_IMPLEMENTATION_MAPPING.md) :
     - module d'INFRASTRUCTURE : il ne consomme que le domaine (``MCPSecurityScope``,
       ``MCPScopeRole``) et des adapteurs ; il ne connaît ni FastAPI, ni transport
       MCP, ni ``api`` (import lourd interdit — la suite MCP reste légère) ;
-    - le store SQLite (``core/mcp_client_store``) est résolu PAresseusement via
+    - le store SQLite (``app/legacy/core/mcp_client_store``) est résolu PAresseusement via
       ``default_scope_resolver`` : importer ce module ne crée AUCUNE base ;
     - quota et buckets rate-limit sont des états en MÉMOIRE, thread-safe (RLock)
       et bornés (éviction des entrées inactives) — mêmes conventions que
@@ -232,7 +232,7 @@ def _default_client_store() -> Any:
     global _client_store_instance
     with _client_store_lock:
         if _client_store_instance is None:
-            from core.mcp_client_store import get_mcp_client_store
+            from app.legacy.core.mcp_client_store import get_mcp_client_store
 
             _client_store_instance = get_mcp_client_store()
         return _client_store_instance
@@ -240,7 +240,7 @@ def _default_client_store() -> Any:
 
 def default_scope_resolver(client_id: str) -> MCPSecurityScope | None:
     """Résout le scope via le registre SQLite ; inconnu/révoqué → ``None``."""
-    from core.mcp_client_store import (
+    from app.legacy.core.mcp_client_store import (
         MCPClientNotFoundError,
         MCPClientRevokedError,
     )

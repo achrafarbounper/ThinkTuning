@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.dependencies.auth import require_api_key_or_jwt, require_read_api_key_or_jwt
 from app.api.routes import active_learning as legacy
 from app.infrastructure.legacy_errors import convert_legacy_http_error
-from core.models import (
+from app.legacy.core.models import (
     ActiveLearningRequest,
     AnnotateListResponse,
     AnnotateRequest,

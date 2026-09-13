@@ -12,7 +12,7 @@
     WS     /api/v1/train/stream/{job_id}        métriques temps réel (délégation)
 
 Choix assumés (pragmatisme strangler) :
-    - les modèles de réponse sont les modèles partagés ``core.models`` (kernel
+    - les modèles de réponse sont les modèles partagés ``app.legacy.core.models`` (kernel
       avec le worker ``trainer_runner``) : shapes identiques au legacy PAR
       CONSTRUCTION, zéro risque de divergence de contrat ;
     - le WebSocket DÉLÈGUE au handler legacy partagé
@@ -59,7 +59,7 @@ from app.domain.ports.training_ports import (
     TrainingRunnerPort,
     TrainingSchedulesPort,
 )
-from core.models import (
+from app.legacy.core.models import (
     JobListResponse,
     JobStatus,
     ScheduledJob,

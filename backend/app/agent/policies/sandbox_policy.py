@@ -14,7 +14,7 @@ Verdicts (alignés sur ia/agent/approvals.py) :
                    une catégorie non-read, ou catégorie inconnue sur chemin
                    sensible → bloqué, jamais exécuté, audité ;
     APPROVE      : write/delete/exec/network sur cible non sensible →
-                   validation humaine (flux core/approval_store) ;
+                   validation humaine (flux app/legacy/core/approval_store) ;
     AUTO_APPROVE : read/system en lecture → exécution immédiate.
 
 Toute règle dure (REJECT de chemin) n'est PAS désactivable — même

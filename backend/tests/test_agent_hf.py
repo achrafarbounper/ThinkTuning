@@ -21,8 +21,8 @@ os.environ.setdefault("AGENT_SETTINGS_PATH", _SETTINGS_DB)
 import pytest  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
-from core import agent_cache  # noqa: E402
-from core import agent_settings as agent_settings_module  # noqa: E402
+from app.legacy.core import agent_cache  # noqa: E402
+from app.legacy.core import agent_settings as agent_settings_module  # noqa: E402
 
 agent_settings_module.reset_store_for_tests(_SETTINGS_DB)
 
@@ -103,7 +103,7 @@ def test_hf_provider_known():
     assert client.provider == "hf"
 
 
-# --- core.agent_cache côté hf ----------------------------------------------------------
+# --- app.legacy.core.agent_cache côté hf ----------------------------------------------------------
 
 
 def test_agent_config_selects_hf_provider(monkeypatch):

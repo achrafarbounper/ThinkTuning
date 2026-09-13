@@ -119,12 +119,12 @@ class _FakeApprovalStore:
 
 @pytest.fixture()
 def approval_store(monkeypatch):
-    """Monkeypatche ``core.approval_store.get_approval_store`` (lazy import)."""
+    """Monkeypatche ``app.legacy.core.approval_store.get_approval_store`` (lazy import)."""
     store = _FakeApprovalStore({
         "req-1": {"status": "approved", "tool": "write_file", "args_hash": "h1"},
         "req-2": {"status": "approved", "tool": "write_file", "args_hash": "h2"},
     })
-    from core import approval_store as approval_store_module
+    from app.legacy.core import approval_store as approval_store_module
     monkeypatch.setattr(approval_store_module, "get_approval_store", lambda: store)
     return store
 
@@ -236,7 +236,7 @@ def test_resume_without_prior_run_is_a_clean_error(approval_store):
 def test_resume_requires_approved_request(monkeypatch):
     """Faiblesse #6 : la reprise exige une validation humaine (empreinte)."""
     store = _FakeApprovalStore({"req-1": {"status": "pending", "args_hash": "h1"}})
-    from core import approval_store as approval_store_module
+    from app.legacy.core import approval_store as approval_store_module
     monkeypatch.setattr(approval_store_module, "get_approval_store", lambda: store)
 
     blocker = BlockingAgent("web", request_id="req-1")

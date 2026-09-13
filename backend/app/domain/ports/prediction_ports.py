@@ -2,8 +2,9 @@
 
 Ces ports découvrent le FLUX CRITIQUE de la migration (prédiction + santé) :
 les use-cases de la couche application en dépendent, l'infrastructure legacy
-(``core/predictor_cache.py``, ``core/model_versioning.py``, ``core/job_store.py``,
-``api/middlewares/maintenance.py``) les implémente via des adaptateurs
+(``app/legacy/core/predictor_cache.py``, ``app/legacy/core/model_versioning.py``,
+``app/legacy/core/job_store.py``, ``api/middlewares/maintenance.py``) les implémente
+via des adaptateurs
 (``app/infrastructure/ml/``, ``app/infrastructure/system_status_adapter.py``).
 
 Alignement : chaque Protocol reprend les signatures réelles du legacy qu'il
@@ -21,7 +22,7 @@ from app.domain.entities.prediction import PredictionResult, SanityReport
 
 @runtime_checkable
 class PredictionPort(Protocol):
-    """Contrat d'inférence de sentiment (cf. core/predictor_cache.get_predictor).
+    """Contrat d'inférence de sentiment (cf. app/legacy/core/predictor_cache.get_predictor).
 
     Toutes les méthodes sont synchrones : l'inférence Transformers est
     CPU/GPU-bound ; les routes FastAPI ``def`` l'exécutent dans le threadpool
@@ -52,7 +53,7 @@ class PredictionPort(Protocol):
 
 @runtime_checkable
 class ModelRepositoryPort(Protocol):
-    """Contrat de consultation des versions de modèles (cf. core/model_versioning)."""
+    """Contrat de consultation des versions de modèles (cf. app/legacy/core/model_versioning)."""
 
     def list_versions(self) -> list[str]:
         """Versions valides disponibles (triées, la plus récente d'abord)."""

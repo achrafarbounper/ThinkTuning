@@ -1,4 +1,4 @@
-﻿"""Persistiere annotation store oder Active Learning review cycle."""
+"""Persistiere annotation store oder Active Learning review cycle."""
 
 import hashlib
 import json

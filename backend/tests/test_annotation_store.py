@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-from core.annotation_store import (
+from app.legacy.core.annotation_store import (
     AnnotationStore,
     normalize_label,
     normalize_text,

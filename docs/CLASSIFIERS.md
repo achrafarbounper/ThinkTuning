@@ -1,5 +1,9 @@
 # Système de classification — Documentation
 
+> **Statut (septembre 2026)** — Documentation du backend actuel. Les routes
+> publiques sont préfixées `/api/v1`; les chemins non versionnés dans les
+> tableaux sont des alias historiques ou des exemples de migration.
+
 Cette documentation couvre les **deux systèmes de classification** du projet :
 le **sentiment** (positif / neutre / négatif, FR/EN, DistilBERT fine-tuné) et
 l'**intention** (chat / action, MiniLM ou repli règles).
@@ -22,16 +26,16 @@ scripts associés — alignée sur les conventions de `ARCHITECTURE.md`
         │  · predict()  · load/reload()  · health_check()  · get_metrics()
         └──────┬──────┘
    ┌───────────┴────────────┐
-   │ SentimentClassifier     │  DistilBERT (via core.predictor_cache)
+   │ SentimentClassifier     │  DistilBERT (via app.legacy.core.predictor_cache)
    │ IntentClassifier        │  MiniLM ou repli règles (engine=auto)
    │ FallbackClassifier      │  règles lex. déterministes (aucun modèle)
    │ ResilientClassifier     │  CircuitBreaker (ia/agent/circuit_breaker.py)
    │                         │  + bascule automatique vers Fallback
    └───────────┬────────────┘
         ┌──────┴──────────┐
-        │  Caches          │  core/prediction_result_cache.py (LRU + TTL)
-        │  core.inference_executor / dynamic_batcher / model_warmup
-        │  core.onnx_exporter (ONNX Runtime, optionnel)
+        │  Caches          │  app/legacy/core/prediction_result_cache.py (LRU + TTL)
+        │  app.legacy.core.inference_executor / dynamic_batcher / model_warmup
+        │  app.legacy.core.onnx_exporter (ONNX Runtime, optionnel)
         └─────────────────┘
 ```
 
@@ -46,7 +50,7 @@ environnements sans modèle restent légers et fonctionnels.
 | Fichier | Rôle |
 |---|---|
 | `base.py` | `BaseClassifier` (ABC), `PredictionResult` (dataclass normalisée), `ClassifierMetrics` (compteurs thread-safe). |
-| `sentiment_classifier.py` | Classifieur de sentiment qui encapsule `core/predictor_cache.get_predictor` (inférence dans `src/inference/predictor.py`). Ajoute cache de résultats par texte, compteurs, warmup. |
+| `sentiment_classifier.py` | Classifieur de sentiment qui encapsule `app/legacy/core/predictor_cache.get_predictor` (inférence dans `src/inference/predictor.py`). Ajoute cache de résultats par texte, compteurs, warmup. |
 | `intent_classifier.py` | Classifieur chat/action (`engine=auto` \| `rules` \| `onnx`). Sans modèle entraîné, bascule sur les règles métier. Seuil de sécurité : une `action` sous le seuil retombe en `chat`. |
 | `fallback.py` | Règles lexicales (`fallback_sentiment` / `fallback_intent`) + `FallbackClassifier` + `ResilientClassifier` (wrapper CircuitBreaker → repli automatique). |
 | `__init__.py` | Exports publics du package. |
@@ -90,11 +94,11 @@ results = resilient.predict(["Texte"])  # modèle OK → normal
 ## 3. Stockage des modèles
 
 ### Sentiment — `experiments/models/`
-Géré par `core/model_versioning.py` (la version active est résolue par
-`core/predictor_cache`).
+Géré par `app/legacy/core/model_versioning.py` (la version active est résolue par
+`app/legacy/core/predictor_cache`).
 
 ### Intention — `experiments/intent_models/`
-Géré par **`core/intent_store.py`** (Phase 4) :
+Géré par **`app/legacy/core/intent_store.py`** (Phase 4) :
 
 - chaque version = dossier horodaté `YYYYMMDDTHHMMSSZ/` avec `config.json` +
   `model.safetensors` ;
@@ -151,13 +155,13 @@ curl -X POST http://localhost:8000/classifiers/intent/predict \
 
 | Module | Rôle |
 |---|---|
-| `core/prediction_result_cache.py` | Cache de résultats LRU + TTL (par clé normalisée texte+classifieur). |
-| `core/classifier_registry.py` | Registre singleton de classifieurs (`get_or_create` paresseux). |
-| `core/inference_executor.py` | Pool de threads dédié (`run` / `run_async`), non-bloquant pour l'event loop. |
-| `core/dynamic_batcher.py` | Regroupement temporel des requêtes concurrentes en un lot d'inférence (fenêtre + `max_batch_size`). |
-| `core/model_warmup.py` | Préchargement des modèles en arrière-plan au démarrage (`CLASSIFIER_WARMUP=0` pour désactiver en tests). |
-| `core/circuit_breaker.py` | Pattern Circuit Breaker existant (réutilisé par `ResilientClassifier`). |
-| `core/onnx_exporter.py` | Export PyTorch → ONNX + moteur ONNX Runtime (optimisation additive). |
+| `app/legacy/core/prediction_result_cache.py` | Cache de résultats LRU + TTL (par clé normalisée texte+classifieur). |
+| `app/legacy/core/classifier_registry.py` | Registre singleton de classifieurs (`get_or_create` paresseux). |
+| `app/legacy/core/inference_executor.py` | Pool de threads dédié (`run` / `run_async`), non-bloquant pour l'event loop. |
+| `app/legacy/core/dynamic_batcher.py` | Regroupement temporel des requêtes concurrentes en un lot d'inférence (fenêtre + `max_batch_size`). |
+| `app/legacy/core/model_warmup.py` | Préchargement des modèles en arrière-plan au démarrage (`CLASSIFIER_WARMUP=0` pour désactiver en tests). |
+| `app/legacy/core/circuit_breaker.py` | Pattern Circuit Breaker existant (réutilisé par `ResilientClassifier`). |
+| `app/legacy/core/onnx_exporter.py` | Export PyTorch → ONNX + moteur ONNX Runtime (optimisation additive). |
 
 Route `POST /predict/batched` (Phase 2) : corps `{texts, use_batcher}` —
 batching dynamique ou inférence via l'executor.
@@ -168,7 +172,7 @@ batching dynamique ou inférence via l'executor.
 
 - **Endpoints** : `GET /classifiers` (listage + synthèse) et
   `GET /classifiers/{name}` (snapshot complet) sont les points d'entrée du
-  monitoring ; ils s'appuient sur `core/classifier_monitoring.py`
+  monitoring ; ils s'appuient sur `app/legacy/core/classifier_monitoring.py`
   (défensif : un classifieur hors-service ne fait jamais tomber le snapshot).
 - **Métriques exposées** (par classifieur) : prédictions, cache hits/misses,
   hit rate, erreurs, latence moyenne, état du warmup.
@@ -237,16 +241,16 @@ pattern de jobs que l'entraînement sentiment.
 Validations précoces en 422 : dataset introuvable, `base_model_version`
 invalide (continual training), hyper-paramètres hors bornes (pydantic).
 
-### Runner (`core/intent_trainer.py`)
+### Runner (`app/legacy/core/intent_trainer.py`)
 
 Refactor de `scripts/train_intent.py` en module importable, exécuté dans un
 thread daemon (`run_intent_training(job_id, req)`) avec le contrat de job du
-sentiment (`core/trainer_runner.py`) : étapes canoniques
-`INTENT_TRAIN_JOB_STEPS` (`core/models.py`, alignées sur
+sentiment (`app/legacy/core/trainer_runner.py`) : étapes canoniques
+`INTENT_TRAIN_JOB_STEPS` (`app/legacy/core/models.py`, alignées sur
 `frontend/src/api/jobSteps.ts`), `job.progress` (pourcentage global),
 métriques par epoch dans la table `train_metrics` existante (diffusées par le
 WebSocket `/train/stream/{job_id}` sans changement), logs capturés par
-`core/job_logs.py`, annulation via `IntentTrainingCancelled` — l'exception est
+`app/legacy/core/job_logs.py`, annulation via `IntentTrainingCancelled` — l'exception est
 attrapée AVANT `Exception` afin de conserver le statut `cancelled`.
 
 Étapes : `queued → loading_dataset → splitting_dataset → loading_model →
@@ -254,7 +258,7 @@ training → saving_model → done`. Les imports lourds (torch / transformers /
 datasets) sont faits dans le thread du job, à l'étape `loading_model` :
 importer le module reste léger.
 
-Requête (`IntentTrainRequest`, `core/models.py`) : `dataset_path`,
+Requête (`IntentTrainRequest`, `app/legacy/core/models.py`) : `dataset_path`,
 `base_model`, `base_model_version` (continual training depuis une version
 d'intention existante), `epochs`, `batch_size`, `learning_rate`,
 `max_length`, `test_size`, `quantize_int8`, `activate`.

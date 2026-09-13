@@ -11,9 +11,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from app.api.dependencies.auth import _get_api_key, require_api_key, ws_is_authorized
-from core import scheduler as schedule_manager
-from core.job_store import get_job_store
-from core.models import (
+from app.legacy.core import scheduler as schedule_manager
+from app.legacy.core.job_store import get_job_store
+from app.legacy.core.models import (
     EpochMetric,
     JobListResponse,
     JobStatus,
@@ -24,8 +24,8 @@ from core.models import (
     TrainJob,
     TrainRequest,
 )
-from core.trainer_runner import cancel_training, run_training
-from core.training_events import (
+from app.legacy.core.trainer_runner import cancel_training, run_training
+from app.legacy.core.training_events import (
     ACTIVE_POLL_SECONDS,
     STALL_MINUTES,
     get_training_events_source,
@@ -33,7 +33,7 @@ from core.training_events import (
 
 router = APIRouter(prefix="/train", tags=["Training"])
 
-# L'Event d'annulation vit uniquement dans core.trainer_runner
+# L'Event d'annulation vit uniquement dans app.legacy.core.trainer_runner
 # (`get_cancel_event`) : source unique partagée par la route et le worker,
 # ce qui supprime le dict dupliqué historique (source d'annulations perdues).
 _jobs_lock = threading.Lock()
@@ -49,8 +49,8 @@ def start_training(req: TrainRequest, _: bool = Depends(require_api_key)):
         store[job_id] = job
 
     # P2 lot 16 (résilience) : même limite de concurrence + file d'attente que
-    # la surface v1 (core.training_gate) — un seul plafond pour les deux routes.
-    from core.training_gate import TrainingBusyError, get_training_gate
+    # la surface v1 (app.legacy.core.training_gate) — un seul plafond pour les deux routes.
+    from app.legacy.core.training_gate import TrainingBusyError, get_training_gate
 
     gate = get_training_gate()
 

@@ -14,7 +14,7 @@ ThinkTuning. Tout ce qui est décrit ici est implémenté et testé :
 | `ia/agent/orchestrator.py` | Pipeline proposer → relire (reviewer) |
 | `ia/agent/approvals.py` | Gate : approval dérivé de `safety` |
 | `app/api/routes/agent.py` | `GET/POST/DELETE /api/agent/tools/custom` |
-| `core/feature_flags.py` | Flag `AGENT_CUSTOM_TOOLS_API` |
+| `app/legacy/core/feature_flags.py` | Flag `AGENT_CUSTOM_TOOLS_API` |
 
 ---
 
@@ -78,7 +78,7 @@ mutés en direct. Désormais :
    retirables) ;
 2. `add_tool` / `remove_tool` sont les **seules** voies de mutation, et elles
    **projetent** l'état dans les dicts historiques (mutés par référence) :
-   system_prompt, API `/tools`, AgentCore et `core/agent_cache` voient
+   system_prompt, API `/tools`, AgentCore et `app/legacy/core/agent_cache` voient
    immédiatement les tools dynamiques sans modification ;
 3. `plugin.py` enregistre désormais via la registry (fin de la mutation
    directe).

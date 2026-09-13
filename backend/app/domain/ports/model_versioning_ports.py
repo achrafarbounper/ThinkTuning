@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from core.models import ModelVersion
+from app.legacy.core.models import ModelVersion
 
 
 @runtime_checkable

@@ -60,7 +60,7 @@ from app.infrastructure.mcp.tools.orchestrate_tool import (
     orchestrate_stream,
 )
 from app.infrastructure.security.api_key import is_valid_api_key
-from core.audit_store import ACT_MCP_ORCHESTRATE
+from app.legacy.core.audit_store import ACT_MCP_ORCHESTRATE
 
 logger = logging.getLogger("thinktuning.mcp.sse")
 

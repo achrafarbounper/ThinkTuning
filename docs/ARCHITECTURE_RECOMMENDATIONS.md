@@ -1,5 +1,9 @@
 # Recommandations d'architecture — ThinkTuning
 
+> **Statut (septembre 2026)** — Recommandations appliquées ou backlog,
+> explicitement distinguées de l'architecture active : API FastAPI `/api/v1`,
+> frontend React 19/Vite 8, MongoDB Atlas avec repli SQLite.
+
 > Document issu de l'audit complet (backend Python / frontend React-TS).
 > Complète `ARCHITECTURE.md` : ici, on se concentre sur **pourquoi** les bugs
 > se sont produits et **comment structurer** pour les éviter durablement.
@@ -98,7 +102,7 @@ Règles :
   `tests/conftest.py` global fermerait la porte à toute nouvelle fuite
   (c'est celle de `test_trainer.py` qui a publié 24 stubs dans l'état réel).
 - **Un seul seam par dépendance** : mocker `app.api._get_predictor` (et non tantôt
-  `core.predictor_cache.get_predictor`, tantôt la variable `_predictor`).
+  `app.legacy.core.predictor_cache.get_predictor`, tantôt la variable `_predictor`).
 - **Frontend** : `npm test` (vitest + RTL, 28 tests). Priorité aux modules
   critiques : transport (`clientCore`), hooks génériques (`usePolling`,
   `useLocalStorage`), parsing (`streamSse`). Les pages sont couvertes par
@@ -130,4 +134,3 @@ Prochaines pistes (non bloquant) :
 - [ ] nouvelle dépendance réseau frontend → passe par `clientCore` ;
 - [ ] nouvelle variable d'environnement → documentée dans `.env.example`
       et lue via `app/config/settings.py` (ou wrapper dédié).
-

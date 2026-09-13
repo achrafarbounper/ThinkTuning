@@ -8,7 +8,7 @@ nécessitent une décision humaine (``approve``) et celles bloquées (``reject``
 pour garantir la TRAÇABILITÉ : chaque entrée porte un identifiant stable, le
 JSON des arguments, la catégorie, la raison et un horodatage ISO (UTC).
 
-Mêmes conventions que ``core/agent_settings.py`` :
+Mêmes conventions que ``app/legacy/core/agent_settings.py`` :
     - base SQLite dédiée (experiments/agent_approvals.db, surchargeable via
       AGENT_APPROVAL_PATH pour isoler les tests) ;
     - une table unique ``agent_approvals`` avec un store thread-safe.

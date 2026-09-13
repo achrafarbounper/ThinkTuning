@@ -3,14 +3,14 @@
 
 Contexte : le legacy vit avec une double identité d'import (``ia.tools`` /
 ``tools``, ``ia.agent`` / ``agent``) maintenue par des inserts de ``ia/``
-dans ``sys.path`` (``app/api/main.py``, ``core/agent_cache.py``, conftest, tests).
+dans ``sys.path`` (``app/api/main.py``, ``app/legacy/core/agent_cache.py``, conftest, tests).
 Le nouveau noyau (``app/``) ne doit JAMAIS dépendre de ces hacks.
 
 Trois gardes :
     1. statique : aucun ``sys.path`` manipulé dans ``app/**.py`` ;
     2. statique : aucune identité legacy nue (``import tools``, ``from agent…``)
        dans ``app/**.py`` — uniquement des imports de paquets réels
-       (``ia.agent.context``, ``core.run_store``…) ;
+       (``ia.agent.context``, ``app.legacy.core.run_store``…) ;
     3. dynamique : tous les modules du noyau v2 s'importent dans un
        sous-processus dont le ``sys.path`` ne contient que la racine du
        projet (PYTHONPATH purgé), et aucun import n'ajoute ``ia/`` au chemin.
@@ -176,7 +176,7 @@ def test_bare_legacy_identities_are_gone_without_the_hack() -> None:
     et ``ia.logging_setup`` sont importables, sans aucun hack ``sys.path``.
 
     Historique : avant la Phase 2, ``import tools`` ne réussissait qu'avec
-    ``ia/`` ajouté au chemin (par ``app/api/main.py``, ``core/agent_cache.py``,
+    ``ia/`` ajouté au chemin (par ``app/api/main.py``, ``app/legacy/core/agent_cache.py``,
     conftest ou les tests). Ce test verrouille la suppression du hack :
     toute réintroduction d'une identité nue (nouveau module racine, shim)
     fera échouer la CI ici.

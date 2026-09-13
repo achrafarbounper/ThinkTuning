@@ -10,7 +10,7 @@ canal WebSocket de ``api/routes/agent.py`` :
     - traduction des traces du noyau en événements d'outils stockables.
 
 Note de migration : les chaînes d'action d'audit sont figées localement (même
-valeur que ``core/audit_store.py`` — ``agent_run`` / ``approval``) pour éviter
+valeur que ``app/legacy/core/audit_store.py`` — ``agent_run`` / ``approval``) pour éviter
 un import legacy depuis la couche application ; un test de contrat peut
 verrouiller l'alignement (convention ``test_*_match_legacy``).
 """
@@ -36,9 +36,9 @@ from app.domain.entities.run import (
     RunStateMachine,
     RunStatus,
 )
-from core.approval_store import APPROVED
+from app.legacy.core.approval_store import APPROVED
 
-# Actions d'audit (alignées sur core/audit_store.py — voir docstring).
+# Actions d'audit (alignées sur app/legacy/core/audit_store.py — voir docstring).
 ACT_RUN = "agent_run"
 ACT_APPROVAL = "approval"
 

@@ -1,5 +1,9 @@
 # SYSTEM — Expert Multi‑Domaine (ThinkTuning)
 
+> **Statut (septembre 2026)** — Guide d'architecture actuel : backend FastAPI
+> découplé et frontend React 19/Vite 8. Les références `ia/` et aux stores
+> historiques sont conservées comme contexte de migration.
+
 ## Contexte du projet
 
 **ThinkTuning** est un système d'analyse de sentiments multilingue (FR/EN) avec :
@@ -218,7 +222,7 @@ interface TrainJobTrackerProps { jobId: string; onComplete?: () => void; }
 |---|---|
 | **Ports & Adapters** | `app/domain/ports/` → `app/infrastructure/` |
 | **Strangler** | Migration legacy → v1 (coexistence via adaptateurs) |
-| **Factory** | `app/agent/factory.py`, `core/classifier_registry.py` |
+| **Factory** | `app/agent/factory.py`, `app/legacy/core/classifier_registry.py` |
 | **Strategy** | Classifieurs (Sentiment, Intent, Fallback) |
 | **Adapter** | `SqliteSessionStore`, `PredictorAdapter`, `ModelVersioningAdapter` |
 | **Observer** | `EventBusPort` (pub/sub pour SSE/audit/métriques) |

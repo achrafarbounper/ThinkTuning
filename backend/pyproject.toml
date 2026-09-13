@@ -74,7 +74,7 @@ version = "2.0.0"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["venv", ".agent_tmp", "experiments", "outputs"]
+extend-exclude = ["venv", ".agent_tmp", "experiments", "outputs", "app/legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
@@ -112,7 +112,9 @@ ignore = ["B008"]  # Depends() en signature FastAPI (idiome officiel)
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-exclude = ["venv", ".agent_tmp", "experiments", "outputs", "src", "ia", "core", "app/api"]
+# NB : regex avec classe séparateur multi-OS (os.sep = \ sur Windows) ;
+# app/legacy = legacy déplacé (ex-core/), requalifié à l'absorption finale.
+exclude = ["venv", ".agent_tmp", "experiments", "outputs", "src", "ia", "app[\\\\/]legacy", "app/api"]
 # Phase 3 : retirer les exclusions à mesure que les modules migrent sous app/.
 
 [tool.pytest.ini_options]

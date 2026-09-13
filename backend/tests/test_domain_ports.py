@@ -20,10 +20,10 @@ from app.domain.ports import (
 
 def test_legacy_stores_satisfy_ports() -> None:
     """Vérification structurelle : les classes legacy ont les méthodes requises."""
-    from core.approval_store import ApprovalStore
-    from core.audit_store import AuditStore
-    from core.run_store import RunStore
-    from core.session_store import SessionStore
+    from app.legacy.core.approval_store import ApprovalStore
+    from app.legacy.core.audit_store import AuditStore
+    from app.legacy.core.run_store import RunStore
+    from app.legacy.core.session_store import SessionStore
 
     # On n'ouvre PAS de vraie base : isinstance(Protocol) vérifie la surface
     # des méthodes déclarées (runtime_checkable), pas les arguments.

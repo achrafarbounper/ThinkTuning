@@ -1,5 +1,5 @@
 """
-Garde-fou anti-régression du continual training (core/trainer_runner.py).
+Garde-fou anti-régression du continual training (app/legacy/core/trainer_runner.py).
 
 Couvre :
 - check_regression : comparaison F1 new vs source (seuil, None-safe) ;
@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from core import trainer_runner
+from app.legacy.core import trainer_runner
 
 # --------------------------------------------------------------------------- #
 # check_regression

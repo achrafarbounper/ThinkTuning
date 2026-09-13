@@ -1,7 +1,7 @@
 """Mémoire long-term : résumés persistés par clé (key/value).
 
 S'appuie sur ``SessionStorePort.save_memory/get_memory/delete_memory``
-(cf. table memory de core/session_store.py). Rôle dans la boucle agentique :
+(cf. table memory de app/legacy/core/session_store.py). Rôle dans la boucle agentique :
 persister ce qui survit à la fenêtre courte — préférences utilisateur,
 conclusions validées, synthèses de runs antérieurs.
 

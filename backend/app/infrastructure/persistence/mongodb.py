@@ -19,8 +19,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.domain.ports.mcp_ports import MCPSecurityScope
-from core.audit_store import MCP_ACTIONS, redact
-from core.models import TrainJob
+from app.legacy.core.audit_store import MCP_ACTIONS, redact
+from app.legacy.core.models import TrainJob
 
 logger = logging.getLogger("thinktuning.persistence.mongodb")
 
@@ -329,7 +329,7 @@ class MongoRunStore:
         self._lock = threading.RLock()
 
     def start_run(self, prompt: str, model: str = "", source: str = "api") -> dict:
-        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+        from app.legacy.core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
 
         d = {
             "_id": uuid.uuid4().hex[:12],
@@ -350,7 +350,7 @@ class MongoRunStore:
         return d
 
     def append_tool_event(self, run_id: str, event: dict[str, Any]) -> None:
-        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+        from app.legacy.core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
 
         # P1 : les éventuels secrets (args, headers Authorization, …) sont
         # masqués AVANT persistance — même convention que le store SQLite.
@@ -366,11 +366,11 @@ class MongoRunStore:
         answer_summary: str = "",
         error: str | None = None,
     ):
-        from core.run_store import STATUSES
+        from app.legacy.core.run_store import STATUSES
 
         if status not in STATUSES:
             raise ValueError(f"Statut de run inconnu : '{status}'")
-        from core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
+        from app.legacy.core.secrets_redact import redact_secrets  # lazy import (anti-cycle)
 
         r = self.c.update_one(
             {"_id": str(run_id)},
@@ -439,7 +439,7 @@ class MongoFlowStore:
         )
 
     def finish_flow(self, flow_id, status, answer_summary="", error=None):
-        from core.flow_store import STATUSES
+        from app.legacy.core.flow_store import STATUSES
 
         if status not in STATUSES:
             raise ValueError(f"Statut de session inconnu : '{status}'")
@@ -650,7 +650,7 @@ class MongoAuditStore:
 def _decode_settings_value(value: Any) -> Any:
     """Décode une valeur de paramètre agent lue dans Mongo (SCRUM-137).
 
-    Parité avec le store SQLite (``core/agent_settings.AgentSettingsStore``),
+    Parité avec le store SQLite (``app/legacy/core/agent_settings.AgentSettingsStore``),
     qui persiste ses valeurs JSON-encodées (``json.dumps``) et les relit via
     ``json.loads``. La migration ``scripts/migrate_sqlite_to_mongodb.py``
     copie les documents SQLite TELS QUELS : une valeur arrivée par ce chemin
@@ -697,7 +697,7 @@ class MongoAgentSettingsStore:
         return settings
 
     def save_many(self, values):
-        from core.agent_settings import SETTING_KEYS
+        from app.legacy.core.agent_settings import SETTING_KEYS
 
         filtered = {k: values[k] for k in SETTING_KEYS if k in values}
         for k, v in filtered.items():
@@ -820,7 +820,7 @@ class MongoMCPClientStore:
         return hashlib.sha256(secret.encode()).hexdigest()
 
     def register(self, client_id, secret, scope):
-        from core.mcp_client_store import MCPClientAlreadyExistsError
+        from app.legacy.core.mcp_client_store import MCPClientAlreadyExistsError
 
         if not client_id or not secret:
             raise ValueError("client_id et secret sont obligatoires")
@@ -867,7 +867,7 @@ class MongoMCPClientStore:
         return [self._public(d) for d in self.c.find({})]
 
     def revoke(self, cid, reason):
-        from core.mcp_client_store import MCPClientNotFoundError, MCPClientRevokedError
+        from app.legacy.core.mcp_client_store import MCPClientNotFoundError, MCPClientRevokedError
 
         d = self.c.find_one({"_id": cid})
         if not d:
@@ -888,7 +888,7 @@ class MongoMCPClientStore:
         return self.get_by_client_id(cid)
 
     def get_scope(self, cid):
-        from core.mcp_client_store import MCPClientNotFoundError
+        from app.legacy.core.mcp_client_store import MCPClientNotFoundError
 
         d = self.c.find_one({"_id": cid})
         if not d:

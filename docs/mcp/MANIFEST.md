@@ -60,7 +60,7 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `job_list` | read_only | ✅ | — | ✅ | builtin | Liste les jobs d'entraÃ®nement les plus rÃ©cents (lecture seule) |
 | `list_dir` | read_only | ✅ | — | ✅ | builtin | Liste un rÃ©pertoire (dossiers d'abord, puis fichiers, ordre alphabÃ©tique) |
 | `make_dir` | contributor | — | ✅ | — | builtin | CrÃ©e un rÃ©pertoire (parents inclus, sans erreur s'il existe dÃ©jÃ ) |
-| `model_versions` | read_only | ✅ | — | ✅ | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que core/model_versio… |
+| `model_versions` | read_only | ✅ | — | ✅ | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que app/legacy/core/model_versio… |
 | `move_path` | contributor | — | ✅ | — | builtin | DÃ©place/renomme fichier ou rÃ©pertoire dans la sandbox |
 | `now` | read_only | ✅ | — | ✅ | builtin | Horodatage courant ISO lisible ('2026-08-25 14:03:27+00:00') |
 | `postgres_query` | read_only | ✅ | — | ✅ | builtin | ExÃ©cute une requÃªte SQL sur PostgreSQL |

@@ -2,7 +2,7 @@
 
 """Intégration de l'agent IA du paquet `ia/` dans l'API principale.
 
-Même schéma que `core/predictor_cache.py` : une instance unique construite
+Même schéma que `app/legacy/core/predictor_cache.py` : une instance unique construite
 paresseusement au premier appel puis mise en cache (accès protégé par un
 verrou), avec rechargement explicite via `reload_agent_runner()`.
 
@@ -18,8 +18,8 @@ import threading
 import requests
 from fastapi import HTTPException
 
-from core.agent_settings import get_agent_settings
-from core.run_store import (
+from app.legacy.core.agent_settings import get_agent_settings
+from app.legacy.core.run_store import (
     AWAITING_APPROVAL as MULTI_RUN_AWAITING,
     COMPLETED as MULTI_RUN_COMPLETED,
     ERROR as MULTI_RUN_ERROR,
@@ -32,8 +32,8 @@ from ia.agent.runner import AgentRunner  # noqa: E402
 from ia.tools.tool_registry import REQUIRED_ARGS, TOOL_META, TOOLS  # noqa: E402,F401
 
 # File de validation humaine — ré-exportée pour les routes /api/agent/approvals.
-from core.approval_store import ApprovalStore  # noqa: E402,F401
-from core.approval_store import get_approval_store as _get_approval_store  # noqa: E402
+from app.legacy.core.approval_store import ApprovalStore  # noqa: E402,F401
+from app.legacy.core.approval_store import get_approval_store as _get_approval_store  # noqa: E402
 
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
 __all__ = [
@@ -155,7 +155,7 @@ def _lm_studio_chat_url(url: str | None) -> str:
 def agent_config() -> dict:
     """Configuration courante de l'agent, relue à chaque appel.
 
-    Sources par priorité décroissante (via ``core.agent_settings``) :
+    Sources par priorité décroissante (via ``app.legacy.core.agent_settings``) :
         1. base SQLite des paramètres (page Paramètres du dashboard) ;
         2. variables d'environnement ;
         3. défauts historiques du module.

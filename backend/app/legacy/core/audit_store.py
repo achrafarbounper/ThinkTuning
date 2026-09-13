@@ -9,7 +9,7 @@ avec, pour chaque entrée, un identifiant stable, l'acteur, l'action, le sujet,
 le détail JSON, l'IP d'origine, et le run/requête lié — le tout horodaté en
 ISO UTC (millisecondes).
 
-Mêmes conventions que ``core/approval_store.py`` / ``core/run_store.py`` :
+Mêmes conventions que ``app/legacy/core/approval_store.py`` / ``app/legacy/core/run_store.py`` :
 
     - base SQLite dédiée (experiments/agent_audit.db, surchargeable via
       AGENT_AUDIT_PATH pour isoler les tests) ;
@@ -124,7 +124,7 @@ def redact(value):
     - les chaînes trop longues sont tronquées ;
     - les listes/objets volumineux sont bornés pour garder une trace lisible.
     """
-    from core.secrets_redact import redact_secrets  # import local : anti-cycle
+    from app.legacy.core.secrets_redact import redact_secrets  # import local : anti-cycle
 
     if isinstance(value, dict):
         out = {}
@@ -202,7 +202,7 @@ class AuditStore:
         try:
             # P2 lot 16 : déchiffrement transparent (préfixe ``enc:`` si
             # chiffrement actif — valeurs legacy en clair inchangées).
-            from core.store_crypto import decrypt_text
+            from app.legacy.core.store_crypto import decrypt_text
 
             raw_detail = decrypt_text(raw_detail)
             data["detail"] = json.loads(raw_detail)
@@ -230,7 +230,7 @@ class AuditStore:
         # Booléen agrégé hors chiffrement (métriques MCP sans passer par le
         # détail JSON chiffré).
         is_error = 1 if _IS_ERROR_KEY in dumped else 0
-        from core.store_crypto import encrypt_text
+        from app.legacy.core.store_crypto import encrypt_text
 
         stored_detail = encrypt_text(dumped)
         with self._lock:

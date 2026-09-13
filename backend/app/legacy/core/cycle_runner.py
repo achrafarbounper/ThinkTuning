@@ -2,11 +2,11 @@
 
 Sequence :
   1. Fusion des annotations manuelles dans un dataset local
-     (core.annotation_store.AnnotationStore.merge_annotations) ;
+     (app.legacy.core.annotation_store.AnnotationStore.merge_annotations) ;
   2. Construction d'un TrainRequest (continual training depuis la version
      active si disponible, corrections locales injectees via
      local_corrections_path) ;
-  3. Delegation a core.trainer_runner.run_training (meme job store que /train) ;
+  3. Delegation a app.legacy.core.trainer_runner.run_training (meme job store que /train) ;
   4. Apres COMPLETED : lecture du f1_macro de la nouvelle version et activation
      automatique si elle ameliore (ou du moins ne degrade pas) la version active.
 
@@ -19,13 +19,13 @@ import os
 import time
 from typing import Any
 
-from core.annotation_store import get_annotation_store
-from core.model_activation import (
+from app.legacy.core.annotation_store import get_annotation_store
+from app.legacy.core.model_activation import (
     activate_model,
     get_active_model_dir,
     read_version_f1,
 )
-from core.model_versioning import list_model_versions
+from app.legacy.core.model_versioning import list_model_versions
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +51,13 @@ def resolve_base_version() -> str | None:
 def run_cycle(job_id: str, train_req, auto_activate: bool = True) -> None:
     """Execute le cycle complet : merge -> train -> activation conditionnelle.
 
-    ``train_req`` : instance de core.models.TrainRequest deja parametree
+    ``train_req`` : instance de app.legacy.core.models.TrainRequest deja parametree
     (les champs local_corrections_path et base_model_version sont ecrases).
     Bloquant : a lancer dans un thread daemon.
     """
-    from core.job_store import get_job_store
-    from core.models import JobStatus
-    from core.trainer_runner import run_training
+    from app.legacy.core.job_store import get_job_store
+    from app.legacy.core.models import JobStatus
+    from app.legacy.core.trainer_runner import run_training
 
     store = get_job_store()
     job = store[job_id]

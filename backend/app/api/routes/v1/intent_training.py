@@ -45,7 +45,7 @@ from app.domain.ports.training_ports import (
     IntentVersioningPort,
     TrainingJobsPort,
 )
-from core.models import (
+from app.legacy.core.models import (
     IntentTrainRequest,
     JobListResponse,
     JobStatus,

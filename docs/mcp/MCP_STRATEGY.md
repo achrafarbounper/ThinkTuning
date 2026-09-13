@@ -1,5 +1,9 @@
 # MCP Strategy — ThinkTuning Capabilities Platform
 
+> **Statut (septembre 2026)** — Document de stratégie et de positionnement.
+> L'API FastAPI `/api/v1` reste la surface HTTP opérationnelle ; MCP 2.0 est
+> la surface agentique versionnée et complémentaire.
+
 > **Décision de positionnement** (signée par le MCP Product Council — 2026-09-08)
 >
 > ThinkTuning n’est plus un backend ML pour un dashboard.  

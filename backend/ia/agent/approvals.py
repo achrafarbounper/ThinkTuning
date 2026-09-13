@@ -7,7 +7,7 @@ DPE — Décision de Policy d'un appel d'outil. Trois états déterministes :
       immédiatement, sans validation humaine.
     - APPROVE      : action potentiellement risquée (édition de fichier,
       commande sensible définie par la policy…) → validation humaine AVANT
-      toute exécution (via `core.approval_store`, endpoints /api/agent/approvals).
+      toute exécution (via `app.legacy.core.approval_store`, endpoints /api/agent/approvals).
     - REJECT       : action bloquée immédiatement (chemins interdits —
       `.git`, racine sandbox —, binaire dangereux) → jamais exécutée.
 
@@ -95,7 +95,7 @@ def _summary(args: Any) -> Any:
     ``clé=valeur``) sont masqués avant persistance (complément du masquage
     par clés d'audit_store).
     """
-    from core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
+    from app.legacy.core.secrets_redact import redact_secrets  # import paresseux (anti-cycle)
 
     if isinstance(args, dict):
         return {key: _summary(val) for key, val in args.items()}
@@ -131,7 +131,7 @@ try:  # paquet « ia.tools » (imports racinés sur le projet / tests)
         get_sandbox_root as _get_sandbox_root,
         safe_resolve as _sandbox_safe_resolve,
     )
-except ImportError:  # racine « agent » / « tools » (core/agent_cache.py ajoute ia/)
+except ImportError:  # racine « agent » / « tools » (app/legacy/core/agent_cache.py ajoute ia/)
     from tools.sandbox import (  # type: ignore[no-redef]
         get_sandbox_root as _get_sandbox_root,
         safe_resolve as _sandbox_safe_resolve,

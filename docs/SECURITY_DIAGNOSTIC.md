@@ -1,5 +1,11 @@
 # Diagnostic Sécurité — ThinkTuning — Rapport + Plan d'Action
 
+> **Statut (septembre 2026)** — Rapport historique de diagnostic statique.
+> Les constats et chemins reflètent la branche analysée à la date indiquée ;
+> la CI actuelle exécute désormais `pip-audit`, `npm audit`, Trivy et produit
+> un SBOM. Utiliser les contrôles de CI et la configuration réellement
+> déployée pour confirmer l'état courant.
+
 > **Mode : PLAN** — diagnostic statique sur code lu en lecture seule, sans modification ni test intrusif. Pas de scan dynamique / pentest / `pip audit` / `npm audit` exécuté.
 > **Périmètre :** `backend/api/*`, `backend/app/agent/policies/*`, `backend/app/infrastructure/security/api_key.py`, `backend/app/config/settings.py`, `backend/ia/tools/*`, `backend/Dockerfile`, `docker-compose.yml`, `searxng/settings.yml`, `frontend/templates/default.conf.template`, `frontend/src/api/*`.
 > **Branche analysée :** `SCRUM-136` (`3b677d4`).
@@ -167,6 +173,5 @@ Aucune séparation système/outils observée, pas de validation sortie LLM avant
 3. Je livrerai ensuite `SECURITY.md` + checklist OWASP + GitHub Actions `pip-audit/trivy`.
 
 *Hypothèses/limites : sans exécution dynamique, criticités = estimation statique ; à confirmer par `trivy`, `pip-audit`, `npm audit`, test d'intrusion SSRF/RCE en staging isolé.*
-
 
 

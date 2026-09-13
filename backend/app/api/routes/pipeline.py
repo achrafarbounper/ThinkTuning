@@ -2,7 +2,7 @@
 """Pipeline end-to-end (labeling -> filtrage confidence -> fine-tuning LLM).
 
 Même pattern de jobs que /train : POST crée un TrainJob persisté dans
-core/job_store.py et exécute core.pipeline_runner.run_pipeline dans un
+app/legacy/core/job_store.py et exécute app.legacy.core.pipeline_runner.run_pipeline dans un
 thread daemon ; GET /status et GET /jobs permettent le suivi par l'UI.
 """
 
@@ -12,9 +12,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.dependencies.auth import require_api_key
-from core.job_store import get_job_store
-from core.models import JobListResponse, JobStatus, PipelineRequest, TrainJob
-from core.pipeline_runner import cancel_pipeline, get_cancel_event, run_pipeline
+from app.legacy.core.job_store import get_job_store
+from app.legacy.core.models import JobListResponse, JobStatus, PipelineRequest, TrainJob
+from app.legacy.core.pipeline_runner import cancel_pipeline, get_cancel_event, run_pipeline
 
 router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
 

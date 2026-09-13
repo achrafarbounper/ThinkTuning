@@ -1,5 +1,9 @@
 # Migration Guide: MCP v1.x → v2.0.0
 
+> **Statut (septembre 2026)** — Guide historique/de migration vers MCP 2.0.
+> Le backend actuel conserve l'API HTTP `/api/v1` indépendamment de cette
+> migration de protocole.
+
 > **Breaking change** — cette version introduit une nouvelle capacité
 > (`sampling/create`) et un nouveau tool (`orchestrate`) qui nécessitent une
 > mise à jour des clients MCP existants.

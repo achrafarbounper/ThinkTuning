@@ -8,7 +8,7 @@ Couvre :
       delta.reasoning_content en repli), callbacks temps réel, repli
       balises <think> inline ;
     - validation du nom de provider (valeur inconnue refusée) ;
-    - core.agent_cache : sélection du provider par AGENT_PROVIDER,
+    - app.legacy.core.agent_cache : sélection du provider par AGENT_PROVIDER,
       clé OPENROUTER_API_KEY requise, fabrique de runners, liste des
       modèles GET /api/v1/models mappée sur le contrat Ollama.
 
@@ -36,8 +36,8 @@ from fastapi import HTTPException  # noqa: E402
 
 # ORDRE IMPORTANT : importer agent_cache AVANT tout module « agent.* »,
 # c'est le point d'entrée historique (plus aucun hack sys.path).
-from core import agent_cache  # noqa: E402
-from core import agent_settings as agent_settings_module  # noqa: E402
+from app.legacy.core import agent_cache  # noqa: E402
+from app.legacy.core import agent_settings as agent_settings_module  # noqa: E402
 
 agent_settings_module.reset_store_for_tests(_SETTINGS_DB)
 
@@ -223,7 +223,7 @@ def test_default_provider_is_ollama():
     assert client.api_key is None
 
 
-# --- core.agent_cache : configuration et fabrique --------------------------------------
+# --- app.legacy.core.agent_cache : configuration et fabrique --------------------------------------
 
 
 def test_agent_config_selects_openrouter_provider(monkeypatch):
@@ -297,7 +297,7 @@ def test_build_runner_ollama_has_no_api_key(monkeypatch):
     assert captured["api_key"] is None
 
 
-# --- core.agent_cache.list_llm_models côté OpenRouter ----------------------------------
+# --- app.legacy.core.agent_cache.list_llm_models côté OpenRouter ----------------------------------
 
 
 def test_list_models_openrouter_maps_ids(monkeypatch):

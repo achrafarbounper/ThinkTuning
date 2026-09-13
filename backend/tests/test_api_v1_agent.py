@@ -29,7 +29,7 @@ AUTH = {"X-API-Key": "test-key"}
 
 
 class FakeApprovalStore:
-    """Miroir du contrat HTTP de core.approval_store.ApprovalStore."""
+    """Miroir du contrat HTTP de app.legacy.core.approval_store.ApprovalStore."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict] = {}
@@ -76,7 +76,7 @@ class FakeApprovalStore:
 
 
 class FakeFlowStore:
-    """Miroir du contrat HTTP de core.flow_store.FlowStore."""
+    """Miroir du contrat HTTP de app.legacy.core.flow_store.FlowStore."""
 
     def __init__(self) -> None:
         self.flows: dict[str, dict] = {}

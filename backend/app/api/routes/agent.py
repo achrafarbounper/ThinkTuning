@@ -87,7 +87,7 @@ from app.infrastructure.events.in_memory import InMemoryEventBus
 from app.infrastructure.legacy_approval_store import build_approval_store
 from app.infrastructure.legacy_multi_agent_adapter import build_multi_agent_orchestrator
 from app.infrastructure.legacy_settings_adapter import build_settings_port
-from core.agent_cache import (
+from app.legacy.core.agent_cache import (
     REQUIRED_ARGS,
     TOOL_META,
     TOOLS,
@@ -97,13 +97,13 @@ from core.agent_cache import (
     agent_config,
     reload_agent_runner,
 )
-from core.approval_store import (
+from app.legacy.core.approval_store import (
     APPROVED,
     REJECTED,
     STATUSES,
     get_approval_store,
 )
-from core.audit_store import (  # Phase A (audit / conformité)
+from app.legacy.core.audit_store import (  # Phase A (audit / conformité)
     ACT_APPROVAL,
     ACT_CONNECT,
     ACT_RUN,
@@ -128,31 +128,31 @@ def _active_features() -> list[str]:
     return [name for name, active in get_agent_config().active_flags().items() if active]
 
 
-from core.flow_store import (
+from app.legacy.core.flow_store import (
     AWAITING_APPROVAL as FLOW_AWAITING_APPROVAL,
 )
-from core.flow_store import (
+from app.legacy.core.flow_store import (
     COMPLETED as FLOW_COMPLETED,
 )
-from core.flow_store import (
+from app.legacy.core.flow_store import (
     ERROR as FLOW_ERROR,
 )
-from core.flow_store import (
+from app.legacy.core.flow_store import (
     REJECTED as FLOW_REJECTED,
 )
-from core.flow_store import (
+from app.legacy.core.flow_store import (
     STATUSES as FLOW_STATUSES,
 )
-from core.flow_store import (
+from app.legacy.core.flow_store import (
     get_flow_store,
 )
-from core.run_store import (
+from app.legacy.core.run_store import (
     ERROR as RUN_ERROR,
 )
-from core.run_store import (
+from app.legacy.core.run_store import (
     STATUSES as RUN_STATUSES,
 )
-from core.run_store import (
+from app.legacy.core.run_store import (
     get_run_store,
 )
 from ia.copilot.feedback import get_feedback_store  # Phase D (copilot)
@@ -278,7 +278,7 @@ class AskRequest(BaseModel):
     )
     session_id: str | None = Field(
         None,
-        description="Session de conversation (core/session_store) où journaliser "
+        description="Session de conversation (app/legacy/core/session_store) où journaliser "
         "l'échange ; absent : aucune persistance côté serveur.",
     )
     model: str | None = Field(
@@ -850,7 +850,7 @@ def complete(request: SuggestRequest, _: bool = Depends(require_api_key)):
     if not request.draft.strip():
         return {"completion": ""}
     try:
-        from core.agent_cache import get_agent_runner
+        from app.legacy.core.agent_cache import get_agent_runner
 
         llm = get_agent_runner().agent.llm
     except Exception:

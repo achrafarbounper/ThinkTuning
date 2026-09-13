@@ -9,7 +9,7 @@ Contrat de sortie : flux SSE ->
     data: {"delta": "..."}            réponse finale, fragment par fragment
     data: [DONE]
 
-L'agent IA réel (paquet `ia/`, exposé via `core.agent_cache`) tourne dans un
+L'agent IA réel (paquet `ia/`, exposé via `app.legacy.core.agent_cache`) tourne dans un
 thread de travail ; chaque événement est poussé dans une file puis réémis en
 SSE par un générateur asynchrone, donc l'appel vers Ollama ne gèle pas
 l'event loop. L'appel LLM est `stream: true` : la trace `message.thinking`
@@ -30,8 +30,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.dependencies.auth import require_api_key
-from core.agent_cache import ask_agent_detailed_streaming, list_llm_models
-from core.session_store import get_session_store
+from app.legacy.core.agent_cache import ask_agent_detailed_streaming, list_llm_models
+from app.legacy.core.session_store import get_session_store
 from ia.agent.encoding import repair_utf8_mojibake
 
 router = APIRouter(prefix="/api", tags=["AI Chat"])
@@ -67,7 +67,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(
         None,
         description=(
-            "Session de conversation (core/session_store) où journaliser "
+            "Session de conversation (app/legacy/core/session_store) où journaliser "
             "l'échange ; absent : aucune persistance côté serveur."
         ),
     )
@@ -115,7 +115,7 @@ def list_available_llm_models(_: bool = Depends(require_api_key)) -> dict:
 
     Retourne ``{"active": ..., "models": [{"name", "size", "modified_at",
     "is_default"}, ...]}``. Les erreurs Ollama sont déjà traduites en
-    502/504 par ``core.agent_cache.list_llm_models``.
+    502/504 par ``app.legacy.core.agent_cache.list_llm_models``.
     """
     return list_llm_models()
 

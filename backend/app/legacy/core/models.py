@@ -192,7 +192,7 @@ class TrainJob(BaseModel):
     progress: Optional[Dict] = None
 
 
-# Ordre canonique des étapes du pipeline d'entraînement (core/trainer_runner.py
+# Ordre canonique des étapes du pipeline d'entraînement (app/legacy/core/trainer_runner.py
 # et frontend/src/api/jobSteps.ts — à garder alignés).
 TRAIN_JOB_STEPS = [
     "queued",
@@ -208,7 +208,7 @@ TRAIN_JOB_STEPS = [
 ]
 
 # Ordre canonique des étapes de l'entraînement d'intention
-# (core/intent_trainer.py et frontend/src/api/jobSteps.ts — à garder
+# (app/legacy/core/intent_trainer.py et frontend/src/api/jobSteps.ts — à garder
 # alignés). Plus court que le sentiment : dataset JSONL local, pas d'EDA,
 # pas de poids de classe (SCRUM-95).
 INTENT_TRAIN_JOB_STEPS = [

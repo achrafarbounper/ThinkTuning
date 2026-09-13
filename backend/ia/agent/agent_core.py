@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
 # Import relatif : fonctionne à la fois sous le paquet `ia.agent` (tests)
-# et sous le paquet racine `agent` (core/agent_cache.py ajoute ia/ au sys.path).
+# et sous le paquet racine `agent` (app/legacy/core/agent_cache.py ajoute ia/ au sys.path).
 from .system_prompt import THINKING_PROMPT_SECTION, build_system_prompt
 from .json_parser import extract_json_blocks as _parse_json_blocks
 from .thinking import extract_thinking
@@ -158,7 +158,7 @@ ToolFunc = Callable[..., Any]
 
 try:  # paquet « ia.tools » (imports racinés sur le projet / tests)
     from ..tools.tool_registry import REQUIRED_ARGS, TOOLS  # noqa: F401
-except ImportError:  # racine « agent » / « tools » (core/agent_cache.py)
+except ImportError:  # racine « agent » / « tools » (app/legacy/core/agent_cache.py)
     from tools.tool_registry import REQUIRED_ARGS, TOOLS  # type: ignore[no-redef]  # noqa: F401
 
 try:  # Phase B : analytique d'usage des outils (best-effort, jamais bloquant)
@@ -433,7 +433,7 @@ class AgentCore:
         """Store de validation humaine : injecté ou applicatif partagé."""
         if self._approval_store is not None:
             return self._approval_store
-        from core.approval_store import get_approval_store  # lazy (import local)
+        from app.legacy.core.approval_store import get_approval_store  # lazy (import local)
 
         return get_approval_store()
 

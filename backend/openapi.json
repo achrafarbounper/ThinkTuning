@@ -5471,7 +5471,7 @@
               }
             ],
             "title": "Session Id",
-            "description": "Session de conversation (core/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur."
+            "description": "Session de conversation (app/legacy/core/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur."
           },
           "model": {
             "anyOf": [
@@ -5725,7 +5725,7 @@
               }
             ],
             "title": "Session Id",
-            "description": "Session de conversation (core/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur."
+            "description": "Session de conversation (app/legacy/core/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur."
           }
         },
         "type": "object",

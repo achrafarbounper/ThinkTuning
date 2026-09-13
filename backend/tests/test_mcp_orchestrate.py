@@ -37,7 +37,7 @@ from app.infrastructure.mcp.tools.orchestrate_tool import (
     build_orchestrate_tool,
     orchestrate,
 )
-from core.audit_store import ACT_MCP_ORCHESTRATE
+from app.legacy.core.audit_store import ACT_MCP_ORCHESTRATE
 
 
 class ScriptedLLM:

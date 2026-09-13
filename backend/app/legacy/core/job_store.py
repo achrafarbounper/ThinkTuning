@@ -5,7 +5,7 @@ import json
 import sqlite3
 import threading
 import time
-from core.models import TrainJob
+from app.legacy.core.models import TrainJob
 
 JOB_STORE_PATH = os.getenv("JOB_STORE_PATH", os.path.join("experiments", "jobs.db"))
 
@@ -321,7 +321,7 @@ class PersistentJobStore(dict):
         if cur.rowcount > 0:
             # Purge aussi le buffer de logs du job (job_logs, cf. rétention).
             try:
-                from core.job_logs import reset_job_logs
+                from app.legacy.core.job_logs import reset_job_logs
 
                 reset_job_logs(job_id)
             except Exception:

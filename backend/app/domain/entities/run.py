@@ -12,7 +12,7 @@ Pourquoi dans le domaine (règle d'or) :
     survivre ailleurs.
 
 Les constantes d'état persisté ci-dessous sont alignées sur le run_store
-legacy (``core/run_store.py``) ; un test de contrat (convention
+legacy (``app/legacy/core/run_store.py``) ; un test de contrat (convention
 ``test_*_match_legacy``) verrouille cet alignement sans import legacy ici.
 """
 
@@ -37,7 +37,7 @@ class RunStatus(StrEnum):
     FAILED = "failed"  # erreur non récupérable
 
 
-# --- Statuts PERSISTÉS d'un run (alignés sur core/run_store.py) ------------------
+# --- Statuts PERSISTÉS d'un run (alignés sur app/legacy/core/run_store.py) ------------------
 
 RUNNING = "running"
 COMPLETED = "completed"

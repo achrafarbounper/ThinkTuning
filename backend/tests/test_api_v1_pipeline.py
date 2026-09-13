@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import app.api as api# noqa: E402, F401
 from app.api import app  # noqa: E402
-from core.models import JobStatus, TrainJob
+from app.legacy.core.models import JobStatus, TrainJob
 
 client = TestClient(app)
 AUTH = {"X-API-Key": "test-key"}
