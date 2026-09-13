@@ -716,6 +716,36 @@ class MongoAgentSettingsStore:
         return filtered
 
 
+class MongoAgentProviderStore:
+    """Documents de configuration des providers LLM de l'assistant."""
+
+    def __init__(self, provider=None):
+        db = provider if hasattr(provider, "collection") else get_mongo_provider()
+        self.c = db.collection("agent_providers")
+
+    def list_all(self):
+        return list(self.c.find({}).sort("provider.name", 1))
+
+    def upsert(self, document):
+        from bson import ObjectId
+
+        document = dict(document)
+        requested_id = document.pop("id", None)
+        selector = {"_id": ObjectId(requested_id)} if requested_id and ObjectId.is_valid(requested_id) else {"_id": ObjectId()}
+        self.c.update_one(
+            selector,
+            {"$set": document},
+            upsert=True,
+        )
+        return self.c.find_one(selector)
+
+    def delete(self, provider_id):
+        from bson import ObjectId
+
+        selector = {"_id": ObjectId(provider_id)} if ObjectId.is_valid(provider_id) else {"id": provider_id}
+        return self.c.delete_one(selector).deleted_count > 0
+
+
 class MongoJobStore(dict):
     """Dict-compatible job store with Mongo persistence."""
 
