@@ -25,6 +25,7 @@ import {
   type AuthSession,
 } from "./api/authSession";
 import { useLocalStorage } from "./hooks/useLocalStorage";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // Sidebar chargé à la demande : prend en charge le CSS + les 10 icônes SVG
 // (~30 KB sortis du chemin critique). Un fallback réservant l'espace évite
@@ -234,10 +235,20 @@ export default function App() {
     mainRef.current?.focus({ preventScroll: true });
   }, [page]);
 
+  // Route Vercel Speed Insights (SPA) : le pathname ne change jamais entre les
+  // pages, on remonte donc la page active (#/xxx) pour que le dashboard Web
+  // Analytics agrège les vitals par page (et non sur une route générique).
+  const currentRoute =
+    authenticated
+      ? (page === "dashboard" ? "/" : `/${page}`)
+      : (authView === "register" ? "/register" : "/login");
+
   // --- Non connecté : écran d'authentification (login OU inscription) ---------
   if (!authenticated) {
     const isRegister = authView === "register";
     return (
+      <>
+      <SpeedInsights route={currentRoute} framework="react" />
       <AuthLayout
         title={isRegister ? "Inscription" : "Connexion"}
         subtitle={isRegister ? "Créez votre compte ThinkTuning" : "Accédez à votre espace"}
@@ -263,6 +274,7 @@ export default function App() {
         )}
         <ApiServerForm value={apiBaseUrl} onSubmit={applyApiBaseUrl} />
       </AuthLayout>
+      </>
     );
   }
 
@@ -270,6 +282,7 @@ export default function App() {
 
   return (
     <AppProvider>
+      <SpeedInsights route={currentRoute} framework="react" />
       <a className="skip-link" href="#contenu">
         Aller au contenu
       </a>
