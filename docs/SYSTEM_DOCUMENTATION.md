@@ -56,11 +56,11 @@ Les composants agentiques sont pilotés par des feature flags (`AGENT_RELIABILIT
 
 ### Flux de données
 
-1. **Intent** (`POST /api/agent/ask/core`) : prompt, session, rôle, budget (`agent_max_llm_rounds`, `agent_max_tool_calls`), validé à l'entrée via les entités du domaine.
+1. **Intent** (`POST /api/v1/agent/ask/core`) : prompt, session, rôle, budget (`agent_max_llm_rounds`, `agent_max_tool_calls`), validé à l'entrée via les entités du domaine.
 2. **Plan** : le planner (LLM) propose un plan JSON ; parsing tolérant (JSON direct, liste, fences markdown, prose autour). Une réponse **sans JSON est une réponse finale légitime** (salutation, explication) renvoyée telle quelle.
 3. **Policy** (par action) : `sandbox_policy.py` décide :
    - `AUTO_APPROVE` → exécution immédiate (lecture, réseau lisible) ;
-   - `APPROVE` → validation humaine obligatoire (écriture, exécution) : le run se termine en `pending_approval`, l'action est persistée dans `app/infrastructure/persistence/approval_store`, le client approuve via `POST /api/agent/approvals/{id}/approve` puis relance avec `resume_request_id`. La reprise n'accorde que l'action dont l'empreinte SHA-256 des arguments correspond exactement à la demande approuvée ;
+   - `APPROVE` → validation humaine obligatoire (écriture, exécution) : le run se termine en `pending_approval`, l'action est persistée dans `app/infrastructure/persistence/approval_store`, le client approuve via `POST /api/v1/agent/approvals/{id}/approve` puis relance avec `resume_request_id`. La reprise n'accorde que l'action dont l'empreinte SHA-256 des arguments correspond exactement à la demande approuvée ;
    - `REJECT` → règle dure, jamais exécutée : SQL mutant (seuls `SELECT/WITH/EXPLAIN/PRAGMA` passent), POST vers hôte privé (anti-SSRF), chemins sensibles (`.git`, `.env`, clés privées). Anti-boucle : une même action rejetée deux fois (empreinte) arrête le run.
 4. **Budget** : plafonnement des rounds LLM et appels d'outils ; dépassement → `BUDGET_EXHAUSTED`.
 5. **Action** : exécution via `ToolRegistryPort` ; erreur outil → renvoyée au LLM (auto-correction).
@@ -74,7 +74,7 @@ Les composants agentiques sont pilotés par des feature flags (`AGENT_RELIABILIT
 
 - **Rôle / mission** : boucle générique Intent → Plan → Policy → Budget → Action → Réponse. Noyau unique remplaçant progressivement la boucle historique ; sert aussi de base aux workers du mode multi-agents.
 - **Inputs** :
-  - Requête HTTP `POST /api/agent/ask/core` (prompt utilisateur, session_id, rôle) ;
+  - Requête HTTP `POST /api/v1/agent/ask/core` (prompt utilisateur, session_id, rôle) ;
   - System prompt généré dynamiquement depuis le registre d'outils (`tools_config.json`) ;
   - Historique de session + mémoire inter-sessions (`app/infrastructure/persistence/session_store.py`, table `agent_memory`) ;
   - Réglages : provider LLM (`ollama` / `openrouter` / `hf`), modèle, timeout, budgets.

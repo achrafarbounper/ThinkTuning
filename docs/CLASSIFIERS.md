@@ -18,18 +18,18 @@ scripts associés — alignée sur les conventions de `ARCHITECTURE.md`
 
 ```
                     API FastAPI
-        GET /classifiers   POST /classifiers/{name}/predict
+        GET /api/v1/classifiers   POST /api/v1/classifiers/{name}/predict
         +  monitoring      +  reload (clé API)
                │
         ┌──────┴──────┐
-        │  BaseClassifier (ABC)          ia/agent/classifiers/base.py
+        │  BaseClassifier (ABC)          backend/app/infrastructure/ml/classifiers/
         │  · predict()  · load/reload()  · health_check()  · get_metrics()
         └──────┬──────┘
    ┌───────────┴────────────┐
    │ SentimentClassifier     │  DistilBERT (via app.application.predictor_cache)
    │ IntentClassifier        │  MiniLM ou repli règles (engine=auto)
    │ FallbackClassifier      │  règles lex. déterministes (aucun modèle)
-   │ ResilientClassifier     │  CircuitBreaker (ia/agent/circuit_breaker.py)
+   │ ResilientClassifier     │  CircuitBreaker (app/agent/legacy/reliability.py)
    │                         │  + bascule automatique vers Fallback
    └───────────┬────────────┘
         ┌──────┴──────────┐
@@ -45,12 +45,12 @@ environnements sans modèle restent légers et fonctionnels.
 
 ---
 
-## 2. Module `ia/agent/classifiers`
+## 2. Module des classifieurs
 
 | Fichier | Rôle |
 |---|---|
-| `base.py` | `BaseClassifier` (ABC), `PredictionResult` (dataclass normalisée), `ClassifierMetrics` (compteurs thread-safe). |
-| `sentiment_classifier.py` | Classifieur de sentiment qui encapsule `app/application/predictor_cache.get_predictor` (inférence dans `src/inference/predictor.py`). Ajoute cache de résultats par texte, compteurs, warmup. |
+| `backend/app/infrastructure/ml/classifiers/base.py` | `BaseClassifier` (ABC), `PredictionResult` (dataclass normalisée), `ClassifierMetrics` (compteurs thread-safe). |
+| `sentiment_classifier.py` | Classifieur de sentiment qui encapsule `app/application/predictor_cache.get_predictor` (inférence dans `backend/app/infrastructure/ml/`). Ajoute cache de résultats par texte, compteurs, warmup. |
 | `intent_classifier.py` | Classifieur chat/action (`engine=auto` \| `rules` \| `onnx`). Sans modèle entraîné, bascule sur les règles métier. Seuil de sécurité : une `action` sous le seuil retombe en `chat`. |
 | `fallback.py` | Règles lexicales (`fallback_sentiment` / `fallback_intent`) + `FallbackClassifier` + `ResilientClassifier` (wrapper CircuitBreaker → repli automatique). |
 | `__init__.py` | Exports publics du package. |
@@ -58,7 +58,7 @@ environnements sans modèle restent légers et fonctionnels.
 ### Exemple — `SentimentClassifier`
 
 ```python
-from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
+from app.infrastructure.ml.classifiers.sentiment_classifier import SentimentClassifier
 
 clf = SentimentClassifier()            # modèle actif (version pointée / dernière)
 results = clf.predict(["Excellent !", "Horrible."])
@@ -70,7 +70,7 @@ print(clf.health_check())              # sonde : ok/label/confiance/latence
 ### Exemple — `IntentClassifier`
 
 ```python
-from ia.agent.classifiers.intent_classifier import IntentClassifier
+from app.infrastructure.ml.classifiers.intent_classifier import IntentClassifier
 
 clf = IntentClassifier()               # engine="auto"
 results = clf.predict([
@@ -83,8 +83,8 @@ print([r.label for r in results])      # ["action", "chat"] (règles si pas de m
 ### Exemple — `ResilientClassifier`
 
 ```python
-from ia.agent.classifiers.fallback import ResilientClassifier
-from ia.agent.classifiers.sentiment_classifier import SentimentClassifier
+from app.infrastructure.ml.classifiers.fallback import ResilientClassifier
+from app.infrastructure.ml.classifiers.sentiment_classifier import SentimentClassifier
 
 resilient = ResilientClassifier(SentimentClassifier())
 results = resilient.predict(["Texte"])  # modèle OK → normal
@@ -129,10 +129,10 @@ python scripts/train_intent.py --dataset data/intent_dataset.jsonl \
 
 | Méthode | Route | Clé API | Description |
 |---|---|---|---|
-| `GET`  | `/classifiers` | non | Liste + synthèse de santé (`summary.ok/degraded/down`). |
-| `GET`  | `/classifiers/{name}` | non | Instantané complet (info, métriques, health, warmup). |
-| `POST` | `/classifiers/{name}/predict` | oui | Prédiction `{texts}` → `[{text, label, confidence, probabilities?}]` (bornes anti-DoS). |
-| `POST` | `/classifiers/{name}/reload` | oui | Recharge le modèle actif depuis le disque. |
+| `GET`  | `/api/v1/classifiers` | non | Liste + synthèse de santé (`summary.ok/degraded/down`). |
+| `GET`  | `/api/v1/classifiers/{name}` | non | Instantané complet (info, métriques, health, warmup). |
+| `POST` | `/api/v1/classifiers/{name}/predict` | oui | Prédiction `{texts}` → `[{text, label, confidence, probabilities?}]` (bornes anti-DoS). |
+| `POST` | `/api/v1/classifiers/{name}/reload` | oui | Recharge le modèle actif depuis le disque. |
 
 Classifieurs connus d'office : `sentiment` et `intent` (créés paresseusement
 dans le registre singleton au premier accès — aucun modèle chargé à l'import).
@@ -146,7 +146,7 @@ lorsqu'indisponible.
 Exemple :
 
 ```bash
-curl -X POST http://localhost:8000/classifiers/intent/predict \
+curl -X POST http://localhost:8000/api/v1/classifiers/intent/predict \
   -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" \
   -d '{"texts": ["Peux-tu lancer l'"'"'entraînement ?"]}'
 ---
@@ -160,18 +160,18 @@ curl -X POST http://localhost:8000/classifiers/intent/predict \
 | `app/application/inference_executor.py` | Pool de threads dédié (`run` / `run_async`), non-bloquant pour l'event loop. |
 | `app/application/dynamic_batcher.py` | Regroupement temporel des requêtes concurrentes en un lot d'inférence (fenêtre + `max_batch_size`). |
 | `app/application/model_warmup.py` | Préchargement des modèles en arrière-plan au démarrage (`CLASSIFIER_WARMUP=0` pour désactiver en tests). |
-| `app/legacy/core/circuit_breaker.py`→`ia/agent/circuit_breaker.py` | Pattern Circuit Breaker existant (réutilisé par `ResilientClassifier`). |
+| `app/agent/legacy/reliability.py` | Pattern Circuit Breaker existant (réutilisé par `ResilientClassifier`). |
 | `app/application/onnx_exporter.py` | Export PyTorch → ONNX + moteur ONNX Runtime (optimisation additive). |
 
-Route `POST /predict/batched` (Phase 2) : corps `{texts, use_batcher}` —
+Route `POST /api/v1/classifiers/{name}/predict` : corps `{texts}` —
 batching dynamique ou inférence via l'executor.
 
 ---
 
 ## 6. Monitoring
 
-- **Endpoints** : `GET /classifiers` (listage + synthèse) et
-  `GET /classifiers/{name}` (snapshot complet) sont les points d'entrée du
+- **Endpoints** : `GET /api/v1/classifiers` (listage + synthèse) et
+  `GET /api/v1/classifiers/{name}` (snapshot complet) sont les points d'entrée du
   monitoring ; ils s'appuient sur `app/application/classifier_monitoring.py`
   (défensif : un classifieur hors-service ne fait jamais tomber le snapshot).
 - **Métriques exposées** (par classifieur) : prédictions, cache hits/misses,
@@ -187,7 +187,7 @@ batching dynamique ou inférence via l'executor.
 | Fichier | Couvre |
 |---|---|
 | `tests/test_classifiers.py` | Cache LRU+TTL, métriques, `SentimentClassifier`, registre. |
-| `tests/test_async_batching.py` | Batcher, executor, warmup, route `/predict/batched`. |
+| `backend/tests/test_async_batching.py` | Batcher, executor, warmup et exécution batch des classifieurs v1. |
 | `tests/test_fallback_classifier.py` | Règles, `FallbackClassifier`, `ResilientClassifier`. |
 | `tests/test_onnx_exporter.py` | Export ONNX + moteur ONNX Runtime (mini-BERT hors-ligne). |
 | `tests/test_intent_classifier.py` | `IntentClassifier`, `intent_store`, intégration observatoire `AgentCore`. |
@@ -195,7 +195,7 @@ batching dynamique ou inférence via l'executor.
 | `tests/test_circuit_breaker.py` | Circuit Breaker (existant, réutilisé). |
 
 ```bash
-python -m pytest tests/test_classifiers.py tests/test_async_batching.py \
+python -m pytest backend/tests/test_classifiers.py backend/tests/test_async_batching.py \
     tests/test_fallback_classifier.py tests/test_onnx_exporter.py \
     tests/test_intent_classifier.py tests/test_classifier_api.py -q
 ```

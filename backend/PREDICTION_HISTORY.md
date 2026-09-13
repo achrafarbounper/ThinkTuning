@@ -134,9 +134,13 @@ Si vous avez 50 prédictions et que vous réglez la limite à 30 :
 
 ## Intégration avec l'API
 
-Aucun changement côté API n'est nécessaire. L'historique est une fonctionnalité **100% client** (navigateur).
+Aucun changement côté API n'est nécessaire. L'historique est une fonctionnalité
+**100% client** (navigateur).
 
-Les endpoints `/predict` et `/predict/batch` continuent de fonctionner exactement comme avant.
+Les routes backend actuelles sont versionnées : `/api/v1/predict` et
+`/api/v1/predict/batch`. Les appels du dashboard passent par les clients de
+`frontend/src/api/`; les anciens chemins `/predict` et `/predict/batch` ne sont
+pas un contrat à utiliser dans une nouvelle intégration.
 
 ## Dépannage
 
@@ -155,8 +159,8 @@ Les endpoints `/predict` et `/predict/batch` continuent de fonctionner exactemen
 
 ---
 
-**Dernière mise à jour** : 2026-08-17  
-**Version** : 1.0
-> **Statut (septembre 2026)** — Historique de prédictions et de migration.
-> L'exécution actuelle passe par l'API FastAPI versionnée `/api/v1`; ce fichier
-> ne définit pas une surface d'API active.
+**Dernière mise à jour** : 2026-09-13
+**Version** : 1.1
+
+> **Statut (septembre 2026)** — Historique de prédictions côté navigateur.
+> Ce fichier décrit le comportement UX; il ne définit pas une surface d'API.

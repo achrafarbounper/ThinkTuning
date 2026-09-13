@@ -5,7 +5,7 @@
 Prend un texte, le fait prédire par DistilBERT (dernière version valide via
 ``app.api._get_predictor``) puis demande à l'agent IA une explication en langage
 naturel de la prédiction via le provider OpenRouter
-(``app.application.agent_cache.ask_agent_openrouter``), la prédiction (sentiment +
+(``app.application.explain_agent.ask_agent_openrouter``), la prédiction (sentiment +
 confidence) servant de contexte.
 
 Contrat d'entrée  : POST /explain  {"text": str, "model"?: str}
@@ -17,14 +17,20 @@ routes de l'API.
 Le champ ``model`` est le modèle LLM OpenRouter à utiliser pour l'explication
 (défaut : « openrouter/free »). La clé OpenRouter est requise
 (``OPENROUTER_API_KEY`` en env ou en base de paramètres).
+
+Migration legacy (S3) : ce module n'importe plus la façade strangler
+``app.application.agent_cache`` ni le runtime v1 — le use-case
+``app.application.explain_agent`` fournit l'explication via le noyau v2
+(config typée ``AgentConfig`` + ``HttpLLMClient``).
 """
 
-from fastapi import APIRouter, Depends
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 import app.api as api
 from app.api.dependencies.auth import require_read_api_key
-from app.application import agent_cache
+from app.application.explain_agent import ask_agent_openrouter
 
 router = APIRouter(tags=["Explication"])
 
@@ -83,7 +89,25 @@ def explain_route(
         result["sentiment"],
         result["confidence"],
     )
-    explanation = agent_cache.ask_agent_openrouter(prompt, req.model)
+    try:
+        explanation = ask_agent_openrouter(prompt, req.model)
+    except ValueError as exc:  # clé OpenRouter manquante (config invalidée)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="Le LLM OpenRouter n'a pas répondu (timeout).",
+        ) from exc
+    except httpx.ConnectError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM OpenRouter injoignable. Vérifiez la configuration OpenRouter.",
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        detail = f"Erreur renvoyée par le LLM OpenRouter (HTTP {exc.response.status_code})."
+        raise HTTPException(status_code=502, detail=detail) from exc
+    except httpx.HTTPError as exc:  # autre erreur réseau httpx (protocole…)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {
         "sentiment": result["sentiment"],

@@ -6,22 +6,26 @@ Même schéma que `app/application/predictor_cache.py` : une instance unique con
 paresseusement au premier appel puis mise en cache (accès protégé par un
 verrou), avec rechargement explicite via `reload_agent_runner()`.
 
-Les modules de l'agent (runtime v1) sont importés depuis leurs paquets
-hexagonaux (``app.agent.legacy.*``, ``app.infrastructure.llm.legacy_client``,
-``app.infrastructure.tools.*``) : plus aucun hack ``sys.path`` (cf.
-tests/test_sys_path_guard.py). Ce module reste le point d'entrée unique :
-le reste de l'API n'accède à l'agent que via ce module, jamais par un
-import direct du runtime.
+Les symboles du runtime v1 (``AgentCore``, ``AgentRunner``,
+``MultiAgentCoordinator``) sont résolus PAresseusement (module-level
+``__getattr__``, PEP 562) : importer ce module ne charge plus
+``app.agent.legacy.*`` — seul le premier usage d'un runner/coordinateur les
+importe, depuis leurs paquets réels (aucun hack ``sys.path``, cf.
+tests/test_sys_path_guard.py). Ce module reste le point d'entrée strangler
+unique : le reste de l'API n'accède à l'agent v1 que via ce module, jamais par
+un import direct du runtime (verrouillé par
+tests/test_no_direct_legacy_imports.py).
 """
 
+from __future__ import annotations
+
 import threading
+from typing import TYPE_CHECKING, Any
 
 import requests
 from fastapi import HTTPException
 
-from app.agent.legacy.agent_core import AgentCore  # noqa: E402
-from app.agent.legacy.orchestrator import MultiAgentCoordinator  # noqa: E402
-from app.agent.legacy.runner import AgentRunner  # noqa: E402
+from app.agent.settings import normalize_chat_url  # source canonique (S1, strangler)
 from app.infrastructure.llm.legacy_client import LLMClient  # noqa: E402
 from app.infrastructure.persistence.agent_settings import get_agent_settings
 
@@ -45,6 +49,45 @@ from app.infrastructure.tools.tool_registry import (  # noqa: E402,F401
     TOOLS,
 )
 
+# ---------------------------------------------------------------------------
+# Résolution PAresseuse du runtime v1 (strangler — S1 : réduction legacy)
+# ---------------------------------------------------------------------------
+# ``app.agent.legacy.*`` n'est plus importé au chargement de ce module : les
+# symboles ne sont résolus qu'au premier usage (assemblage d'un runner /
+# coordinateur), puis mis en cache dans l'espace de noms. L'import passe
+# TOUJOURS par les paquets hexagonaux réels — aucun hack ``sys.path`` — et ce
+# module reste le SEUL point d'entrée production vers le v1
+# (verrouillé par tests/test_no_direct_legacy_imports.py).
+_LEGACY_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "AgentCore": ("app.agent.legacy.agent_core", "AgentCore"),
+    "AgentRunner": ("app.agent.legacy.runner", "AgentRunner"),
+    "MultiAgentCoordinator": ("app.agent.legacy.orchestrator", "MultiAgentCoordinator"),
+}
+
+if TYPE_CHECKING:  # satisfaction statique F821/F822 — jamais exécuté (lazy).
+    from app.agent.legacy.agent_core import AgentCore
+    from app.agent.legacy.orchestrator import MultiAgentCoordinator
+    from app.agent.legacy.runner import AgentRunner
+
+
+def __getattr__(name: str) -> Any:
+    """Résout paresseusement un symbole du runtime v1 (PEP 562).
+
+    Premier accès à ``AgentCore`` / ``AgentRunner`` / ``MultiAgentCoordinator`` :
+    import du module legacy correspondant puis mise en cache dans l'espace de
+    noms (les accès suivants ne repassent plus par ``__getattr__``). Tout autre
+    nom inconnu déclenche l'``AttributeError`` standard.
+    """
+    entry = _LEGACY_LAZY_IMPORTS.get(name)
+    if entry is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    value = getattr(importlib.import_module(entry[0]), entry[1])
+    globals()[name] = value
+    return value
+
+
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
 __all__ = [
     "AgentCore",
@@ -56,7 +99,6 @@ __all__ = [
     "TOOLS",
     "agent_config",
     "ask_agent",
-    "ask_agent_openrouter",
     "ask_agent_detailed",
     "ask_agent_detailed_streaming",
     "ask_multi_agent",
@@ -117,48 +159,23 @@ _runner_lock = threading.Lock()
 
 
 def _openrouter_chat_url(url: str | None) -> str:
-    """Normalise une URL OpenRouter vers l'endpoint chat complet.
+    """Délègue à ``app.agent.settings.normalize_chat_url`` (OpenRouter).
 
-    La page Paramètres du dashboard enregistre la RACINE de l'API
-    (« https://openrouter.ai/api/v1 ») tandis que la configuration serveur
-    (AGENT_OPENROUTER_URL) et les tests utilisent l'endpoint complet
-    (« https://openrouter.ai/api/v1/chat/completions »). On accepte les deux :
-    un suffixe « /chat/completions » manquant est ajouté.
+    Source canonique unique depuis S1 (réduction legacy) : la logique vit dans
+    le module de configuration v2 — ce helper n'est conservé que pour la
+    compatibilité des consommateurs existants (routes v1, tests).
     """
-    url = (url or "").strip().rstrip("/")
-    if not url:
-        return DEFAULT_OPENROUTER_URL
-    if url.endswith("/chat/completions"):
-        return url
-    return f"{url}/chat/completions"
+    return normalize_chat_url(url, default=DEFAULT_OPENROUTER_URL)
 
 
 def _hf_chat_url(url: str | None) -> str:
-    """Normalise une URL Hugging Face vers l'endpoint chat complet.
-
-    Accepte la racine de l'API (« https://router.huggingface.co/v1 ») ou
-    l'endpoint complet (« .../v1/chat/completions »), comme _openrouter_chat_url.
-    """
-    url = (url or "").strip().rstrip("/")
-    if not url:
-        return DEFAULT_HF_URL
-    if url.endswith("/chat/completions"):
-        return url
-    return f"{url}/chat/completions"
+    """Délègue à ``app.agent.settings.normalize_chat_url`` (Hugging Face)."""
+    return normalize_chat_url(url, default=DEFAULT_HF_URL)
 
 
 def _lm_studio_chat_url(url: str | None) -> str:
-    """Normalise une URL LM Studio vers l'endpoint chat complet.
-
-    Accepte la racine de l'API (« http://192.168.1.184:1234/v1 ») ou l'endpoint
-    complet (« .../v1/chat/completions »), comme _openrouter_chat_url.
-    """
-    url = (url or "").strip().rstrip("/")
-    if not url:
-        return DEFAULT_LM_STUDIO_URL
-    if url.endswith("/chat/completions"):
-        return url
-    return f"{url}/chat/completions"
+    """Délègue à ``app.agent.settings.normalize_chat_url`` (LM Studio)."""
+    return normalize_chat_url(url, default=DEFAULT_LM_STUDIO_URL)
 
 
 def agent_config() -> dict:
@@ -281,43 +298,6 @@ def _build_runner(model_name: str | None = None, enable_thinking: bool = False) 
         think=enable_thinking,
         context_length=cfg["context_length"],
         provider=cfg["provider"],
-        api_key=api_key,
-    )
-    return AgentRunner(AgentCore(llm, enable_thinking=enable_thinking))
-
-
-def _build_openrouter_runner(
-    model_name: str | None = None, enable_thinking: bool = False
-) -> AgentRunner:
-    """Fabrique un runner de l'agent FORCÉ sur le provider OpenRouter.
-
-    Distingue du chemin historique contrôlé par la config globale
-    (``AGENT_PROVIDER`` / base SQLite) : utilisé par POST /explain pour
-    garantir une explication via OpenRouter même quand le provider par défaut
-    reste Ollama.
-
-    La clé OpenRouter provient de la config effective (base SQLite puis env
-    ``OPENROUTER_API_KEY``) et une HTTPException 500 est levée quand elle
-    manque (mauvaise configuration serveur) — même comportement qu'``_llm_endpoint``.
-    Le modèle par défaut est ``DEFAULT_OPENROUTER_MODEL_NAME`` ; un ``model_name``
-    explicite (ex. un ID OpenRouter « vendor/model ») le remplace.
-    """
-    cfg = agent_config()
-    effective_model = (model_name or "").strip() or DEFAULT_OPENROUTER_MODEL_NAME
-    url, api_key = _llm_endpoint(
-        {
-            **cfg,
-            "provider": "openrouter",
-        }
-    )
-    llm = LLMClient(
-        url,
-        effective_model,
-        timeout=cfg["timeout"],
-        temperature=cfg["temperature"],
-        think=enable_thinking,
-        context_length=cfg["context_length"],
-        provider="openrouter",
         api_key=api_key,
     )
     return AgentRunner(AgentCore(llm, enable_thinking=enable_thinking))
@@ -709,24 +689,6 @@ def ask_agent(prompt: str, model: str | None = None) -> str:
     """
     effective_model = (model or "").strip() or agent_config()["model"]
     runner = get_agent_runner(effective_model)
-    return _ask_runner_with_http_errors(runner, prompt, effective_model).answer
-
-
-def ask_agent_openrouter(prompt: str, model: str | None = None) -> str:
-    """Envoie le prompt à l'agent via un runner FORCÉ sur le provider OpenRouter.
-
-    Utilisé par POST /explain pour garantir une explication en langage naturel
-    via OpenRouter, indépendamment du provider par défaut de l'agent (Ollama).
-
-    ``model`` : ID OpenRouter explicite (ex. « vendor/model ») ; absent ou
-    vide, c'est ``DEFAULT_OPENROUTER_MODEL_NAME`` (= « openrouter/free ») qui
-    est utilisé.
-
-    Erreurs traduites en HTTPException : Timeout -> 504, LLM injoignable ou
-    erreur HTTP -> 502, clé OpenRouter manquante -> 500.
-    """
-    effective_model = (model or "").strip() or DEFAULT_OPENROUTER_MODEL_NAME
-    runner = _build_openrouter_runner(effective_model)
     return _ask_runner_with_http_errors(runner, prompt, effective_model).answer
 
 

@@ -1,84 +1,85 @@
-# React + Vite
+# ThinkTuning Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Dashboard React autonome du projet ThinkTuning. Le frontend est servi par
+Vite en développement et par nginx dans l'image Docker `frontend/`. Il
+consomme exclusivement l'API FastAPI versionnée du dossier `backend/`.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19
+- TypeScript 6
+- Vite 8
+- Vitest + React Testing Library
+- ESLint 10
+- Recharts pour les graphiques
 
-## React Compiler
+## Structure
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-
-## 💬 Interface de chat (Assistant IA)
-
-Interface de chat façon GitHub Copilot, en **React + TypeScript**, située dans `src/components/chat/` :
-
-```
-src/components/chat/
-├── ChatWindow.tsx     # État global + appel POST /api/ai en streaming (SSE)
-├── ChatMessage.tsx    # Une bulle de message (utilisateur / IA)
-├── markdown.tsx       # Rendu Markdown des réponses de l'assistant (zéro dépendance)
-├── ChatInput.tsx      # Textarea auto-extensible + bouton envoyer / stop
-├── streamSse.ts       # Parseur de flux Server-Sent Events
-├── types.ts           # Types partagés
-├── chat.css           # Style Copilot / VS Code (clair + sombre)
-└── index.ts           # Exports publics
+```text
+src/
+├── api/          # client HTTP, clients métier et types OpenAPI générés
+├── components/   # composants réutilisables, dont components/chat/
+├── context/      # état global de l'application
+├── hooks/        # hooks réutilisables
+├── lib/          # fonctions utilitaires
+├── pages/        # composition des écrans
+└── test/         # configuration Vitest
 ```
 
-Fonctionnalités : streaming token par token, spinner de chargement,
-curseur clignotant, rendu Markdown des réponses de l'assistant (titres,
-gras, listes, code, tableaux) et des sous-tâches multi-agents (en ligne —
-via `markdown.tsx`), scroll automatique intelligent, bouton « Stop »
-(AbortController), bouton « Nouvelle tâche » (nouvelle session : interrompt
-la génération en cours et vide la conversation), gestion des erreurs,
-thème clair/sombre automatique.
+Le transport centralisé de `src/api/` ajoute l'URL de base, le
+`X-API-Key`/jeton de session et l'enveloppe d'erreur v1. Les composants ne
+doivent pas appeler `fetch` directement. Les flux SSE passent par
+`src/components/chat/streamSse.ts` ou le client spécialisé correspondant.
 
-### Authentification (X-API-Key)
+## Développement local
 
-`POST /api/ai` est protégé par `require_api_key` côté backend : le chat envoie
-l'en-tête `X-API-Key` à chaque requête. La clé est résolue dans cet ordre :
+Depuis la racine du dépôt, démarrer l'API :
 
-1. la configuration persistée par le dashboard (`localStorage`, clé
-   `thinktuning.apiConfig` — champ « API_KEY côté serveur » du formulaire
-   Configuration) ;
-2. la variable d'environnement Vite `VITE_API_KEY` (fichier
-   `.env.local`, ex. `VITE_API_KEY=dev-local-api-key`).
-
-Sans clé, la requête part sans en-tête et le backend répond 401 ; le message
-d'erreur s'affiche alors dans la bulle du chat.
-
-### Lancer le tout en développement
-
-```bash
-# Terminal 1 — backend (au choix) :
-venv\Scripts\python scripts\mock_ai_backend.py        # mini-serveur de test autonome
-# ou la vraie API : uvicorn app.api.main:app --port 8000 --reload
-
-# Terminal 2 — frontend :
-cd frontend && npm run dev                             # http://localhost:5173
+```powershell
+cd backend
+python -m uvicorn app.api.main:app --reload --port 8000
 ```
 
-Le proxy Vite transfère `/api/*` vers `http://localhost:8000`
-(voir `vite.config.ts`), donc `fetch("/api/ai")` fonctionne tel quel.
+Dans un second terminal :
 
-### Scripts utiles
+```powershell
+cd frontend
+npm install
+npm run dev
+```
 
-| Commande             | Rôle                                  |
-| -------------------- | ------------------------------------- |
-| `npm run dev`        | Serveur de développement Vite         |
-| `npm run typecheck`  | Vérification TypeScript (`tsc`)       |
-| `npm run lint`       | ESLint (JS **et** TS/TSX)             |
-| `npm run build`      | Build de production dans `dist/`      |
+Le serveur Vite est disponible sur `http://localhost:5173`. Les proxys
+`/api/*` et `/mcp/*` sont transférés vers `http://localhost:8000` par
+`vite.config.ts`; aucune URL backend en dur n'est nécessaire dans les appels
+du dashboard.
 
-### Brancher votre vrai modèle IA
+En production, l'image frontend nginx proxifie les mêmes chemins vers le
+service API. La clé `API_KEY` est injectée par nginx côté serveur dans
+Docker Compose : elle n'est pas stockée dans `localStorage` ni exposée au
+bundle JavaScript.
 
-Remplacez `_build_reply()` dans `app/api/routes/ai_chat.py` par l'appel à votre
-modèle. Le contrat est simple : émettre des événements SSE
-`data: {"delta": "fragment"}` puis `data: [DONE]`. Le frontend gère aussi un
-repli JSON non streamé (`{"content": "..."}`).
+## Commandes
+
+| Commande | Rôle |
+| --- | --- |
+| `npm run dev` | Serveur Vite avec HMR |
+| `npm run typecheck` | Vérification TypeScript |
+| `npm run lint` | ESLint |
+| `npm run test` | Tests Vitest |
+| `npm run build` | Build de production dans `dist/` |
+| `npm run preview` | Prévisualisation du build |
+| `npm run generate:api-types` | Régénération depuis `../backend/openapi.json` |
+
+## Contrat backend
+
+Les routes applicatives sont préfixées par `/api/v1`. Les routes de lecture
+publiques restent accessibles sans clé selon le contrat backend; les
+mutations et prédictions protégées utilisent `X-API-Key`. Le transport
+frontend attend l'enveloppe d'erreur v1 :
+
+```json
+{ "error": { "code": "validation_error", "message": "...", "details": {} } }
+```
+
+Pour l'API complète, consulter [`../ARCHITECTURE.md`](../ARCHITECTURE.md) et
+[`../docs/ARCHITECTURE_DECOUPLAGE.md`](../docs/ARCHITECTURE_DECOUPLAGE.md).
