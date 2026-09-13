@@ -603,9 +603,7 @@ def activate_agent_provider(provider_id: str, _: bool = Depends(require_api_key)
     from bson import ObjectId
 
     selector = (
-        {"_id": ObjectId(provider_id)}
-        if ObjectId.is_valid(provider_id)
-        else {"id": provider_id}
+        {"_id": ObjectId(provider_id)} if ObjectId.is_valid(provider_id) else {"id": provider_id}
     )
     document = MongoAgentProviderStore().c.find_one(selector)
     if not document:
@@ -613,9 +611,12 @@ def activate_agent_provider(provider_id: str, _: bool = Depends(require_api_key)
     provider_config = document["provider"]
     base_url = provider_config["base_url"]
     provider = (
-        "openrouter" if "openrouter" in base_url
-        else "hf" if "huggingface" in base_url
-        else "lm_studio" if "lmstudio" in base_url or "192.168." in base_url
+        "openrouter"
+        if "openrouter" in base_url
+        else "hf"
+        if "huggingface" in base_url
+        else "lm_studio"
+        if "lmstudio" in base_url or "192.168." in base_url
         else "ollama"
     )
     values = {
