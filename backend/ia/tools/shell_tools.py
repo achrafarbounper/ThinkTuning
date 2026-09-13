@@ -143,9 +143,9 @@ def _snippet_preexec() -> Callable[[], None] | None:
 
     def _apply_limits() -> None:
         cpu_cap = int(DEFAULT_PYTHON_TIMEOUT_S) + 5
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_cap, cpu_cap + 5))
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_cap, cpu_cap + 5))  # type: ignore[attr-defined]
         address_cap = 1024 * 1024 * 1024  # 1 GiB d'espace d'adressage
-        resource.setrlimit(resource.RLIMIT_AS, (address_cap, address_cap))
+        resource.setrlimit(resource.RLIMIT_AS, (address_cap, address_cap))  # type: ignore[attr-defined]
 
     return _apply_limits
 

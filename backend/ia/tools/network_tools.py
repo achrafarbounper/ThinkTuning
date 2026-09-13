@@ -82,7 +82,7 @@ def _request_no_redirect(
         url_scheme_allowed(current)
         enforce_host_policy(current)
         resp = requests.request(method, current, timeout=timeout, allow_redirects=False, **kwargs)
-        location = (resp.headers or {}).get("location")
+        location: str | None = resp.headers.get("location")
         if resp.status_code not in (301, 302, 303, 307, 308) or not location:
             enforce_response_host_policy(resp.url or current)
             return resp

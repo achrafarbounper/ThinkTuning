@@ -295,7 +295,7 @@ def build_secret_source(backend: str | None = None) -> SecretSource:
     ``backend`` accepte aussi un CSV de backends (ex. ``doppler,env`` :
     fail-over vers env — pratique en préprod).
     """
-    raw = (backend or os.getenv("VAULT_BACKEND", "env")).strip().lower()
+    raw = (backend or os.getenv("VAULT_BACKEND", "env") or "env").strip().lower()
     backends = [b.strip() for b in raw.split(",") if b.strip()]
     if not backends:
         return EnvSecretSource()

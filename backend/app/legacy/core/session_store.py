@@ -436,6 +436,7 @@ def get_session_store() -> SessionStore:
     with _store_lock:
         if _store is None:
             _store = MongoSessionStore()  # type: ignore[assignment]
+        assert _store is not None
         return _store
 
 

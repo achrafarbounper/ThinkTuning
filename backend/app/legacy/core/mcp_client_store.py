@@ -682,4 +682,5 @@ def get_mcp_client_store() -> MCPClientStore:
     with _client_store_singleton_lock:
         if _client_store_singleton is None:
             _client_store_singleton = MongoMCPClientStore()  # type: ignore[assignment]
+        assert _client_store_singleton is not None
         return _client_store_singleton

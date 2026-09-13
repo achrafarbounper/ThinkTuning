@@ -345,27 +345,29 @@ class MCPServer:
         if method == MCPMethod.TOOLS_CALL:
             tool_name = params.get("name")
             action = ACT_MCP_ORCHESTRATE if tool_name == "orchestrate" else ACT_MCP_TOOL_CALL
+            tool_detail: dict[str, Any] = {
+                "method": method,
+                "tool": tool_name if isinstance(tool_name, str) else None,
+                "arguments": self._arguments_or_empty(params),
+                "is_error": self._response_is_error(response),
+                "scope": self.scope.value,
+            }
             self._audit_event(
                 action,
                 subject=client_id,
-                detail={
-                    "method": method,
-                    "tool": tool_name if isinstance(tool_name, str) else None,
-                    "arguments": self._arguments_or_empty(params),
-                    "is_error": self._response_is_error(response),
-                    "scope": self.scope.value,
-                },
+                detail=tool_detail,
                 run_id=request_id,
             )
             return
-        action = _AUDIT_ACTION_BY_METHOD.get(method)
-        if action is None:
+        audit_action = _AUDIT_ACTION_BY_METHOD.get(method)
+        if audit_action is None:
             return  # catalogue / handshake : aucune action à auditer
+        detail: dict[str, Any]
         if method == MCPMethod.RESOURCES_READ:
-            uri = params.get("uri")
+            resource_uri = params.get("uri")
             detail = {
                 "method": method,
-                "uri": uri if isinstance(uri, str) else None,
+                "uri": resource_uri if isinstance(resource_uri, str) else None,
                 "is_error": self._response_is_error(response),
                 "scope": self.scope.value,
             }
@@ -387,7 +389,7 @@ class MCPServer:
             }
         else:
             return
-        self._audit_event(action, subject=client_id, detail=detail, run_id=request_id)
+        self._audit_event(audit_action, subject=client_id, detail=detail, run_id=request_id)
 
     @staticmethod
     def _arguments_or_empty(params: dict[str, Any]) -> dict[str, Any]:

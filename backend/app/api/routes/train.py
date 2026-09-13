@@ -223,7 +223,9 @@ async def stream_training_metrics(websocket: WebSocket, job_id: str):
     # DASHBOARD_WS_TOKEN reste accepté (comparaison à temps constant).
     provided = websocket.query_params.get("token")
     header_ok = ws_is_authorized(websocket, read_scope=True)
-    dashboard_ok = bool(provided) and secrets.compare_digest(provided, _get_dashboard_ws_token())
+    dashboard_ok = bool(provided) and secrets.compare_digest(
+        provided or "", _get_dashboard_ws_token()
+    )
     if not (header_ok or dashboard_ok):
         await websocket.close(code=1008, reason="Jeton invalide")
         return

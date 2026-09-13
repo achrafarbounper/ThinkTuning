@@ -329,6 +329,7 @@ def get_flow_store() -> FlowStore:
     with _store_lock:
         if _store is None:
             _store = MongoFlowStore()  # type: ignore[assignment]
+        assert _store is not None
         return _store
 
 
@@ -339,4 +340,5 @@ def reset_flow_store(path: str | None = None) -> FlowStore:
         from app.infrastructure.persistence.mongodb import MongoFlowStore
 
         _store = MongoFlowStore()  # type: ignore[assignment]
+        assert _store is not None
         return _store

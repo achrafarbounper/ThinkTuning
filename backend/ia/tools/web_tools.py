@@ -316,7 +316,7 @@ def _secure_get(
             allow_redirects=False,
         )
         current_params = None  # params déjà encodés dans l'URL après le 1er saut
-        location = (resp.headers or {}).get("location")
+        location: str | None = resp.headers.get("location")
         if resp.status_code not in (301, 302, 303, 307, 308) or not location:
             enforce_response_host_policy(getattr(resp, "url", None) or current)
             try:
@@ -324,7 +324,7 @@ def _secure_get(
             except Exception:
                 text = ""
             if len(text) > MAX_DOWNLOAD_BYTES:
-                resp.text = text[:MAX_DOWNLOAD_BYTES]  # type: ignore[attr-defined]
+                resp.text = text[:MAX_DOWNLOAD_BYTES]  # type: ignore[misc, attr-defined]
             return resp
         current = urljoin(getattr(resp, "url", None) or current, location)
         enforce_host_policy(current)
@@ -427,7 +427,7 @@ def _ddg_lite_search(query: str, max_results: int, timeout: float) -> dict:
             timeout=timeout,
             allow_redirects=False,
         )
-        location = (resp.headers or {}).get("location")
+        location: str | None = resp.headers.get("location")
         if resp.status_code in (301, 302, 303, 307, 308) and location:
             # Redirect DDG re-validé SSRF avant suivi (même politique que GET).
             from urllib.parse import urljoin
@@ -450,7 +450,7 @@ def _ddg_lite_search(query: str, max_results: int, timeout: float) -> dict:
         from .sandbox import MAX_DOWNLOAD_BYTES
 
         if len(body) > MAX_DOWNLOAD_BYTES:
-            resp.text = body[:MAX_DOWNLOAD_BYTES]  # type: ignore[attr-defined]
+            resp.text = body[:MAX_DOWNLOAD_BYTES]  # type: ignore[misc, attr-defined]
     except requests.RequestException as exc:
         payload["error"] = f"DuckDuckGo injoignable : {exc}"
         return payload
