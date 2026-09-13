@@ -326,3 +326,193 @@ describe("propagation des arguments (arc « résultat » complet)", () => {
     expect(g.edges[toolIds[0]].args).toBe('{"url":"https://x"}');
   });
 });
+describe("sessions Flow Map MCP (mcp.* / mcp_host.* — Flow Map MCP)", () => {
+  it("mcp.orchestrate.start → worker.start (rôle « Agent MCP »)", () => {
+    const ev = sseToFlowEvent(
+      frame("mcp.orchestrate.start", {
+        role: "Agent MCP",
+        prompt: "résume ce rapport",
+        client_id: "cli-x",
+        session_id: "s1",
+        scope: "default",
+      }),
+      100,
+      noSub,
+    );
+    expect(ev).toEqual({
+      t: "worker.start",
+      at: 100,
+      task_id: "mcp",
+      role: "Agent MCP",
+      subtask: "résume ce rapport",
+    });
+  });
+
+  it("mcp.tool tool_start / tool_result → tool.start / tool.result", () => {
+    const start = sseToFlowEvent(
+      frame("mcp.tool", {
+        event: "tool_start",
+        tool: "web_search",
+        args: { q: "x" },
+        role: "Agent MCP",
+      }),
+      200,
+      noSub,
+    );
+    expect(start).toEqual({
+      t: "tool.start",
+      at: 200,
+      task_id: "mcp",
+      role: "Agent MCP",
+      tool: "web_search",
+      args: '{"q":"x"}',
+    });
+
+    const result = sseToFlowEvent(
+      frame("mcp.tool", {
+        event: "tool_result",
+        tool: "web_search",
+        status: "ok",
+        summary: "3 résultats",
+        role: "Agent MCP",
+      }),
+      250,
+      noSub,
+    );
+    expect(result).toEqual({
+      t: "tool.result",
+      at: 250,
+      task_id: "mcp",
+      role: "Agent MCP",
+      tool: "web_search",
+      status: "ok",
+      summary: "3 résultats",
+    });
+  });
+
+  it("mcp.approval → worker.approval (outil ciblé conservé)", () => {
+    const ev = sseToFlowEvent(
+      frame("mcp.approval", {
+        role: "Agent MCP",
+        request_id: "req-9",
+        message: "Policy : validation humaine requise",
+        approval: { tool: "write_file" },
+      }),
+      300,
+      noSub,
+    );
+    expect(ev && ev.t).toBe("worker.approval");
+    expect(ev && (ev.t === "worker.approval") && ev.approval?.tool).toBe("write_file");
+    expect(ev && (ev.t === "worker.approval") && ev.request_id).toBe("req-9");
+  });
+
+  it("mcp.done propage le statut réel (awaiting_approval jamais forcé)", () => {
+    const ev = sseToFlowEvent(
+      frame("mcp.done", { answer: "En attente.", status: "awaiting_approval", role: "Agent MCP" }),
+      400,
+      noSub,
+    );
+    expect(ev).toEqual({ t: "done", at: 400, status: "awaiting_approval", answer: "En attente." });
+  });
+
+  it("mcp.error → error", () => {
+    const ev = sseToFlowEvent(frame("mcp.error", { message: "LLM injoignable" }), 500, noSub);
+    expect(ev).toEqual({ t: "error", at: 500, message: "LLM injoignable" });
+  });
+
+  it("mcp.thinking n'est pas graphé (chronologie seule)", () => {
+    expect(sseToFlowEvent(frame("mcp.thinking", { chunk: "réflexion…" }), 0, noSub)).toBeNull();
+  });
+
+  it("mcp.call / mcp.result → worker.start / worker.result (mini-session MCP)", () => {
+    const call = sseToFlowEvent(
+      frame("mcp.call", { method: "resources/read", label: "thinktuning://health", role: "MCP" }),
+      0,
+      noSub,
+    );
+    expect(call && call.t).toBe("worker.start");
+    expect(call && (call.t === "worker.start") && call.subtask).toBe("thinktuning://health");
+
+    const result = sseToFlowEvent(
+      frame("mcp.result", { status: "ok", answer: "UP", role: "MCP" }),
+      10,
+      noSub,
+    );
+    expect(result && result.t).toBe("worker.result");
+    expect(result && (result.t === "worker.result") && result.summary).toBe("UP");
+  });
+
+  it("mcp_host.call / mcp_host.result → tool.start / tool.result (« MCP Host »)", () => {
+    const call = sseToFlowEvent(
+      frame("mcp_host.call", {
+        tool: "web_search",
+        server: "srv-mcp",
+        remote: "tools/web/search",
+        arguments: { q: "x" },
+        role: "MCP Host",
+      }),
+      0,
+      noSub,
+    );
+    expect(call).toEqual({
+      t: "tool.start",
+      at: 0,
+      task_id: "host",
+      role: "MCP Host",
+      tool: "web_search",
+      args: '{"q":"x"}',
+    });
+
+    const result = sseToFlowEvent(
+      frame("mcp_host.result", {
+        tool: "web_search",
+        server: "srv-mcp",
+        remote: "tools/web/search",
+        status: "error",
+        summary: "502 Bad Gateway",
+        role: "MCP Host",
+      }),
+      5,
+      noSub,
+    );
+    expect(result).toEqual({
+      t: "tool.result",
+      at: 5,
+      task_id: "host",
+      role: "MCP Host",
+      tool: "web_search",
+      status: "error",
+      summary: "502 Bad Gateway",
+    });
+  });
+
+  it("une timeline MCP stockée se rejoue SANS perte (replay path)", () => {
+    const stored: SseFrame[] = [
+      frame("mcp.orchestrate.start", {
+        role: "Agent MCP",
+        prompt: "Écris un fichier",
+        client_id: "cli-x",
+        session_id: "s1",
+        scope: "default",
+      }),
+      frame("mcp.tool", { event: "tool_start", tool: "write_file", role: "Agent MCP" }),
+      frame("mcp.approval", {
+        role: "Agent MCP",
+        request_id: "req-9",
+        message: "Validation requise",
+        approval: { tool: "write_file" },
+      }),
+      frame("mcp.done", { answer: "En attente.", status: "awaiting_approval", role: "Agent MCP" }),
+    ];
+    const timeline: FlowEvent[] = stored
+      .map((f) => sseToFlowEvent(f, 0, noSub))
+      .filter((e): e is FlowEvent => e !== null);
+    const g = reduceTimeline(timeline);
+    // Trame « mcp.thinking » exclue → 4 événements traduits, aucune perte.
+    expect(timeline).toHaveLength(4);
+    expect(g.nodes["role:Agent MCP"]).toBeDefined();
+    expect(g.nodes["role:Agent MCP"]!.status).toBe("awaiting");
+    expect(g.runStatus).toBe("awaiting_approval");
+    expect(g.finalAnswer).toBe("En attente.");
+  });
+});

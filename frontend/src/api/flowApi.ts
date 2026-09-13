@@ -209,6 +209,12 @@ export interface FlowSessionSummary {
   id: string;
   prompt: string;
   model: string;
+  /**
+   * Origine de la session : "api" (dashboard), "mcp" (serveur MCP entrant —
+   * tools/call, resources/read, orchestrate…), "mcp_host" (host sortant).
+   * Absent sur les sessions créées avant la migration Flow Map MCP.
+   */
+  source?: string;
   status: string;
   answer_summary: string;
   error?: string | null;

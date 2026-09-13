@@ -48,6 +48,12 @@ from starlette.responses import Response
 from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
+from app.infrastructure.mcp.mcp_flow import (
+    MCPCallContext,
+    begin_orchestrate_flow,
+    clear_call_context,
+    set_call_context,
+)
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.tools.orchestrate_tool import (
     _result_to_text,
@@ -160,14 +166,56 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
         events.put((kind, data))
 
     def worker() -> None:
+        # --- Flow Map MCP (chemin streaming) ----------------------------------
+        # Ce chemin BYPASSE ``MCPServer._handle_method`` : le contexte d'appel
+        # et la session riche sont posés ICI, DANS le thread worker (les
+        # ContextVars ne traversent pas ``threading.Thread``). Le recorder est
+        # ainsi visible du run (host sortant → ``current_recorder``) et la
+        # session ``source="mcp"`` alimentée en temps réel. Toute erreur de
+        # traçage reste NON bloquante (le flux SSE prime).
+        flow_token: object | None = None
+        recorder: Any = None
+        try:
+            flow_token = set_call_context(
+                MCPCallContext(
+                    client_id=client_id,
+                    request_id=str(request_id) if request_id is not None else None,
+                )
+            )
+            recorder = begin_orchestrate_flow(
+                prompt=str(arguments.get("prompt") or ""),
+                session_id=str(arguments.get("session_id") or "default"),
+                scope=str(arguments.get("scope") or "default"),
+            )
+        except Exception:  # pragma: no cover - le flow ne doit JAMAIS casser le flux
+            recorder = None
+
+        def relay(kind: str, data: dict[str, Any]) -> None:
+            """Relie SSE (temps réel) et Flow Map (persistance) sans les coupler."""
+            emit(kind, data)
+            if recorder is None:
+                return
+            if kind == "orchestrate.thinking":
+                recorder.record_thinking(str(data.get("thinking_delta") or ""))
+            elif kind == "orchestrate.tool":
+                recorder.record_tool(dict(data))
+
         try:
             result = orchestrate_stream(
                 str(arguments.get("prompt") or ""),
                 session_id=str(arguments.get("session_id") or "default"),
                 scope=str(arguments.get("scope") or "default"),
                 enable_thinking=bool(arguments.get("enable_thinking")),
-                on_event=emit,
+                on_event=relay,
             )
+            if recorder is not None:
+                pending = getattr(result, "awaiting_action", None)
+                if pending is not None:
+                    recorder.record_approval(
+                        tool=str(getattr(pending, "tool", "") or ""),
+                        message="Policy : validation humaine requise",
+                    )
+                recorder.finish_from_result(result)
             result_text = _result_to_text(result)
             rpc = {
                 "jsonrpc": "2.0",
@@ -186,6 +234,8 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
             events.put(("orchestrate.done", rpc))
         except Exception as exc:
             logger.exception("MCP orchestrate streaming failed")
+            if recorder is not None:
+                recorder.finish_error(str(exc))
             rpc = {
                 "jsonrpc": "2.0",
                 "id": request_id,
@@ -202,6 +252,8 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
             )
             events.put(("orchestrate.error", rpc))
         finally:
+            if flow_token is not None:
+                clear_call_context(flow_token)
             events.put(None)
 
     threading.Thread(target=worker, daemon=True).start()

@@ -36,6 +36,15 @@ from app.domain.ports.mcp_ports import (
     MCPToolRegistryPort,
     SamplingPort,
 )
+from app.infrastructure.mcp.mcp_flow import (
+    MCPCallContext,
+    MCPFlowRecorder,
+    begin_orchestrate_flow,
+    clear_call_context,
+    close_orchestrate_flow,
+    set_call_context,
+    trace_action_flow,
+)
 from app.infrastructure.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
     MCP_SERVER_NAME,
@@ -64,6 +73,20 @@ _AUDIT_ACTION_BY_METHOD: dict[str, str | None] = {
     MCPMethod.PROMPTS_GET: ACT_MCP_PROMPT_GET,
     MCPMethod.SAMPLING_CREATE: ACT_MCP_SAMPLING,
 }
+
+# Méthodes d'ACTION traçées dans la Flow Map (même policy que l'audit :
+# catalogue/handshake — initialize, ping, tools/list… — jamais tracés).
+# ``tools/call`` déclenche une session RICHE (orchestrate) ou une MINI-session
+# (les autres tools) via ``mcp_flow`` ; ``resources/read``, ``prompts/get`` et
+# ``sampling/create`` produisent ``mcp.call`` + ``mcp.result``.
+_FLOW_METHODS = frozenset(
+    {
+        MCPMethod.TOOLS_CALL,
+        MCPMethod.RESOURCES_READ,
+        MCPMethod.PROMPTS_GET,
+        MCPMethod.SAMPLING_CREATE,
+    }
+)
 
 
 def _request_run_id(request_id: Any) -> str | None:
@@ -206,11 +229,67 @@ class MCPServer:
         Chaque méthode d'ACTION (tools/call, resources/read, prompts/get,
         sampling/create) est ensuite AUDITÉE de façon centralisée
         (``_audit_method``) — y compris en cas d'échec : l'audit porte sur
-        l'APPEL, pas seulement sur les succès (S4, tâche 12).
+        l'APPEL, pas seulement sur les succès (S4, tâche 12). La MÊME surface
+        d'actions est tracée dans la Flow Map (``_flow_method``) : session
+        RICHE pour ``tools/call orchestrate`` — ouverte AVANT le dispatch pour
+        capturer les événements du run (``_CURRENT_RECORDER``), clôturée après
+        — et MINI-sessions pour les autres actions (``trace_action_flow``).
         """
-        response = self._dispatch_method(method, request_id, params)
-        self._audit_method(method, params, response, client_id, request_id)
-        return response
+        flow_token: object | None = None
+        recorder: MCPFlowRecorder | None = None  # session orchestrate riche
+        if method in _FLOW_METHODS:
+            # Contexte d'appel posé pour la durée du dispatch : lu par
+            # ``begin_orchestrate_flow`` (session riche) et par les hooks du
+            # run (host sortant → ``current_recorder``). Nettoyé en ``finally``.
+            flow_token = set_call_context(
+                MCPCallContext(client_id=client_id, request_id=_request_run_id(request_id))
+            )
+            if method == MCPMethod.TOOLS_CALL and params.get("name") == "orchestrate":
+                args = self._arguments_or_empty(params)
+                recorder = begin_orchestrate_flow(
+                    prompt=str(args.get("prompt") or ""),
+                    session_id=str(args.get("session_id") or "default"),
+                    scope=str(args.get("scope") or "default"),
+                )
+        try:
+            response = self._dispatch_method(method, request_id, params)
+            self._audit_method(method, params, response, client_id, request_id)
+            self._flow_method(method, params, response, client_id, request_id, recorder=recorder)
+            return response
+        finally:
+            if flow_token is not None:
+                clear_call_context(flow_token)
+
+    def _flow_method(
+        self,
+        method: str,
+        params: dict[str, Any],
+        response: dict[str, Any],
+        client_id: str,
+        request_id: Any,
+        *,
+        recorder: MCPFlowRecorder | None,
+    ) -> None:
+        """Trace l'appel MCP dans le journal « Agent Flow Map » (non bloquant).
+
+        Deux voies, même périmètre que l'audit (catalogue/handshake exclus) :
+            - ``tools/call orchestrate`` avec session riche ouverte → clôture
+              via ``close_orchestrate_flow`` (statut déduit du résultat) ;
+            - toutes les autres actions → ``trace_action_flow`` (mini-session
+              ``source=\"mcp\"`` : ``mcp.tool`` ou ``mcp.call``/``mcp.result``).
+        Aucune erreur ne remonte : le traçage ne doit jamais altérer la réponse.
+        """
+        if method not in _FLOW_METHODS:
+            return  # catalogue / handshake : même policy que l'audit
+        if recorder is not None:
+            close_orchestrate_flow(recorder, response)
+            return
+        if method == MCPMethod.TOOLS_CALL and params.get("name") == "orchestrate":
+            # orchestrate sans session riche (flow désactivé / ouverture
+            # impossible) : pas de mini-session de repli — le run reste le
+            # périmètre de la session riche.
+            return
+        trace_action_flow(method, params, response, client_id, request_id)
 
     def _dispatch_method(
         self, method: str, request_id: Any, params: dict[str, Any]

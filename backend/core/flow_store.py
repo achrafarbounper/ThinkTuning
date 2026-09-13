@@ -37,7 +37,7 @@ ERROR = "error"
 STATUSES = (RUNNING, COMPLETED, AWAITING_APPROVAL, REJECTED, ERROR)
 
 _SELECT_COLUMNS = (
-    "id, prompt, model, status, answer_summary, error, "
+    "id, prompt, model, source, status, answer_summary, error, "
     "events_json, created_at, finished_at"
 )
 
@@ -78,6 +78,16 @@ class FlowStore:
             )
             """
         )
+        # Migration strangler (additive) : colonne ``source`` — origine de la
+        # session (``api`` par défaut ; ``mcp`` = serveur MCP entrant ;
+        # ``mcp_host`` = host sortant). Garde OperationalError : la colonne
+        # existe déjà (bases créées avant la migration).
+        try:
+            conn.execute(
+                "ALTER TABLE agent_flows ADD COLUMN source TEXT NOT NULL DEFAULT 'api'"
+            )
+        except sqlite3.OperationalError:
+            pass  # colonne déjà présente
         conn.commit()
         conn.close()
 
@@ -85,7 +95,7 @@ class FlowStore:
     def _row_to_dict(row):
         if row is None:
             return None
-        keys = ["id", "prompt", "model", "status", "answer_summary", "error",
+        keys = ["id", "prompt", "model", "source", "status", "answer_summary", "error",
                 "events_json", "created_at", "finished_at"]
         data = dict(zip(keys, row, strict=True))
         try:
@@ -115,11 +125,18 @@ class FlowStore:
                     conn.execute(
                         """
                         INSERT INTO agent_flows (
-                            id, prompt, model, status, answer_summary,
+                            id, prompt, model, source, status, answer_summary,
                             error, events_json, created_at, finished_at
-                        ) VALUES (?, ?, ?, ?, '', NULL, '[]', ?, NULL)
+                        ) VALUES (?, ?, ?, ?, ?, '', NULL, '[]', ?, NULL)
                         """,
-                        (flow_id, prompt or "", model or "", RUNNING, _utcnow_iso()),
+                        (
+                            flow_id,
+                            prompt or "",
+                            model or "",
+                            source or "api",
+                            RUNNING,
+                            _utcnow_iso(),
+                        ),
                     )
             finally:
                 conn.close()
@@ -219,8 +236,8 @@ class FlowStore:
             conn = self._connect()
             try:
                 sql = (
-                    "SELECT id, prompt, model, status, answer_summary, error, "
-                    "events_json, created_at, finished_at FROM agent_flows"
+                    "SELECT id, prompt, model, source, status, answer_summary, "
+                    "error, events_json, created_at, finished_at FROM agent_flows"
                 )
                 conditions: list[str] = []
                 params: list[Any] = []
@@ -245,15 +262,32 @@ class FlowStore:
             # En mode noyau v2, un appel émet deux événements core.tool
             # (tool_start + tool_result) : sans ce filtre le compteur était
             # doublé par rapport au mode multi-agents.
+            # ``mcp.tool`` : appels d'outils MCP (tools/call read-only + outils
+            # internes d'une session orchestrate) ; ``mcp_host.call`` : host
+            # sortant (1 appel = 1 événement). 1 appel d'outil = 1 : seuls les
+            # « tool_start » (et les événements sans ``event``) sont comptés.
             item["tool_calls"] = sum(
                 1
                 for e in events
-                if e.get("event") in ("agent.worker.tool", "core.tool")
+                if e.get("event")
+                in ("agent.worker.tool", "core.tool", "mcp.tool", "mcp_host.call")
                 and (e.get("data") or {}).get("event") != "tool_result"
             )
             roles: set[str] = set()
             for e in events:
-                if e.get("event") in ("agent.worker.start", "core.start") and e.get("data"):
+                # ``mcp.orchestrate.start`` / ``mcp.call`` / ``mcp_host.call``
+                # portent un rôle (« Agent MCP » / « MCP » / « MCP Host »).
+                if (
+                    e.get("event")
+                    in (
+                        "agent.worker.start",
+                        "core.start",
+                        "mcp.orchestrate.start",
+                        "mcp.call",
+                        "mcp_host.call",
+                    )
+                    and e.get("data")
+                ):
                     r = e["data"].get("role")
                     if r:
                         roles.add(str(r))

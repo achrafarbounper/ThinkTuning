@@ -467,17 +467,27 @@ class MongoFlowStore:
         )
         for d in cursor:
             events = d.get("events", [])
+            # Compteurs étendus au MCP (même contrat que le FlowStore SQLite) :
+            # ``mcp.tool`` / ``mcp_host.call`` pour les outils ; ``agents`` inclut
+            # les rôles MCP (« Agent MCP » / « MCP » / « MCP Host »).
             d["tool_calls"] = sum(
                 1
                 for e in events
-                if e.get("event") in ("agent.worker.tool", "core.tool")
+                if e.get("event") in ("agent.worker.tool", "core.tool", "mcp.tool", "mcp_host.call")
                 and (e.get("data") or {}).get("event") != "tool_result"
             )
             d["agents"] = sorted(
                 {
                     str((e.get("data") or {}).get("role"))
                     for e in events
-                    if e.get("event") in ("agent.worker.start", "core.start")
+                    if e.get("event")
+                    in (
+                        "agent.worker.start",
+                        "core.start",
+                        "mcp.orchestrate.start",
+                        "mcp.call",
+                        "mcp_host.call",
+                    )
                     and (e.get("data") or {}).get("role")
                 }
             )
