@@ -45,7 +45,9 @@ def normalize_label(raw) -> int:
     try:
         value = float(name)
     except (TypeError, ValueError):
-        raise ValueError("Label invalide : " + repr(raw) + "; attendu negative/neutral/positive.")
+        raise ValueError(
+            "Label invalide : " + repr(raw) + "; attendu negative/neutral/positive."
+        ) from None
     if not value.is_integer() or int(value) not in INT_TO_LABEL:
         raise ValueError("Label invalide : " + repr(raw) + "; attendu negative/neutral/positive.")
     return int(value)

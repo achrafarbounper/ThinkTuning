@@ -55,8 +55,9 @@ from app.infrastructure.mcp.protocol import (
     parse_jsonrpc,
     success_result,
 )
-# from app.infrastructure.persistence.audit_store import ( # S4, tâche 12 : actions d'audit
-normalisées MCP
+
+# S4, tâche 12 : actions d'audit normalisées MCP
+from app.infrastructure.persistence.audit_store import (
     ACT_MCP_ORCHESTRATE,
     ACT_MCP_PROMPT_GET,
     ACT_MCP_RESOURCE_READ,

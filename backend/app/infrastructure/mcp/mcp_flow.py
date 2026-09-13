@@ -81,7 +81,7 @@ MCP_HOST_RESULT = "mcp_host.result"
 
 # Statut du run (RunStatus / libellé API) → statut de session Flow Map
 # (``app/infrastructure/persistence/flow_store.STATUSES`` — aligné sur
-``run_lifecycle.RUN_STATUS_TO_API``).
+# ``run_lifecycle.RUN_STATUS_TO_API``).
 _RUN_TO_FLOW: dict[str, str] = {
     "completed": "completed",
     "pending_approval": "awaiting_approval",

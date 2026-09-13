@@ -21,12 +21,12 @@ import threading
 import uuid
 from datetime import UTC, datetime
 
-logger = logging.getLogger(__name__)
-
 # Réparation des doubles-encodages UTF-8 → Latin-1 → UTF-8 à la lecture des
 # contenus persistés (voir ia/agent/encoding.py). Fonction impure, sans autres
 # imports que la stdlib, donc aucun risque d'import circulaire avec ``ia.*``.
 from ia.agent.encoding import repair_utf8_mojibake
+
+logger = logging.getLogger(__name__)
 
 AGENT_SESSION_PATH = os.getenv(
     "AGENT_SESSION_PATH", os.path.join("experiments", "agent_sessions.db")

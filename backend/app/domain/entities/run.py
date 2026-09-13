@@ -38,7 +38,7 @@ class RunStatus(StrEnum):
 
 
 # --- Statuts PERSISTÉS d'un run (alignés sur app/infrastructure/persistence/run_store.py)
-------------------
+# ----------------------------------------------------------------------------------------
 
 RUNNING = "running"
 COMPLETED = "completed"

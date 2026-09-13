@@ -384,24 +384,28 @@ def list_llm_models() -> dict:
         response = requests.get(f"{base_url}/api/tags", timeout=LIST_MODELS_TIMEOUT_SECONDS)
         response.raise_for_status()
         payload = response.json()
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         raise HTTPException(
             status_code=504,
             detail=(
                 f"Le serveur Ollama ({base_url}) n'a pas répondu "
                 f"dans les {LIST_MODELS_TIMEOUT_SECONDS:.0f}s."
             ),
-        )
-    except requests.exceptions.ConnectionError:
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise HTTPException(
             status_code=502,
             detail=f"Serveur Ollama injoignable sur {base_url}. Vérifiez qu'il tourne.",
-        )
+        ) from exc
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par Ollama (HTTP {status}).") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par Ollama (HTTP {status})."
+        ) from exc
     except ValueError as exc:  # réponse non JSON
-        raise HTTPException(status_code=502, detail=f"Réponse illisible du serveur Ollama ({exc}).") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Réponse illisible du serveur Ollama ({exc})."
+        ) from exc
 
     active_model = agent_config()["model"]
     models = []
@@ -457,19 +461,19 @@ def _list_openrouter_models(cfg: dict) -> dict:
         response = requests.get(url, headers=headers, timeout=LIST_MODELS_TIMEOUT_SECONDS)
         response.raise_for_status()
         payload = response.json()
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         raise HTTPException(
             status_code=504,
             detail=(
                 f"L'API OpenRouter ({url}) n'a pas répondu "
                 f"dans les {LIST_MODELS_TIMEOUT_SECONDS:.0f}s."
             ),
-        )
-    except requests.exceptions.ConnectionError:
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise HTTPException(
             status_code=502,
             detail=f"API OpenRouter injoignable sur {url}.",
-        )
+        ) from exc
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
         raise HTTPException(
@@ -529,19 +533,19 @@ def _list_hf_models(cfg: dict) -> dict:
         response = requests.get(url, headers=headers, timeout=LIST_MODELS_TIMEOUT_SECONDS)
         response.raise_for_status()
         payload = response.json()
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         raise HTTPException(
             status_code=504,
             detail=(
                 f"L'API Hugging Face ({url}) n'a pas répondu "
                 f"dans les {LIST_MODELS_TIMEOUT_SECONDS:.0f}s."
             ),
-        )
-    except requests.exceptions.ConnectionError:
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise HTTPException(
             status_code=502,
             detail=f"API Hugging Face injoignable sur {url}.",
-        )
+        ) from exc
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
         raise HTTPException(
@@ -600,22 +604,22 @@ def _list_lm_studio_models(cfg: dict) -> dict:
         response = requests.get(url, timeout=LIST_MODELS_TIMEOUT_SECONDS)
         response.raise_for_status()
         payload = response.json()
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         raise HTTPException(
             status_code=504,
             detail=(
                 f"Le serveur LM Studio ({url}) n'a pas répondu "
                 f"dans les {LIST_MODELS_TIMEOUT_SECONDS:.0f}s."
             ),
-        )
-    except requests.exceptions.ConnectionError:
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise HTTPException(
             status_code=502,
             detail=(
                 f"Serveur LM Studio injoignable sur {url}. Vérifiez qu'il "
                 "tourne (LM Studio > Developer > Local Server)."
             ),
-        )
+        ) from exc
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
         raise HTTPException(
@@ -668,23 +672,25 @@ def _ask_runner_with_http_errors(
             resume_request_id=resume_request_id,
             history_messages=history_messages,
         )
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         raise HTTPException(
             status_code=504,
             detail=(
                 f"Le LLM ({effective_model}) n'a pas répondu en {agent_config()['timeout']:.0f}s."
             ),
-        )
-    except requests.exceptions.ConnectionError:
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise HTTPException(
             status_code=502,
             detail=(
                 f"LLM injoignable sur {agent_config()['ollama_url']}. Vérifiez qu'Ollama tourne."
             ),
-        )
+        ) from exc
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
+        ) from exc
 
 
 def ask_agent(prompt: str, model: str | None = None) -> str:
@@ -754,23 +760,25 @@ def ask_agent_detailed_streaming(
     runner = get_agent_runner(effective_model, enable_thinking)
     try:
         result = runner.ask_detailed_streaming(prompt, on_thinking=on_thinking)
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         raise HTTPException(
             status_code=504,
             detail=(
                 f"Le LLM ({effective_model}) n'a pas répondu en {agent_config()['timeout']:.0f}s."
             ),
-        )
-    except requests.exceptions.ConnectionError:
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise HTTPException(
             status_code=502,
             detail=(
                 f"LLM injoignable sur {agent_config()['ollama_url']}. Vérifiez qu'Ollama tourne."
             ),
-        )
+        ) from exc
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
+        ) from exc
     return {"answer": result.answer, "thinking": result.thinking}
 
 
@@ -978,19 +986,21 @@ def ask_multi_agent(
         )
         _trace_multi_run(prompt, result)
         return result
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         raise HTTPException(
             status_code=504,
             detail="Le LLM n'a pas répondu pendant l'orchestration multi-agents.",
-        )
-    except requests.exceptions.ConnectionError:
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise HTTPException(
             status_code=502,
             detail="LLM injoignable. Vérifiez que le serveur de modèles tourne.",
-        )
+        ) from exc
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
+        ) from exc
 
 
 def ask_multi_agent_streaming(
@@ -1021,16 +1031,18 @@ def ask_multi_agent_streaming(
         )
         _trace_multi_run(prompt, result)
         return result
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         raise HTTPException(
             status_code=504,
             detail="Le LLM n'a pas répondu pendant l'orchestration multi-agents.",
-        )
-    except requests.exceptions.ConnectionError:
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise HTTPException(
             status_code=502,
             detail="LLM injoignable. Vérifiez que le serveur de modèles tourne.",
-        )
+        ) from exc
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "?"
-        raise HTTPException(status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status}).") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Erreur renvoyée par le LLM (HTTP {status})."
+        ) from exc
