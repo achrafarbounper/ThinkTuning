@@ -419,6 +419,9 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     () => ({
       client,
       config,
+      // Jeton JWT actif ("" sinon) : expose l'état d'authentification réel
+      // aux pages (badge « Connexion API » — persistante ou mémoire seule).
+      sessionToken,
       setConfig,
       saveConfig,
       agentSettings,
@@ -451,6 +454,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     [
       client,
       config,
+      sessionToken,
       agentSettings,
       agentLoading,
       agentError,
