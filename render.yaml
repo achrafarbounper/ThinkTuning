@@ -53,6 +53,8 @@ services:
         sync: false
       - key: MONGODB_DATABASE
         value: "thinktuning"
+      - key: MCP_EVENT_RETENTION_DAYS
+        value: "30"
       # --- Dimensionnement plan 512 Mo (chaque worker importe torch) ---------
       - key: GUNICORN_WORKERS
         value: "1" # 2 workers = OOM sur 512 Mo (« No open HTTP ports detected »)
@@ -76,6 +78,17 @@ services:
         value: "120"
       - key: OPENROUTER_API_KEY
         sync: false # à saisir dans le dashboard Render (secret)
+      # --- Surface MCP -------------------------------------------------------
+      # MCP est servi par la même application sous /mcp/sse. Ces valeurs
+      # rendent le mode production explicite et évitent un fallback implicite.
+      - key: MCP_SERVER_ENABLED
+        value: "true"
+      - key: MCP_AUTH_REQUIRED
+        value: "true"
+      - key: MCP_MULTI_AGENT_ENABLED
+        value: "false"
+      - key: MCP_EVENT_GRANULARITY
+        value: "summary"
       # --- SSE : premier byte rapide + heartbeats (fix KO flux Render) --------
       - key: AGENT_SSE_FIRST_EVENT_TIMEOUT
         value: "25" # le flux démarre même si le LLM rame, erreur dans le flux

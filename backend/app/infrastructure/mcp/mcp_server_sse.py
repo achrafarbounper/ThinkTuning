@@ -47,6 +47,7 @@ from starlette.responses import Response
 
 from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
+from app.domain.ports.mcp_ports import MCPDurableRunStorePort
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_flow import (
     MCPCallContext,
@@ -83,7 +84,34 @@ _MCP_SERVER_ENABLED = os.getenv("MCP_SERVER_ENABLED", "true").strip().lower() no
 # The Assistant IA uses the MCP orchestrator as its controlled entry point.
 # CONTRIBUTOR is required to see `orchestrate`; mutations remain gated by the
 # AgentCore sandbox policy and human approval.
-_server = build_mcp_server(scope=MCPScopeRole.CONTRIBUTOR, audit=audit_mcp_call)
+_server = build_mcp_server(
+    scope=MCPScopeRole.CONTRIBUTOR,
+    audit=audit_mcp_call,
+    durable_run_tools=True,
+)
+_durable_run_store: MCPDurableRunStorePort | None = None
+
+
+def configure_mcp_durable_run_store(
+    store: MCPDurableRunStorePort | None,
+) -> None:
+    """Injecte le store durable utilisé par le replay SSE.
+
+    ``None`` restaure la résolution paresseuse du store MongoDB de production.
+    """
+    global _durable_run_store
+    _durable_run_store = store
+
+
+def get_mcp_durable_run_store() -> MCPDurableRunStorePort:
+    """Résout le store durable SSE, avec MongoDB comme défaut production."""
+    if _durable_run_store is not None:
+        return _durable_run_store
+    from app.infrastructure.persistence.mcp_mongo_run_store import (
+        MongoMCPDurableRunStore,
+    )
+
+    return MongoMCPDurableRunStore()
 
 
 def mcp_server_enabled() -> bool:
@@ -145,6 +173,41 @@ def _is_streaming_orchestrate(payload: object) -> bool:
         and isinstance(arguments, dict)
         and bool(arguments.get("stream") or arguments.get("enable_thinking"))
     )
+
+
+def _is_durable_replay(payload: object) -> bool:
+    if not isinstance(payload, dict) or payload.get("method") != "tools/call":
+        return False
+    params = payload.get("params")
+    arguments = params.get("arguments") if isinstance(params, dict) else None
+    return (
+        isinstance(params, dict)
+        and params.get("name") == "orchestrate_events"
+        and isinstance(arguments, dict)
+        and bool(arguments.get("stream") or arguments.get("replay"))
+    )
+
+
+async def _replay_durable_events(payload: dict[str, Any]) -> AsyncIterator[str]:
+    arguments = dict((payload.get("params") or {}).get("arguments") or {})
+    run_id = str(arguments.get("run_id") or "").strip()
+    after_sequence = int(arguments.get("after_sequence", 0))
+    yield _sse_event("replay_started", {"run_id": run_id, "after_sequence": after_sequence})
+    try:
+        events = get_mcp_durable_run_store().list_events_after(run_id, after_sequence)
+        for event in events:
+            yield _sse_event("orchestrate.replay", event)
+        yield _sse_event(
+            "replay_completed",
+            {
+                "run_id": run_id,
+                "last_sequence": (events[-1]["sequence"] if events else after_sequence),
+            },
+        )
+    except Exception as exc:
+        logger.exception("MCP durable event replay failed")
+        yield _sse_event("replay.error", {"run_id": run_id, "error": str(exc)})
+    yield "data: [DONE]\n\n"
 
 
 async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> AsyncIterator[str]:
@@ -352,6 +415,13 @@ async def mcp_sse(
             media_type="text/event-stream",
             headers=headers,
         )
+    if _is_durable_replay(request_payload):
+        assert isinstance(request_payload, dict)
+        return StreamingResponse(
+            _replay_durable_events(request_payload),
+            media_type="text/event-stream",
+            headers=headers,
+        )
     # MCP tools may execute synchronous LLM/tool work for several seconds.
     # Keep that work off FastAPI's event loop so independent requests remain
     # responsive while a run is in progress.
@@ -367,4 +437,10 @@ async def mcp_sse(
     )
 
 
-__all__ = ["mcp_auth_required", "mcp_server_enabled", "router"]
+__all__ = [
+    "configure_mcp_durable_run_store",
+    "get_mcp_durable_run_store",
+    "mcp_auth_required",
+    "mcp_server_enabled",
+    "router",
+]

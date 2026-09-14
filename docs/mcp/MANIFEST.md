@@ -1,4 +1,4 @@
-# Manifeste MCP ThinkTuning — v2.0.0
+# Manifeste MCP ThinkTuning — v2.2.0
 
 > ⚠️ **FICHIER GÉNÉRÉ** — ne pas éditer à la main.
 > Source : `backend/app/infrastructure/tools/tools_config.json`
@@ -9,7 +9,7 @@
 | Attribut | Valeur |
 |---|---|
 | Serveur | `thinktuning-mcp` |
-| Version surface | 2.0.0 |
+| Version surface | 2.2.0 |
 | Protocole MCP | 2025-06-18 |
 | Tools | **62** (read-only : **37** · mutation : **25**) |
 | Généré le | 2026-09-11T23:20:45.159Z |

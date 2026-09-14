@@ -225,7 +225,7 @@ def test_sse_call_tool(client):
     )
     assert response.status_code == 200
     assert '"text"' in response.text
-    assert '"2.0.0"' in response.text
+    assert '"2.2.0"' in response.text
 
 
 def test_sse_lists_orchestrate_for_assistant_scope(client):

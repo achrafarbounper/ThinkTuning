@@ -129,9 +129,9 @@ class MCPVersion(BaseModel):
         return self.as_tuple() >= other.as_tuple()
 
 
-# Version livrée par le bootstrap S1 (docs/mcp/IMPLEMENTATION_PLAN.md) —
-# fallback du loader quand pyproject.toml est absent ou inexploitable.
-DEFAULT_MCP_VERSION = MCPVersion(major=2, minor=0, patch=0)
+# Version MCP courante — fallback du loader quand pyproject.toml est absent ou
+# inexploitable. 2.2.0 active le catalogue admin livré avec la release.
+DEFAULT_MCP_VERSION = MCPVersion(major=2, minor=2, patch=0)
 
 
 class MCPScopeRole(StrEnum):

@@ -69,12 +69,14 @@ et restent invisibles pour tout rôle < admin.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from typing import Any
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
 from app.domain.ports.mcp_ports import (
+    MCPOrchestrationPort,
     MCPPromptRegistryPort,
     MCPResourceRegistryPort,
     MCPToolRegistryPort,
@@ -99,6 +101,138 @@ from app.infrastructure.mcp.version_loader import load_mcp_version
 from app.infrastructure.mcp.write_exec_tool_provider import build_v210_write_exec_provider
 
 logger = logging.getLogger("thinktuning.mcp.factory")
+
+
+def _durable_run_tools(
+    orchestration_port: MCPOrchestrationPort | None,
+) -> list[MCPTool]:
+    """Expose durable-run lifecycle operations without leaking the application port."""
+
+    def resolve() -> MCPOrchestrationPort:
+        if orchestration_port is not None:
+            return orchestration_port
+        from app.infrastructure.mcp.orchestration_factory import (
+            build_mcp_orchestration_adapter,
+        )
+
+        return build_mcp_orchestration_adapter()
+
+    def get_run(arguments: dict[str, Any]) -> str:
+        run_id = str(arguments.get("run_id") or "").strip()
+        if not run_id:
+            raise ValueError("'run_id' is required")
+        result = resolve().get_run(run_id)
+        if result is None:
+            raise ValueError(f"unknown MCP run {run_id!r}")
+        return json.dumps(result, ensure_ascii=False, default=str)
+
+    def list_runs(arguments: dict[str, Any]) -> str:
+        state = arguments.get("state")
+        limit = int(arguments.get("limit", 50))
+        if limit < 1 or limit > 200:
+            raise ValueError("'limit' must be between 1 and 200")
+        return json.dumps(
+            {"runs": resolve().list_runs(state=str(state) if state else None, limit=limit)},
+            ensure_ascii=False,
+            default=str,
+        )
+
+    def cancel(arguments: dict[str, Any]) -> str:
+        run_id = str(arguments.get("run_id") or "").strip()
+        if not run_id:
+            raise ValueError("'run_id' is required")
+        result = resolve().cancel(run_id, reason=arguments.get("reason"))
+        return json.dumps(result.as_snapshot(), ensure_ascii=False, default=str)
+
+    def events(arguments: dict[str, Any]) -> str:
+        run_id = str(arguments.get("run_id") or "").strip()
+        if not run_id:
+            raise ValueError("'run_id' is required")
+        after_sequence = int(arguments.get("after_sequence", 0))
+        if after_sequence < 0:
+            raise ValueError("'after_sequence' must be >= 0")
+        port = resolve()
+        result = port.get_run(run_id)
+        if result is None:
+            raise ValueError(f"unknown MCP run {run_id!r}")
+        events = port.get_events(run_id, after_sequence=after_sequence)
+        return json.dumps(
+            {"run_id": run_id, "events": events},
+            ensure_ascii=False,
+            default=str,
+        )
+
+    return [
+        MCPTool(
+            name="orchestrate_get_run",
+            description="Read a durable MCP orchestration run and its persisted events.",
+            input_schema={
+                "type": "object",
+                "properties": {"run_id": {"type": "string"}},
+                "required": ["run_id"],
+                "additionalProperties": False,
+            },
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+            required_scope=MCPScopeRole.READ_ONLY,
+            handler=get_run,
+        ),
+        MCPTool(
+            name="orchestrate_list_runs",
+            description="List durable MCP orchestration runs.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "state": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                },
+                "additionalProperties": False,
+            },
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+            required_scope=MCPScopeRole.READ_ONLY,
+            handler=list_runs,
+        ),
+        MCPTool(
+            name="orchestrate_cancel",
+            description="Cancel a durable MCP orchestration run.",
+            input_schema={
+                "type": "object",
+                "properties": {"run_id": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["run_id"],
+                "additionalProperties": False,
+            },
+            annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True},
+            required_scope=MCPScopeRole.CONTRIBUTOR,
+            handler=cancel,
+        ),
+        MCPTool(
+            name="orchestrate_events",
+            description="Read the persisted event history of a durable MCP run.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "run_id": {"type": "string"},
+                    "after_sequence": {"type": "integer", "minimum": 0},
+                },
+                "required": ["run_id"],
+                "additionalProperties": False,
+            },
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+            required_scope=MCPScopeRole.READ_ONLY,
+            handler=events,
+        ),
+    ]
 
 
 def _bootstrap_tools(version: MCPVersion) -> list[MCPTool]:
@@ -144,6 +278,8 @@ def build_mcp_server(
     sampling_port: SamplingPort | None = None,
     audit: Callable[..., Any] | None = None,
     orchestrate_tool: MCPTool | None = None,
+    orchestration_port: MCPOrchestrationPort | None = None,
+    durable_run_tools: bool = False,
 ) -> MCPServer:
     """Construit un ``MCPServer`` prêt à l'emploi pour un transport.
 
@@ -216,6 +352,8 @@ def build_mcp_server(
             # l'appel du tool), le serveur démarre sans LLM ni registre réels.
             tool = orchestrate_tool if orchestrate_tool is not None else build_orchestrate_tool()
             tools.append(tool)
+            if durable_run_tools or orchestration_port is not None:
+                tools.extend(_durable_run_tools(orchestration_port))
         base_provider = InMemoryToolProvider(tools)
         if resolved_version >= MCPVersion(major=2, minor=1, patch=0):
             # Gate de policy actif dès que la surface expose des mutations

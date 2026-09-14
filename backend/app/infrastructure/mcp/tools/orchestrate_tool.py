@@ -38,21 +38,184 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Callable
 from typing import Any
 
+from prometheus_client import Counter
+
 from app.agent.core import AgentCore, AgentRunResult
+from app.agent.policies.budget import BudgetPolicy
 from app.domain.entities.mcp import MCPScopeRole, MCPTool
 from app.domain.entities.plan import Intent
+from app.domain.ports import (
+    ExecutionContext,
+    MCPOrchestrationPort,
+    MCPOrchestrationRequest,
+    WorkerScopePolicy,
+)
 from app.infrastructure.mcp.manifest_generator import MUTATING_ANNOTATIONS
 from app.infrastructure.mcp.mcp_server import ToolError
 
 logger = logging.getLogger("thinktuning.mcp.orchestrate")
 
+MCP_ORCHESTRATION_FALLBACK_TOTAL = Counter(
+    "mcp_orchestration_fallback_total",
+    "Nombre d'activation explicite du repli mono-agent sur l'orchestration MCP.",
+    labelnames=("reason", "mode"),
+)
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _mcp_multi_agent_enabled() -> bool:
+    """Gate MCP multi-agent : override env > config persistée > fail-closed.
+
+    On conserve un repli sûr par défaut (mono-agent) pour rester compatible
+    avec la surface historique, tout en acceptant une activation explicite via
+    la configuration partagée du runtime.
+    """
+    for env_name in ("MCP_MULTI_AGENT_ENABLED", "AGENT_MULTI_AGENT"):
+        raw = os.getenv(env_name)
+        if raw is not None:
+            return _as_bool(raw, default=False)
+
+    try:
+        from app.infrastructure.persistence.agent_settings import get_settings_store
+
+        persisted = get_settings_store().get_all()
+        if "flag_multi_agent" in persisted:
+            return bool(persisted["flag_multi_agent"])
+    except Exception:
+        pass
+
+    return False
+
+
+def _build_execution_context(
+    *,
+    session_id: str,
+    scope: str,
+    allowed_tools: list[str] | tuple[str, ...] | None = None,
+) -> ExecutionContext:
+    """Creates a shared execution context for MCP/HTTP surfaces."""
+    budget_policy = BudgetPolicy.from_config()
+    allowed = tuple(allowed_tools or ("orchestrate", "read", "write"))
+    scopes = (str(scope or _DEFAULT_SCOPE),)
+    return ExecutionContext(
+        user_id=str(session_id or _DEFAULT_SESSION_ID),
+        tenant_id="default",
+        allowed_tools=allowed,
+        allowed_resources=("session://default",),
+        allowed_scopes=scopes,
+        budget=budget_policy,
+        approvals=(),
+    )
+
+
+def _validate_worker_scope(
+    *,
+    session_id: str,
+    scope: str,
+    worker_id: str,
+    allowed_tools: list[str] | tuple[str, ...],
+    allowed_resources: list[str] | tuple[str, ...] | None = None,
+) -> None:
+    context = _build_execution_context(
+        session_id=session_id,
+        scope=scope,
+        allowed_tools=("orchestrate",),
+    )
+    scope_policy = WorkerScopePolicy(
+        parent_scope=(str(scope or _DEFAULT_SCOPE),),
+        forbidden_tools=("system_shell",),
+        max_tools_per_worker=4,
+    )
+    scope_policy.validate(context, worker_id=worker_id)
+    context.for_worker(
+        worker_id,
+        allowed_tools=allowed_tools,
+        allowed_resources=allowed_resources or ("session://default",),
+        allowed_scopes=(str(scope or _DEFAULT_SCOPE),),
+    )
+
+
+def _fallback_payload(
+    *,
+    reason: str,
+    mode: str = "mono_agent",
+    details: str | None = None,
+    source: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "mode": mode,
+        "event": "orchestration_fallback",
+        "fallback": "orchestration_fallback",
+        "reason": reason,
+    }
+    if details is not None:
+        payload["details"] = details
+    if source is not None:
+        payload["source"] = source
+    return payload
+
+
+def _normalize_agent_event(
+    kind: str,
+    payload: dict[str, Any] | None,
+    *,
+    parent_task_id: str | None = None,
+    worker_id: str | None = None,
+    phase: str | None = None,
+) -> dict[str, Any]:
+    event = dict(payload or {})
+    event.setdefault("event", kind)
+    if phase is not None:
+        event.setdefault("phase", phase)
+    elif kind.startswith("orchestrate.worker"):
+        event.setdefault("phase", "worker")
+    elif kind.startswith("orchestrate.synthesis"):
+        event.setdefault("phase", "synthesis")
+    else:
+        event.setdefault("phase", "lead")
+    event.setdefault("parent_task_id", parent_task_id)
+    event.setdefault("worker_id", worker_id)
+    return event
+
+
+def _event_allowed_by_granularity(kind: str, granularity: str) -> bool:
+    if granularity == "minimal":
+        return kind in {
+            "orchestrate.start",
+            "orchestrate.done",
+            "orchestrate.error",
+            "orchestration_fallback",
+        }
+    if granularity == "summary":
+        return kind in {
+            "orchestrate.start",
+            "orchestrate.worker",
+            "orchestrate.synthesis",
+            "orchestrate.done",
+            "orchestrate.error",
+            "orchestration_fallback",
+        }
+    return True
+
+
 __all__ = [
     "ORCHESTRATE_TOOL_NAME",
     "build_orchestrate_tool",
     "orchestrate",
+    "orchestrate_multi_agent",
     "orchestrate_stream",
 ]
 
@@ -87,6 +250,8 @@ def orchestrate(
     on_thinking: Callable[[str], None] | None = None,
     on_tool_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> AgentRunResult:
+    budget_policy = BudgetPolicy.from_config()
+    logger.debug("MCP orchestrate budget policy=%s", budget_policy.to_trace())
     """Exécute un run agentique complet en wrappant ``AgentCore.run()``.
 
     Args:
@@ -168,6 +333,62 @@ def orchestrate_stream(
     )
 
 
+def orchestrate_multi_agent(
+    prompt: str,
+    *,
+    session_id: str = _DEFAULT_SESSION_ID,
+    scope: str = _DEFAULT_SCOPE,
+    model: str | None = None,
+    parallel: bool = False,
+    enable_thinking: bool = False,
+    event_granularity: str = "summary",
+    resume_request_id: str | None = None,
+    orchestrator: MCPOrchestrationPort | None = None,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run the generic multi-agent coordinator through the MCP-specific port."""
+    if on_event is None:
+        from app.infrastructure.mcp.mcp_flow import current_recorder
+
+        recorder = current_recorder()
+        if recorder is not None:
+
+            def record_event(kind: str, payload: dict[str, Any]) -> None:
+                if not _event_allowed_by_granularity(kind, event_granularity):
+                    return
+                normalized = _normalize_agent_event(
+                    kind,
+                    dict(payload),
+                    parent_task_id=str(session_id or _DEFAULT_SESSION_ID),
+                    worker_id=str(payload.get("worker_id") or None) if payload else None,
+                    phase=(
+                        str(payload.get("phase") or "").strip().lower()
+                        if payload and payload.get("phase") is not None
+                        else None
+                    ),
+                )
+                recorder.record_tool(normalized)
+
+            on_event = record_event
+    request = MCPOrchestrationRequest.from_values(
+        prompt=prompt,
+        session_id=session_id or _DEFAULT_SESSION_ID,
+        scope=scope or _DEFAULT_SCOPE,
+        model=model,
+        parallel=parallel,
+        enable_thinking=enable_thinking,
+        event_granularity=event_granularity,
+        resume_request_id=resume_request_id,
+    )
+    if orchestrator is None:
+        from app.infrastructure.mcp.orchestration_factory import (
+            build_mcp_orchestration_adapter,
+        )
+
+        orchestrator = build_mcp_orchestration_adapter()
+    return orchestrator.run(request, on_event=on_event).model_dump(mode="json")
+
+
 def _result_to_text(result: AgentRunResult) -> str:
     """Sérialise un ``AgentRunResult`` en texte JSON (réponse ``CallToolResult``).
 
@@ -194,6 +415,7 @@ def build_orchestrate_tool(
     core_factory: Callable[[], AgentCore] | None = None,
     *,
     required_scope: MCPScopeRole = MCPScopeRole.CONTRIBUTOR,
+    orchestrator: MCPOrchestrationPort | None = None,
 ) -> MCPTool:
     """Construit le tool MCP ``orchestrate`` (tool DISTINCT des tools bruts).
 
@@ -218,6 +440,92 @@ def build_orchestrate_tool(
                 f"Argument(s) requis manquant(s) pour « {ORCHESTRATE_TOOL_NAME} » : prompt"
             )
         try:
+            mode = str(args.get("mode") or "mono_agent")
+            if mode not in {"mono_agent", "multi_agent"}:
+                raise ValueError("mode doit être « mono_agent » ou « multi_agent »")
+            if mode == "multi_agent":
+                session_id = str(args.get("session_id") or _DEFAULT_SESSION_ID)
+                scope = str(args.get("scope") or _DEFAULT_SCOPE)
+                if not _mcp_multi_agent_enabled():
+                    source = (
+                        "MCP_MULTI_AGENT_ENABLED"
+                        if os.getenv("MCP_MULTI_AGENT_ENABLED") is not None
+                        else (
+                            "AGENT_MULTI_AGENT"
+                            if os.getenv("AGENT_MULTI_AGENT") is not None
+                            else "agent_config"
+                        )
+                    )
+                    fallback = _fallback_payload(
+                        reason="multi_agent_disabled",
+                        mode="mono_agent",
+                        source=source,
+                    )
+                    logger.warning(
+                        "MCP multi-agent désactivé, fallback mono-agent; source=%s",
+                        source,
+                    )
+                    MCP_ORCHESTRATION_FALLBACK_TOTAL.labels(
+                        reason="multi_agent_disabled",
+                        mode="mono_agent",
+                    ).inc()
+                    result = orchestrate(
+                        str(args["prompt"]),
+                        session_id=session_id,
+                        scope=scope,
+                        enable_thinking=bool(args.get("enable_thinking")),
+                        core_factory=core_factory,
+                    )
+                    payload = json.loads(_result_to_text(result))
+                    payload["orchestration"] = fallback
+                    return json.dumps(payload, ensure_ascii=False)
+                try:
+                    _validate_worker_scope(
+                        session_id=session_id,
+                        scope=scope,
+                        worker_id="planner",
+                        allowed_tools=("orchestrate",),
+                    )
+                except ValueError as exc:
+                    fallback = _fallback_payload(
+                        reason="worker_scope_violation",
+                        mode="mono_agent",
+                        details=str(exc),
+                        source="execution_context",
+                    )
+                    logger.warning("MCP multi-agent scope validation failed: %s", exc)
+                    MCP_ORCHESTRATION_FALLBACK_TOTAL.labels(
+                        reason="worker_scope_violation",
+                        mode="mono_agent",
+                    ).inc()
+                    result = orchestrate(
+                        str(args["prompt"]),
+                        session_id=session_id,
+                        scope=scope,
+                        enable_thinking=bool(args.get("enable_thinking")),
+                        core_factory=core_factory,
+                    )
+                    payload = json.loads(_result_to_text(result))
+                    payload["orchestration"] = fallback
+                    return json.dumps(payload, ensure_ascii=False)
+                return json.dumps(
+                    orchestrate_multi_agent(
+                        str(args["prompt"]),
+                        session_id=session_id,
+                        scope=scope,
+                        model=str(args["model"]) if args.get("model") else None,
+                        parallel=bool(args.get("parallel")),
+                        enable_thinking=bool(args.get("enable_thinking")),
+                        event_granularity=str(args.get("event_granularity") or "summary"),
+                        resume_request_id=(
+                            str(args["resume_request_id"])
+                            if args.get("resume_request_id")
+                            else None
+                        ),
+                        orchestrator=orchestrator,
+                    ),
+                    ensure_ascii=False,
+                )
             result = orchestrate(
                 str(args["prompt"]),
                 session_id=str(args.get("session_id") or _DEFAULT_SESSION_ID),
@@ -247,7 +555,8 @@ def build_orchestrate_tool(
             "toute mutation (écriture/exécution) exige une validation humaine "
             "et met le run en attente (awaiting_approval). Retourne un JSON : "
             "{answer, status, actions, rounds_used, tool_calls_used, "
-            "awaiting_approval}."
+            "awaiting_approval}; le mode multi_agent ajoute plan, workers, "
+            "synthesis, worker_errors et orchestration."
         ),
         input_schema={
             "type": "object",
@@ -268,6 +577,22 @@ def build_orchestrate_tool(
                     "type": "boolean",
                     "description": "Active la trace de réflexion avant la réponse.",
                     "default": False,
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["mono_agent", "multi_agent"],
+                    "default": "mono_agent",
+                },
+                "model": {"type": "string"},
+                "parallel": {"type": "boolean", "default": False},
+                "event_granularity": {
+                    "type": "string",
+                    "enum": ["minimal", "summary", "verbose"],
+                    "default": "summary",
+                },
+                "resume_request_id": {
+                    "type": "string",
+                    "description": "Identifiant d'une demande précédente à reprendre.",
                 },
             },
             "required": ["prompt"],

@@ -81,6 +81,7 @@ services:
       - MODEL_PATH=/app/experiments/models
       - MONGODB_URI=${MONGODB_URI:?MONGODB_URI manquant}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-thinktuning}
+      - MCP_EVENT_RETENTION_DAYS=${MCP_EVENT_RETENTION_DAYS:-30}
       # P0 SEC (F1) : fail-closed prod — api_key.ensure_api_key_configured()
       # refuse le démarrage si ENV=prod et API_KEY absente/faible (<32 chars).
       # Génération : python -c "import secrets; print(secrets.token_urlsafe(32))".
@@ -112,6 +113,44 @@ services:
       - ./backend/experiments:/app/experiments
       - hf-cache:/app/.cache
     profiles: ["app"]
+
+  # Surface MCP dédiée (SSE + JSON-RPC). Elle réutilise la même image et la
+  # même configuration Mongo que l'API, mais possède un port et un profil
+  # séparés pour permettre un déploiement MCP-only.
+  mcp:
+    build: ./backend
+    image: thinktuning:latest
+    container_name: thinktuning-mcp
+    init: true
+    command:
+      - gunicorn
+      - app.api.main:app
+      - -k
+      - uvicorn.workers.UvicornWorker
+      - -w
+      - "${GUNICORN_WORKERS:-1}"
+      - -b
+      - 0.0.0.0:8000
+      - --no-control-socket
+    ports:
+      - "8001:8000"
+    environment:
+      - MONGODB_URI=${MONGODB_URI:?MONGODB_URI manquant}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-thinktuning}
+      - API_KEY=${API_KEY:?API_KEY manquant}
+      - MCP_SERVER_ENABLED=${MCP_SERVER_ENABLED:-true}
+      - MCP_AUTH_REQUIRED=${MCP_AUTH_REQUIRED:-true}
+      - AGENT_PROVIDER=${AGENT_PROVIDER:-ollama}
+      - AGENT_MODEL_NAME=${AGENT_MODEL_NAME:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-1}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    profiles: ["mcp"]
 
   # ---------------------------------------------------------------------------
   # Dashboard React (Phase 5 — découplage déploiement) : image séparée, nginx

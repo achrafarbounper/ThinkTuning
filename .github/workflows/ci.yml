@@ -79,6 +79,19 @@ jobs:
           # pyproject.toml [tool.coverage].
           pytest tests/ -q --durations=10 --cov=app --cov-report=term --cov-fail-under=76
 
+      - name: MCP contract and durable-run tests
+        env:
+          AGENT_PROVIDER: ollama
+        run: |
+          pytest tests/test_mcp_*.py -q --durations=10
+
+      - name: MCP persistence migration and retention tests
+        env:
+          AGENT_PROVIDER: ollama
+          MCP_EVENT_RETENTION_DAYS: "30"
+        run: |
+          pytest tests/test_mcp_sqlite_migration.py tests/test_mcp_mongo_run_store.py -q
+
   frontend:
     name: Frontend — types + tests + build
     runs-on: ubuntu-latest
