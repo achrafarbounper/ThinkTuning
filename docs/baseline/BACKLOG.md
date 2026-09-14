@@ -7,6 +7,23 @@
 
 ## P0 — Débloquer la baseline (avant toute refactorisation)
 
+> ✅ **Clôturé le 14/09/2026** (branche `##-P0-—-Débloquer-la-baseline-(avant-toute-refactorisation)`).
+> - **B-1** : `fastapi==0.141.1` / `pydantic==2.13.5` épinglés (`requirements.txt`
+>   + miroir `pyproject.toml` ; `starlette==1.3.1` déjà en place) ; contrat
+>   régénéré dans l'ordre ADR-0002 (`python export_openapi.py` →
+>   `npm run generate:api-types`) : `"format": "binary"` →
+>   `"contentMediaType"` (E-06) ; le client TS rattrapé au passage
+>   `/api/v1/agent/providers` qui lui manquait (E-07 matérialisé, +282 l.).
+>   Preuves : `test_openapi_export.py` 3/3 verts ; `pytest` 1996 passed /
+>   2 skipped ; vitest 197 verts ; `vite build` OK ; ruff `app/` 0 erreur.
+> - **B-2** : la précondition « namespace à froid » de
+>   `test_agent_cache_lazy_resolution.py` est désormais **établie** par la
+>   fixture (pop des symboles lazy au setup ET au teardown) au lieu d'être
+>   assumée ; test anti-pollution ajouté (pollution d'ordre aléatorisée,
+>   graine figée). Preuves : paire pollueur→test verte dans les DEUX ordres
+>   (13/13 ×2) ; suite complète verte **2× de suite** (1996 passed /
+>   2 skipped, exit 0).
+
 | ID | Action | Écart | Effort estimé | Critère de clôture |
 |---|---|---|---|---|
 | B-1 | Réconcilier le contrat : régénérer `openapi.json` (`python export_openapi.py`), régénérer `schema.d.ts` (`npm run generate:api-types`), committer ensemble ; épingler `fastapi`/`pydantic`/`starlette` dans `requirements.txt` pour stabiliser la sérialisation | E-06, E-07, E-15 | S (½ j) | `test_openapi_export.py` 3/3 verts ; `pytest` + `vitest` verts ; CI backend verte |
