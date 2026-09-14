@@ -576,14 +576,16 @@ class AgentCore:
                 # --- Exécution via pipeline de middlewares ---
                 if process_tool_call is not None:
 
-                    def execute_tool(tool_args: dict[str, Any]) -> Any:
-                        return self._tools[tool](**tool_args)
+                    def _execute_tool_call(a: dict[str, Any], _tool: str = tool) -> Any:
+                        # Liaison par défaut (`_tool = tool`) : protège du
+                        # late-binding de la variable de boucle si un middleware
+                        # conservait l'executor au-delà du tour courant.
+                        # (Fonction nommée + annotée : mypy ne sait pas inférer
+                        # une lambda à 2 paramètres contre un
+                        # Callable[[dict[str, Any]], Any] — cf. baseline E-18.)
+                        return self._tools[_tool](**a)
 
-                    last_result = process_tool_call(
-                        tool,
-                        args,
-                        execute_tool,
-                    )
+                    last_result = process_tool_call(tool, args, _execute_tool_call)
                 else:
                     last_result = self._tools[tool](**args)
 

@@ -49,6 +49,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.0",
+    # pytest-cov : gate de couverture en CI (backlog B-7, ADR-0005) — plancher
+    # --cov-fail-under posé dans .github/workflows/ci.yml, ratchet +1 pt/sprint.
+    "pytest-cov>=6.0.0",
     "ruff>=0.6.0",
     "mypy>=1.10.0",
 ]
@@ -123,7 +126,10 @@ ignore_missing_imports = true
 # src/ absorbé : ex-src/utils/config.py -> app/config/training_config.py,
 # ex-src/utils/flags.py -> app/config/flags.py, le reste -> app/infrastructure/ml/**.
 exclude = ["venv", ".agent_tmp", "experiments", "outputs", "app/api"]
-# Phase 3 : retirer les exclusions à mesure que les modules migrent sous app/.
+# app/api reste hors périmètre tant que le handler agentique legacy n'est pas
+# épuré (backlog B-5, décision ADR-0005 §3) : l'extension à app/api est un
+# JALON explicite de P1, pas un défaut silencieux. Depuis B-8, mypy est
+# bloquant en CI (le « || true » historique a été retiré).
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -243,19 +243,19 @@ _store: AgentSettingsStore | None = None
 
 # Cache du store Mongo (mode PERSISTENCE_BACKEND=mongodb) : instancié UNE seule
 # fois puis réutilisé — même sémantique que le singleton SQLite (_store) au-dessus.
-# Annoté avec le type de retour du getter (la classe ``MongoAgentSettingsStore``
-# n'est importable qu'en lazy : import de module circulaire).
+# Annoté avec le type de retour du getter (l'implémentation Mongo est résolue
+# via le registre late-binding de ``persistence.common``, ADR-0004).
 _mongo_store: "AgentSettingsStore | None" = None
 
 
 def _get_store() -> AgentSettingsStore:
     global _store
     if os.getenv("PERSISTENCE_BACKEND", "mongodb").lower() == "mongodb":
-        from app.infrastructure.persistence.mongodb import MongoAgentSettingsStore
+        from app.infrastructure.persistence.common import get_mongo_store_class
 
         global _mongo_store
         if _mongo_store is None:
-            _mongo_store = MongoAgentSettingsStore()  # type: ignore[assignment]
+            _mongo_store = get_mongo_store_class("agent_settings")()  # type: ignore[assignment]
         return _mongo_store  # type: ignore[return-value]
     if _store is None:
         _store = AgentSettingsStore()
