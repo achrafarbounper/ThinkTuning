@@ -185,7 +185,7 @@ class Predictor:
         # modèle altéré/injecté est refusé — fail-closed si manifeste présent,
         # warning sinon, blocage si MODEL_SIGNING_REQUIRED=1).
         if not TEST_MODE:
-            from app.application.model_signing import verify_model_signature
+            from app.infrastructure.security.model_signing import verify_model_signature
 
             verify_model_signature(resolved_model_path)
         self.model_path = resolved_model_path

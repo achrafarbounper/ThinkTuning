@@ -9,5 +9,7 @@ secrets (``secrets_redact``), paramètres persistés de l'agent
 (``training_events``).
 
 S'y ajoutent les adaptateurs MongoDB (``mongodb.py``, backend
-``PERSISTENCE_BACKEND=mongodb``) et l'alias de compatibilité ``sqlite.py``.
+``PERSISTENCE_BACKEND=mongodb``), le module neutre partagé ``common.py``
+(provider client Mongo + registre late-binding des stores, ADR-0004) et
+l'alias de compatibilité ``sqlite.py``.
 """

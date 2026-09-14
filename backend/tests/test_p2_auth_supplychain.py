@@ -192,7 +192,7 @@ def _mini_model_dir(tmp_path) -> str:
 
 
 def test_model_signature_write_and_verify(tmp_path) -> None:
-    from app.application.model_signing import verify_model_signature, write_signature_manifest
+    from app.infrastructure.security.model_signing import verify_model_signature, write_signature_manifest
 
     d = _mini_model_dir(tmp_path)
     write_signature_manifest(d)
@@ -201,7 +201,7 @@ def test_model_signature_write_and_verify(tmp_path) -> None:
 
 
 def test_model_signature_tamper_detected(tmp_path) -> None:
-    from app.application.model_signing import (
+    from app.infrastructure.security.model_signing import (
         ModelSignatureError,
         verify_model_signature,
         write_signature_manifest,
@@ -215,7 +215,7 @@ def test_model_signature_tamper_detected(tmp_path) -> None:
 
 
 def test_model_signature_unsigned_file_detected(tmp_path) -> None:
-    from app.application.model_signing import (
+    from app.infrastructure.security.model_signing import (
         ModelSignatureError,
         verify_model_signature,
         write_signature_manifest,
@@ -229,7 +229,7 @@ def test_model_signature_unsigned_file_detected(tmp_path) -> None:
 
 
 def test_model_signature_required_policy(tmp_path, monkeypatch) -> None:
-    from app.application.model_signing import ModelSignatureError, verify_model_signature
+    from app.infrastructure.security.model_signing import ModelSignatureError, verify_model_signature
 
     monkeypatch.setenv("MODEL_SIGNING_REQUIRED", "1")
     with pytest.raises(ModelSignatureError):

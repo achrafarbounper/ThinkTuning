@@ -31,6 +31,102 @@
 
 ## P1 — Socle structurel (rendre la refactorisation sûre)
 
+> ✅ **B-8 clôturé le 14/09/2026** (branche P1) : erreur mypy résiduelle corrigée
+> (`agent_core.py:581` — lambda à 2 paramètres non inférable contre
+> `Callable[[dict[str, Any]], Any]`, remplacée par une fonction locale annotée
+> préservant le late-binding `_tool=tool`) ; `|| true` retiré de la CI —
+> **mypy est bloquant** (épinglé `2.3.1` = version venv locale, même logique que
+> le pin ruff) ; sort de l'exclusion `app/api` : **maintenue** et documentée
+> comme jalon explicite de B-5 (ADR-0005 §3). Preuves : `mypy app/` 0 erreur /
+> 224 fichiers ; `pytest` 1996 passed / 2 skipped ; ruff check+format verts.
+
+> ✅ **B-7 clôturé le 14/09/2026** (branche P1) : `pytest-cov>=6.0.0` ajouté aux
+> dev-deps (`pyproject.toml [project.optional-dependencies].dev`) ; step CI
+> `pytest --cov=app --cov-report=term --cov-fail-under=76` (plancher = baseline
+> audit, ADR-0005 §1.1). Couverture vérifiée **76,00 % pile** (14 605/19 216
+> stmts), identique avec et sans `TEST_MODE`, et aucun branchement
+> `os.name`/`sys.platform` dans `app/` (parité Windows↔CI) — marge fine
+> (~0,003 pt) assumée, le ratchet (+1 pt/sprint, ADR-0005 §2) la consolide ;
+> **priorité ratchet déclarée : tests de `infrastructure/tools/` (5–44 %)**,
+> restant au backlog. Preuves : 2 runs locaux `--cov-fail-under=76` verts
+> (1996 passed / 2 skipped) ; YAML CI validé au parse.
+
+> ✅ **B-6 clôturé le 14/09/2026** (branche P1) : `git rm` des 3 routes legacy
+> jamais importées (`routes/health.py`, `routes/intent_train.py`,
+> `routes/maintenance.py` — 0 référence vivante vérifiée par grep, la docstring
+> du test v1 santé historisée) ; suppression de `backend/entrypoint.py` et
+> `backend/supervisord.conf` (le Dockerfile backend tourne sous gunicorn,
+> le supervisord référençait en outre un module obsolète `api.main:app`) et de
+> `frontend/nginx.conf` (0 référence — le Dockerfile copie `nginx.main.conf` +
+> template envsubst) ; références documentaires mises à jour
+> (`ARCHITECTURE_DECOUPLAGE.md` « dette assumée », docstrings de
+> `health_usecase.py` et `test_api_v1_health.py`) ; fichiers de traces restants
+> purgés (non suivis, `*.log` déjà gitignorés — le lot `final_*.txt` de
+> l'audit avait déjà été nettoyé). `_migration/` préservé (témoin historique).
+> Preuves : `ruff check app/` 0 erreur, `ruff format app/` 271 OK,
+> `ruff check tests/` 76 = baseline E-19 inchangée ; `test_api_v1_health.py`
+> 8 passed ; suite complète 1996 passed / 2 skipped.
+
+> ✅ **B-4 clôturé le 14/09/2026** (branche P1) : création de
+> `persistence/common.py` — module neutre (0 dépendance `app.*` hors stdlib)
+> extrait du hub `mongodb.py` : `MongoConfig`, `MongoClientProvider`, singleton
+> `get/set/reset_mongo_provider`, `AtlasConnectionError`/`ATLAS_CONNECTION_HINT`,
+> `_utcnow`, `_normalize_atlas_uri`, `_safe_host`, `_decode_settings_value`
+> (SCRUM-137) et un **registre late-binding** (`register_mongo_store` /
+> `get_mongo_store_class`, même technique que le late-binding `_tool` de B-8) ;
+> les 5 factories de stores (`audit_store`, `flow_store`, `run_store`,
+> `mcp_client_store`, `agent_settings`) résolvent désormais l'implémentation
+> Mongo via ce registre au moment de l'appel — **plus aucun import
+> `persistence.mongodb` côté stores** ; `MongoServiceAccountStore` rapatrié
+> dans `security/service_accounts.py` (imports top-level du hub supprimés,
+> symboles privés `_audit`/`_hash_secret` restent locaux — **E-10 levé**) ;
+> `mongodb.py` devient façade (ré-exports compat : conftest, scripts,
+> `routes/agent.py`) ; commentaires « import de module circulaire » réécrits.
+> Critère affiné : **détecteur AST 7 → 1** — les 6 cycles du hub mongodb sont
+> morts ; le cycle restant (`model_versioning` ↔ `application.model_activation`)
+> EST l'inversion de couche E-03, dont l'élimination propre (port
+> `ModelActivationPort`) est précisément le périmètre de **B-3** — le casser
+> maintenant via registre changerait le comportement défensif du repli
+> `resolve_model_dir` (lazy try/except). Preuves : `ruff check app/` 0 erreur,
+> `ruff format app/` OK, `mypy app/` 0 erreur / **225 fichiers** (+common.py),
+> tests ciblés persistance 106 passed, suite complète 1996 passed / 2 skipped.
+
+> ✅ **B-3 clôturé le 14/09/2026** (branche P1) : port **`ModelActivationPort`**
+> créé (`app/domain/ports/model_activation_ports.py`) — contrat « catalogue +
+> pointeur de version active » (``model_root``, ``list_model_versions``,
+> ``is_model_version_trained``, ``read/write_active_pointer``,
+> ``get_active_pointer_path``, ``get_active_model_dir``) avec registre
+> late-binding (``register/reset/get_model_activation_port``,
+> ``resolve_active_model_dir``, même technique que les registres B-4/B-8) ;
+> adaptateur par défaut `_DomainModelActivationAdapter` dans
+> `persistence/model_versioning.py` (auto-enregistrement à l'import du module —
+> couvre API, CLI et tests sans toucher `composition.py` ; env
+> ``ACTIVE_MODEL_POINTER`` et ``MODEL_ROOT`` lus À CHAQUE appel → parité
+> monkeypatch exacte avec l'implémentation historique) ;
+> **`model_versioning.py` n'importe plus `application/`** (2 arêtes supprimées :
+> lazy `model_activation` et lazy `model_signing`) → **inversion de couche E-03
+> supprimée, détecteur AST : 1 → 0 cycle (baseline 7 → 0)** ; use case
+> `application/model_activation.py` purifié (0 import infrastructure —
+> délégations port, `MODEL_ROOT` local patchable par les tests) ;
+> `model_sanity.py` purifié (lazy import → port, sémantique défensive
+> try/except préservée) ; `model_signing.py` **requalifié**
+> `application/` → `infrastructure/security/` (ADR-0003 §2 : module technique
+> de supply-chain, importers mis à jour : `predictor.py`, `model_versioning.py`,
+> `test_p2_auth_supplychain.py`). Test de garde **`tests/test_application_purity.py`**
+> (scan AST top + lazy) : 0 import `app.infrastructure.*` dans `application/`
+> hors **14 exceptions déclarées et DATÉES** (échéance 2026-10-15, ADR-0003
+> §4) + 4 ratchets (exception périmée → échec ; plafond 14 figé ; modules
+> purifiés verrouillés hors liste ; exception devenue inutile → purge). Critère
+> affiné : « 0 import direct + exceptions temporaires datées » — les 14 modules
+> restants (agent_cache, trainer_runner, predictor_cache, cycle_runner,
+> session_memory…) passent par les ports à l'occasion de **B-5** (absorption
+> `routes/agent`) et des ratchets suivants, module par module (strangler,
+> ADR-0003 §1 : pas de big-bang). Preuves : `ruff check app/` 0 erreur,
+> `ruff format` OK, `mypy app/` 0 erreur / **226 fichiers** (+port),
+> **détecteur 0 cycle**, tests ciblés 27 passed (activation + supply-chain +
+> purity), suite complète **2002 passed / 2 skipped** (baseline 1996 + 6 tests
+> de garde).
+
 | ID | Action | Écart | Effort estimé | Critère de clôture |
 |---|---|---|---|---|
 | B-3 | Purifier la couche `application/` : introduire/compléter les ports du domaine pour les dépendances `application → infrastructure` (stores, registres, ML) ; inverser l'inversion E-03 (`model_versioning` → port, pas vers `application/`) ; brancher les singletons sur le container | E-02, E-03, E-05 | L (sprint) | 0 import `app.infrastructure.*` hors `infrastructure/` et `api/` ; test de garde (`test_no_direct_legacy_imports` étendu) |

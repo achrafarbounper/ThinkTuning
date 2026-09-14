@@ -1,13 +1,14 @@
 """Use-case de santé du service — extrait du flux critique de migration.
 
 ``run_health_check`` et ``run_model_sanity_check`` encapsulent la logique de
-``api/routes/health.py`` legacy sans dépendre de FastAPI ni des modules
-``core.*`` : les collaborateurs sont injectés (ports), les fakes remplacent
-l'infrastructure dans les tests.
+l'ancienne route ``/health`` (le handler legacy a été supprimé en P1-B6) sans
+dépendre de FastAPI ni des modules ``core.*`` : les collaborateurs sont
+injectés (ports), les fakes remplacent l'infrastructure dans les tests.
 
-Le shape de la réponse (``HealthSnapshot``) reste IDENTIQUE au ``/health``
-legacy : l'orchestration Docker (supervisord) et le dashboard fonctionnent
-sur les deux surfaces pendant la migration (strangler pattern).
+Le shape de la réponse (``HealthSnapshot``) est resté IDENTIQUE lors du
+passage à la surface v1 (``/api/v1/health``) : l'orchestration Docker
+(healthcheck du Dockerfile backend) et le dashboard consomment le contrat
+sans changement (strangler pattern).
 """
 
 from __future__ import annotations
