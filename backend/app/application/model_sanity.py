@@ -110,9 +110,9 @@ def _is_head_trained(predictor) -> bool | None:
     if not model_dir or not os.path.isdir(model_dir):
         return None
     try:
-        from app.infrastructure.persistence.model_head_check import is_model_version_trained
+        from app.domain.ports.model_activation_ports import get_model_activation_port
 
-        return is_model_version_trained(model_dir)
+        return get_model_activation_port().is_model_version_trained(model_dir)
     except Exception:
         return None
 

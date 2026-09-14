@@ -1,4 +1,4 @@
-# project/core/model_signing.py
+# project/app/infrastructure/security/model_signing.py
 """Signature et vérification d'intégrité des modèles (P2 lot 15).
 
 Supply-chain ML : chaque dossier de version modèle publié dans
@@ -32,6 +32,9 @@ régénérer le manifeste. La défense en profondeur (et l'exigence « signature
 modèles ») repose sur l'hébergement : ``experiments/models`` est en lecture
 seule hors écriture d'entraînement, et la red-team trimestrielle re-vérifie
 les versions contre des empreintes conservées hors-ligne (scripts/redteam).
+
+Requalifié de ``application/`` vers ``infrastructure/security/`` (B-3 /
+ADR-0003 §2) : module technique de supply-chain, aucune logique de use case.
 """
 
 from __future__ import annotations

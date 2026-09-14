@@ -200,26 +200,63 @@ Compose : services `app` + `dashboard` ; le dashboard n'embarque plus l'API.
 - **Client TypeScript généré (Phase B)** : `openapi-typescript` en dev-dep
   (override TS 6 dans `package.json`), script `generate:api-types`, verrou de
   fraîcheur du spec (3 tests), DTO `ApiHealth` branché sur le schéma généré.
+- **Extraction métier de la surface agent (Phase C — B-5, écarts E-04/E-11)** :
+  voir §8.1 ci-dessous.
+
+### 8.1 Phase C — absorption de `routes/agent.py` en use cases (réalisé)
+
+Avant : `app/api/routes/agent.py` (1 910 lignes) mêlait logique métier, état
+de module (runs/queues/bus), câblage infrastructure et DTOs. Après :
+
+| Module | Rôle | Taille |
+|---|---|---|
+| `app/application/agent_surface.py` | Use cases purs (runs, streaming SSE core/multi, approbations, réglages, providers, Flow Map, sonde provider — stores/queues/bus **injectés**, zéro import FastAPI/infrastructure) | ~1 040 l. |
+| `app/api/routes/agent.py` | Adaptateur legacy : câblage des collaborateurs + traduction `DomainError` → `HTTPException` (`{"detail": ...}`), **surface réduite aux 9 endpoints encore requis par les tests de contrat** | 392 l. (≈ -80 %) |
+| `app/api/routes/v1/agent.py` | Surface v1 : **n'appelle plus le module legacy par attribut** — use cases directs + DTOs `app/api/schemas/agent`, erreurs via le handler `DomainError` global (enveloppe `{"error": ...}`) | 287 l. |
+| `app/api/dependencies/mcp_first.py` | Garde lecture seule `MCP_FIRST` **partagée** par les deux surfaces (règle de policy unique — E-04) | 69 l. |
+| `app/api/dependencies/agent_probe.py` | Sonde de connectivité (plan use case + appel HTTP) partagée legacy/v1 | 74 l. |
+
+Règles établies (ADR-0003) :
+
+1. **Source unique du câblage** : les collaborateurs (stores, factories, bus,
+   télémétrie) restent définis dans `routes/agent.py` et sont lus à l'appel
+   par la v1 (`agent_wiring.<nom>`) — c'est LE seam de monkeypatch des tests
+   des deux surfaces ; aucune duplication d'état.
+2. **Erreurs** : un seul statut HTTP par erreur (`DomainError.http_status`) ;
+   l'adaptateur legacy l'habille en `{"detail": ...}`, le handler global v1 en
+   `{"error": {"code", ...}}`.
+3. **Retraits assumés** (surface legacy dépréciée, non montée en production) :
+   endpoints sans consommateur ni équivalent v1/MCP retirés — copilot
+   (`/suggest*`, `/complete`), tools custom/recommend/stats, `/runs`,
+   `/audit`, `/features`, `/ws`, `/multi/ask` bloquant. Les use cases
+   correspondants restent dans l'historique git ; les équivalents MCP
+   (`tools/call`, audit, `orchestrate`) couvrent les besoins MCP.
+4. **Dépréciation** inchangée : `DeprecationWarning` à l'import, en-têtes
+   `Deprecation`/`Sunset`/`Warning: 299`, 405 `mcp_first_read_only` si
+   `MCP_FIRST=true` (approbation humaine exceptée).
 
 ### Restant (post-épuration)
 1. **Suppression des fichiers legacy** (`app/api/routes/*.py`, `core/*` devenus
-   morts) : la délégation par attribut de module devra d'abord être portée en
-   use cases/adapters réels pour les flux concernés.
+   morts) : ~~la délégation par attribut de module devra d'abord être portée en
+   use cases/adapters réels pour les flux concernés~~ **fait pour l'agent
+   (Phase C, §8.1)** — reste le même travail pour les tranches non-agent
+   (`predict`, `train`, `models`, …) avant leur retrait.
 2. **Poursuivre le branchement des DTO** (`PredictionResult`, `ModelVersion`,
    `Explanation`, …) sur le schéma généré, puis consommer `operations` pour
    typer les chemins d'appels.
-3. **Extraction métier des handlers `app/api/routes/agent.py`** (~1700 lignes,
-   état/queues/store) en use cases `app/application/` (épic d'estimation
-   séparée — Phase C).
+3. ~~**Extraction métier des handlers `app/api/routes/agent.py`**~~ — **RÉALISÉ
+   (Phase C / B-5, §8.1)**.
 4. **Schéma `Security` OpenAPI** transverse (le spec marque `X-API-Key` en
    `required: false` alors que les routes protégées répondent 401 sans clé —
    posture documentée dans les tests de contrat).
 
 ### Dette assumée
-- `supervisord.conf`, `entrypoint.py`, `frontend/nginx.conf` : suivis par git
-  et **référencés** (commentaire de `app/application/health_usecase.py`,
-  `frontend/Dockerfile` copie `nginx.main.conf`) — suppression à traiter avec
-  ces références, pas en simple `git rm`.
+- `supervisord.conf`, `entrypoint.py`, `frontend/nginx.conf` : **supprimés en
+  P1 (B-6)** avec mise à jour de leurs références (docstrings de
+  `app/application/health_usecase.py` et `tests/test_api_v1_health.py`). Le
+  backend Docker tourne sous gunicorn (`CMD` du Dockerfile, healthcheck
+  `/api/v1/health`) ; le frontend est servi via `nginx.main.conf` + template
+  envsubst. `frontend/nginx.main.conf` reste vivant (copié par le Dockerfile).
 - 110 erreurs ruff au total : ~101 dans les routeurs legacy non montés
   (encore importés par la v1 via attribut de module) + ~9 sur le périmètre v1
   vivant. Nettoyage en 2 lots : `--fix` auto (76) puis manuel ciblé.

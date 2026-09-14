@@ -51,20 +51,33 @@ jobs:
         run: |
           ruff format --check app/
 
-      - name: Types (mypy — périmètre app/ uniquement, cf. pyproject.toml)
+      - name: Types (mypy — BLOQUANT, périmètre app/ hors app/api, cf. pyproject.toml + ADR-0005)
         run: |
-          pip install mypy
-          mypy app/ || true  # progressif : durci à mesure de la migration
+          # Épinglé = même version que le venv local (2.3.1) : une release mypy
+          # ajoutant de nouvelles erreurs ne doit pas casser la CI de façon
+          # imprévue (même logique que le pin ruff==0.16.6).
+          # Durcissement B-8 (backlog P1) : le « || true » historique est
+          # retiré — mypy bloque désormais les PR. L'extension du périmètre à
+          # app/api reste un jalon explicite (B-5, ADR-0005 §3).
+          pip install "mypy==2.3.1"
+          mypy app/
 
-      - name: Tests (pytest)
+      - name: Tests (pytest + gate de couverture — backlog B-7, ADR-0005)
         env:
           # NB : pas de API_KEY ici — conftest.py pose API_KEY=test-key pour
           # toute la session (aligné avec les en-têtes X-API-Key des tests).
           # Une valeur différente ici faisait échouer 134 tests en 401.
           AGENT_PROVIDER: ollama  # aucun appel réseau : les tests mockent le LLM
         run: |
-          pip install pytest
-          pytest tests/ -q --durations=10
+          pip install pytest pytest-cov
+          # Gate de couverture (B-7) : plancher = baseline de l'audit (76 %),
+          # mesurée 76,00 % pile (14 605 / 19 216 stmts, BASELINE_AUDIT.md §8 ;
+          # identique avec et sans TEST_MODE, vérifié en P1). Marge fine
+          # (~0,003 pt) assumée : le ratchet ADR-0005 la fait monter
+          # (+1 pt/sprint visé) et toute baisse bloque la PR.
+          # La config coverage (source=app, omit __init__.py) vit dans
+          # pyproject.toml [tool.coverage].
+          pytest tests/ -q --durations=10 --cov=app --cov-report=term --cov-fail-under=76
 
   frontend:
     name: Frontend — types + tests + build
