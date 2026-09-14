@@ -314,9 +314,8 @@ class MCPDurableRunStore:
         with self._lock, self._connect() as connection:
             rows = connection.execute(query, params).fetchall()
         return [
-            state
+            self._state_from_payload(json.loads(payload[0]))
             for payload in rows
-            if (state := self._state_from_payload(json.loads(payload[0]))) is not None
         ]
 
     @staticmethod

@@ -233,6 +233,7 @@ class MCPDurableRunState:
         )
         if next_checkpoint not in VALID_MCP_RUN_CHECKPOINTS:
             raise ValueError(f"checkpoint must be one of {sorted(VALID_MCP_RUN_CHECKPOINTS)}")
+        next_failure_phase: str | None
         if failure_phase is not None:
             normalized_failure = str(failure_phase).strip().lower()
             if normalized_failure not in VALID_MCP_FAILURE_PHASES:
@@ -316,6 +317,13 @@ class MCPDurableRunStorePort(Protocol):
     def list_events(self, run_id: str) -> list[dict[str, Any]]: ...
 
     def list_events_after(self, run_id: str, after_sequence: int = 0) -> list[dict[str, Any]]: ...
+
+    def list_runs(
+        self,
+        *,
+        state: str | None = None,
+        limit: int = 50,
+    ) -> list[MCPDurableRunState]: ...
 
     def cancel(self, run_id: str, *, reason: str | None = None) -> MCPDurableRunState: ...
 
