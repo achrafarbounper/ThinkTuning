@@ -17,10 +17,14 @@ le module lui-même (``sys.modules[__name__]``) — premier appel : ``__getattr_
 importe le paquet legacy réel et met le symbole en cache ; appels suivants :
 lecture directe du cache.
 
-Deux tests :
+Trois tests :
     1. in-process : ``_resolve_runtime`` renvoie les vraies classes des paquets
-       réels (aucun hack ``sys.path``) et les met en cache ;
-    2. sous-processus : depuis un interpréteur FRAIS où AUCUN symbole n'a été
+       réels (aucun hack ``sys.path``) et les met en cache — état froid ÉTABLI
+       par la fixture, donc insensible à l'ordre de la suite (E-16) ;
+    2. anti-pollution (backlog B-2) : la résolution reste correcte après une
+       pollution d'ordre ALÉATORISÉE (graine figée = reproductible), qui mime
+       les accès attribut de la suite complète ;
+    3. sous-processus : depuis un interpréteur FRAIS où AUCUN symbole n'a été
        résolu (précondition vérifiée), ``reload_agent_runner()`` et
        ``get_multi_agent_coordinator()`` s'exécutent sans ``NameError`` — les
        seams réseau/base sont stubbés pour rester hors ligne.
@@ -45,18 +49,26 @@ _LAZY_SYMBOLS = ("AgentCore", "AgentRunner", "MultiAgentCoordinator")
 
 @pytest.fixture()
 def _clean_lazy_namespace():
-    """Restaure l'espace de noms du module après résolution (herméticité).
+    """Établit un namespace FROID avant le test et le nettoie après (E-16, B-2).
 
     ``_resolve_runtime`` met le symbole en cache dans ``globals()`` (comportement
-    voulu) ; on le retire en sortie pour ne pas contaminer d'autres tests qui
-    exerceraient l'état « non résolu ». Retirer le cache est transparent : un
-    accès attribut ultérieur ré-importe le module (déjà dans ``sys.modules``)
-    et retrouve le MÊME objet.
+    voulu en production). Or la suite complète résout ces symboles AVANT ce
+    module (``tests/test_agent_api.py``, imports des routes v1 : un
+    ``from app.application.agent_cache import AgentRunner`` déclenche
+    ``__getattr__`` et met en cache) : la précondition « namespace à froid » ne
+    peut plus être ASSUMÉE, elle doit être ÉTABLIE par la fixture — sinon le
+    test passe seul et échoue en suite complète (pollution d'ordre, E-16).
+
+    Le retrait du cache est transparent (avant comme après le test) : un accès
+    attribut ultérieur ré-importe le module (déjà dans ``sys.modules``) et
+    retrouve le MÊME objet — aucune autre couche d'état n'existe.
     """
     import app.application.agent_cache as agent_cache
 
+    for name in _LAZY_SYMBOLS:  # setup : état froid garanti, quel que soit l'ordre
+        agent_cache.__dict__.pop(name, None)
     yield
-    for name in _LAZY_SYMBOLS:
+    for name in _LAZY_SYMBOLS:  # teardown : le test ne fuit pas son propre cache
         agent_cache.__dict__.pop(name, None)
 
 
@@ -82,6 +94,52 @@ def test_resolve_runtime_returns_real_classes_and_caches(_clean_lazy_namespace) 
     # même objet sans repasser par l'import paresseux.
     assert agent_cache.AgentRunner is AgentRunner
     assert agent_cache._resolve_runtime("AgentRunner") is AgentRunner
+
+
+def test_lazy_resolution_is_insensitive_to_pollution_order(_clean_lazy_namespace) -> None:
+    """Anti-pollution (E-16 / backlog B-2) : résolution insensible à l'ordre.
+
+    La suite complète résout les symboles paresseux AVANT ce module (accès
+    attribut : ``tests/test_agent_api.py``, imports des routes v1). Ce test
+    reproduit cette pollution dans un ordre ALÉATORISÉ (graine figée = échec
+    reproductible en cas de régression) et vérifie, pour chaque mélange :
+    1. l'état chaud attendu (cache ``__getattr__``, comportement voulu) ;
+    2. la ré-établissabilité de l'état froid par le SEUL retrait du cache
+       (contrat de la fixture) — aucune couche d'état cachée ;
+    3. la résolution à froid retrouve les VRAIES classes (identité stable).
+    """
+    import random
+
+    import app.application.agent_cache as agent_cache
+    from app.agent.legacy.agent_core import AgentCore
+    from app.agent.legacy.orchestrator import MultiAgentCoordinator
+    from app.agent.legacy.runner import AgentRunner
+
+    real_classes = {
+        "AgentCore": AgentCore,
+        "AgentRunner": AgentRunner,
+        "MultiAgentCoordinator": MultiAgentCoordinator,
+    }
+    rng = random.Random(20260914)  # graine figée : reproductibilité des mélanges
+    for _ in range(4):
+        order = list(_LAZY_SYMBOLS)
+        rng.shuffle(order)
+
+        # 1. Pollution : accès attribut dans un ordre quelconque (ce que fait
+        #    la suite). Chaque accès déclenche ``__getattr__`` → mise en cache.
+        for name in order:
+            assert getattr(agent_cache, name) is real_classes[name]
+        assert all(name in vars(agent_cache) for name in _LAZY_SYMBOLS)
+
+        # 2. Ré-établissement de l'état froid : le retrait du cache doit suffire.
+        for name in _LAZY_SYMBOLS:
+            agent_cache.__dict__.pop(name, None)
+        assert not any(name in vars(agent_cache) for name in _LAZY_SYMBOLS)
+
+        # 3. La résolution repart à froid et retrouve les vraies classes.
+        for name, cls in real_classes.items():
+            assert agent_cache._resolve_runtime(name) is cls
+        assert agent_cache.AgentRunner is AgentRunner
 
 
 _SUBPROCESS_SCRIPT = """

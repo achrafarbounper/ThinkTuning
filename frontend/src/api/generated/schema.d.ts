@@ -675,6 +675,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Agent Providers
+         * @description Providers LLM enregistrés, avec secrets masqués.
+         */
+        get: operations["list_agent_providers_api_v1_agent_providers_get"];
+        put?: never;
+        /**
+         * Save Agent Provider
+         * @description Crée ou met à jour un document provider.
+         */
+        post: operations["save_agent_provider_api_v1_agent_providers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/providers/{provider_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Agent Provider
+         * @description Supprime un document provider.
+         */
+        delete: operations["delete_agent_provider_api_v1_agent_providers__provider_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/providers/{provider_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activate Agent Provider
+         * @description Active un provider et applique sa clé côté serveur.
+         */
+        post: operations["activate_agent_provider_api_v1_agent_providers__provider_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/ask/core": {
         parameters: {
             query?: never;
@@ -1303,7 +1367,7 @@ export interface paths {
          * Get Mcp Metrics
          * @description Métriques internes MCP : error rate, call volume, revoked clients.
          *
-         *     Voir ``api.routes.mcp.mcp_metrics`` pour la molécule complète.
+         *     Voir ``app.api.routes.mcp.mcp_metrics`` pour la molécule complète.
          */
         get: operations["get_mcp_metrics_api_v1_mcp_metrics_get"];
         put?: never;
@@ -1344,6 +1408,42 @@ export interface components {
             model_version?: string | null;
         };
         /**
+         * AgentProviderPayload
+         * @description Document Mongo complet d'une configuration provider.
+         */
+        AgentProviderPayload: {
+            /** Id */
+            id?: string | null;
+            /** Assistant */
+            assistant?: {
+                [key: string]: string;
+            };
+            /** Provider */
+            provider: {
+                [key: string]: unknown;
+            };
+            /** Budgets */
+            budgets?: {
+                [key: string]: number;
+            };
+            /** Logging */
+            logging?: {
+                [key: string]: string;
+            };
+            /** Mcp */
+            mcp?: {
+                [key: string]: unknown;
+            };
+            /** Network Security */
+            network_security?: {
+                [key: string]: unknown;
+            };
+            /** Features */
+            features?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
          * AgentSettingsUpdate
          * @description Mise à jour partielle des paramètres de l'agent IA.
          *
@@ -1381,6 +1481,34 @@ export interface components {
             context_length?: number | null;
             /** Temperature */
             temperature?: number | null;
+            /** Agent Sse First Event Timeout */
+            agent_sse_first_event_timeout?: number | null;
+            /** Agent Sse Heartbeat */
+            agent_sse_heartbeat?: number | null;
+            /** Train Max Per Lang */
+            train_max_per_lang?: number | null;
+            /** Train Augment Fraction */
+            train_augment_fraction?: number | null;
+            /** Train Variants Per Example */
+            train_variants_per_example?: number | null;
+            /** Train Use Back Translation */
+            train_use_back_translation?: boolean | null;
+            /** Train Epochs */
+            train_epochs?: number | null;
+            /** Train Batch Size */
+            train_batch_size?: number | null;
+            /** Train Num Workers */
+            train_num_workers?: number | null;
+            /** Train Max Length */
+            train_max_length?: number | null;
+            /** Train Learning Rate */
+            train_learning_rate?: number | null;
+            /** Train Weight Decay */
+            train_weight_decay?: number | null;
+            /** Train Warmup Ratio */
+            train_warmup_ratio?: number | null;
+            /** Train Device */
+            train_device?: string | null;
             /**
              * Max Llm Rounds
              * @description Rounds LLM max par run.
@@ -1406,6 +1534,16 @@ export interface components {
              * @description Auth X-API-Key obligatoire sur POST /mcp/sse.
              */
             mcp_auth_required?: boolean | null;
+            /**
+             * Ssrf Enabled
+             * @description Blocage des hôtes privés/loopback (anti-SSRF) — actif par défaut.
+             */
+            ssrf_enabled?: boolean | null;
+            /**
+             * Ssrf Allowlist
+             * @description CSV d'hôtes privés exemptés (ex. « 127.0.0.1,localhost,searxng »).
+             */
+            ssrf_allowlist?: string | null;
             /** Flag Reliability */
             flag_reliability?: boolean | null;
             /** Flag Audit */
@@ -1465,7 +1603,7 @@ export interface components {
             resume_request_id?: string | null;
             /**
              * Session Id
-             * @description Session de conversation (core/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur.
+             * @description Session de conversation (app/infrastructure/persistence/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur.
              */
             session_id?: string | null;
             /**
@@ -1544,10 +1682,7 @@ export interface components {
         };
         /** Body_predict_batch_api_v1_predict_batch_post */
         Body_predict_batch_api_v1_predict_batch_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /**
              * Text Column
@@ -1592,7 +1727,7 @@ export interface components {
             enable_thinking: boolean;
             /**
              * Session Id
-             * @description Session de conversation (core/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur.
+             * @description Session de conversation (app/infrastructure/persistence/session_store) où journaliser l'échange ; absent : aucune persistance côté serveur.
              */
             session_id?: string | null;
         };
@@ -2320,6 +2455,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -3449,6 +3588,142 @@ export interface operations {
                 "application/json": components["schemas"]["ConnectivityTestRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_agent_providers_api_v1_agent_providers_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_agent_provider_api_v1_agent_providers_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentProviderPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_agent_provider_api_v1_agent_providers__provider_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_agent_provider_api_v1_agent_providers__provider_id__activate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
