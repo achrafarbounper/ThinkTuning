@@ -237,6 +237,14 @@ def reset_mongo_provider() -> None:
 # l'appel — sans importer ``persistence.mongodb``. Même technique que le
 # late-binding ``_tool=tool`` de ``agent_core`` (B-8) : la dépendance reste
 # injectée au runtime, jamais syntaxique au chargement.
+#
+# Filet de sécurité (self-heal) : si ``persistence.mongodb`` n'a JAMAIS été
+# importé dans le process (ex. ``uvicorn app.api.main:app`` lancé directement),
+# le registre est vide et toute résolution échouait durement. Désormais,
+# ``get_mongo_store_class`` déclenche l'import paresseux du module — qui
+# s'enregistre lui-même au chargement — puis re-résout. L'import reste
+# fonction-level (aucun cycle au chargement des modules) : la dépendance
+# unidirectionnelle ``mongodb -> common`` est préservée.
 _MONGO_STORE_CLASSES: dict[str, type] = {}
 
 
@@ -246,14 +254,32 @@ def register_mongo_store(key: str, cls: type) -> None:
 
 
 def get_mongo_store_class(key: str) -> type:
-    """Résout l'implémentation Mongo d'un store enregistrée par ``mongodb``."""
+    """Résout l'implémentation Mongo d'un store enregistrée par ``mongodb``.
+
+    Si le registre est vide (``persistence.mongodb`` jamais importé dans ce
+    process), le module est chargé paresseusement UNE fois ici : son corps
+    s'enregistre via ``register_mongo_store`` au chargement, puis la résolution
+    est relancée. Seule une clé inconnue (bug de code) ou un échec d'import
+    lève encore le ``RuntimeError`` d'origine.
+    """
+    try:
+        return _MONGO_STORE_CLASSES[str(key)]
+    except KeyError:
+        pass  # registre vide : tentative d'auto-enregistrement ci-dessous
+
+    import importlib
+    import sys
+
+    module_name = "app.infrastructure.persistence.mongodb"
+    if module_name not in sys.modules:
+        importlib.import_module(module_name)
     try:
         return _MONGO_STORE_CLASSES[str(key)]
     except KeyError as exc:
         raise RuntimeError(
-            f"Aucune implémentation Mongo enregistrée pour '{key}' : importer "
-            "``app.infrastructure.persistence.mongodb`` avant d'utiliser le "
-            "backend PERSISTENCE_BACKEND=mongodb."
+            f"Aucune implémentation Mongo enregistrée pour '{key}' et l'import "
+            "de ``app.infrastructure.persistence.mongodb`` n'a rien enregistré "
+            "— vérifier le bloc register_mongo_store(...) en fin de module."
         ) from exc
 
 
