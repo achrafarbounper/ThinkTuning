@@ -575,6 +575,7 @@ class AgentCore:
 
                 # --- Exécution via pipeline de middlewares ---
                 if process_tool_call is not None:
+
                     def execute_tool(tool_args: dict[str, Any]) -> Any:
                         return self._tools[tool](**tool_args)
 

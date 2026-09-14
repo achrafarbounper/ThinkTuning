@@ -313,10 +313,7 @@ class MCPDurableRunStore:
         params = (*params, bounded_limit)
         with self._lock, self._connect() as connection:
             rows = connection.execute(query, params).fetchall()
-        return [
-            self._state_from_payload(json.loads(payload[0]))
-            for payload in rows
-        ]
+        return [self._state_from_payload(json.loads(payload[0])) for payload in rows]
 
     @staticmethod
     def _state_from_payload(payload: dict[str, Any]) -> MCPDurableRunState:
