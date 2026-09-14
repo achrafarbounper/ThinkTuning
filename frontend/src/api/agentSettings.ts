@@ -68,6 +68,26 @@ export const AGENT_LAST_MODEL_DEFAULT = "";
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number] | string;
 
+export interface AgentProviderDocument {
+  id: string;
+  assistant: { name: string; status: string };
+  provider: {
+    name: string; type: string; description?: string; model_id: string;
+    timeout_seconds: number; context_length_tokens: number; temperature: number;
+    base_url: string; has_api_key: boolean; api_key_masked: string;
+    streaming_sse: { first_event_seconds: number; heartbeat_seconds: number };
+  };
+  budgets: { max_llm_rounds_per_run: number; max_tool_calls_per_run: number };
+  logging: { level: string };
+  mcp: { surface: string; http_legacy_read_only: boolean; auth_required: boolean };
+  network_security: { ssrf_protection_enabled: boolean; allowed_private_hosts: string[] };
+  features: Record<string, boolean | string | null>;
+}
+export type AgentProviderInput = Omit<AgentProviderDocument, "id" | "provider"> & {
+  id?: string;
+  provider: AgentProviderDocument["provider"] & { api_key?: string };
+};
+
 /** Paramètres de l'agent, en camelCase (format UI / localStorage).
  *  Les champs numériques acceptent aussi des chaînes (formulaires non convertis). */
 export interface AgentSettings {

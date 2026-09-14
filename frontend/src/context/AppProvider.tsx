@@ -10,7 +10,7 @@ import {
   normalizeAgentSettings,
   DEFAULT_BASE_URL,
 } from "../api/sentimentApiClient";
-import type { AgentSettings } from "../api/agentSettings";
+import type { AgentProviderDocument, AgentProviderInput, AgentSettings } from "../api/agentSettings";
 import type { ApiHealth, ModelVersion, PredictionResult } from "../api/sentimentApiClient";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { usePolling } from "../hooks/usePolling";
@@ -168,6 +168,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
   );
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentProviders, setAgentProviders] = useState<AgentProviderDocument[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const logIdRef = useRef(0);
 
@@ -301,6 +302,41 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     [client]
   );
 
+  const refreshAgentProviders = useCallback(async () => {
+    const response = await client._request<{ providers: AgentProviderDocument[] }>("/api/v1/agent/providers");
+    setAgentProviders(response?.providers ?? []);
+  }, [client]);
+
+  const saveAgentProvider = useCallback(async (
+    provider: AgentProviderInput
+  ) => {
+    const response = await client._request<{ provider: AgentProviderDocument }>("/api/v1/agent/providers", {
+      method: "POST",
+      body: provider,
+    });
+    if (!response?.provider) throw new Error("Le provider n'a pas pu être enregistré.");
+    setAgentProviders((current) => [
+      ...current.filter((item) => item.id !== response.provider.id),
+      response.provider,
+    ].sort((a, b) => a.provider.name.localeCompare(b.provider.name)));
+    return response.provider;
+  }, [client]);
+
+  const deleteAgentProvider = useCallback(async (id: string) => {
+    await client._request(`/api/v1/agent/providers/${encodeURIComponent(id)}`, { method: "DELETE" });
+    setAgentProviders((current) => current.filter((item) => item.id !== id));
+  }, [client]);
+
+  const activateAgentProvider = useCallback(async (id: string) => {
+    const response = await client._request<{ settings?: Record<string, unknown> }>(
+      `/api/v1/agent/providers/${encodeURIComponent(id)}/activate`, { method: "POST" }
+    );
+    if (response?.settings) persistAgentSettings((prev) => ({
+      ...normalizeAgentSettings(response.settings),
+      openrouterApiKey: prev.openrouterApiKey,
+    }));
+  }, [client, persistAgentSettings]);
+
   // Charge les paramètres de l'agent au montage (si une clé API est configurée).
   useEffect(() => {
     const loadAgent = async () => {
@@ -332,6 +368,14 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     // mémorisée en mémoire (Settings) pour charger les réglages de l'agent.
     if (config.apiKey || sessionToken) void loadAgent();
   }, [client, config.apiKey, sessionToken, persistAgentSettings, pushLog]);
+
+  useEffect(() => {
+    if (config.apiKey || sessionToken) {
+      void refreshAgentProviders().catch((err) => {
+        pushLog("error", "Impossible de charger les providers IA: " + (err instanceof Error ? err.message : String(err)));
+      });
+    }
+  }, [config.apiKey, sessionToken, refreshAgentProviders, pushLog]);
 
   const addToHistory = useCallback(
     (newPreds: PredictionResult[]) => {
@@ -387,6 +431,11 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       agentLoading,
       agentError,
       setAgentError,
+      agentProviders,
+      refreshAgentProviders,
+      saveAgentProvider,
+      deleteAgentProvider,
+      activateAgentProvider,
       health,
       healthError,
       models,
@@ -426,6 +475,11 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       setMaxHistorySize,
       testAgentConnection,
       updateAgentSettings,
+      agentProviders,
+      refreshAgentProviders,
+      saveAgentProvider,
+      deleteAgentProvider,
+      activateAgentProvider,
     ]
   );
 
