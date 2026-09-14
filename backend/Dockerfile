@@ -100,6 +100,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 #   Inutile en conteneur (outil gunicornc non utilisé), on le désactive.
 # -w : GUNICORN_WORKERS prioritaire, sinon WEB_CONCURRENCY (injecté par
 #   Render), sinon 1.
+
 CMD ["sh", "-c", "exec gunicorn app.api.main:app \
     -k uvicorn.workers.UvicornWorker \
     -w \"${GUNICORN_WORKERS:-${WEB_CONCURRENCY:-1}}\" \
