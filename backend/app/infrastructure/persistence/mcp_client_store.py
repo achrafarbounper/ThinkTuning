@@ -655,17 +655,17 @@ _client_store_singleton_lock = threading.Lock()
 
 # Cache du store Mongo (mode PERSISTENCE_BACKEND=mongodb) : instancié UNE seule
 # fois puis réutilisé — même sémantique que le singleton SQLite (_client_store_singleton).
-# Annoté avec le type de retour du getter (la classe ``MongoMCPClientStore`` n'est
-# importable qu'en lazy : import de module circulaire).
+# Annoté avec le type de retour du getter (l'implémentation Mongo est résolue
+# via le registre late-binding de ``persistence.common``, ADR-0004).
 _mongo_client_store_singleton: MCPClientStore | None = None
 
 
 def get_mcp_client_store() -> MCPClientStore:
-    from app.infrastructure.persistence.mongodb import MongoMCPClientStore
+    from app.infrastructure.persistence.common import get_mongo_store_class
 
     global _client_store_singleton
     with _client_store_singleton_lock:
         if _client_store_singleton is None:
-            _client_store_singleton = MongoMCPClientStore()  # type: ignore[assignment]
+            _client_store_singleton = get_mongo_store_class("mcp_client")()  # type: ignore[assignment]
         assert _client_store_singleton is not None
         return _client_store_singleton

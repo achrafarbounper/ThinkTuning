@@ -29,10 +29,11 @@ client = TestClient(app)
 def no_models(monkeypatch, tmp_path):
     """Premier lancement Docker : aucune version de modèle valide.
 
-    ``app.api.routes.health.get_job_store`` est aussi patché : la route legacy a
-    capturé la fonction PAR VALEUR à l'import, tandis que l'adaptateur v1
-    l'appelle par attribut de module — les deux surfaces doivent observer le
-    même store pour la comparaison de contrat.
+    Historique (migration) : la route legacy capturait ``get_job_store`` PAR
+    VALEUR à l'import tandis que l'adaptateur v1 appelle par attribut de
+    module — les deux surfaces devaient observer le même store pour la
+    comparaison de contrat. La route legacy étant supprimée (P1-B6), la
+    substitution vise désormais directement les modules d'infrastructure.
     """
     empty_root = tmp_path / "no-models"
     empty_root.mkdir()

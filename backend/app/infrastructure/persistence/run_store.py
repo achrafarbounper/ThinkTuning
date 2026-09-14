@@ -275,19 +275,19 @@ _store_lock = threading.Lock()
 
 # Cache du store Mongo (mode PERSISTENCE_BACKEND=mongodb) : instancié UNE seule
 # fois puis réutilisé — même sémantique que le singleton SQLite (_store) au-dessus.
-# Annoté avec le type de retour du getter (la classe ``MongoRunStore`` n'est
-# importable qu'en lazy : import de module circulaire).
+# Annoté avec le type de retour du getter (l'implémentation Mongo est résolue
+# via le registre late-binding de ``persistence.common``, ADR-0004).
 _mongo_store: "RunStore | None" = None
 
 
 def get_run_store() -> RunStore:
     """Store partagé de l'application (instance unique paresseuse)."""
-    from app.infrastructure.persistence.mongodb import MongoRunStore
+    from app.infrastructure.persistence.common import get_mongo_store_class
 
     global _store
     with _store_lock:
         if _store is None:
-            _store = MongoRunStore()  # type: ignore[assignment]
+            _store = get_mongo_store_class("run")()  # type: ignore[assignment]
         assert _store is not None
         return _store
 
@@ -296,8 +296,8 @@ def reset_run_store(path: str | None = None) -> RunStore:
     """Remplace le store partagé par une base neuve (isolation des tests)."""
     global _store
     with _store_lock:
-        from app.infrastructure.persistence.mongodb import MongoRunStore
+        from app.infrastructure.persistence.common import get_mongo_store_class
 
-        _store = MongoRunStore()  # type: ignore[assignment]
+        _store = get_mongo_store_class("run")()  # type: ignore[assignment]
         assert _store is not None
         return _store

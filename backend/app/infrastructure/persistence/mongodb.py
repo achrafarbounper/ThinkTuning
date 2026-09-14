@@ -8,212 +8,28 @@ tests therefore never need a network connection.
 from __future__ import annotations
 
 import hashlib
-import json
-import logging
-import os
 import threading
 import time
 import uuid
-from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit
 
 from app.domain.entities.models import TrainJob
 from app.domain.ports.mcp_ports import MCPSecurityScope
 from app.infrastructure.persistence.audit_store import MCP_ACTIONS, redact
-
-logger = logging.getLogger("thinktuning.persistence.mongodb")
-
-# Aide actionnable jointe aux erreurs de connexion Atlas : Render n'expose
-# aucune IP sortante fixe → l'IP Access List d'Atlas doit accepter 0.0.0.0/0,
-# sinon le handshake TLS est coupé (TLSV1_ALERT_INTERNAL_ERROR) avant toute
-# authentification. Voir README → « Déploiement (Render) — MongoDB Atlas ».
-ATLAS_CONNECTION_HINT = (
-    "Causes probables : 1) IP Access List Atlas restrictive — ajouter 0.0.0.0/0 "
-    "(Atlas → Network Access → Add IP Access List Entry), Render n'expose aucune "
-    "IP sortante fixe ; 2) URI invalide — attendue : "
-    "mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/?retryWrites=true&w=majority "
-    "(mot de passe URL-encodé)."
+from app.infrastructure.persistence.common import (
+    ATLAS_CONNECTION_HINT,  # noqa: F401 — ré-export compat (ADR-0004)
+    AtlasConnectionError,  # noqa: F401 — ré-export compat (ADR-0004)
+    MongoClientProvider,
+    MongoConfig,  # noqa: F401 — ré-export compat (ADR-0004)
+    _decode_settings_value,
+    _normalize_atlas_uri,  # noqa: F401 — ré-export compat (ADR-0004)
+    _safe_host,  # noqa: F401 — ré-export compat (ADR-0004)
+    _utcnow,
+    get_mongo_provider,
+    register_mongo_store,
+    reset_mongo_provider,  # noqa: F401 — ré-export compat (ADR-0004)
+    set_mongo_provider,  # noqa: F401 — ré-export compat (ADR-0004)
 )
-
-
-class AtlasConnectionError(RuntimeError):
-    """Échec de connexion MongoDB Atlas avec diagnostic actionnable."""
-
-
-def _normalize_atlas_uri(uri: str) -> str:
-    """Force le schéma SRV pour les hôtes Atlas (``*.mongodb.net``).
-
-    ``mongodb://`` (sans ``+srv``) sur un cluster partagé Atlas casse le
-    handshake TLS (SNI requis) ; ``mongodb+srv://`` active TLS + SNI +
-    résolution DNS SRV en une fois. Les URI hors Atlas (localhost, mongomock,
-    base self-managed) sont laissées telles quelles.
-    """
-    srv_prefix = "mongodb+srv://"
-    plain_prefix = "mongodb://"
-    if uri.startswith(plain_prefix) and ".mongodb.net" in uri:
-        return srv_prefix + uri[len(plain_prefix) :]
-    return uri
-
-
-def _safe_host(uri: str) -> str:
-    """Hôte(s) d'une URI sans jamais exposer le userinfo (mot de passe)."""
-    netloc = urlsplit(uri).netloc
-    return netloc.split("@", 1)[1] if "@" in netloc else netloc
-
-
-def _utcnow() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-class MongoConfig:
-    """Validated, environment-based Atlas configuration.
-
-    Source unique : ``backend/.env`` (gitignoré) chargé paresseusement ici
-    aussi — importer ``persistence.mongodb`` directement (sans passer par
-    ``app.config.settings``) doit quand même voir ``MONGODB_URI``. En dernier
-    recours, repli sur ``Settings`` (pydantic-settings lit l'env + `.env`).
-    Priorité : arg explicite > variable d'environnement > Settings.
-    """
-
-    def __init__(self, uri: str | None = None, database: str | None = None) -> None:
-        if not uri:
-            try:
-                from app.config.settings import _load_dotenv_to_environ
-
-                _load_dotenv_to_environ()
-            except Exception:
-                pass
-        settings_uri: str | None = None
-        settings_db: str | None = None
-        if not os.getenv("MONGODB_URI", "") or not os.getenv("MONGODB_DATABASE", ""):
-            try:
-                from app.config.settings import get_settings
-
-                _s = get_settings()
-                settings_uri = _s.mongodb_uri
-                settings_db = _s.mongodb_database
-            except Exception:
-                pass
-        self.uri = uri or os.getenv("MONGODB_URI", "") or settings_uri or ""
-        self.database = (
-            database or os.getenv("MONGODB_DATABASE", "") or settings_db or "thinktuning"
-        )
-        if not self.uri:
-            raise ValueError("MONGODB_URI is required for MongoDB persistence")
-        # Toute URI « mongodb://…*.mongodb.net » est réécrite en
-        # « mongodb+srv:// » (TLS + SNI + SRV, cf. _normalize_atlas_uri) : la
-        # forme sans +srv échoue au handshake TLS sur les clusters partagés.
-        self.uri = _normalize_atlas_uri(self.uri)
-
-
-class MongoClientProvider:
-    def __init__(self, config: MongoConfig | None = None, client: Any | None = None) -> None:
-        if client is not None:
-            self.client = client
-            cfg = config
-            database = cfg.database if cfg else os.getenv("MONGODB_DATABASE", "thinktuning")
-            self.db = client[database]
-            self._ensure_indexes()
-            return
-        try:
-            from pymongo import MongoClient
-            from pymongo.errors import ConfigurationError, ServerSelectionTimeoutError
-        except ImportError as exc:  # pragma: no cover - exercised in deployments
-            raise RuntimeError("pymongo is required for MongoDB persistence") from exc
-        cfg = config or MongoConfig()
-        try:
-            self.client = MongoClient(
-                cfg.uri,
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=5000,
-                retryWrites=True,
-            )
-            self.db = self.client[cfg.database]
-            # MongoClient est lazy : on force un ping immédiat pour échouer AU
-            # DÉMARRAGE avec un diagnostic actionnable plutôt qu'au premier store
-            # (ServerSelectionTimeout différé et illisible).
-            self._ping()
-            self._ensure_indexes()
-        except (ConfigurationError, ServerSelectionTimeoutError) as exc:
-            logger.error(
-                "Connexion MongoDB Atlas impossible : %s (%s)",
-                exc,
-                type(exc).__name__,
-            )
-            message = f"MongoDB Atlas injoignable : {type(exc).__name__}. {ATLAS_CONNECTION_HINT}"
-            raise AtlasConnectionError(message) from exc
-        logger.info("MongoDB Atlas joignable (db=%s, hôte=%s)", cfg.database, _safe_host(cfg.uri))
-
-    def _ping(self) -> None:
-        """Force une opération réseau : le constructeur ``MongoClient`` est lazy.
-
-        Sans ce ping, un hôte injoignable n'échoue qu'à la première opération
-        des stores (erreur ``ServerSelectionTimeoutError`` brute et tardive).
-        """
-        self.client.admin.command("ping")
-
-    def _ensure_indexes(self) -> None:
-        indexes = {
-            "agent_sessions": [[("updated_at", -1)]],
-            "agent_session_messages": [[("session_id", 1), ("_order", 1)]],
-            "agent_runs": [[("created_at", -1)], [("status", 1), ("created_at", -1)]],
-            "agent_flows": [[("created_at", -1)], [("status", 1), ("created_at", -1)]],
-            "agent_approvals": [[("status", 1), ("created_at", -1)]],
-            "agent_audit": [[("ts", -1)], [("action", 1), ("ts", -1)], [("run_id", 1), ("ts", -1)]],
-            "jobs": [[("updated_at", -1)], [("payload.status", 1), ("updated_at", -1)]],
-            "train_metrics": [[("job_id", 1), ("epoch", 1)]],
-            "scheduled_jobs": [[("updated_at", 1)]],
-            "mcp_clients": [[("revoked", 1)]],
-        }
-        for collection_name, specs in indexes.items():
-            collection = self.db[collection_name]
-            for spec in specs:
-                collection.create_index(spec)
-
-    def collection(self, name: str):
-        return self.db[name]
-
-
-_provider: MongoClientProvider | None = None
-_provider_lock = threading.Lock()
-
-
-def get_mongo_provider() -> MongoClientProvider:
-    global _provider
-    with _provider_lock:
-        if _provider is None:
-            if os.getenv("MONGODB_MOCK", "").lower() in {"1", "true", "yes"}:
-                try:
-                    import mongomock
-                except ImportError as exc:  # pragma: no cover - deployment guard
-                    raise RuntimeError(
-                        "mongomock is required when MONGODB_MOCK is enabled"
-                    ) from exc
-                _provider = MongoClientProvider(
-                    MongoConfig(uri="mongodb://localhost/thinktuning"),
-                    client=mongomock.MongoClient(),
-                )
-            else:
-                _provider = MongoClientProvider()
-        return _provider
-
-
-def set_mongo_provider(provider: MongoClientProvider | None) -> None:
-    """Inject a provider for tests and close the previous provider safely."""
-    global _provider
-    with _provider_lock:
-        if _provider is not None and _provider is not provider:
-            _provider.client.close()
-        _provider = provider
-
-
-def reset_mongo_provider() -> None:
-    global _provider
-    with _provider_lock:
-        if _provider is not None:
-            _provider.client.close()
-        _provider = None
 
 
 class MongoSessionStore:
@@ -653,30 +469,6 @@ class MongoAuditStore:
         }
 
 
-def _decode_settings_value(value: Any) -> Any:
-    """Décode une valeur de paramètre agent lue dans Mongo (SCRUM-137).
-
-    Parité avec le store SQLite
-    (``app/infrastructure/persistence/agent_settings.AgentSettingsStore``),
-    qui persiste ses valeurs JSON-encodées (``json.dumps``) et les relit via
-    ``json.loads``. La migration ``scripts/migrate_sqlite_to_mongodb.py``
-    copie les documents SQLite TELS QUELS : une valeur arrivée par ce chemin
-    est donc une chaîne JSON (ex. ``'"openrouter"'`` avec guillemets) alors
-    que les écritures runtime les stockent natives. Ce décodage tolérant
-    normalise les TROIS états possibles :
-
-      - chaîne JSON         → valeur décodée (``'"openrouter"'`` → ``openrouter``) ;
-      - chaîne brute        → inchangée (``openrouter`` seul n'est pas du JSON valide) ;
-      - valeur typée        → inchangée (int/float/bool/None conservés tels quels).
-    """
-    if not isinstance(value, str):
-        return value
-    try:
-        return json.loads(value)
-    except (TypeError, ValueError):
-        return value
-
-
 class MongoAgentSettingsStore:
     """``AgentSettingsPort`` Mongo — symétrique du store SQLite.
 
@@ -725,6 +517,21 @@ class MongoAgentProviderStore:
 
     def list_all(self):
         return list(self.c.find({}).sort("provider.name", 1))
+
+    def get(self, provider_id):
+        """Document provider par identifiant Mongo (``_id``) ou champ ``id``.
+
+        Même heuristique de sélection que ``delete`` : un ObjectId valide cible
+        ``_id``, sinon le champ applicatif ``id``.
+        """
+        from bson import ObjectId
+
+        selector = (
+            {"_id": ObjectId(provider_id)}
+            if ObjectId.is_valid(provider_id)
+            else {"id": provider_id}
+        )
+        return self.c.find_one(selector)
 
     def upsert(self, document):
         from bson import ObjectId
@@ -1079,149 +886,15 @@ class MongoFeedbackStore:
             return 0.0
         return -0.15 if rej > acc else min(0.3, 0.1 * acc)
 
-    def count(self):
-        return int(self.c.count_documents({}))
 
-
-class MongoServiceAccountStore:
-    """Service-account store preserving the public SQLite API."""
-
-    def __init__(self, provider=None):
-        self.c = (provider or get_mongo_provider()).collection("service_accounts")
-        self.revoked = (provider or get_mongo_provider()).collection("revoked_tokens")
-
-    def create_account(self, *, name, role="read", scopes=None):
-        import secrets
-
-        from app.infrastructure.security.service_accounts import (
-            _audit,
-            _hash_secret,
-        )
-
-        if not name or len(name.strip()) < 3 or role not in ("admin", "read"):
-            raise ValueError("nom ou rôle de service account invalide")
-        name = name.strip()
-        if self.c.find_one({"name": name}):
-            raise ValueError(f"nom de service account déjà pris : {name}")
-        secret = secrets.token_urlsafe(32)
-        d = {
-            "_id": str(uuid.uuid4()),
-            "name": name,
-            "role": role,
-            "scopes": list(scopes or []),
-            "secret_hash": _hash_secret(secret),
-            "enabled": True,
-            "created_at": _utcnow(),
-            "last_used_at": "",
-        }
-        self.c.insert_one(d)
-        _audit(
-            "service_account_created",
-            name,
-            {"account_id": d["_id"], "role": role, "scopes": d["scopes"]},
-        )
-        return {
-            "id": d["_id"],
-            "name": name,
-            "role": role,
-            "scopes": d["scopes"],
-            "client_secret": secret,
-        }
-
-    def register_account(self, *, email, password, role="read", scopes=None):
-        from app.infrastructure.security.service_accounts import (
-            MAX_PASSWORD_LENGTH,
-            MIN_PASSWORD_LENGTH,
-            EmailAlreadyTakenError,
-            RegistrationError,
-        )
-
-        email = (email or "").strip().lower()
-        if "@" not in email:
-            raise RegistrationError("adresse email invalide")
-        if not (MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH):
-            raise RegistrationError("mot de passe de longueur invalide")
-        if self.c.find_one({"name": email}):
-            raise EmailAlreadyTakenError(f"un compte existe déjà avec cet email : {email}")
-        from app.infrastructure.security.service_accounts import _audit, _hash_secret
-
-        d = {
-            "_id": str(uuid.uuid4()),
-            "name": email,
-            "role": role,
-            "scopes": list(scopes or []),
-            "secret_hash": _hash_secret(password),
-            "enabled": True,
-            "created_at": _utcnow(),
-            "last_used_at": "",
-        }
-        self.c.insert_one(d)
-        _audit("service_account_registered", email, {"account_id": d["_id"], "role": role})
-        return {"id": d["_id"], "email": email, "role": role}
-
-    def list_accounts(self):
-        out = []
-        for d in self.c.find({}):
-            out.append(
-                {
-                    "id": d["_id"],
-                    "name": d.get("name", ""),
-                    "role": d.get("role", ""),
-                    "scopes": d.get("scopes", []),
-                    "enabled": bool(d.get("enabled")),
-                    "created_at": d.get("created_at", ""),
-                    "last_used_at": d.get("last_used_at", ""),
-                }
-            )
-        return out
-
-    def _get_by_client_id(self, account_id):
-        return self.c.find_one(
-            {
-                "$or": [
-                    {"_id": str(account_id)},
-                    {"name": str(account_id).strip().lower()},
-                ]
-            }
-        )
-
-    def issue_token(self, *, client_id, client_secret, jwt_secret, ttl_seconds=900):
-        import secrets
-
-        from app.infrastructure.security.service_accounts import _audit, _hash_secret
-
-        d = self._get_by_client_id(client_id)
-        if (
-            not d
-            or not d.get("enabled")
-            or not secrets.compare_digest(d["secret_hash"], _hash_secret(client_secret))
-        ):
-            _audit("service_account_authenticated", client_id, {"ok": False})
-            raise PermissionError("client_id ou secret invalide")
-        from app.domain.tokens import create_access_token
-
-        token = create_access_token(
-            subject=d["name"],
-            secret=jwt_secret,
-            role=d["role"],
-            scopes=d.get("scopes", []),
-            ttl_seconds=ttl_seconds,
-        )
-        self.c.update_one({"_id": d["_id"]}, {"$set": {"last_used_at": _utcnow()}})
-        return {"token": token, "role": d["role"]}
-
-    def revoke_account(self, account_id):
-        return bool(self.c.delete_one({"_id": str(account_id)}).deleted_count)
-
-    def revoke_token(self, claims):
-        if not claims.jti:
-            return False
-        self.revoked.update_one(
-            {"_id": claims.jti},
-            {"$set": {"expires_at": claims.expires_at}},
-            upsert=True,
-        )
-        return True
-
-    def is_token_revoked(self, jti):
-        return bool(jti and self.revoked.find_one({"_id": str(jti)}))
+# --- Registre late-binding des stores (ADR-0004 / B-4) -----------------------
+# Les factories des stores n'importent plus ce module : elles résolvent les
+# implémentations Mongo via ``persistence.common.get_mongo_store_class`` au
+# moment de l'appel. Les enregistrements ci-dessous se font au chargement de
+# ce module (backend ``PERSISTENCE_BACKEND=mongodb``) — dépendance
+# unidirectionnelle ``mongodb -> stores/common``, plus aucun cycle.
+register_mongo_store("audit", MongoAuditStore)
+register_mongo_store("run", MongoRunStore)
+register_mongo_store("flow", MongoFlowStore)
+register_mongo_store("agent_settings", MongoAgentSettingsStore)
+register_mongo_store("mcp_client", MongoMCPClientStore)

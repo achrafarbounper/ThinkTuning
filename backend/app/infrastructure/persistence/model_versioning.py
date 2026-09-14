@@ -5,6 +5,8 @@ import logging
 import os
 from datetime import UTC, datetime
 
+from app.domain.ports.model_activation_ports import register_model_activation_port
+
 logger = logging.getLogger(__name__)
 
 MODEL_ROOT = os.path.join("experiments", "models")
@@ -31,6 +33,76 @@ def list_model_versions() -> list[str]:
     return versions
 
 
+DEFAULT_ACTIVE_POINTER = os.path.join("experiments", "models", "active.json")
+
+
+class _DomainModelActivationAdapter:
+    """Adaptateur par défaut du port ``ModelActivationPort`` (ADR-0003 §3, B-3).
+
+    Implémente l'accès disque : catalogue ``MODEL_ROOT``, contrôle de tête
+    entraînée (lazy — torch n'est importé qu'à la demande), lecture/écriture
+    atomique du pointeur ``active.json`` (env ``ACTIVE_MODEL_POINTER`` lue À
+    CHAQUE appel — parité exacte avec l'implémentation historique de
+    ``application/model_activation``, monkeypatch-friendly). La logique
+    métier (quelle version activer, validation) reste dans le use case
+    ``application/model_activation``.
+    """
+
+    def model_root(self) -> str:
+        return MODEL_ROOT
+
+    def list_model_versions(self) -> list[str]:
+        return list_model_versions()
+
+    def is_model_version_trained(self, version_dir: str) -> bool:
+        from app.infrastructure.persistence.model_head_check import is_model_version_trained
+
+        return is_model_version_trained(version_dir)
+
+    def get_active_pointer_path(self) -> str:
+        return os.getenv("ACTIVE_MODEL_POINTER", DEFAULT_ACTIVE_POINTER)
+
+    def read_active_pointer(self) -> dict | None:
+        path = self.get_active_pointer_path()
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict) and data.get("version"):
+                return data
+        except Exception as exc:
+            logger.warning("Pointeur actif %s illisible : %s", path, exc)
+        return None
+
+    def write_active_pointer(self, version: str, path: str, f1_macro: float | None = None) -> dict:
+        path_ptr = self.get_active_pointer_path()
+        os.makedirs(os.path.dirname(path_ptr) or ".", exist_ok=True)
+        data = {
+            "version": version,
+            "path": os.path.abspath(path),
+            "f1_macro": float(f1_macro) if f1_macro is not None else None,
+            "activated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        tmp = path_ptr + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+        os.replace(tmp, path_ptr)
+        logger.info("Modele actif -> %s (%s", version, path)
+        return data
+
+    def get_active_model_dir(self) -> str | None:
+        data = self.read_active_pointer()
+        if data and os.path.isdir(data.get("path", "")):
+            return data["path"]
+        return None
+
+
+# Auto-enregistrement à l'import du module (backend par défaut) — un test peut
+# substituer un fake via ``register_model_activation_port`` / ``reset``.
+register_model_activation_port(_DomainModelActivationAdapter())
+
+
 def resolve_model_dir(model_name: str | None = None) -> str:
     logger.debug(f"resolve_model_dir : début | model_name={model_name}")
     if model_name:
@@ -48,12 +120,13 @@ def resolve_model_dir(model_name: str | None = None) -> str:
         )
 
     # Pointeur de version active (SCRUM-55) : prioritaire sur la derniere version.
-    # Import paresseux pour eviter une dependance circulaire (model_activation
-    # importe MODEL_ROOT / list_model_versions depuis ce module).
+    # Résolu via le port du domaine (ADR-0003 §3, B-3) — plus aucun import de
+    # ``application/`` depuis ce module (inversion de couche E-03 supprimée,
+    # dernier cycle d'imports de la baseline).
     try:
-        from app.application.model_activation import get_active_model_dir
+        from app.domain.ports.model_activation_ports import resolve_active_model_dir
 
-        active_dir = get_active_model_dir()
+        active_dir = resolve_active_model_dir()
         if active_dir and os.path.isdir(active_dir):
             logger.debug(f"resolve_model_dir : version active -> {active_dir}")
             return active_dir
@@ -309,7 +382,7 @@ def _save_trained_model(trainer, model_dir):
     # sha256.json liste l'empreinte de CHAQUE fichier ; vérifié au chargement
     # par src/inference/predictor.py (MODEL_SIGNING_REQUIRED=1 en prod).
     try:
-        from app.application.model_signing import write_signature_manifest
+        from app.infrastructure.security.model_signing import write_signature_manifest
 
         write_signature_manifest(model_dir)
     except Exception as exc:  # pragma: no cover - défensif, ne rompt pas le run

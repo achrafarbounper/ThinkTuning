@@ -9,61 +9,40 @@ version valide.
 import json
 import logging
 import os
-from datetime import UTC, datetime
 
-from app.infrastructure.persistence.model_head_check import is_model_version_trained
-from app.infrastructure.persistence.model_versioning import (
-    MODEL_ROOT,
-    list_model_versions,
-)
+from app.domain.ports.model_activation_ports import get_model_activation_port
 
 logger = logging.getLogger(__name__)
 
+# Racine locale du catalogue : lue par ``read_version_f1`` (rapport
+# d'entraînement de la version). Patchable indépendamment par les tests
+# (``monkeypatch.setattr(model_activation, "MODEL_ROOT", ...)``) — parité avec
+# l'import historique depuis ``model_versioning``.
+MODEL_ROOT = os.path.join("experiments", "models")
 DEFAULT_ACTIVE_POINTER = os.path.join("experiments", "models", "active.json")
 
 
 def get_active_pointer_path() -> str:
-    return os.getenv("ACTIVE_MODEL_POINTER", DEFAULT_ACTIVE_POINTER)
+    """Chemin du pointeur actif — délégué au port (ADR-0003 §3, B-3)."""
+    return get_model_activation_port().get_active_pointer_path()
 
 
 def read_active_pointer() -> dict | None:
-    """Lit le pointeur actif. Retourne le dict parsable ou None si absent/corrompu."""
-    path = get_active_pointer_path()
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, dict) and data.get("version"):
-            return data
-    except Exception as exc:
-        logger.warning("Pointeur actif %s illisible : %s", path, exc)
-    return None
+    """Lit le pointeur actif (via le port). Retourne le dict parsable ou None si absent/corrompu."""
+    return get_model_activation_port().read_active_pointer()
 
 
 def write_active_pointer(version: str, path: str, f1_macro: float | None = None) -> dict:
-    """Ecrit le pointeur actif (atomique : tmp + rename).."""
-    path_ptr = get_active_pointer_path()
-    os.makedirs(os.path.dirname(path_ptr) or ".", exist_ok=True)
-    data = {
-        "version": version,
-        "path": os.path.abspath(path),
-        "f1_macro": float(f1_macro) if f1_macro is not None else None,
-        "activated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    tmp = path_ptr + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
-    os.replace(tmp, path_ptr)
-    logger.info("Modele actif -> %s (%s", version, path)
-    return data
+    """Ecrit le pointeur actif (via le port — atomique : tmp + rename).."""
+    return get_model_activation_port().write_active_pointer(version, path, f1_macro)
 
 
 def is_valid_version(version: str) -> bool:
     """True si la version est un dossier valide (poids non vides).."""
-    if version not in list_model_versions():
+    port = get_model_activation_port()
+    if version not in port.list_model_versions():
         return False
-    version_dir = os.path.join(MODEL_ROOT, version)
+    version_dir = os.path.join(port.model_root(), version)
     return os.path.isdir(version_dir)
 
 
@@ -76,7 +55,7 @@ def activate_model(version: str) -> dict:
     if not is_valid_version(version):
         raise ValueError(f"Version de modele inconnue : {version}.")
     version_dir = os.path.join(MODEL_ROOT, version)
-    if not is_model_version_trained(version_dir):
+    if not get_model_activation_port().is_model_version_trained(version_dir):
         raise ValueError(
             f"Version {version} non activable : tete de classification non entrainee"
             " (ecart-type <= 0.03)ou poids absents."
@@ -99,11 +78,8 @@ def read_version_f1(version: str) -> float | None:
 
 
 def get_active_model_dir() -> str | None:
-    """Chemin du dossier de la version active, ou None si aucune active."""
-    data = read_active_pointer()
-    if data and os.path.isdir(data.get("path", "")):
-        return data["path"]
-    return None
+    """Chemin du dossier de la version active, ou None si aucune active (via le port)."""
+    return get_model_activation_port().get_active_model_dir()
 
 
 def is_active(version: str) -> bool:
