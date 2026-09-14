@@ -300,7 +300,9 @@ def _build_runner(model_name: str | None = None, enable_thinking: bool = False) 
         provider=cfg["provider"],
         api_key=api_key,
     )
-    return AgentRunner(AgentCore(llm, enable_thinking=enable_thinking))
+    agent_runner = __getattr__("AgentRunner")
+    agent_core = __getattr__("AgentCore")
+    return agent_runner(agent_core(llm, enable_thinking=enable_thinking))
 
 
 def get_agent_runner(model: str | None = None, enable_thinking: bool = False) -> AgentRunner:
