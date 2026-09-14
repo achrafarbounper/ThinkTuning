@@ -381,7 +381,9 @@ def orchestrate_multi_agent(
         resume_request_id=resume_request_id,
     )
     if orchestrator is None:
-        from app.application.mcp_orchestration import build_mcp_orchestration_adapter
+        from app.infrastructure.mcp.orchestration_factory import (
+            build_mcp_orchestration_adapter,
+        )
 
         orchestrator = build_mcp_orchestration_adapter()
     return orchestrator.run(request, on_event=on_event).model_dump(mode="json")

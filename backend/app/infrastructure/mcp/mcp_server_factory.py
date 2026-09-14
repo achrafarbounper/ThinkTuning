@@ -111,7 +111,9 @@ def _durable_run_tools(
     def resolve() -> MCPOrchestrationPort:
         if orchestration_port is not None:
             return orchestration_port
-        from app.application.mcp_orchestration import build_mcp_orchestration_adapter
+        from app.infrastructure.mcp.orchestration_factory import (
+            build_mcp_orchestration_adapter,
+        )
 
         return build_mcp_orchestration_adapter()
 

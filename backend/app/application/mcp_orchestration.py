@@ -340,16 +340,3 @@ class MultiAgentMCPAdapter:
                 },
             },
         )
-
-
-def build_mcp_orchestration_adapter() -> MCPOrchestrationPort:
-    """Build the production adapter lazily to keep MCP imports lightweight."""
-    from app.infrastructure.legacy_multi_agent_adapter import (
-        build_multi_agent_orchestrator,
-    )
-    from app.infrastructure.persistence.mcp_mongo_run_store import MongoMCPDurableRunStore
-
-    return MultiAgentMCPAdapter(
-        build_multi_agent_orchestrator(),
-        durable_store=MongoMCPDurableRunStore(),
-    )
