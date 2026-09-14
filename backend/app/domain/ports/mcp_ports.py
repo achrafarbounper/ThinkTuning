@@ -24,12 +24,14 @@ Règles d'or :
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.agent.policies.budget import BudgetPolicy
 from app.domain.entities.mcp import (
     MCPPromptMessage,
     MCPPromptTemplate,
@@ -41,6 +43,17 @@ from app.domain.entities.mcp import (
 from app.domain.ports.ports import Message
 
 __all__ = [
+    "BudgetPolicy",
+    "ExecutionContext",
+    "MCPDurableRunState",
+    "MCPDurableRunStorePort",
+    "MCPOrchestrationPort",
+    "MCPOrchestrationRequest",
+    "MCPOrchestrationResult",
+    "compute_mcp_failure_phase",
+    "compute_mcp_status",
+    "normalize_mcp_event",
+    "normalize_mcp_event_granularity",
     "MCPResourceRegistryPort",
     "MCPPromptRegistryPort",
     "MCPSecurityScope",
@@ -48,11 +61,466 @@ __all__ = [
     "SamplingPort",
     "SamplingRequest",
     "SamplingResponse",
+    "WorkerScopePolicy",
     "_sampling_create_text",
     "MCPHostPort",
     "MCPHostTool",
     "MCPRemoteCall",
 ]
+
+
+@dataclass(frozen=True)
+class WorkerScopePolicy:
+    """Scope restrictions enforced for a worker spawned by the lead."""
+
+    parent_scope: tuple[str, ...] = ()
+    forbidden_tools: tuple[str, ...] = ()
+    max_tools_per_worker: int = 10
+
+    def validate(self, context: ExecutionContext, *, worker_id: str = "worker") -> None:
+        if not set(context.allowed_scopes).issubset(set(self.parent_scope)):
+            raise ValueError(f"worker {worker_id} exceeds parent scope")
+        if self.max_tools_per_worker < 1:
+            raise ValueError("max_tools_per_worker must be >= 1")
+
+
+@dataclass(frozen=True)
+class ExecutionContext:
+    """Shared runtime policy used by both HTTP and MCP surfaces."""
+
+    user_id: str = "system"
+    tenant_id: str = "default"
+    allowed_tools: tuple[str, ...] = ()
+    allowed_resources: tuple[str, ...] = ()
+    allowed_scopes: tuple[str, ...] = ()
+    budget: BudgetPolicy = field(default_factory=BudgetPolicy)
+    approvals: tuple[str, ...] = ()
+
+    def for_worker(
+        self,
+        worker_id: str,
+        *,
+        allowed_tools: Iterable[str] | None = None,
+        allowed_resources: Iterable[str] | None = None,
+        allowed_scopes: Iterable[str] | None = None,
+    ) -> ExecutionContext:
+        effective_tools = tuple(allowed_tools or self.allowed_tools)
+        effective_resources = tuple(allowed_resources or self.allowed_resources)
+        effective_scopes = tuple(allowed_scopes or self.allowed_scopes)
+        if not set(effective_tools).issubset(set(self.allowed_tools)):
+            raise ValueError(f"worker {worker_id} tried to widen allowed tools")
+        if not set(effective_resources).issubset(set(self.allowed_resources)):
+            raise ValueError(f"worker {worker_id} tried to widen allowed resources")
+        if not set(effective_scopes).issubset(set(self.allowed_scopes)):
+            raise ValueError(f"worker {worker_id} tried to widen allowed scopes")
+        return ExecutionContext(
+            user_id=self.user_id,
+            tenant_id=self.tenant_id,
+            allowed_tools=effective_tools,
+            allowed_resources=effective_resources,
+            allowed_scopes=effective_scopes,
+            budget=self.budget,
+            approvals=self.approvals,
+        )
+
+
+class MCPOrchestrationRequest(BaseModel):
+    """Validated MCP request passed to the orchestration application port."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    prompt: str = Field(min_length=1)
+    session_id: str = "default"
+    scope: str = "default"
+    model: str | None = None
+    parallel: bool = False
+    enable_thinking: bool = False
+    event_granularity: str = "summary"
+    resume_request_id: str | None = None
+
+    @classmethod
+    def from_values(cls, **values: Any) -> MCPOrchestrationRequest:
+        values["prompt"] = str(values.get("prompt") or "").strip()
+        values["session_id"] = str(values.get("session_id") or "default").strip() or "default"
+        values["scope"] = str(values.get("scope") or "default").strip() or "default"
+        event_granularity = str(values.get("event_granularity") or "summary").strip().lower()
+        values["event_granularity"] = event_granularity
+        allowed = {"minimal", "summary", "verbose"}
+        if values.get("event_granularity") not in allowed:
+            raise ValueError("event_granularity doit être « minimal », « summary » ou « verbose »")
+        return cls(**values)
+
+
+VALID_MCP_ORCHESTRATION_STATUSES = {
+    "success",
+    "partial_success",
+    "failed",
+}
+VALID_MCP_FAILURE_PHASES = {"lead", "worker", "synthesis"}
+VALID_MCP_EVENT_GRANULARITIES = {"minimal", "summary", "verbose"}
+VALID_MCP_RUN_STATES = {
+    "pending",
+    "running",
+    "partial_success",
+    "completed",
+    "failed",
+    "cancelled",
+}
+VALID_MCP_RUN_CHECKPOINTS = {
+    "initialized",
+    "lead_planned",
+    "workers_running",
+    "synthesis_running",
+    "completed",
+}
+_MCP_RUN_TRANSITIONS = {
+    "pending": {"running", "cancelled"},
+    "running": {"running", "partial_success", "completed", "failed", "cancelled"},
+    "partial_success": {"running", "completed", "failed", "cancelled"},
+    "completed": set(),
+    "failed": set(),
+    "cancelled": set(),
+}
+
+
+@dataclass(frozen=True)
+class MCPDurableRunState:
+    """Lifecycle state machine for multi-agent MCP runs.
+
+    This is intentionally a small, explicit model: it gives the durable-run
+    design a stable state boundary without forcing the protocol-level result to
+    expose more statuses than the user-facing MCP contract.
+    """
+
+    run_id: str = "default"
+    request_fingerprint: str | None = None
+    lease_owner: str | None = None
+    lease_expires_at: datetime | None = None
+    state: str = "pending"
+    phase: str = "lead"
+    checkpoint: str = "initialized"
+    failure_phase: str | None = None
+    worker_errors: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    retry_count: int = 0
+    version: int = 0
+    last_error: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def transition(
+        self,
+        new_state: str,
+        *,
+        phase: str | None = None,
+        checkpoint: str | None = None,
+        failure_phase: str | None = None,
+        worker_errors: Iterable[dict[str, Any]] | None = None,
+        retry_count: int | None = None,
+        last_error: str | None = None,
+    ) -> MCPDurableRunState:
+        normalized_state = str(new_state or "").strip().lower()
+        if normalized_state not in VALID_MCP_RUN_STATES:
+            raise ValueError(f"state must be one of {sorted(VALID_MCP_RUN_STATES)}")
+        if normalized_state not in _MCP_RUN_TRANSITIONS.get(self.state, set()):
+            raise ValueError(
+                f"invalid lifecycle transition from {self.state!r} to {normalized_state!r}"
+            )
+        next_phase = str(phase or self.phase).strip().lower() if phase is not None else self.phase
+        next_checkpoint = (
+            str(checkpoint or self.checkpoint).strip().lower()
+            if checkpoint is not None
+            else self.checkpoint
+        )
+        if next_checkpoint not in VALID_MCP_RUN_CHECKPOINTS:
+            raise ValueError(f"checkpoint must be one of {sorted(VALID_MCP_RUN_CHECKPOINTS)}")
+        if failure_phase is not None:
+            normalized_failure = str(failure_phase).strip().lower()
+            if normalized_failure not in VALID_MCP_FAILURE_PHASES:
+                raise ValueError(f"failure_phase must be one of {sorted(VALID_MCP_FAILURE_PHASES)}")
+            next_failure_phase = normalized_failure
+        else:
+            next_failure_phase = self.failure_phase
+
+        next_errors = tuple(worker_errors) if worker_errors is not None else self.worker_errors
+        next_retry_count = int(retry_count) if retry_count is not None else self.retry_count
+        next_last_error = last_error if last_error is not None else self.last_error
+        if normalized_state in {"failed", "partial_success", "completed", "cancelled"}:
+            next_phase = next_phase or "lead"
+        return MCPDurableRunState(
+            run_id=self.run_id,
+            request_fingerprint=self.request_fingerprint,
+            lease_owner=self.lease_owner,
+            lease_expires_at=self.lease_expires_at,
+            state=normalized_state,
+            phase=next_phase,
+            checkpoint=next_checkpoint,
+            failure_phase=next_failure_phase,
+            worker_errors=next_errors,
+            retry_count=next_retry_count,
+            version=self.version + 1,
+            last_error=next_last_error,
+            created_at=self.created_at,
+            updated_at=datetime.now(UTC),
+        )
+
+    @property
+    def final_status(self) -> str:
+        if self.state == "failed":
+            return "failed"
+        if self.state == "partial_success":
+            return "partial_success"
+        if self.state == "completed":
+            return "success"
+        return "success" if self.state in {"pending", "running"} else "success"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.state in {"completed", "failed", "cancelled"}
+
+    def as_snapshot(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "request_fingerprint": self.request_fingerprint,
+            "lease_owner": self.lease_owner,
+            "lease_expires_at": (
+                self.lease_expires_at.isoformat() if self.lease_expires_at else None
+            ),
+            "state": self.state,
+            "phase": self.phase,
+            "checkpoint": self.checkpoint,
+            "failure_phase": self.failure_phase,
+            "worker_errors": list(self.worker_errors),
+            "retry_count": self.retry_count,
+            "version": self.version,
+            "last_error": self.last_error,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+
+@runtime_checkable
+class MCPDurableRunStorePort(Protocol):
+    """Persistence boundary for resumable MCP orchestration runs."""
+
+    def create(
+        self,
+        run_id: str,
+        *,
+        request_fingerprint: str | None = None,
+    ) -> MCPDurableRunState: ...
+
+    def get(self, run_id: str) -> MCPDurableRunState | None: ...
+
+    def append_event(self, run_id: str, event: dict[str, Any]) -> None: ...
+
+    def list_events(self, run_id: str) -> list[dict[str, Any]]: ...
+
+    def list_events_after(self, run_id: str, after_sequence: int = 0) -> list[dict[str, Any]]: ...
+
+    def cancel(self, run_id: str, *, reason: str | None = None) -> MCPDurableRunState: ...
+
+    def acquire_lease(
+        self,
+        run_id: str,
+        owner: str,
+        *,
+        ttl_seconds: int = 60,
+    ) -> MCPDurableRunState: ...
+
+    def release_lease(self, run_id: str, owner: str) -> MCPDurableRunState: ...
+
+    def renew_lease(
+        self,
+        run_id: str,
+        owner: str,
+        *,
+        ttl_seconds: int = 60,
+    ) -> MCPDurableRunState: ...
+
+    def transition(
+        self,
+        run_id: str,
+        new_state: str,
+        *,
+        phase: str | None = None,
+        checkpoint: str | None = None,
+        failure_phase: str | None = None,
+        worker_errors: Iterable[dict[str, Any]] | None = None,
+        retry_count: int | None = None,
+        last_error: str | None = None,
+    ) -> MCPDurableRunState: ...
+
+
+def normalize_mcp_event_granularity(value: Any) -> str:
+    """Canonicalize the MCP event granularity policy."""
+    normalized = str(value or "summary").strip().lower()
+    if normalized not in VALID_MCP_EVENT_GRANULARITIES:
+        raise ValueError(
+            f"event_granularity must be one of {sorted(VALID_MCP_EVENT_GRANULARITIES)}"
+        )
+    return normalized
+
+
+def normalize_mcp_event(
+    event: dict[str, Any] | None,
+    *,
+    parent_task_id: str | None = None,
+    default_phase: str = "lead",
+    default_worker_id: str | None = None,
+) -> dict[str, Any]:
+    """Ensure every emitted MCP event carries stable hierarchy metadata."""
+    payload = dict(event or {})
+    if "event" not in payload:
+        for key in ("kind", "type", "name"):
+            if key in payload:
+                payload["event"] = str(payload[key])
+                break
+    payload.setdefault("phase", default_phase)
+    payload.setdefault("parent_task_id", parent_task_id)
+    if "worker_id" not in payload:
+        payload["worker_id"] = default_worker_id
+    payload["phase"] = str(payload.get("phase") or default_phase).strip().lower()
+    if payload["phase"] not in {"lead", "worker", "synthesis"}:
+        payload["phase"] = default_phase
+    return payload
+
+
+def _normalize_phase_status(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def compute_mcp_failure_phase(
+    *,
+    lead: dict[str, Any] | None = None,
+    workers: Iterable[dict[str, Any]] | None = None,
+    worker_errors: Iterable[dict[str, Any]] | None = None,
+    synthesis: dict[str, Any] | None = None,
+) -> str | None:
+    """Identify which phase failed when the global result is not successful."""
+    lead_status = _normalize_phase_status((lead or {}).get("status"))
+    if lead_status in {"failed", "error", "cancelled"}:
+        return "lead"
+
+    worker_list = list(workers or ())
+    failed_workers = [
+        worker
+        for worker in worker_list
+        if _normalize_phase_status(worker.get("status")) in {"failed", "error", "cancelled"}
+    ]
+    if failed_workers or list(worker_errors or ()):
+        return "worker"
+
+    synthesis_status = _normalize_phase_status((synthesis or {}).get("status"))
+    if synthesis_status in {"failed", "error", "cancelled"}:
+        return "synthesis"
+    return None
+
+
+def compute_mcp_status(
+    *,
+    lead: dict[str, Any] | None = None,
+    workers: Iterable[dict[str, Any]] | None = None,
+    worker_errors: Iterable[dict[str, Any]] | None = None,
+    synthesis: dict[str, Any] | None = None,
+    fallback: bool = False,
+    status: str | None = None,
+) -> str:
+    """Return the normalized global status for an MCP multi-agent run.
+
+    Canonical status contract: success | partial_success | failed.
+    Specific failure causes are exposed separately via ``failure_phase`` so the
+    client can distinguish lead, worker, or synthesis failures without breaking
+    the legacy status vocabulary.
+    """
+    if status is not None:
+        normalized = str(status).strip().lower()
+        if normalized in VALID_MCP_ORCHESTRATION_STATUSES:
+            return normalized
+        raise ValueError(f"status must be one of {sorted(VALID_MCP_ORCHESTRATION_STATUSES)}")
+
+    failure_phase = compute_mcp_failure_phase(
+        lead=lead,
+        workers=workers,
+        worker_errors=worker_errors,
+        synthesis=synthesis,
+    )
+    if failure_phase == "lead":
+        return "failed"
+    if failure_phase == "synthesis":
+        return "failed"
+    if failure_phase == "worker":
+        return "partial_success"
+    if fallback:
+        return "success"
+    return "success"
+
+
+class MCPOrchestrationResult(BaseModel):
+    """Stable, additive result contract for MCP multi-agent orchestration."""
+
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    answer: str = ""
+    status: str = "success"
+    failure_phase: str | None = None
+    run_id: str | None = None
+    plan: list[dict[str, Any]] = Field(default_factory=list)
+    tasks: list[dict[str, Any]] = Field(default_factory=list)
+    subtasks: list[dict[str, Any]] = Field(default_factory=list)
+    workers: list[dict[str, Any]] = Field(default_factory=list)
+    synthesis: dict[str, Any] | None = None
+    worker_errors: list[dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    usage: dict[str, Any] = Field(default_factory=dict)
+    orchestration: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in VALID_MCP_ORCHESTRATION_STATUSES:
+            raise ValueError(f"status must be one of {sorted(VALID_MCP_ORCHESTRATION_STATUSES)}")
+        return normalized
+
+    @field_validator("failure_phase")
+    @classmethod
+    def validate_failure_phase(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        if normalized not in VALID_MCP_FAILURE_PHASES:
+            raise ValueError(f"failure_phase must be one of {sorted(VALID_MCP_FAILURE_PHASES)}")
+        return normalized
+
+
+@runtime_checkable
+class MCPOrchestrationPort(Protocol):
+    """MCP-specific orchestration boundary.
+
+    MCP owns request/result/event semantics here; the generic multi-agent
+    coordinator remains behind the application adapter.
+    """
+
+    def run(
+        self,
+        request: MCPOrchestrationRequest,
+        *,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> MCPOrchestrationResult: ...
+
+    def cancel(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> MCPDurableRunState: ...
+
+    def get_run(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def get_events(self, run_id: str, *, after_sequence: int = 0) -> list[dict[str, Any]]: ...
+
+    def list_runs(self, *, state: str | None = None, limit: int = 50) -> list[dict[str, Any]]: ...
 
 
 @dataclass(frozen=True)

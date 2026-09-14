@@ -31,6 +31,7 @@ Aucun import lourd (ni torch, ni transformers) — le socle MCP reste léger.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -334,6 +335,35 @@ def test_sse_streaming_orchestrate_persists_rich_flow(sse_client, monkeypatch):
     assert events[-1] == "mcp.done"
     assert rows[0]["tool_calls"] == 1
     assert "Agent MCP" in rows[0]["agents"]
+
+
+def test_sse_durable_replay_uses_injected_store(monkeypatch):
+    from app.infrastructure.mcp import mcp_server_sse
+
+    class FakeStore:
+        def list_events_after(self, run_id, after_sequence=0):
+            assert run_id == "run-1"
+            assert after_sequence == 3
+            return [{"sequence": 4, "event": "worker.completed"}]
+
+    mcp_server_sse.configure_mcp_durable_run_store(FakeStore())
+    payload = {
+        "params": {
+            "arguments": {
+                "run_id": "run-1",
+                "after_sequence": 3,
+            }
+        }
+    }
+
+    async def collect():
+        return [event async for event in mcp_server_sse._replay_durable_events(payload)]
+
+    events = asyncio.run(collect())
+    assert '"run_id": "run-1"' in events[0]
+    assert "worker.completed" in events[1]
+    assert '"last_sequence": 4' in events[2]
+    mcp_server_sse.configure_mcp_durable_run_store(None)
 
 def test_sse_streaming_orchestrate_error_persists_error_flow(sse_client, monkeypatch):
     """Un run streaming en échec clôture la session en ``error`` (jamais bloquant)."""

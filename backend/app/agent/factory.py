@@ -21,6 +21,7 @@ import logging
 import os
 
 from app.agent.core import AgentCore
+from app.agent.policies.budget import BudgetPolicy
 from app.agent.settings import AgentConfig, get_agent_config
 from app.infrastructure.legacy_registry import LegacyToolRegistryAdapter
 
@@ -147,14 +148,16 @@ def build_agent_core(
     (sélecteur du chat) ; absent/vide : modèle des Settings centralisés.
     """
     config = get_agent_config()
+    budget_policy = BudgetPolicy.from_config(config)
     registry = LegacyToolRegistryAdapter()
     llm = build_llm_client(model=model, think=enable_thinking)
     logger.info(
-        "Noyau agentique assemblé : provider=%s model=%s outils=%d flags=%s",
+        "Noyau agentique assemblé : provider=%s model=%s outils=%d flags=%s budget=%s",
         str(config.provider),
         model or config.model_name,
         len(registry.tool_names()),
         config.active_flags(),
+        budget_policy.to_trace(),
     )
     return AgentCore(
         llm,
@@ -164,8 +167,8 @@ def build_agent_core(
         enable_thinking=enable_thinking,
         on_thinking=on_thinking,
         event_bus=event_bus,
-        max_rounds=config.max_llm_rounds,
-        max_tool_calls=config.max_tool_calls,
+        max_rounds=budget_policy.max_llm_rounds,
+        max_tool_calls=budget_policy.max_tool_calls,
         intent_classifier=intent_classifier,
     )
 

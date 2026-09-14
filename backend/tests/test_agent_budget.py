@@ -3,7 +3,9 @@
 
 import pytest
 
-from app.agent.policies.budget import RunBudget
+from types import SimpleNamespace
+
+from app.agent.policies.budget import BudgetPolicy, RunBudget
 from app.domain.errors import BudgetExceededError
 
 
@@ -69,3 +71,71 @@ def test_error_payload_carries_snapshot() -> None:
         assert payload["details"]["llm_rounds_used"] == 1
     else:
         pytest.fail("BudgetExceededError attendu")
+
+
+def test_budget_policy_uses_shared_runtime_config() -> None:
+    config = SimpleNamespace(
+        max_llm_rounds=7,
+        max_tool_calls=11,
+        max_workers=3,
+        max_events=123,
+        max_runtime_ms=45678,
+        max_retries=4,
+        budget_enforcement_mode="fail_fast",
+    )
+    policy = BudgetPolicy.from_config(config)
+
+    assert policy.to_dict() == {
+        "max_llm_rounds": 7,
+        "max_tool_calls": 11,
+        "max_workers": 3,
+        "max_events": 123,
+        "max_runtime_ms": 45678,
+        "max_retries": 4,
+        "enforcement_mode": "fail_fast",
+    }
+    assert policy.to_run_budget().snapshot().to_dict() == {
+        "llm_rounds_used": 0,
+        "llm_rounds_max": 7,
+        "tool_calls_used": 0,
+        "tool_calls_max": 11,
+    }
+
+
+def test_http_and_mcp_budget_traces_match_for_same_scenario() -> None:
+    """HTTP and MCP must share the same budget policy and emit the same trace."""
+    config = SimpleNamespace(
+        max_llm_rounds=8,
+        max_tool_calls=12,
+        max_workers=4,
+        max_events=200,
+        max_runtime_ms=30000,
+        max_retries=2,
+        budget_enforcement_mode="fail_fast",
+    )
+
+    http_policy = BudgetPolicy.from_config(config)
+    mcp_policy = BudgetPolicy.from_config(config)
+
+    http_trace = http_policy.to_trace(
+        llm_rounds_used=2,
+        tool_calls_used=3,
+        workers_used=2,
+        events_emitted=25,
+        runtime_ms_used=4321,
+        retries_used=1,
+    )
+    mcp_trace = mcp_policy.to_trace(
+        llm_rounds_used=2,
+        tool_calls_used=3,
+        workers_used=2,
+        events_emitted=25,
+        runtime_ms_used=4321,
+        retries_used=1,
+    )
+
+    assert http_trace == mcp_trace
+    assert http_trace["max_llm_rounds"] == 8
+    assert http_trace["max_tool_calls"] == 12
+    assert http_trace["llm_rounds_used"] == 2
+    assert http_trace["tool_calls_used"] == 3

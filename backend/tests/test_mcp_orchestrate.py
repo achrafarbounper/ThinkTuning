@@ -27,6 +27,11 @@ import pytest
 
 from app.agent.core import AgentCore, AgentRunResult, RunStatus
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
+from app.domain.ports import (
+    MCPOrchestrationResult,
+    compute_mcp_failure_phase,
+    compute_mcp_status,
+)
 from app.domain.entities.plan import Intent
 from app.infrastructure.mcp.manifest_generator import MUTATING_ANNOTATIONS
 from app.infrastructure.mcp.mcp_server import ToolError
@@ -159,7 +164,172 @@ def test_build_orchestrate_tool_declares_distinct_mcp_tool() -> None:
     assert tool.annotations == dict(MUTATING_ANNOTATIONS)
     assert tool.input_schema["required"] == ["prompt"]
     properties = tool.input_schema["properties"]
-    assert set(properties) == {"prompt", "session_id", "scope", "enable_thinking"}
+    assert {
+        "prompt", "session_id", "scope", "enable_thinking",
+        "mode", "model", "parallel", "event_granularity", "resume_request_id",
+    } <= set(properties)
+
+
+def test_tool_handler_normalizes_multi_agent_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeOrchestrator:
+        def run(self, request: Any, *, on_event: Any = None) -> MCPOrchestrationResult:
+            assert request.prompt == "decompose this"
+            assert request.parallel is True
+            return MCPOrchestrationResult(
+                answer="synthesized",
+                status="partial_success",
+                workers=[{"id": "w1", "status": "failed"}],
+                worker_errors=[{"id": "w1", "status": "failed"}],
+                orchestration={"mode": "multi_agent"},
+            )
+
+    monkeypatch.setenv("MCP_MULTI_AGENT_ENABLED", "1")
+    tool = build_orchestrate_tool(orchestrator=FakeOrchestrator())
+    payload = json.loads(tool.handler({
+        "prompt": "decompose this",
+        "mode": "multi_agent",
+        "parallel": True,
+    }))
+    assert payload["answer"] == "synthesized"
+    assert payload["status"] == "partial_success"
+    assert payload["worker_errors"][0]["id"] == "w1"
+
+
+def test_mcp_orchestration_result_contract_is_additive_and_stable() -> None:
+    """The multi-agent contract adds explicit fields without breaking existing ones."""
+    result = MCPOrchestrationResult(
+        answer="synthesized",
+        status="partial_success",
+        plan=[{"id": "plan-1", "status": "completed"}],
+        subtasks=[{"id": "sub-1", "worker_id": "w1", "status": "failed"}],
+        workers=[{"id": "w1", "status": "failed"}],
+        synthesis={"status": "completed", "summary": "partial result"},
+        worker_errors=[{"worker_id": "w1", "code": "timeout"}],
+        usage={"runtime_ms": 1200},
+        orchestration={"mode": "multi_agent"},
+    )
+    dumped = result.model_dump(mode="json")
+    assert dumped["answer"] == "synthesized"
+    assert dumped["status"] == "partial_success"
+    assert dumped["plan"][0]["id"] == "plan-1"
+    assert dumped["subtasks"][0]["worker_id"] == "w1"
+    assert dumped["workers"][0]["status"] == "failed"
+    assert dumped["synthesis"]["summary"] == "partial result"
+    assert dumped["worker_errors"][0]["code"] == "timeout"
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_status", "expected_phase"),
+    [
+        ({"lead": {"status": "failed"}}, "failed", "lead"),
+        ({"workers": [{"status": "failed"}], "worker_errors": [{"worker_id": "w1", "code": "timeout"}]}, "partial_success", "worker"),
+        ({"synthesis": {"status": "failed"}}, "failed", "synthesis"),
+    ],
+)
+def test_compute_mcp_status_decides_global_status(
+    payload: dict[str, Any],
+    expected_status: str,
+    expected_phase: str,
+) -> None:
+    """The global status policy distinguishes lead/worker/synthesis failures."""
+    assert compute_mcp_status(**payload) == expected_status
+    assert compute_mcp_failure_phase(**payload) == expected_phase
+
+    result = MCPOrchestrationResult(
+        answer="partial",
+        status=expected_status,
+        failure_phase=expected_phase,
+    )
+    assert result.failure_phase == expected_phase
+    assert result.status == expected_status
+
+
+def test_tool_handler_falls_back_when_shared_settings_disable_multi_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.infrastructure.persistence.agent_settings as agent_settings
+
+    class FakeStore:
+        def get_all(self) -> dict[str, Any]:
+            return {"flag_multi_agent": False}
+
+    monkeypatch.delenv("MCP_MULTI_AGENT_ENABLED", raising=False)
+    monkeypatch.delenv("AGENT_MULTI_AGENT", raising=False)
+    monkeypatch.setattr(agent_settings, "get_settings_store", lambda: FakeStore())
+
+    tool = build_orchestrate_tool(core_factory=_core_factory(ScriptedLLM([])))
+    payload = json.loads(tool.handler({
+        "prompt": "decompose this",
+        "mode": "multi_agent",
+    }))
+    assert payload["orchestration"]["event"] == "orchestration_fallback"
+    assert payload["orchestration"]["fallback"] == "orchestration_fallback"
+    assert payload["orchestration"]["reason"] == "multi_agent_disabled"
+
+
+def test_execution_context_rejects_worker_scope_expansion() -> None:
+    """{ExecutionContext} is the shared source of truth for MCP/HTTP worker scope."""
+    from app.domain.ports import ExecutionContext
+
+    context = ExecutionContext(
+        user_id="u1",
+        tenant_id="tenant-1",
+        allowed_tools=("read", "write"),
+        allowed_resources=("session://default",),
+        allowed_scopes=("lead",),
+    )
+    with pytest.raises(ValueError, match="widen"):
+        context.for_worker(
+            "researcher",
+            allowed_tools=("read", "write", "exec"),
+            allowed_resources=("session://default",),
+            allowed_scopes=("lead",),
+        )
+
+
+def test_mcp_events_include_hierarchy_metadata() -> None:
+    """Every MCP event must carry parent_task_id, worker_id, and a canonical phase."""
+    from app.domain.ports import normalize_mcp_event
+
+    event = normalize_mcp_event(
+        {"kind": "worker_update", "status": "running"},
+        parent_task_id="parent-1",
+        default_worker_id="worker-7",
+        default_phase="worker",
+    )
+    assert event["phase"] == "worker"
+    assert event["parent_task_id"] == "parent-1"
+    assert event["worker_id"] == "worker-7"
+    assert event["event"] == "worker_update"
+
+
+def test_mcp_request_accepts_minimal_event_granularity() -> None:
+    """Event granularity is additive and compatible; minimal is allowed."""
+    from app.domain.ports import MCPOrchestrationRequest
+
+    request = MCPOrchestrationRequest.from_values(
+        prompt="hello",
+        event_granularity="minimal",
+    )
+    assert request.event_granularity == "minimal"
+
+
+def test_mcp_flow_recorder_filters_detail_events_under_minimal_granularity() -> None:
+    """Minimal mode keeps only the terminal / critical events and preserves hierarchy."""
+    from app.infrastructure.mcp.mcp_flow import MCPFlowRecorder
+
+    recorder = MCPFlowRecorder(
+        "flow-1",
+        event_granularity="minimal",
+        parent_task_id="parent-1",
+        worker_id="worker-7",
+    )
+    recorder.record("mcp.orchestrate.start", {"message": "start"})
+    recorder.record("mcp.orchestrate.worker", {"message": "worker_detail"})
+    recorder.record("mcp.done", {"answer": "ok"})
+    assert recorder._normalize_event_data("mcp.orchestrate.start", {"message": "start"})["parent_task_id"] == "parent-1"
+    assert recorder._normalize_event_data("mcp.orchestrate.worker", {"message": "worker_detail"}) == {}
+    assert recorder._normalize_event_data("mcp.done", {"answer": "ok"})["worker_id"] == "worker-7"
 
 
 def test_tool_handler_returns_answer_and_traces_json() -> None:
@@ -252,6 +422,62 @@ def test_server_exposes_orchestrate_tool_from_v2() -> None:
     assert ORCHESTRATE_TOOL_NAME in names
     listed = next(t for t in response["result"]["tools"] if t["name"] == ORCHESTRATE_TOOL_NAME)
     assert listed["annotations"] == dict(MUTATING_ANNOTATIONS)
+
+
+def test_server_exposes_durable_run_tools_with_injected_port() -> None:
+    class DurablePort:
+        def get_run(self, run_id):
+            return {"run_id": run_id, "state": "running", "events": []}
+
+        def list_runs(self, *, state=None, limit=50):
+            return [{"run_id": "run-1", "state": state or "running"}][:limit]
+
+        def get_events(self, run_id, *, after_sequence=0):
+            return [{"sequence": 1, "event": "started"}][after_sequence:]
+
+        def cancel(self, run_id, *, reason=None, on_event=None):
+            return type(
+                "State",
+                (),
+                {
+                    "as_snapshot": lambda self: {
+                        "run_id": run_id,
+                        "state": "cancelled",
+                        "reason": reason,
+                    }
+                },
+            )()
+
+    server = build_mcp_server(
+        scope=MCPScopeRole.CONTRIBUTOR,
+        version=MCPVersion(major=2, minor=0, patch=0),
+        orchestration_port=DurablePort(),
+        orchestrate_tool=build_orchestrate_tool(
+            core_factory=_core_factory(ScriptedLLM([]))
+        ),
+    )
+    listed = json.loads(server.handle_text(_rpc("tools/list", {})))
+    names = {tool["name"] for tool in listed["result"]["tools"]}
+    assert {
+        "orchestrate_get_run",
+        "orchestrate_list_runs",
+        "orchestrate_cancel",
+        "orchestrate_events",
+    } <= names
+
+    response = json.loads(
+        server.handle_text(
+            _rpc(
+                "tools/call",
+                {
+                    "name": "orchestrate_get_run",
+                    "arguments": {"run_id": "run-1"},
+                },
+            )
+        )
+    )
+    assert response["result"]["isError"] is False
+    assert json.loads(response["result"]["content"][0]["text"])["run_id"] == "run-1"
 
 
 def test_server_orchestrate_call_roundtrip() -> None:

@@ -19,10 +19,104 @@ Conception :
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.domain.errors import BudgetExceededError
 
 _MAX_UNBOUNDED = 10**9  # garde-fou contre un plafond non borné
+
+
+@dataclass(frozen=True)
+class BudgetPolicy:
+    """Policy de budget partagée entre les surfaces HTTP et MCP.
+
+    La source de vérité est la configuration effective de l'agent
+    (``AgentConfig``), afin d'éviter qu'une surface applique un budget
+    différente de l'autre. Le budget est ensuite matérialisé en un
+    ``RunBudget`` par run.
+    """
+
+    max_llm_rounds: int = 6
+    max_tool_calls: int = 20
+    max_workers: int = 4
+    max_events: int = 200
+    max_runtime_ms: int = 30000
+    max_retries: int = 2
+    enforcement_mode: str = "fail_fast"
+
+    @classmethod
+    def from_config(cls, config: Any | None = None) -> BudgetPolicy:
+        """Construit la policy depuis la configuration universelle du run."""
+        if config is None:
+            from app.agent.settings import get_agent_config
+
+            config = get_agent_config()
+
+        return cls(
+            max_llm_rounds=int(getattr(config, "max_llm_rounds", 6)),
+            max_tool_calls=int(getattr(config, "max_tool_calls", 20)),
+            max_workers=int(getattr(config, "max_workers", 4)),
+            max_events=int(getattr(config, "max_events", 200)),
+            max_runtime_ms=int(getattr(config, "max_runtime_ms", 30000)),
+            max_retries=int(getattr(config, "max_retries", 2)),
+            enforcement_mode=str(getattr(config, "budget_enforcement_mode", "fail_fast")),
+        )
+
+    def to_run_budget(self) -> RunBudget:
+        return RunBudget(
+            max_llm_rounds=self.max_llm_rounds,
+            max_tool_calls=self.max_tool_calls,
+        )
+
+    def to_dict(self) -> dict[str, int | str]:
+        """Compatibility view for legacy callers and direct policy inspection.
+
+        The total configuration is intentionally richer than the historical
+        minimal budget shape, but the legacy keys stay present for backwards
+        compatibility. The authoritative, shared runtime view remains
+        ``to_runtime_dict()`` and ``to_trace()``.
+        """
+        return self.to_runtime_dict()
+
+    def to_runtime_dict(self) -> dict[str, int | str]:
+        return {
+            "max_llm_rounds": self.max_llm_rounds,
+            "max_tool_calls": self.max_tool_calls,
+            "max_workers": self.max_workers,
+            "max_events": self.max_events,
+            "max_runtime_ms": self.max_runtime_ms,
+            "max_retries": self.max_retries,
+            "enforcement_mode": self.enforcement_mode,
+        }
+
+    def to_trace(
+        self,
+        *,
+        llm_rounds_used: int = 0,
+        tool_calls_used: int = 0,
+        workers_used: int = 0,
+        events_emitted: int = 0,
+        runtime_ms_used: int = 0,
+        retries_used: int = 0,
+    ) -> dict[str, int | str]:
+        """Return the canonical trace payload shared by HTTP and MCP surfaces.
+
+        This is the single budget source of truth used by both surfaces when
+        emitting audit payloads and comparing a "same scenario" run across
+        transport boundaries.
+        """
+        trace = self.to_runtime_dict()
+        trace.update(
+            {
+                "llm_rounds_used": llm_rounds_used,
+                "tool_calls_used": tool_calls_used,
+                "workers_used": workers_used,
+                "events_emitted": events_emitted,
+                "runtime_ms_used": runtime_ms_used,
+                "retries_used": retries_used,
+            }
+        )
+        return trace
 
 
 @dataclass

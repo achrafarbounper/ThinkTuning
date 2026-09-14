@@ -407,6 +407,55 @@
 > Audit : `tools/call orchestrate` → `ACT_MCP_ORCHESTRATE`. 13 tests :
 > `test_mcp_orchestrate.py`.
 
+### Extension multi-agent MCP (Unreleased)
+- [x] Introduire `MCPOrchestrationPort`, séparé du port multi-agent générique.
+- [x] Ajouter l'adaptateur typé et conserver `mono_agent` comme défaut
+  rétrocompatible.
+- [x] Ajouter les paramètres additifs `mode`, `model`, `parallel` et
+  `event_granularity`.
+- [x] Protéger le mode multi-agent par `MCP_MULTI_AGENT_ENABLED` et exposer un
+  fallback explicite (`orchestration_fallback`) sans contourner les refus de
+  sécurité.
+- [x] Normaliser le résultat multi-agent avec `plan`, `tasks`, `workers`,
+  `synthesis`, `worker_errors`, `usage` et `orchestration`.
+- [x] Relayer les événements multi-agent vers le recorder Flow Map avec une
+  granularité `summary`/`verbose`, sans changer les noms historiques
+  `orchestrate.*`.
+- [x] Accepter `resume_request_id` de façon additive pour préparer la reprise
+  durable.
+- [x] Couvrir le contrat avec un fake de port et un scénario
+  `partial_success`.
+- [x] Ajouter les événements hiérarchiques et les runs durables
+  (`run.submit/get/cancel/events`) avec checkpoints, reprise, annulation,
+  idempotence et leases.
+- [x] Utiliser MongoDB comme backend durable de production
+  (`mcp_durable_runs` + `mcp_durable_events`) ; SQLite reste réservé au
+  développement local et aux tests.
+- [x] Protéger les transitions Mongo par version optimiste et générer les
+  séquences d'événements avec un compteur atomique par run.
+- [x] Exposer les opérations durables comme tools MCP dédiés :
+  `orchestrate_get_run`, `orchestrate_list_runs`, `orchestrate_cancel` et
+  `orchestrate_events`, avec filtrage par rôle MCP. Leur activation est
+  explicite via `durable_run_tools=True` afin de préserver les catalogues
+  MCP historiques ; le transport SSE de production l'active.
+- [x] Ajouter le replay SSE après reconnexion avec `after_sequence`, et
+  signaler `replay_started`, `orchestrate.replay`, `replay_completed` ou
+  `replay.error`.
+
+#### Contrat de persistance durable
+
+Chaque snapshot Mongo contient notamment `run_id`, `state`, `phase`,
+`checkpoint`, `request_fingerprint`, `retry_count`, `version` et les
+informations de lease. `version` est incrémentée à chaque transition ; une
+mise à jour basée sur une version obsolète est rejetée explicitement afin de
+ne jamais écraser le travail d'un autre worker.
+
+Les événements sont stockés séparément, indexés par `(run_id, sequence)` et
+dédupliqués par `(run_id, event_id)`. La séquence est attribuée par
+`$inc` atomique dans le snapshot du run, ce qui évite les collisions lors
+d'écritures concurrentes. La rétention des événements peut donc évoluer
+indépendamment des snapshots.
+
 ### Tâche 17 : 35 Tools (extension avec write/exec)
 - [x] Ajouter 10 tools avec `APPROVE` (write/exec filtré) :
   - `write_file`, `write_json`, `append_file`, `make_dir`, `copy_path`
@@ -476,12 +525,24 @@
 - [x] Test : `test_mcp_first.py` — HTTP API legacy + MCP actif
 
 ### Tâche 21 : CI/CD MCP + Production Readiness
-- [ ] `.github/workflows/ci.yml` → ajouter `test_mcp_*.py` dans la pipeline
-- [ ] `docker-compose.yml` → service `thinktuning-mcp` (SSE + stdio)
-- [ ] `render.yaml` → profil MCP pour le déploiement
-- [ ] `docs/mcp/CLIENT_REGISTRY.md` — publier le registre des clients
-- [ ] `docs/mcp/CHANGELOG.md` — v3.0.0 publié
-- [ ] Test final : `test_mcp_production.py` — 40 tools + 15 resources + 8 prompts + sampling + orchestrate
+- [x] `.github/workflows/ci.yml` → exécuter explicitement `test_mcp_*.py`
+- [x] `docker-compose.yml` → service `thinktuning-mcp` (SSE ; stdio reste
+  disponible via l'entrypoint `thinktuning-mcp`)
+- [x] `render.yaml` → configuration MCP explicite pour le déploiement
+- [x] `docs/mcp/CLIENT_REGISTRY.md` — publier le registre des clients
+- [x] `docs/mcp/CHANGELOG.md` — documenter les durable-runs et le déploiement
+- [x] Test final : `test_mcp_production.py` — surface complète, resources,
+  prompts, sampling, orchestrate, durable-runs et scopes
+- [x] Rétention MongoDB des événements — index TTL configurable par
+  `MCP_EVENT_RETENTION_DAYS` (30 jours par défaut, `0` pour désactiver)
+- [x] Injection du store durable dans le replay SSE — tests indépendants de
+  MongoDB ajoutés
+- [x] Migration SQLite vers MongoDB — script idempotent avec `--dry-run`,
+  conservation des IDs et des séquences d'événements
+- [x] CI dédiée aux tests de migration et de rétention MCP
+- [x] Runbook opérationnel SQLite→MongoDB — dry-run, exécution, vérification,
+  idempotence, rollback et limites de rétention
+- [x] Smoke test MCP production non destructif — `initialize` et `tools/list`
 
 ---
 
@@ -489,14 +550,32 @@
 
 Chaque PR MCP doit passer :
 
-- [ ] `python -m pytest tests/test_mcp_*.py -q` — vert
-- [ ] `python -c "from mcp import Client; c = Client(); print(c.list_tools())"` — 12+ tools
-- [ ] `docs/mcp/CHANGELOG.md` — mis à jour
+- [x] `python -m pytest tests/test_mcp_*.py -q` — vert
+- [x] Smoke test MCP production — `initialize` et `tools/list`
+- [x] `docs/mcp/CHANGELOG.md` — mis à jour
 - [ ] RFC mergé dans `docs/mcp/rfc/` — si nouveau tool/resource/prompt
-- [ ] `docs/mcp/MANIFEST.md` — régénéré et commité
-- [ ] Audit trail vérifié (`ACT_MCP_*` events dans `agent_audit`)
-- [ ] Scope/security testé (`contrib` blocked, `read_only` allowed)
-- [ ] Versioning bumpé (SemVer)
+- [x] `docs/mcp/MANIFEST.md` — aligné sur la surface `2.2.0`
+- [x] Audit trail vérifié (`ACT_MCP_*` events dans `agent_audit`)
+- [x] Scope/security testé (`contrib` blocked, `read_only` allowed)
+- [x] Versioning bumpé (SemVer) — `2.0.0` → `2.2.0`
+
+### Exploitation durable MongoDB
+
+La production utilise `MongoMCPDurableRunStore`, avec les variables :
+
+- `MONGODB_URI` : URI MongoDB/Atlas complète, idéalement `mongodb+srv://...` ;
+- `MONGODB_DATABASE` : base applicative, par défaut `thinktuning`.
+
+`MONGODB_MOCK` ne doit être activé que dans les tests. Le provider effectue un
+ping au démarrage et échoue avec un diagnostic explicite si Atlas est
+injoignable. Les collections utilisées sont `mcp_durable_runs` et
+`mcp_durable_events`.
+
+Les snapshots portent une `version` optimiste et les leases sont limités par
+`lease_expires_at`. Les événements sont dédupliqués par `event_id`, séquencés
+atomiquement et récupérables avec `after_sequence` pour une reconnexion SSE.
+Une politique de rétention Mongo doit être définie selon le volume attendu ;
+les événements peuvent être archivés indépendamment des snapshots.
 
 ---
 

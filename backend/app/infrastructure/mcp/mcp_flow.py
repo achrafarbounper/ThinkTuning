@@ -170,15 +170,42 @@ class MCPFlowRecorder:
         *,
         client_id: str = "",
         request_id: str | None = None,
+        event_granularity: str = "summary",
+        parent_task_id: str | None = None,
+        worker_id: str | None = None,
     ) -> None:
         self.flow_id = flow_id
         self.client_id = client_id
         self.request_id = request_id
+        self.event_granularity = str(event_granularity or "summary").strip().lower()
+        if self.event_granularity not in {"minimal", "summary", "verbose"}:
+            self.event_granularity = "summary"
+        self.parent_task_id = parent_task_id
+        self.worker_id = worker_id
         self._t0 = time.perf_counter()
         self._finished = False
         # ``True`` pour les sessions host sortantes isolées (clôture à la fin
         # de l'appel) ; ``False`` pour la session orchestrate du thread courant.
         self._standalone = False
+
+    def _normalize_event_data(self, event: str, data: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(data or {})
+        normalized.setdefault("parent_task_id", self.parent_task_id)
+        normalized.setdefault("worker_id", self.worker_id)
+        if "phase" not in normalized:
+            if event.startswith("mcp.orchestrate.worker"):
+                normalized["phase"] = "worker"
+            elif event.startswith("mcp.orchestrate.synthesis"):
+                normalized["phase"] = "synthesis"
+            else:
+                normalized["phase"] = "lead"
+        if self.event_granularity == "minimal" and event not in {
+            MCP_ORCHESTRATE_START,
+            MCP_DONE,
+            MCP_ERROR,
+        }:
+            return {}
+        return normalized
 
     # --- Écriture -------------------------------------------------------------
 
@@ -186,11 +213,14 @@ class MCPFlowRecorder:
         """Persiste un événement (non bloquant — erreurs avalées)."""
         if self._finished:
             return
+        payload = self._normalize_event_data(event, data)
+        if not payload:
+            return
         try:
             from app.infrastructure.persistence.flow_store import get_flow_store
 
             at_ms = (time.perf_counter() - self._t0) * 1000.0
-            get_flow_store().append_event(self.flow_id, event, dict(data or {}), at_ms)
+            get_flow_store().append_event(self.flow_id, event, payload, at_ms)
         except Exception:  # pragma: no cover - le flow ne doit JAMAIS remonter
             logger.exception("Flow MCP : écriture impossible (%s)", event)
 

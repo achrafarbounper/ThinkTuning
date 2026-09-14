@@ -6,6 +6,63 @@
 
 ---
 
+## v2.2.0 — 2026-09-15
+
+Release MCP alignée sur le catalogue admin et la persistance durable MongoDB.
+
+### Multi-agent, durable-runs et exploitation
+
+### Version courante
+
+- La surface MCP par défaut est désormais `2.2.0`, alignée sur le catalogue
+  admin et les fonctionnalités durable-run livrées.
+- Le bump reste mineur et conserve la compatibilité des clients v2.0.x ; les
+  clients qui ne disposent pas du scope `admin` ne voient pas les nouveaux
+  tools administratifs.
+
+### Durable runs et déploiement production
+
+- Durable-runs persistés dans MongoDB avec checkpoints, reprise, annulation,
+  leases et idempotence des événements.
+- Ajout des tools `orchestrate_get_run`, `orchestrate_list_runs`,
+  `orchestrate_cancel` et `orchestrate_events`.
+- Replay SSE disponible avec `after_sequence` et les événements
+  `replay_started`, `orchestrate.replay`, `replay_completed` et `replay.error`.
+- Ajout du profil Docker Compose `mcp` et configuration Render explicite pour
+  `MCP_SERVER_ENABLED`, `MCP_AUTH_REQUIRED` et `MCP_MULTI_AGENT_ENABLED`.
+- Les catalogues MCP historiques restent inchangés par défaut ; les tools
+  durable-run sont activés explicitement sur le transport SSE de production.
+- Les événements durables MongoDB sont conservés 30 jours par défaut via un
+  index TTL. La durée est configurable avec `MCP_EVENT_RETENTION_DAYS` ; une
+  valeur `0` désactive la rétention automatique. Le replay doit donc utiliser
+  un curseur dans cette fenêtre.
+- Le replay SSE accepte maintenant un `MCPDurableRunStorePort` injecté ; MongoDB
+  reste le fallback de production lorsque aucun store n'est configuré.
+- Ajout du script `backend/scripts/migrate_mcp_sqlite_to_mongo.py` avec mode
+  `--dry-run`, conservation des identifiants/séquences et reprise idempotente.
+- La CI exécute désormais explicitement les tests de migration SQLite→MongoDB
+  et de rétention TTL MongoDB.
+- Ajout du runbook `docs/mcp/SQLITE_TO_MONGO_RUNBOOK.md` pour les opérations
+  de prévisualisation, migration, vérification et rollback.
+- Ajout de `backend/scripts/smoke_mcp_production.py` pour valider sans
+  mutation l'endpoint MCP déployé.
+
+- Ajout d'un port MCP spécialisé (`MCPOrchestrationPort`) et d'un adaptateur
+  typé vers `MultiAgentOrchestratorPort`.
+- Le tool `orchestrate` conserve `mono_agent` par défaut et accepte
+  `mode=multi_agent`, `model`, `parallel` et `event_granularity`.
+- Le mode multi-agent est protégé par `MCP_MULTI_AGENT_ENABLED` (désactivé par
+  défaut). Une désactivation provoque un fallback explicite vers mono-agent
+  avec `orchestration.fallback=orchestration_fallback`.
+- Le contrat multi-agent est additif : `plan`, `tasks`, `workers`, `synthesis`,
+  `worker_errors`, `usage` et `orchestration`. Un échec de worker est exposé
+  comme `partial_success` lorsqu'une synthèse est disponible.
+- Les événements de progression sont corrélés au Flow Map MCP, avec filtrage
+  `summary` ou `verbose`, et `resume_request_id` est accepté pour préparer la
+  reprise durable.
+- Les tests utilisent un fake du port MCP afin de garantir la compatibilité du
+  contrat historique et la normalisation des résultats.
+
 ## v2.0.0 — 2026-09-09 (S6 — SamplingPort + Orchestrate, tâche 18)
 
 > **⚠️ BREAKING CHANGE** — Cette version introduit `SamplingPort` et le tool
