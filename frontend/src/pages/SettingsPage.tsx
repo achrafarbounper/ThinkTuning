@@ -7,13 +7,18 @@ import { TrainingSettingsSection } from "./settings/TrainingSettingsSection";
 import { ApiConnectionSection } from "./settings/ApiConnectionSection";
 import { PreferencesSection } from "./settings/PreferencesSection";
 import { useSettingsDraft } from "./settings/useSettingsDraft";
+import { resolveAuthState } from "./settings/authState";
 
 export default function SettingsPage() {
   const {
     config, setConfig, updateAgentSettings, testAgentConnection,
     agentLoading, agentError, pushLog, maxHistorySize, setMaxHistorySize,
+    sessionToken,
   } = useApp();
   const { draft, updateDraft } = useSettingsDraft();
+  // État d'authentification effectif : la session JWT est prioritaire sur la
+  // clé API (même règle que le transport — voir api/clientCore).
+  const authState = resolveAuthState(sessionToken, config.apiKey);
 
   const saveConfig = useCallback((event: FormEvent) => {
     event.preventDefault();
@@ -101,7 +106,7 @@ export default function SettingsPage() {
     <>
       <header className="page-head"><h1>Paramètres</h1><p>Connexion à l'API ThinkTuning et préférences du dashboard.</p></header>
       <div className="page-body">
-        <ApiConnectionSection draft={draft} updateDraft={updateDraft} configured={Boolean(config.apiKey)} onSubmit={saveConfig} />
+        <ApiConnectionSection draft={draft} updateDraft={updateDraft} authState={authState} onSubmit={saveConfig} />
         <AgentSettingsSection draft={draft} updateDraft={updateDraft} loading={agentLoading} error={agentError} onTest={testConnection} onSave={saveAgent} />
         <TrainingSettingsSection draft={draft} updateDraft={updateDraft} loading={agentLoading} onSave={saveTraining} />
         <PreferencesSection maxHistorySize={maxHistorySize} onSubmit={savePreferences} />

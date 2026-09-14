@@ -32,6 +32,12 @@ export interface AppState {
   /** Client API instancié une seule fois (mémoïsé sur `config`). */
   client: SentimentApiClient;
   config: ApiConnectionConfig;
+  /**
+   * Jeton JWT de session actif ("" si aucune session valide). Prioritaire
+   * sur X-API-Key dans le transport (voir api/clientCore) — il explique
+   * pourquoi la connexion survit au rafraîchissement même sans clé API.
+   */
+  sessionToken: string;
   setConfig: (config: ApiConnectionConfig) => void;
   saveConfig: (config: ApiConnectionConfig) => void;
   // --- Santé & modèles ---------------------------------------------------

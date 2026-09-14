@@ -19,6 +19,7 @@ tests/test_no_direct_legacy_imports.py).
 
 from __future__ import annotations
 
+import sys
 import threading
 from typing import TYPE_CHECKING, Any
 
@@ -86,6 +87,32 @@ def __getattr__(name: str) -> Any:
     value = getattr(importlib.import_module(entry[0]), entry[1])
     globals()[name] = value
     return value
+
+
+def _resolve_runtime(name: str) -> Any:
+    """Résout un symbole du runtime v1 pour un usage INTERNE au module.
+
+    ⚠ Subtilité PEP 562 : ``__getattr__`` ci-dessus n'est déclenché QUE par un
+    accès *attribut* sur le module depuis l'extérieur (``from
+    app.application.agent_cache import AgentRunner``, ``agent_cache.AgentRunner``).
+    Une référence « nue » dans une fonction de ce module (bytecode
+    ``LOAD_GLOBAL``) lit directement ``globals()`` et lève ``NameError`` sans
+    JAMAIS passer par ``__getattr__`` : tant que le symbole n'a pas été résolu
+    une première fois via un accès attribut, toute instanciation interne plante
+    (SCRUM-141 : ``NameError: name 'AgentRunner' is not defined`` sur
+    ``PUT /api/v1/agent/settings`` → ``reload_agent_runner()``).
+
+    Ce helper contourne le problème en effectuant l'accès attribut sur le
+    module lui-même (``sys.modules[__name__]``) : premier appel → ``__getattr__``
+    importe le module legacy et met le symbole en cache dans ``globals()`` ;
+    appels suivants → lecture directe du cache. Les annotations restent
+    satisfaites statiquement par les imports sous ``TYPE_CHECKING``.
+
+    TOUTE fonction de ce module qui instancie un symbole paresseux
+    (``AgentCore`` / ``AgentRunner`` / ``MultiAgentCoordinator``) doit passer
+    par ce helper — verrouillé par tests/test_agent_cache_lazy_resolution.py.
+    """
+    return getattr(sys.modules[__name__], name)
 
 
 # Ré-exportés pour que le reste de l'API consomme l'agent uniquement ici.
@@ -300,7 +327,12 @@ def _build_runner(model_name: str | None = None, enable_thinking: bool = False) 
         provider=cfg["provider"],
         api_key=api_key,
     )
-    return AgentRunner(AgentCore(llm, enable_thinking=enable_thinking))
+    # Résolution EXPLICITE (accès attribut) : une référence nue ne déclenche
+    # pas __getattr__ (PEP 562 = accès attribut uniquement) — cf.
+    # _resolve_runtime pour la subtilité NameError/LOAD_GLOBAL.
+    runner_cls = _resolve_runtime("AgentRunner")
+    core_cls = _resolve_runtime("AgentCore")
+    return runner_cls(core_cls(llm, enable_thinking=enable_thinking))
 
 
 def get_agent_runner(model: str | None = None, enable_thinking: bool = False) -> AgentRunner:
@@ -894,12 +926,13 @@ def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinat
     # chat) obtient un coordinateur dedie, mis en cache par nom de modele
     # (meme pattern que _override_runners) - sinon le parametre serait
     # ignore des que le singleton existe.
+    coordinator_cls = _resolve_runtime("MultiAgentCoordinator")
     key = _coordinator_key(model)
     if key is not None:
         with _multi_coordinator_lock:
             coord = _override_coordinators.get(key)
             if coord is None:
-                coord = MultiAgentCoordinator(_build_llm_client(key), **_multi_coordinator_kwargs())
+                coord = coordinator_cls(_build_llm_client(key), **_multi_coordinator_kwargs())
                 _override_coordinators[key] = coord
         return coord
     global _multi_coordinator
@@ -907,23 +940,24 @@ def get_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinat
         with _multi_coordinator_lock:
             if _multi_coordinator is None:
                 llm = _build_llm_client(model)
-                _multi_coordinator = MultiAgentCoordinator(llm, **_multi_coordinator_kwargs())
+                _multi_coordinator = coordinator_cls(llm, **_multi_coordinator_kwargs())
     return _multi_coordinator
 
 
 def reload_multi_agent_coordinator(model: str | None = None) -> MultiAgentCoordinator:
     # Reconstruit le coordinateur (nouveau LLMClient) pour le modele demande.
+    coordinator_cls = _resolve_runtime("MultiAgentCoordinator")
     key = _coordinator_key(model)
     global _multi_coordinator
     with _multi_coordinator_lock:
         if key is not None:
             _override_coordinators.pop(key, None)
-            coord = MultiAgentCoordinator(_build_llm_client(key), **_multi_coordinator_kwargs())
+            coord = coordinator_cls(_build_llm_client(key), **_multi_coordinator_kwargs())
             _override_coordinators[key] = coord
             return coord
         _multi_coordinator = None
         llm = _build_llm_client(model)
-        _multi_coordinator = MultiAgentCoordinator(llm, **_multi_coordinator_kwargs())
+        _multi_coordinator = coordinator_cls(llm, **_multi_coordinator_kwargs())
     return _multi_coordinator
 
 
