@@ -286,12 +286,17 @@ export interface PendingApprovalData {
    *    n'est JAMAIS exécutée dans le noyau mono-agent) ;
    *  - 'core' → noyau v2 mono-agent (fallback documenté) ;
    *  - 'mcp' → tool MCP `orchestrate` (S7) : l'approbation passe par le
-   *    canal HTTP whitelisté (non bloqué par MCP_FIRST) ; le run reprend
-   *    côté serveur, la bulle droite affiche une confirmation.
+   *    canal HTTP whitelisté (non bloqué par MCP_FIRST), puis le MÊME run
+   *    est relancé via resume_request_id + run_id (P0 — SCRUM-151).
    */
   origin?: 'core' | 'multi' | 'mcp';
   /** task_id du worker bloqué (reprise native multi : re-dispatch ciblé). */
   taskId?: string;
+  /**
+   * Identifiant DURABLE du run MCP (distinct de `request_id`) : transmis à la
+   * relance post-approbation pour reprendre le MÊME run (replay durable).
+   */
+  runId?: string;
 }
 
 /* --- Conversations persistées (/api/sessions) ------------------------------ */

@@ -27,12 +27,12 @@ import pytest
 
 from app.agent.core import AgentCore, AgentRunResult, RunStatus
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
+from app.domain.entities.plan import Intent
 from app.domain.ports import (
     MCPOrchestrationResult,
     compute_mcp_failure_phase,
     compute_mcp_status,
 )
-from app.domain.entities.plan import Intent
 from app.infrastructure.mcp.manifest_generator import MUTATING_ANNOTATIONS
 from app.infrastructure.mcp.mcp_server import ToolError
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
@@ -222,7 +222,14 @@ def test_mcp_orchestration_result_contract_is_additive_and_stable() -> None:
     ("payload", "expected_status", "expected_phase"),
     [
         ({"lead": {"status": "failed"}}, "failed", "lead"),
-        ({"workers": [{"status": "failed"}], "worker_errors": [{"worker_id": "w1", "code": "timeout"}]}, "partial_success", "worker"),
+        (
+            {
+                "workers": [{"status": "failed"}],
+                "worker_errors": [{"worker_id": "w1", "code": "timeout"}],
+            },
+            "partial_success",
+            "worker",
+        ),
         ({"synthesis": {"status": "failed"}}, "failed", "synthesis"),
     ],
 )
@@ -287,6 +294,289 @@ def test_execution_context_rejects_worker_scope_expansion() -> None:
         )
 
 
+# ============= 6. Décision mutualisée + HITL MCP (P0 — SCRUM-151) ==============
+
+
+class _FakeApprovalStore:
+    """Store d'approbations en mémoire (même surface que ``ApprovalStore``)."""
+
+    def __init__(self, records: dict[str, dict[str, Any]] | None = None) -> None:
+        self.records: dict[str, dict[str, Any]] = dict(records or {})
+
+    def create(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        category: str,
+        decision: str,
+        reason: str,
+        prompt: str = "",
+        args_hash: str = "",
+        status: str = "pending",
+    ) -> str:
+        request_id = f"req-{len(self.records) + 1}"
+        self.records[request_id] = {
+            "request_id": request_id,
+            "tool": tool,
+            "args": args,
+            "category": category,
+            "status": status,
+            "args_hash": args_hash,
+        }
+        return request_id
+
+    def get(self, request_id: str) -> dict[str, Any] | None:
+        return self.records.get(request_id)
+
+
+def test_resolve_orchestration_defaults_and_validations() -> None:
+    """Mode par défaut mono-agent ; ``mode``/granularité invalides → ValueError."""
+    from app.infrastructure.mcp.tools.orchestrate_tool import resolve_orchestration
+
+    resolution = resolve_orchestration({"prompt": "x"})
+    assert resolution.mode == "mono_agent"
+    assert resolution.requested_mode == "mono_agent"
+    assert resolution.fallback is None
+    assert resolution.event_granularity == "summary"
+    assert not resolution.is_resuming
+    with pytest.raises(ValueError, match="mode"):
+        resolve_orchestration({"mode": "bogus"})
+    with pytest.raises(ValueError, match="event_granularity"):
+        resolve_orchestration({"event_granularity": "all"})
+
+
+def test_resolve_orchestration_decoupled_identifiers() -> None:
+    """``run_id`` (run durable) et ``resume_request_id`` (approbation) sont
+    transportés séparément — la reprise ciblée ajoute ``task_id``."""
+    from app.infrastructure.mcp.tools.orchestrate_tool import resolve_orchestration
+
+    resolution = resolve_orchestration({
+        "prompt": "x",
+        "run_id": "run-77",
+        "resume_request_id": "req-9",
+        "task_id": "t1",
+    })
+    assert resolution.is_resuming
+    assert resolution.run_id == "run-77"
+    assert resolution.resume_request_id == "req-9"
+    assert resolution.task_id == "t1"
+    arguments = resolution.as_arguments()
+    assert arguments["run_id"] == "run-77"
+    assert arguments["resume_request_id"] == "req-9"
+
+
+def test_resolve_orchestration_decisions_identical_for_both_transports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PARITÉ stream/non-stream : mêmes arguments → résolution identique.
+
+    Le transport SSE et le handler du tool consomment la même fonction : la
+    décision (mode, repli, granularité, identifiants) ne peut plus diverger.
+    """
+    from app.infrastructure.mcp.tools.orchestrate_tool import resolve_orchestration
+
+    monkeypatch.setenv("MCP_MULTI_AGENT_ENABLED", "1")
+    arguments = {
+        "prompt": "x",
+        "mode": "multi_agent",
+        "parallel": True,
+        "event_granularity": "verbose",
+        "run_id": "run-77",
+        "resume_request_id": "req-9",
+        "task_id": "t1",
+    }
+    stream_decision = resolve_orchestration(arguments)
+    non_stream_decision = resolve_orchestration(dict(arguments))
+    assert stream_decision.as_arguments() == non_stream_decision.as_arguments()
+    assert stream_decision.mode == non_stream_decision.mode == "multi_agent"
+    assert stream_decision.fallback is None
+
+
+def test_resolve_orchestration_falls_back_when_flag_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Garde ``MCP_MULTI_AGENT_ENABLED`` : repli EXPLICITE ``multi_agent_disabled``."""
+    import app.infrastructure.persistence.agent_settings as agent_settings
+    from app.infrastructure.mcp.tools.orchestrate_tool import resolve_orchestration
+
+    class FakeStore:
+        def get_all(self) -> dict[str, Any]:
+            return {"flag_multi_agent": False}
+
+    monkeypatch.delenv("MCP_MULTI_AGENT_ENABLED", raising=False)
+    monkeypatch.delenv("AGENT_MULTI_AGENT", raising=False)
+    monkeypatch.setattr(agent_settings, "get_settings_store", lambda: FakeStore())
+
+    resolution = resolve_orchestration({"prompt": "x", "mode": "multi_agent"})
+    assert resolution.mode == "mono_agent"
+    assert resolution.requested_mode == "multi_agent"
+    assert resolution.fallback is not None
+    assert resolution.fallback["event"] == "orchestration_fallback"
+    assert resolution.fallback["reason"] == "multi_agent_disabled"
+
+
+def test_worker_scope_policy_rejects_forbidden_tools_and_budget() -> None:
+    """``WorkerScopePolicy`` APPLIQUE réellement outils interdits + plafond."""
+    from app.domain.ports import ExecutionContext, WorkerScopePolicy
+
+    policy = WorkerScopePolicy(
+        parent_scope=("lead",),
+        forbidden_tools=("system_shell",),
+        max_tools_per_worker=2,
+    )
+
+    def _context(tools: tuple[str, ...]) -> ExecutionContext:
+        return ExecutionContext(
+            user_id="u1",
+            tenant_id="tenant-1",
+            allowed_tools=tools,
+            allowed_resources=("session://default",),
+            allowed_scopes=("lead",),
+        )
+
+    with pytest.raises(ValueError, match="forbidden"):
+        policy.validate(_context(("read", "system_shell")), worker_id="w1")
+    with pytest.raises(ValueError, match="max_tools_per_worker"):
+        policy.validate(_context(("read", "write", "list")), worker_id="w1")
+    # Cas nominal : tools autorisés dans le budget → aucune levée.
+    policy.validate(_context(("read",)), worker_id="w1")
+
+
+def test_tool_handler_surfaces_distinct_request_and_run_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HITL MCP : l'approbation expose ``request_id`` ; ``run_id`` reste celui
+    passé par le client — deux identifiants distincts dans le payload."""
+    import app.infrastructure.persistence.agent_settings as agent_settings
+    from app.infrastructure.mcp.tools.orchestrate_tool import build_orchestrate_tool
+
+    class EnabledStore:
+        def get_all(self) -> dict[str, Any]:
+            return {"flag_multi_agent": True}
+
+    monkeypatch.setattr(agent_settings, "get_settings_store", lambda: EnabledStore())
+
+    llm = ScriptedLLM(['{"plan": [{"tool": "echo", "args": {"text": "x"}}]}'])
+    store = _FakeApprovalStore()
+    tool = build_orchestrate_tool(core_factory=_core_factory(llm), approval_store=store)
+    payload = json.loads(tool.handler({"prompt": "fais une action", "run_id": "run-77"}))
+    assert payload["awaiting_approval"] is True
+    assert payload["request_id"]
+    assert payload["request_id"] != "run-77"
+    assert payload["run_id"] == "run-77"
+    assert payload["approval"]["tool"] == "echo"
+
+
+def test_run_mono_agent_resumes_approved_action_by_fingerprint() -> None:
+    """Reprise ciblée : la gateway ne débloque que l'action APPROUVÉE (empreinte)."""
+    from app.domain.entities.plan import Action
+    from app.infrastructure.mcp.tools.orchestrate_tool import run_mono_agent
+
+    action = Action(tool="write_file", args={"path": "x"}, category="write")
+    store = _FakeApprovalStore({
+        "req-1": {
+            "request_id": "req-1",
+            "status": "approved",
+            "args_hash": action.fingerprint(),
+        }
+    })
+    captured: dict[str, Any] = {}
+
+    class GatewaySpyCore:
+        def __init__(self, approval_gateway: Any = None) -> None:
+            self.gateway = approval_gateway
+
+        def run(self, intent: Intent) -> AgentRunResult:
+            captured["granted"] = bool(self.gateway and self.gateway(action))
+            return AgentRunResult(answer="ok", status=RunStatus.COMPLETED)
+
+    outcome = run_mono_agent(
+        "fais l'action",
+        core_factory=lambda **kwargs: GatewaySpyCore(**kwargs),
+        resume_request_id="req-1",
+        approval_store=store,
+    )
+    assert captured["granted"] is True
+    assert outcome.result.status is RunStatus.COMPLETED
+    assert outcome.request_id is None  # run terminé → aucune nouvelle demande
+
+
+def test_run_mono_agent_stays_fail_closed_without_approved_request() -> None:
+    """Sans demande approuvée correspondante : AUCUNE action débloquée."""
+    from app.domain.entities.plan import Action
+    from app.infrastructure.mcp.tools.orchestrate_tool import run_mono_agent
+
+    action = Action(tool="write_file", args={"path": "x"}, category="write")
+    store = _FakeApprovalStore({
+        "req-1": {"request_id": "req-1", "status": "pending", "args_hash": "whatever"}
+    })
+    captured: dict[str, Any] = {}
+
+    class GatewaySpyCore:
+        def __init__(self, approval_gateway: Any = None) -> None:
+            self.gateway = approval_gateway
+
+        def run(self, intent: Intent) -> AgentRunResult:
+            captured["granted"] = bool(self.gateway and self.gateway(action))
+            return AgentRunResult(answer="bloqué", status=RunStatus.PENDING_APPROVAL)
+
+    run_mono_agent(
+        "fais l'action",
+        core_factory=lambda **kwargs: GatewaySpyCore(**kwargs),
+        resume_request_id="req-1",
+        approval_store=store,
+    )
+    assert captured["granted"] is False
+
+
+def test_run_mono_agent_persists_approval_request_for_hitl() -> None:
+    """Run en attente → demande d'approbation persistée (empreinte enregistrée)."""
+    from app.infrastructure.mcp.tools.orchestrate_tool import run_mono_agent
+
+    llm = ScriptedLLM(['{"plan": [{"tool": "echo", "args": {"text": "x"}}]}'])
+    store = _FakeApprovalStore()
+    outcome = run_mono_agent(
+        "fais une action",
+        "s1",
+        core_factory=_core_factory(llm),
+        approval_store=store,
+    )
+    assert outcome.result.status is RunStatus.PENDING_APPROVAL
+    assert outcome.request_id is not None
+    assert outcome.approval is not None
+    assert outcome.approval["tool"] == "echo"
+    record = store.records[outcome.request_id]
+    assert record["args_hash"] == outcome.result.awaiting_action.fingerprint()
+
+
+def test_orchestrate_schema_declares_resumable_identifiers() -> None:
+    """Le schéma expose ``run_id`` et ``task_id`` en plus de ``resume_request_id``."""
+    tool = build_orchestrate_tool(core_factory=_core_factory(ScriptedLLM([])))
+    properties = tool.input_schema["properties"]
+    assert {"run_id", "task_id", "resume_request_id"} <= set(properties)
+
+
+def test_mcp_multi_agent_result_surfaces_awaiting_approval() -> None:
+    """Le contrat additif porte l'approbation HITL (run_id ≠ request_id)."""
+    result = MCPOrchestrationResult(
+        answer="En attente de validation humaine.",
+        status="awaiting_approval",
+        run_id="run-77",
+        workers=[{"id": "w1", "status": "awaiting_approval"}],
+        awaiting_approval=True,
+        request_id="req-9",
+        approval={"request_id": "req-9", "tool": "write_file", "args": {}},
+        task_id="t1",
+    )
+    dumped = result.model_dump(mode="json")
+    assert dumped["status"] == "awaiting_approval"
+    assert dumped["run_id"] == "run-77"
+    assert dumped["request_id"] == "req-9"
+    assert dumped["run_id"] != dumped["request_id"]
+    assert dumped["approval"]["tool"] == "write_file"
+    assert dumped["task_id"] == "t1"
+
+
 def test_mcp_events_include_hierarchy_metadata() -> None:
     """Every MCP event must carry parent_task_id, worker_id, and a canonical phase."""
     from app.domain.ports import normalize_mcp_event
@@ -340,9 +630,16 @@ def test_mcp_flow_recorder_filters_detail_events_under_minimal_granularity() -> 
     recorder.record("mcp.orchestrate.start", {"message": "start"})
     recorder.record("mcp.orchestrate.worker", {"message": "worker_detail"})
     recorder.record("mcp.done", {"answer": "ok"})
-    assert recorder._normalize_event_data("mcp.orchestrate.start", {"message": "start"})["parent_task_id"] == "parent-1"
-    assert recorder._normalize_event_data("mcp.orchestrate.worker", {"message": "worker_detail"}) == {}
-    assert recorder._normalize_event_data("mcp.done", {"answer": "ok"})["worker_id"] == "worker-7"
+    start_data = recorder._normalize_event_data(
+        "mcp.orchestrate.start", {"message": "start"}
+    )
+    assert start_data["parent_task_id"] == "parent-1"
+    assert (
+        recorder._normalize_event_data("mcp.orchestrate.worker", {"message": "worker_detail"})
+        == {}
+    )
+    done_data = recorder._normalize_event_data("mcp.done", {"answer": "ok"})
+    assert done_data["worker_id"] == "worker-7"
 
 
 def test_tool_handler_returns_answer_and_traces_json() -> None:

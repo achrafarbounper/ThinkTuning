@@ -57,6 +57,20 @@ describe("parseSseData", () => {
   it("lève McpTransportError sur un flux sans data:", () => {
     expect(() => parseSseData(": ping\n\n")).toThrow(McpTransportError);
   });
+
+  it("ignore la sentinelle data: [DONE] qui clôt le flux (P0 SCRUM-151)", () => {
+    const body = 'event: message\ndata: {"ok":true}\n\ndata: [DONE]\n\n';
+    expect(parseSseData(body)).toBe('{"ok":true}');
+  });
+
+  it("arrête la lecture à la sentinelle [DONE] (données post-[DONE] ignorées)", () => {
+    const body = 'data: {"a":1}\ndata: [DONE]\ndata: {"b":2}\n\n';
+    expect(parseSseData(body)).toBe('{"a":1}');
+  });
+
+  it("n'accepte pas un flux réduit à la sentinelle [DONE]", () => {
+    expect(() => parseSseData("data: [DONE]\n\n")).toThrow(McpTransportError);
+  });
 });
 
 describe("McpSseClient.call", () => {
@@ -137,6 +151,24 @@ describe("McpSseClient.call", () => {
     expect(err.status).toBe(0);
     expect(err.message).toContain("dépassé le délai");
     vi.useRealTimers();
+  });
+
+  it("décode initialize/ping/tools/list quand le flux se termine par data: [DONE]", async () => {
+    // P0 (SCRUM-151) : le serveur MCP termine TOUT flux par la sentinelle —
+    // elle ne doit jamais casser le décodage JSON-RPC du transport.
+    fetchMock.mockImplementation(
+      () =>
+        new Response(
+          'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"tools":[]}}\n\ndata: [DONE]\n\n',
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new McpSseClient({ baseUrl: "http://api" });
+    await expect(client.initialize()).resolves.toEqual({ tools: [] });
+    await expect(client.ping()).resolves.toEqual({ tools: [] });
+    await expect(client.listTools()).resolves.toEqual([]);
   });
 });
 
@@ -629,5 +661,99 @@ describe("orchestrateViaMcpStream", () => {
         { baseUrl: "http://api" },
       ),
     ).rejects.toThrow(/L'agent MCP a échoué/);
+  });
+
+  it("transmet run_id / resume_request_id / task_id (reprise ciblée) au transport", async () => {
+    // P0 (SCRUM-151) : les trois identifiants de reprise sont indépendants et
+    // transmis tels quels au tool orchestrate.
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ answer: "Run repris.", status: "completed" }),
+        }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: message",
+        `data: ${JSON.stringify(rpc)}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await orchestrateViaMcpStream(
+      {
+        prompt: "Reprends",
+        mode: "multi_agent",
+        run_id: "run-77",
+        resume_request_id: "req-1",
+        task_id: "t1",
+      },
+      () => undefined,
+      { baseUrl: "http://api" },
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    const sent = JSON.parse(init.body as string);
+    expect(sent.params.arguments).toMatchObject({
+      run_id: "run-77",
+      resume_request_id: "req-1",
+      task_id: "t1",
+    });
+  });
+
+  it("préserve awaiting_approval avec request_id (demande) ≠ run_id (run)", async () => {
+    // La carte de validation s'appuie sur request_id ; la relance post-
+    // approbation réutilise run_id — les deux doivent traverser intacts.
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            answer: "En attente de validation humaine.",
+            status: "awaiting_approval",
+            awaiting_approval: true,
+            request_id: "req-1",
+            run_id: "run-77",
+            task_id: "t1",
+            approval: { tool: "write_file", args: {}, reason: "validation humaine requise" },
+          }),
+        }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: message",
+        `data: ${JSON.stringify(rpc)}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await orchestrateViaMcpStream(
+      { prompt: "Écris le fichier", mode: "mono_agent" },
+      () => undefined,
+      { baseUrl: "http://api" },
+    );
+    expect(result.awaiting_approval).toBe(true);
+    expect(result.request_id).toBe("req-1");
+    expect(result.run_id).toBe("run-77");
+    expect(result.run_id).not.toBe(result.request_id);
+    expect(result.task_id).toBe("t1");
+    expect(result.approval?.tool).toBe("write_file");
   });
 });

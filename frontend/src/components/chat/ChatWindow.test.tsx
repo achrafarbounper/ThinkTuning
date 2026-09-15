@@ -385,4 +385,85 @@ describe('ChatWindow - sélecteur d’orchestration MCP', () => {
     ).toBeInTheDocument();
     expect(await screen.findByText('Résultats collectés avant la deadline')).toBeInTheDocument();
   });
+
+  it('affiche la carte d’approbation MCP puis relance le MÊME run après validation', async () => {
+    // P0 (SCRUM-151) : la carte apparaît (request_id ≠ run_id) et l'approbation
+    // relance orchestrateViaMcpStream avec resume_request_id + run_id + task_id.
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/chat/models')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ models: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      if (url.endsWith('/api/v1/sessions')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ sessions: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      if (url.endsWith('/api/v1/agent/approvals/req-1/approve')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 'approved' }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+
+    orchestrateViaMcpStreamMock
+      .mockImplementationOnce(async () => ({
+        answer: 'En attente de validation humaine.',
+        status: 'awaiting_approval',
+        awaiting_approval: true,
+        request_id: 'req-1',
+        run_id: 'run-77',
+        task_id: 't1',
+        approval: {
+          tool: 'write_file',
+          args: { path: 'x' },
+          reason: 'validation humaine requise',
+        },
+      }))
+      .mockImplementationOnce(async () => ({
+        answer: 'Run repris et terminé.',
+        status: 'completed',
+        run_id: 'run-77',
+      }));
+
+    render(<ChatWindow />);
+    fireEvent.click(screen.getByRole('button', { name: /^MCP$/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Votre message' }), {
+      target: { value: 'Écris le fichier' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Envoyer' }));
+
+    // Carte de validation HITL affichée sur la première réponse MCP.
+    expect(await screen.findByText('Validation requise')).toBeInTheDocument();
+    expect(screen.getByText(/Approuver et exécuter/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Approuver/ }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/agent/approvals/req-1/approve'),
+        expect.anything(),
+      ),
+    );
+    // Le MÊME run est relancé : resume_request_id (demande approuvée) ET
+    // run_id (run durable) sont transmis ensemble — identifiants distincts.
+    await waitFor(() => expect(orchestrateViaMcpStreamMock).toHaveBeenCalledTimes(2));
+    expect(orchestrateViaMcpStreamMock.mock.calls[1][0]).toMatchObject({
+      prompt: 'Écris le fichier',
+      resume_request_id: 'req-1',
+      run_id: 'run-77',
+      task_id: 't1',
+    });
+    expect(await screen.findByText('Run repris et terminé.')).toBeInTheDocument();
+  });
 });

@@ -1287,6 +1287,9 @@ const base = resolveBaseUrl();
       assistantId: string,
       prompt: string,
       controller: AbortController,
+      resumeRequestId?: string,
+      runId?: string,
+      taskId?: string,
     ): Promise<void> => {
       let streamedFinalAnswer = false;
       // Résumés des workers (agent.worker.result) : repli P1 si la réponse
@@ -1301,6 +1304,12 @@ const base = resolveBaseUrl();
           model: selectedModel || undefined,
           parallel: mcpAgentMode === 'multi_agent',
           event_granularity: 'summary',
+          // P0 (SCRUM-151) — reprise ciblée : resume_request_id (demande
+          // d'approbation APPROUVÉE) + run_id (run durable) + task_id
+          // (sous-tâche bloquée). Les trois sont INDÉPENDANTS.
+          ...(resumeRequestId ? { resume_request_id: resumeRequestId } : {}),
+          ...(runId ? { run_id: runId } : {}),
+          ...(taskId ? { task_id: taskId } : {}),
         },
         (event) => {
           if (event.thinking_delta) {
@@ -1500,7 +1509,8 @@ const base = resolveBaseUrl();
       // Run en attente d'une décision humaine (policy APPROVE, cf. MCP_SECURITY) :
       // la carte de validation s'affiche — l'approbation passe par le canal HTTP
       // whitelisté (/api/v1/agent/approvals → approve) qui n'est PAS bloqué par
-      // MCP_FIRST (c'est lui qui débloque les runs MCP en pending_approval).
+      // MCP_FIRST ; la relance réutilise ensuite resume_request_id ET run_id
+      // (deux identifiants distincts — P0 SCRUM-151) pour reprendre le MÊME run.
       if (result.awaiting_approval && result.request_id) {
         setPendingApproval({
           requestId: result.request_id,
@@ -1509,6 +1519,8 @@ const base = resolveBaseUrl();
           reason: result.approval?.reason ?? 'validation humaine requise',
           args: result.approval?.args as Record<string, unknown> | undefined,
           origin: 'mcp',
+          runId: result.run_id,
+          taskId: result.task_id,
         });
         return;
       }
@@ -1757,10 +1769,18 @@ const base = resolveBaseUrl();
       if (pendingApproval.origin === 'multi') {
         await askMultiAgentTurn(assistantId, prompt, controller, requestId);
       } else if (pendingApproval.origin === 'mcp') {
-        patchMessage(assistantId, {
-          content: `[Action approuvée] « ${pendingApproval.tool} » a été autorisée : le run MCP reprend côté serveur (le résultat complet est disponible dans l'historique des runs).`,
-          streaming: false,
-        });
+        // P0 (SCRUM-151) : REPRISE RÉELLE du MÊME run MCP — resume_request_id
+        // (demande approuvée, empreinte revérifiée côté serveur) + run_id
+        // (run durable) + task_id (sous-tâche bloquée). La bulle est alimentée
+        // par la suite du run (événements SSE + réponse finale).
+        await askMcpTurn(
+          assistantId,
+          prompt,
+          controller,
+          requestId,
+          pendingApproval.runId,
+          pendingApproval.taskId,
+        );
       } else {
         await askCoreTurn(assistantId, prompt, controller, requestId);
       }
@@ -1779,7 +1799,7 @@ const base = resolveBaseUrl();
       setIsLoading(false);
       abortRef.current = null;
     }
-  }, [pendingApproval, isLoading, askCoreTurn, askMultiAgentTurn, flushStreamBuffer, patchMessage]);
+  }, [pendingApproval, isLoading, askCoreTurn, askMultiAgentTurn, askMcpTurn, flushStreamBuffer, patchMessage]);
 
   /**
    * Décision humaine : REFUSER une action en attente. Aucune exécution ; un

@@ -117,13 +117,19 @@ interface JsonRpcResponse<T = unknown> {
  * `POST /mcp/sse`. Tolérant : lignes de garde (`: ping`) des notifications,
  * champs `event:`/`id:` ignorés, plusieurs lignes `data:` concaténées avec
  * « \n » (spécification SSE — même convention que streamSse.ts).
+ *
+ * Sentinelle de terminaison MCP : une ligne `data: [DONE]` clôt le flux —
+ * elle est ignorée (et interrompt la lecture) au lieu d'être concaténée au
+ * JSON, ce qui rendait `JSON.parse` impossible pour initialize / ping /
+ * tools/list (P0 — SCRUM-151).
  */
 export function parseSseData(body: string): string {
   const dataLines: string[] = [];
   for (const rawLine of body.split(/\r?\n/)) {
-    if (rawLine.startsWith('data:')) {
-      dataLines.push(rawLine.startsWith('data: ') ? rawLine.slice(6) : rawLine.slice(5));
-    }
+    if (!rawLine.startsWith('data:')) continue;
+    const value = rawLine.startsWith('data: ') ? rawLine.slice(6) : rawLine.slice(5);
+    if (value.trim() === '[DONE]') break;
+    dataLines.push(value);
   }
   if (dataLines.length === 0) {
     throw new McpTransportError(
@@ -393,8 +399,14 @@ export interface OrchestrateMcpResult {
   rounds_used?: number;
   tool_calls_used?: number;
   awaiting_approval?: boolean;
+  /** DEMANDE d'approbation (POST /api/agent/approvals/{id}/…). */
   request_id?: string;
+  /** Décision structurée du gate (outil, args, motif). */
   approval?: { tool?: string; reason?: string; args?: unknown };
+  /** Identifiant DURABLE du run — DISTINCT de request_id (P0 SCRUM-151). */
+  run_id?: string;
+  /** Sous-tâche (worker) en attente — reprise ciblée. */
+  task_id?: string;
   orchestration?: {
     mode?: string;
     event?: string;
@@ -416,7 +428,12 @@ export interface OrchestrateMcpArgs {
   model?: string;
   parallel?: boolean;
   event_granularity?: 'minimal' | 'summary' | 'verbose';
+  /** Identifiant de la DEMANDE D'APPROBATION approuvée à rejouer. */
   resume_request_id?: string;
+  /** Identifiant DURABLE du run à reprendre (distinct de resume_request_id). */
+  run_id?: string;
+  /** Sous-tâche (worker) à reprendre ciblée (reprise déclarative). */
+  task_id?: string;
 }
 
 export interface OrchestrateMcpStreamEvent {
