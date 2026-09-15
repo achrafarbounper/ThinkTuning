@@ -1262,6 +1262,10 @@ const base = resolveBaseUrl();
           prompt,
           session_id: sessionId || undefined,
           enable_thinking: enableThinking,
+          mode: 'multi_agent',
+          model: selectedModel || undefined,
+          parallel: true,
+          event_granularity: 'summary',
         },
         (event) => {
           if (event.thinking_delta) {
@@ -1293,6 +1297,73 @@ const base = resolveBaseUrl();
                     ? toolEvent.duration_ms
                     : undefined,
               });
+            }
+          }
+          const multiEvent = event.multi_agent;
+          if (multiEvent) {
+            const eventName = String(multiEvent.event ?? '');
+            if (
+              eventName === 'agent.worker.thinking' &&
+              typeof multiEvent.thinking === 'string'
+            ) {
+              appendThinkingDelta(assistantId, multiEvent.thinking);
+            }
+            const taskId = typeof multiEvent.task_id === 'string'
+              ? multiEvent.task_id
+              : typeof multiEvent.worker_id === 'string'
+                ? multiEvent.worker_id
+                : undefined;
+            if (
+              eventName === 'orchestrate.start' ||
+              eventName === 'orchestrate.started' ||
+              eventName === 'orchestrate.lead' ||
+              eventName === 'agent.plan'
+            ) {
+              const plan = multiEvent.plan;
+              if (Array.isArray(plan)) {
+                setMultiPlan(assistantId, plan as MultiAgentPlanTask[]);
+              }
+            } else if (
+              (
+                eventName === 'orchestrate.worker' ||
+                eventName === 'agent.worker.start' ||
+                eventName === 'agent.worker.result' ||
+                eventName === 'agent.worker.error' ||
+                eventName === 'agent.worker.approval'
+              ) &&
+              taskId
+            ) {
+              const status = String(multiEvent.status ?? 'running');
+              const workerStatus: MultiAgentWorkerState['status'] =
+                status === 'error' || status === 'failed'
+                  ? 'error'
+                  : status === 'ok' || status === 'completed'
+                    ? 'ok'
+                    : status === 'awaiting_approval'
+                      ? 'awaiting_approval'
+                      : 'running';
+              const existing = messagesRef.current
+                .find((message) => message.id === assistantId)
+                ?.multiWorkers?.some((worker) => worker.task_id === taskId);
+              if (!existing) {
+                startMultiWorker(assistantId, {
+                  task_id: taskId,
+                  role: String(multiEvent.role ?? multiEvent.worker_id ?? 'worker'),
+                  subtask: typeof multiEvent.subtask === 'string' ? multiEvent.subtask : undefined,
+                  status: workerStatus,
+                });
+              } else if (workerStatus !== 'running') {
+                completeMultiWorker(
+                  assistantId,
+                  taskId,
+                  {
+                    summary: typeof multiEvent.summary === 'string' ? multiEvent.summary : undefined,
+                    message: typeof multiEvent.message === 'string' ? multiEvent.message : undefined,
+                    durationMs: typeof multiEvent.duration_ms === 'number' ? multiEvent.duration_ms : undefined,
+                  },
+                  workerStatus,
+                );
+              }
             }
           }
         },
@@ -1334,11 +1405,15 @@ const base = resolveBaseUrl();
       appendThinkingDelta,
       appendToolCall,
       completeToolCall,
+      completeMultiWorker,
       config.apiKey,
       enableThinking,
       flushStreamBuffer,
       patchMessage,
+      setMultiPlan,
       sessionId,
+      startMultiWorker,
+      selectedModel,
     ],
   );
 

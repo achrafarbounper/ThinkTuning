@@ -238,6 +238,66 @@ describe("orchestrateViaMcp", () => {
 });
 
 describe("orchestrateViaMcpStream", () => {
+  it("transmet le mode multi-agent et relaie les événements workers MCP", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            answer: "Réponse multi-agent",
+            status: "success",
+            plan: [{ task_id: "t1", role: "analyst", subtask: "Analyser" }],
+            workers: [{ task_id: "t1", role: "analyst", status: "completed" }],
+          }),
+        }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        'event: orchestrate.worker',
+        'data: {"event":"orchestrate.worker","worker_id":"t1","status":"completed"}',
+        '',
+        'event: orchestrate.done',
+        `data: ${JSON.stringify(rpc)}`,
+        '',
+        'data: [DONE]',
+        '',
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events: Array<Record<string, unknown>> = [];
+    await orchestrateViaMcpStream(
+      {
+        prompt: "Analyse",
+        mode: "multi_agent",
+        parallel: true,
+        event_granularity: "summary",
+      },
+      (event) => events.push(event as Record<string, unknown>),
+      { baseUrl: "http://api" },
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    const sent = JSON.parse(init.body as string);
+    expect(sent.params.arguments).toMatchObject({
+      mode: "multi_agent",
+      parallel: true,
+      event_granularity: "summary",
+    });
+    expect(events[0]).toEqual({
+      multi_agent: {
+        event: "orchestrate.worker",
+        worker_id: "t1",
+        status: "completed",
+      },
+    });
+  });
+
   it("normalise la réflexion et le payload core_tool du flux MCP", async () => {
     const rpc = {
       jsonrpc: "2.0",

@@ -58,6 +58,7 @@ from app.infrastructure.mcp.mcp_flow import (
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.tools.orchestrate_tool import (
     _result_to_text,
+    orchestrate_multi_agent,
     orchestrate_stream,
 )
 from app.infrastructure.persistence.audit_store import ACT_MCP_ORCHESTRATE
@@ -264,13 +265,37 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
                 recorder.record_tool(dict(data))
 
         try:
-            result = orchestrate_stream(
-                str(arguments.get("prompt") or ""),
-                session_id=str(arguments.get("session_id") or "default"),
-                scope=str(arguments.get("scope") or "default"),
-                enable_thinking=bool(arguments.get("enable_thinking")),
-                on_event=relay,
-            )
+            prompt = str(arguments.get("prompt") or "")
+            session_id = str(arguments.get("session_id") or "default")
+            scope = str(arguments.get("scope") or "default")
+            if str(arguments.get("mode") or "mono_agent") == "multi_agent":
+                result_text = json.dumps(
+                    orchestrate_multi_agent(
+                        prompt,
+                        session_id=session_id,
+                        scope=scope,
+                        model=str(arguments["model"]) if arguments.get("model") else None,
+                        parallel=bool(arguments.get("parallel")),
+                        enable_thinking=bool(arguments.get("enable_thinking")),
+                        event_granularity=str(arguments.get("event_granularity") or "summary"),
+                        resume_request_id=(
+                            str(arguments["resume_request_id"])
+                            if arguments.get("resume_request_id")
+                            else None
+                        ),
+                        on_event=relay,
+                    ),
+                    ensure_ascii=False,
+                )
+            else:
+                result = orchestrate_stream(
+                    prompt,
+                    session_id=session_id,
+                    scope=scope,
+                    enable_thinking=bool(arguments.get("enable_thinking")),
+                    on_event=relay,
+                )
+                result_text = _result_to_text(result)
             if recorder is not None:
                 pending = getattr(result, "awaiting_action", None)
                 if pending is not None:
@@ -279,7 +304,6 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
                         message="Policy : validation humaine requise",
                     )
                 recorder.finish_from_result(result)
-            result_text = _result_to_text(result)
             rpc = {
                 "jsonrpc": "2.0",
                 "id": request_id,

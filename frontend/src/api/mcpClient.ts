@@ -401,12 +401,18 @@ export interface OrchestrateMcpArgs {
   session_id?: string;
   scope?: string;
   enable_thinking?: boolean;
+  mode?: 'mono_agent' | 'multi_agent';
+  model?: string;
+  parallel?: boolean;
+  event_granularity?: 'minimal' | 'summary' | 'verbose';
+  resume_request_id?: string;
 }
 
 export interface OrchestrateMcpStreamEvent {
   thinking_delta?: string;
   delta?: string;
   tool?: Record<string, unknown>;
+  multi_agent?: Record<string, unknown>;
   rpc?: JsonRpcResponse;
 }
 
@@ -487,6 +493,21 @@ export async function orchestrateViaMcpStream(
           : payload;
       onEvent({ tool: coreTool });
     } else if (
+      event.event === 'orchestrate.start' ||
+      event.event === 'orchestrate.started' ||
+      event.event === 'orchestrate.lead' ||
+      event.event === 'orchestrate.worker' ||
+      event.event === 'orchestrate.synthesis' ||
+      event.event === 'agent.plan' ||
+      event.event === 'agent.worker.start' ||
+      event.event === 'agent.worker.result' ||
+      event.event === 'agent.worker.error' ||
+      event.event === 'agent.worker.approval' ||
+      event.event === 'agent.worker.thinking' ||
+      event.event === 'checkpoint_recovered'
+    ) {
+      onEvent({ multi_agent: payload });
+    } else if (
       event.event === 'orchestrate.done' ||
       event.event === 'orchestrate.error' ||
       event.event === 'message'
@@ -497,7 +518,12 @@ export async function orchestrateViaMcpStream(
 
     // Let the chat paint each reasoning/tool frame before the next buffered
     // network frame (and especially before the final JSON-RPC response).
-    if (event.event === 'orchestrate.thinking' || event.event === 'orchestrate.tool') {
+    if (
+      event.event === 'orchestrate.thinking' ||
+      event.event === 'orchestrate.tool' ||
+      event.event === 'orchestrate.worker' ||
+      event.event === 'orchestrate.synthesis'
+    ) {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     }
   }
