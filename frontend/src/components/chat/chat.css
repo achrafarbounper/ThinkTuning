@@ -55,6 +55,7 @@
 
 .copilot-chat__header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
@@ -91,6 +92,7 @@
 .copilot-chat__actions {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-left: auto;
@@ -693,7 +695,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--chat-muted);
+  color: var(--chat-text-muted);
   font-size: 12px;
 }
 
@@ -709,6 +711,12 @@
   border: 1px solid var(--chat-border);
   border-radius: 6px;
   font: inherit;
+  cursor: pointer;
+}
+
+.copilot-chat__mcp-mode select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .copilot-chat__think-toggle svg {
