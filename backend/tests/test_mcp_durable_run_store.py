@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -169,7 +169,7 @@ def test_adapter_rejects_resume_with_different_request_context(tmp_path) -> None
             MCPOrchestrationRequest.from_values(
                 prompt="hello",
                 scope="restricted",
-                resume_request_id=original.run_id,
+                run_id=original.run_id,
             )
         )
 
@@ -202,11 +202,13 @@ def test_adapter_resumes_same_context_and_increments_retry_count(tmp_path) -> No
     assert first.status == "partial_success"
     assert first.run_id is not None
 
+    # P0 (SCRUM-151) : la reprise ciblée passe par `run_id` (identifiant
+    # DURABLE du run) — jamais par `resume_request_id` (demande d'approbation).
     resumed = adapter.run(
         MCPOrchestrationRequest.from_values(
             prompt="hello",
             scope="lead",
-            resume_request_id=first.run_id,
+            run_id=first.run_id,
         )
     )
     assert resumed.status == "success"
@@ -220,6 +222,101 @@ def test_adapter_resumes_same_context_and_increments_retry_count(tmp_path) -> No
         if event["event"] == "checkpoint_recovered"
     ]
     assert recovery_events[0]["retry_count"] == 1
+
+
+def test_adapter_resume_request_id_does_not_resume_durable_run(tmp_path) -> None:
+    """Découplage run_id / resume_request_id : reprendre sur une DEMANDE
+    d'approbation ne doit NI retrouver NI créer un run nommé d'après elle —
+    un NOUVEAU run durable est créé (comportement du bug SCRUM-151)."""
+
+    class FakeOrchestrator:
+        def run(self, prompt, **kwargs):
+            return {
+                "answer": "ok",
+                "lead": {"status": "completed"},
+                "synthesis": {"status": "completed"},
+            }
+
+    store = MCPDurableRunStore(tmp_path / "mcp-runs.db")
+    adapter = MultiAgentMCPAdapter(FakeOrchestrator(), store)
+    first = adapter.run(MCPOrchestrationRequest.from_values(prompt="hello"))
+    assert first.run_id is not None
+
+    second = adapter.run(
+        MCPOrchestrationRequest.from_values(
+            prompt="hello",
+            resume_request_id="approval-req-1",
+        )
+    )
+    assert second.run_id is not None
+    assert second.run_id != first.run_id
+    assert second.run_id != "approval-req-1"
+
+
+def test_adapter_persists_awaiting_approval_and_resumes_same_run(tmp_path) -> None:
+    """HITL multi-agent : le run passe en ``awaiting_approval`` (non terminal)
+    puis la reprise ciblée (run_id + resume_request_id) réutilise le MÊME
+    run_id avec retry_count incrémenté."""
+
+    class ApprovalOrchestrator:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def run(self, prompt, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "answer": "En attente de validation humaine.",
+                    "lead": {"status": "completed"},
+                    "workers": [{
+                        "id": "w1",
+                        "status": "awaiting_approval",
+                        "request_id": "req-1",
+                        "task_id": "t1",
+                        "approval": {
+                            "request_id": "req-1",
+                            "tool": "write_file",
+                            "args": {},
+                        },
+                    }],
+                    "synthesis": {"status": "pending"},
+                }
+            return {
+                "answer": "complete",
+                "lead": {"status": "completed"},
+                "workers": [{"id": "w1", "status": "completed"}],
+                "synthesis": {"status": "completed"},
+            }
+
+    store = MCPDurableRunStore(tmp_path / "mcp-runs.db")
+    adapter = MultiAgentMCPAdapter(ApprovalOrchestrator(), store)
+    first = adapter.run(MCPOrchestrationRequest.from_values(prompt="hello"))
+    assert first.status == "awaiting_approval"
+    assert first.awaiting_approval is True
+    assert first.request_id == "req-1"
+    assert first.task_id == "t1"
+    assert first.run_id is not None
+    # Découplage : l'identifiant durable n'est PAS l'identifiant d'approbation.
+    assert first.run_id != first.request_id
+    persisted = store.get(first.run_id)
+    assert persisted is not None
+    assert persisted.state == "awaiting_approval"
+    assert persisted.is_resumable
+
+    resumed = adapter.run(
+        MCPOrchestrationRequest.from_values(
+            prompt="hello",
+            run_id=first.run_id,
+            resume_request_id="req-1",
+            task_id="t1",
+        )
+    )
+    assert resumed.status == "success"
+    assert resumed.run_id == first.run_id
+    persisted = store.get(first.run_id)
+    assert persisted is not None
+    assert persisted.state == "completed"
+    assert persisted.retry_count == 1
 
 
 def test_adapter_persists_failure_without_masking_original_error(tmp_path) -> None:

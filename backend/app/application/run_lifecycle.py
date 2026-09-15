@@ -114,7 +114,12 @@ def make_approval_gateway(resume_hash: str | None) -> Callable[[Any], bool]:
 
 def create_approval_request(approval_store: Any, action: Any, prompt: str) -> dict:
     """Persiste une demande d'approbation pour l'action en attente et renvoie
-    le payload IHM ``{"request_id", "tool", "args"}``."""
+    le payload IHM ``{"request_id", "tool", "args"}``.
+
+    Tolérant au backend : ``MongoApprovalStore.create`` renvoie un dict, tandis
+    que ``ApprovalStore.create`` (SQLite) renvoie l'identifiant en ``str`` —
+    les deux contrats produisent le même payload (P0 — SCRUM-151).
+    """
     record = approval_store.create(
         action.tool,
         action.args,
@@ -124,8 +129,12 @@ def create_approval_request(approval_store: Any, action: Any, prompt: str) -> di
         prompt=prompt,
         args_hash=action.fingerprint(),
     )
+    if isinstance(record, str):
+        request_id: Any = record
+    else:
+        request_id = record.get("request_id") or record.get("id")
     return {
-        "request_id": record.get("request_id") or record.get("id"),
+        "request_id": request_id,
         "tool": action.tool,
         "args": action.args,
     }

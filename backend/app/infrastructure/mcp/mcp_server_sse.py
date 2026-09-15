@@ -47,7 +47,6 @@ from starlette.responses import Response
 
 from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
-from app.domain.ports import normalize_mcp_event_granularity
 from app.domain.ports.mcp_ports import MCPDurableRunStorePort
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_flow import (
@@ -61,6 +60,7 @@ from app.infrastructure.mcp.tools.orchestrate_tool import (
     _result_to_text,
     orchestrate_multi_agent,
     orchestrate_stream,
+    resolve_orchestration,
 )
 from app.infrastructure.persistence.audit_store import ACT_MCP_ORCHESTRATE
 from app.infrastructure.security.api_key import is_valid_api_key
@@ -256,9 +256,12 @@ async def _stream_orchestrate(
     arguments = dict(params.get("arguments") or {})
     arguments.pop("stream", None)
     try:
-        event_granularity = normalize_mcp_event_granularity(
-            arguments.get("event_granularity", "summary")
-        )
+        # P0 (SCRUM-151) : décision d'orchestration MUTUALISÉE — le chemin
+        # stream consomme exactement la même résolution que le handler du tool
+        # (mode, garde MCP_MULTI_AGENT_ENABLED, WorkerScopePolicy, granularité,
+        # découplage run_id / resume_request_id). Toute décision divergente
+        # stream vs non-stream est dès lors impossible par construction.
+        resolution = resolve_orchestration(arguments)
     except ValueError as exc:
         yield _sse_event(
             "orchestrate.error",
@@ -319,23 +322,26 @@ async def _stream_orchestrate(
 
         try:
             prompt = str(arguments.get("prompt") or "")
-            session_id = str(arguments.get("session_id") or "default")
-            scope = str(arguments.get("scope") or "default")
             result: Any
-            if str(arguments.get("mode") or "mono_agent") == "multi_agent":
+            approval_payload: dict[str, Any] | None = None
+            approval_request_id: str | None = None
+            if resolution.fallback is not None:
+                # Repli mono-agent EXPLICITE : émis comme notice dédiée —
+                # l'UI ne doit JAMAIS l'interpréter comme une réussite
+                # multi-agent (invariant docs/mcp/MULTI_AGENT_SSE_FLOW.md §2.3).
+                emit("orchestration_fallback", dict(resolution.fallback))
+            if resolution.mode == "multi_agent":
                 multi_agent_result = orchestrate_multi_agent(
                     prompt,
-                    session_id=session_id,
-                    scope=scope,
-                    model=str(arguments["model"]) if arguments.get("model") else None,
-                    parallel=bool(arguments.get("parallel")),
-                    enable_thinking=bool(arguments.get("enable_thinking")),
-                    event_granularity=str(arguments.get("event_granularity") or "summary"),
-                    resume_request_id=(
-                        str(arguments["resume_request_id"])
-                        if arguments.get("resume_request_id")
-                        else None
-                    ),
+                    session_id=resolution.session_id,
+                    scope=resolution.scope,
+                    model=resolution.model,
+                    parallel=resolution.parallel,
+                    enable_thinking=resolution.enable_thinking,
+                    event_granularity=resolution.event_granularity,
+                    run_id=resolution.run_id,
+                    resume_request_id=resolution.resume_request_id,
+                    task_id=resolution.task_id,
                     on_event=relay,
                 )
                 result_text = json.dumps(
@@ -343,21 +349,44 @@ async def _stream_orchestrate(
                     ensure_ascii=False,
                 )
                 result = multi_agent_result
+                if result.get("awaiting_approval"):
+                    approval_payload = dict(result.get("approval") or {}) or None
+                    approval_request_id = result.get("request_id")
             else:
-                result = orchestrate_stream(
+                outcome = orchestrate_stream(
                     prompt,
-                    session_id=session_id,
-                    scope=scope,
-                    enable_thinking=bool(arguments.get("enable_thinking")),
+                    session_id=resolution.session_id,
+                    scope=resolution.scope,
+                    enable_thinking=resolution.enable_thinking,
                     on_event=relay,
+                    resume_request_id=resolution.resume_request_id,
                 )
-                result_text = _result_to_text(result)
+                # Tolérance de contrat : ``orchestrate_stream`` renvoie un
+                # ``MonoAgentOutcome`` (nouveau) ou un ``AgentRunResult`` brut
+                # (compat. historique / tests) — le transport supporte les deux.
+                mono_result = getattr(outcome, "result", outcome)
+                result = mono_result
+                approval_payload = getattr(outcome, "approval", None)
+                approval_request_id = (approval_payload or {}).get("request_id")
+                result_text = _result_to_text(
+                    mono_result,
+                    approval=approval_payload,
+                    run_id=resolution.run_id,
+                    orchestration=resolution.fallback,
+                )
             if recorder is not None:
                 pending = getattr(result, "awaiting_action", None)
                 if pending is not None:
                     recorder.record_approval(
                         tool=str(getattr(pending, "tool", "") or ""),
                         message="Policy : validation humaine requise",
+                        request_id=approval_request_id,
+                    )
+                elif approval_payload is not None:
+                    recorder.record_approval(
+                        tool=str(approval_payload.get("tool") or ""),
+                        message="Policy : validation humaine requise",
+                        request_id=approval_request_id,
                     )
                 recorder.finish_from_result(result)
             rpc = {
@@ -371,7 +400,15 @@ async def _stream_orchestrate(
             audit_mcp_call(
                 ACT_MCP_ORCHESTRATE,
                 subject=client_id,
-                detail={"method": "tools/call", "tool": "orchestrate", "is_error": False},
+                detail={
+                    "method": "tools/call",
+                    "tool": "orchestrate",
+                    "is_error": False,
+                    "mode": resolution.mode,
+                    "requested_mode": resolution.requested_mode,
+                    "fallback_reason": (resolution.fallback or {}).get("reason"),
+                    "run_id": resolution.run_id,
+                },
                 run_id=str(request_id) if request_id is not None else None,
             )
             events.put(("orchestrate.done", rpc))
@@ -460,7 +497,7 @@ async def _stream_orchestrate(
             kind, data = item
             if kind in _TERMINAL_SSE_KINDS:
                 final_emitted = True
-            if not _event_allowed_for_sse(kind, event_granularity):
+            if not _event_allowed_for_sse(kind, resolution.event_granularity):
                 continue
             if kind == "orchestrate.tool":
                 yield _sse_event(kind, {"core_tool": data, **data})

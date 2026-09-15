@@ -85,13 +85,16 @@ class MultiAgentMCPAdapter:
         durable_state = self._prepare_durable_state(request)
         logger.info(
             "MCP multi-agent run démarré : run_id=%s session=%s model=%s "
-            "parallel=%s thinking=%s resume=%s granularity=%s durable=%s",
+            "parallel=%s thinking=%s resume_run=%s approval=%s task=%s "
+            "granularity=%s durable=%s",
             durable_state.run_id,
             request.session_id,
             request.model,
             request.parallel,
             request.enable_thinking,
+            bool(request.run_id),
             bool(request.resume_request_id),
+            request.task_id,
             request.event_granularity,
             self._durable_store is not None,
         )
@@ -146,13 +149,16 @@ class MultiAgentMCPAdapter:
             if on_event is not None:
                 on_event(kind, event)
 
-        if request.resume_request_id:
+        if request.run_id:
             logger.info(
-                "MCP multi-agent reprise : run_id=%s retry=%d checkpoint=%s phase=%s",
+                "MCP multi-agent reprise : run_id=%s retry=%d checkpoint=%s phase=%s "
+                "approval=%s task=%s",
                 parent_task_id,
                 durable_state.retry_count,
                 durable_state.checkpoint,
                 durable_state.phase,
+                request.resume_request_id,
+                request.task_id,
             )
             recovery_event = normalize_mcp_event(
                 {
@@ -199,16 +205,27 @@ class MultiAgentMCPAdapter:
             if self._durable_store is not None:
                 for event in normalized.events:
                     self._durable_store.append_event(parent_task_id, event)
-                final_state = (
-                    "partial_success"
-                    if normalized.status == "partial_success"
-                    else ("failed" if normalized.status == "failed" else "completed")
-                )
+                # P0 (SCRUM-151) : un run suspendu à une validation humaine est
+                # NON terminal (awaiting_approval) — il reste reprenable avec le
+                # MÊME run_id après approbation. Le confondre avec "completed"
+                # rendait toute reprise impossible ("run is terminal").
+                if normalized.awaiting_approval:
+                    final_state = "awaiting_approval"
+                    final_phase = "worker"
+                    final_checkpoint = "workers_running"
+                else:
+                    final_state = (
+                        "partial_success"
+                        if normalized.status == "partial_success"
+                        else ("failed" if normalized.status == "failed" else "completed")
+                    )
+                    final_phase = normalized.failure_phase or "synthesis"
+                    final_checkpoint = "completed"
                 durable_state = self._durable_store.transition(
                     durable_state.run_id,
                     final_state,
-                    phase=normalized.failure_phase or "synthesis",
-                    checkpoint="completed",
+                    phase=final_phase,
+                    checkpoint=final_checkpoint,
                     failure_phase=normalized.failure_phase,
                     worker_errors=normalized.worker_errors,
                 )
@@ -308,24 +325,36 @@ class MultiAgentMCPAdapter:
         self,
         request: MCPOrchestrationRequest,
     ) -> MCPDurableRunState:
+        """Résout l'état durable du run.
+
+        DÉCOUPLAGE (P0 — SCRUM-151) : la reprise durable se fait EXCLUSIVEMENT
+        sur ``request.run_id``. ``request.resume_request_id`` désigne une
+        demande d'approbation AgentCore (« puis-je exécuter l'action
+        approuvée ? ») et n'identifie jamais un run durable. Mélanger les deux
+        rendait toute approbation HITL inutilisable : le run était introuvable
+        dans le store (ou pire, un run nommé d'après une demande
+        d'approbation était créé).
+        """
         fingerprint = self._request_fingerprint(request)
         if self._durable_store is None:
+            # Sans store durable, aucun identifiant de run n'est persisté : on
+            # n'invente PAS un run_id à partir de la demande d'approbation.
             return MCPDurableRunState(
-                run_id=request.resume_request_id or request.session_id,
+                run_id=request.run_id or request.session_id,
                 request_fingerprint=fingerprint,
             )
-        if request.resume_request_id:
-            existing = self._durable_store.get(request.resume_request_id)
+        if request.run_id:
+            existing = self._durable_store.get(request.run_id)
             if existing is None:
-                raise ValueError(f"unknown durable MCP run {request.resume_request_id!r}")
+                raise ValueError(f"unknown durable MCP run {request.run_id!r}")
             if existing.is_terminal:
-                raise ValueError(f"durable MCP run {request.resume_request_id!r} is terminal")
+                raise ValueError(f"durable MCP run {request.run_id!r} is terminal")
             if (
                 existing.request_fingerprint is not None
                 and existing.request_fingerprint != fingerprint
             ):
                 raise ValueError(
-                    f"resume context mismatch for durable MCP run {request.resume_request_id!r}"
+                    f"resume context mismatch for durable MCP run {request.run_id!r}"
                 )
             return self._durable_store.transition(
                 existing.run_id,
@@ -386,6 +415,52 @@ class MultiAgentMCPAdapter:
         result_status = str(result.get("status") or "").strip().lower()
         if result_status in {"success", "partial_success", "failed"}:
             status = result_status
+
+        # --- HITL (P0 SCRUM-151) : extraction de l'approbation en attente -----
+        # L'orchestrateur legacy renvoie `pending_approvals` (workers bloqués sur
+        # un gate APPROVE) ; chaque worker porte `request_id` (demande
+        # d'approbation) et `task_id` (reprise ciblée). `run_id` reste celui du
+        # run durable — les deux identifiants ne sont JAMAIS confondus.
+        awaiting_workers = [
+            worker
+            for worker in workers
+            if isinstance(worker, dict)
+            and str(worker.get("status", "")).lower() == "awaiting_approval"
+        ]
+        pending_approvals = [
+            pending
+            for pending in (result.get("pending_approvals") or [])
+            if isinstance(pending, dict)
+        ]
+        awaiting_approval = bool(
+            awaiting_workers or pending_approvals or result_status == "awaiting_approval"
+        )
+        approval_source = None
+        if awaiting_workers:
+            approval_source = awaiting_workers[0]
+        elif pending_approvals:
+            approval_source = pending_approvals[0]
+        request_id: str | None = None
+        approval: dict[str, Any] | None = None
+        task_id: str | None = None
+        if awaiting_approval and approval_source is not None:
+            raw_request_id = (
+                approval_source.get("request_id")
+                or (approval_source.get("approval") or {}).get("request_id")
+            )
+            if raw_request_id:
+                request_id = str(raw_request_id)
+            raw_approval = approval_source.get("approval")
+            approval = dict(raw_approval) if isinstance(raw_approval, dict) else None
+            if approval is not None and request_id is not None:
+                approval.setdefault("request_id", request_id)
+            if approval_source.get("task_id"):
+                task_id = str(approval_source["task_id"])
+        if awaiting_approval:
+            # Le statut MCP devient explicitement `awaiting_approval` : ni succès
+            # ni échec, et le run durable correspondant reste reprenable.
+            status = "awaiting_approval"
+            failure_phase = None
         reason = str(result.get("reason") or result.get("phase") or "").strip() or None
         if reason in {"synthesis_timeout", "orchestration_deadline_reached"}:
             failure_phase = "synthesis"
@@ -431,12 +506,21 @@ class MultiAgentMCPAdapter:
                 for event in normalized_events
             ],
             usage=dict(result.get("usage") or {}),
+            awaiting_approval=awaiting_approval,
+            request_id=request_id,
+            approval=approval,
+            task_id=task_id,
             orchestration={
                 "mode": "multi_agent",
                 "event_granularity": request.event_granularity,
                 "fallback": None,
                 "failure_phase": failure_phase,
                 "reason": reason,
+                "awaiting_approval": awaiting_approval,
+                # Découplage exposé au client : deux identifiants distincts.
+                "request_id": request_id,
+                "run_id": str(result["run_id"]) if result.get("run_id") else None,
+                "resumed": bool(request.run_id),
                 "event_policy": {
                     "granularity": request.event_granularity,
                     "hierarchy": ["lead", "worker", "synthesis"],

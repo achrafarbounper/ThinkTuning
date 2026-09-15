@@ -24,11 +24,11 @@ Règles d'or :
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
-import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -79,10 +79,27 @@ class WorkerScopePolicy:
     max_tools_per_worker: int = 10
 
     def validate(self, context: ExecutionContext, *, worker_id: str = "worker") -> None:
+        """Valide le scope EFFECTIF d'un worker (jamais le scope parent).
+
+        Les trois contraintes sont réellement appliquées : appartenance au
+        scope parent, absence d'outil interdit, plafond d'outils par worker.
+        Une levée ``ValueError`` est traduite par le transport MCP en repli
+        explicite ``worker_scope_violation`` (jamais en exécution silencieuse).
+        """
         if not set(context.allowed_scopes).issubset(set(self.parent_scope)):
             raise ValueError(f"worker {worker_id} exceeds parent scope")
         if self.max_tools_per_worker < 1:
             raise ValueError("max_tools_per_worker must be >= 1")
+        forbidden = sorted(set(self.forbidden_tools) & set(context.allowed_tools))
+        if forbidden:
+            raise ValueError(
+                f"worker {worker_id} requests forbidden tools: {forbidden}"
+            )
+        if len(context.allowed_tools) > self.max_tools_per_worker:
+            raise ValueError(
+                f"worker {worker_id} exceeds max_tools_per_worker "
+                f"({len(context.allowed_tools)} > {self.max_tools_per_worker})"
+            )
 
 
 @dataclass(frozen=True)
@@ -137,7 +154,19 @@ class MCPOrchestrationRequest(BaseModel):
     parallel: bool = False
     enable_thinking: bool = False
     event_granularity: str = "summary"
+    # P0 (SCRUM-151) — DÉCOUPLAGE des deux identifiants :
+    #   * ``run_id``           : identifiant DURABLE du run multi-agent (store
+    #     durable, replay, lease, reprise ciblée). Il est stable d'une reprise
+    #     à l'autre et ne dépend JAMAIS de la validation humaine ;
+    #   * ``resume_request_id`` : identifiant de la DEMANDE D'APPROBATION
+    #     AgentCore (table ``approvals``) — il autorise l'exécution de l'action
+    #     approuvée (empreinte SHA-256) et n'est PAS un identifiant de run.
+    run_id: str | None = None
     resume_request_id: str | None = None
+    # Reprise CIBLÉE : sous-tâche (worker) bloquée sur l'approbation. Purement
+    # déclaratif côté MCP (l'orchestrateur re-dispatch déjà le seul worker
+    # dont le ``request_id`` est repris) — tracé pour l'audit et le Flow Map.
+    task_id: str | None = None
 
     @classmethod
     def from_values(cls, **values: Any) -> MCPOrchestrationRequest:
@@ -149,6 +178,12 @@ class MCPOrchestrationRequest(BaseModel):
         allowed = {"minimal", "summary", "verbose"}
         if values.get("event_granularity") not in allowed:
             raise ValueError("event_granularity doit être « minimal », « summary » ou « verbose »")
+        # Identifiants optionnels : ``None``/"" → None (jamais la chaîne vide,
+        # qui créerait un run durable nommé "").
+        for key in ("run_id", "resume_request_id", "task_id"):
+            raw = values.get(key)
+            normalized = str(raw).strip() if raw is not None else ""
+            values[key] = normalized or None
         return cls(**values)
 
 
@@ -156,12 +191,18 @@ VALID_MCP_ORCHESTRATION_STATUSES = {
     "success",
     "partial_success",
     "failed",
+    # P0 (SCRUM-151) : un run interrompu par une validation humaine n'est ni
+    # un succès ni un échec — le statut est additif et non terminal.
+    "awaiting_approval",
 }
 VALID_MCP_FAILURE_PHASES = {"lead", "worker", "synthesis"}
 VALID_MCP_EVENT_GRANULARITIES = {"minimal", "summary", "verbose"}
 VALID_MCP_RUN_STATES = {
     "pending",
     "running",
+    # P0 (SCRUM-151) : run durable NON terminal suspendu à une validation
+    # humaine — la reprise ciblée repart de cet état avec le même `run_id`.
+    "awaiting_approval",
     "partial_success",
     "completed",
     "failed",
@@ -176,7 +217,23 @@ VALID_MCP_RUN_CHECKPOINTS = {
 }
 _MCP_RUN_TRANSITIONS = {
     "pending": {"running", "cancelled"},
-    "running": {"running", "partial_success", "completed", "failed", "cancelled"},
+    "running": {
+        "running",
+        "awaiting_approval",
+        "partial_success",
+        "completed",
+        "failed",
+        "cancelled",
+    },
+    # Resume ciblé : awaiting_approval -> running (même run_id, retry_count +1).
+    "awaiting_approval": {
+        "running",
+        "awaiting_approval",
+        "partial_success",
+        "completed",
+        "failed",
+        "cancelled",
+    },
     "partial_success": {"running", "completed", "failed", "cancelled"},
     "completed": set(),
     "failed": set(),
@@ -271,6 +328,9 @@ class MCPDurableRunState:
             return "failed"
         if self.state == "partial_success":
             return "partial_success"
+        if self.state == "awaiting_approval":
+            # Non terminal : ni succès ni échec (validation humaine en attente).
+            return "awaiting_approval"
         if self.state == "completed":
             return "success"
         return "success" if self.state in {"pending", "running"} else "success"
@@ -278,6 +338,11 @@ class MCPDurableRunState:
     @property
     def is_terminal(self) -> bool:
         return self.state in {"completed", "failed", "cancelled"}
+
+    @property
+    def is_resumable(self) -> bool:
+        """Un run suspendu à une validation humaine reste reprenable."""
+        return self.state == "awaiting_approval"
 
     def as_snapshot(self) -> dict[str, Any]:
         return {
@@ -484,6 +549,15 @@ class MCPOrchestrationResult(BaseModel):
     events: list[dict[str, Any]] = Field(default_factory=list)
     usage: dict[str, Any] = Field(default_factory=dict)
     orchestration: dict[str, Any] = Field(default_factory=dict)
+    # --- HITL (P0 SCRUM-151) -------------------------------------------------
+    # `run_id` (durable, repris à l'identique) et `request_id` (demande
+    # d'approbation) sont DEUX identifiants distincts : le client affiche la
+    # carte de validation avec `request_id`, puis relance AVEC `run_id`.
+    awaiting_approval: bool = False
+    request_id: str | None = None
+    approval: dict[str, Any] | None = None
+    # Reprise ciblée : sous-tâche bloquée sur l'approbation (si connue).
+    task_id: str | None = None
 
     @field_validator("status")
     @classmethod
