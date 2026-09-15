@@ -22,6 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.agent.core import AgentRunResult, RunStatus
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
 from app.infrastructure.mcp import mcp_server_sse
 from app.infrastructure.mcp.mcp_server import (
@@ -32,7 +33,6 @@ from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.mcp_server_sse import router as mcp_sse_router
 from app.infrastructure.mcp.mcp_server_stdio import serve_stdio
 from app.infrastructure.mcp.protocol import ErrorCode, empty_input_schema
-from app.agent.core import AgentRunResult, RunStatus
 
 
 def _sse_app() -> FastAPI:
@@ -228,6 +228,20 @@ def test_sse_call_tool(client):
     assert '"2.2.0"' in response.text
 
 
+def test_sse_rejects_non_object_params(client):
+    """JSON-RPC params must remain an object instead of being silently dropped."""
+    response = client.post(
+        "/mcp/sse",
+        content=json.dumps({
+            "jsonrpc": "2.0", "id": 21, "method": "ping", "params": [],
+        }),
+        headers=AUTH,
+    )
+    assert response.status_code == 200
+    assert '"code": -32602' in response.text
+    assert "'params' must be an object" in response.text
+
+
 def test_sse_lists_orchestrate_for_assistant_scope(client):
     """Le transport SSE expose l'entrée d'orchestration de l'Assistant IA."""
     response = client.post(
@@ -324,6 +338,147 @@ def test_sse_orchestrate_streams_core_reflection_payload(client, monkeypatch):
     assert '"thinking_delta": "J\'analyse la demande."' in response.text
     assert '"core_tool"' in response.text
     assert '"isError": false' in response.text
+    assert "event: message" in response.text
+    assert response.text.index("event: orchestrate.done") < response.text.index("event: message")
+    assert response.text.index("event: message") < response.text.index("data: [DONE]")
+
+
+def test_sse_multi_agent_forwards_legacy_planner_worker_thinking_events(
+    client, monkeypatch
+):
+    """Les événements du coordinateur legacy survivent à la projection MCP."""
+    from app.infrastructure.mcp import mcp_server_sse
+
+    def fake_multi_agent(prompt, **kwargs):
+        on_event = kwargs["on_event"]
+        on_event("agent.plan", {"plan": [{"task_id": "t1", "role": "ops"}]})
+        on_event(
+            "agent.worker.start",
+            {"task_id": "t1", "role": "ops", "status": "running"},
+        )
+        on_event(
+            "agent.worker.thinking",
+            {"task_id": "t1", "role": "ops", "thinking": "Je vérifie le matériel."},
+        )
+        on_event(
+            "agent.worker.result",
+            {"task_id": "t1", "role": "ops", "status": "ok", "summary": "Terminé"},
+        )
+        on_event("agent.synthesizing", {"status": "running"})
+        return {
+            "answer": "CPU et GPU détectés.",
+            "status": "completed",
+            "workers": [{"task_id": "t1", "status": "ok"}],
+        }
+
+    monkeypatch.setattr(mcp_server_sse, "orchestrate_multi_agent", fake_multi_agent)
+    response = client.post(
+        "/mcp/sse",
+        content=json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "tools/call",
+                "params": {
+                    "name": "orchestrate",
+                    "arguments": {
+                        "mode": "multi_agent",
+                        "prompt": "info cpu et gpu ?",
+                        "enable_thinking": True,
+                        "stream": True,
+                        "event_granularity": "summary",
+                    },
+                },
+            }
+        ),
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200
+    assert "event: agent.plan" in response.text
+    assert "event: agent.worker.start" in response.text
+    assert "event: agent.worker.thinking" in response.text
+    assert "event: agent.worker.result" in response.text
+    assert "event: agent.synthesizing" in response.text
+    assert "event: message" in response.text
+    assert "CPU et GPU détectés." in response.text
+    assert "data: [DONE]" in response.text
+
+
+def test_sse_terminal_events_bypass_granularity_and_disconnect(monkeypatch):
+    """Régression cas « 44s » : le final n'est jamais filtré ni droppé.
+
+    - ``agent.done`` (terminal) survit à la granularité ``minimal`` ;
+    - ``emit()`` conserve les terminaux même après ``disconnected.set()``
+      (poll ``is_disconnected()`` fugacement vrai derrière un proxy).
+    """
+    from app.infrastructure.mcp import mcp_server_sse
+
+    assert (
+        mcp_server_sse._event_allowed_for_sse("agent.done", "minimal") is True
+    )
+    assert (
+        mcp_server_sse._event_allowed_for_sse("orchestrate.done", "minimal")
+        is True
+    )
+    assert (
+        mcp_server_sse._event_allowed_for_sse("agent.worker.thinking", "minimal")
+        is False
+    )
+
+
+def test_sse_synthesis_slow_still_emits_terminal(client, monkeypatch):
+    """Synthèse lente (file vide entre worker.result et agent.done).
+
+    Le worker émet ``agent.worker.result`` puis ``agent.done`` APRÈS que la
+    file a déjà été observée vide une fois : le final doit quand même être
+    émis (pas d'erreur synthétique ``orchestration_stream_interrupted``).
+    """
+    from app.infrastructure.mcp import mcp_server_sse
+
+    def fake_multi_agent_slow(prompt, **kwargs):
+        on_event = kwargs["on_event"]
+        on_event(
+            "agent.worker.result",
+            {"task_id": "t1", "role": "ops", "status": "ok", "summary": "8 CPU"},
+        )
+        on_event("agent.synthesizing", {"status": "running"})
+        on_event("agent.done", {"answer": "8 CPU, pas de GPU.", "status": "completed"})
+        return {
+            "answer": "8 CPU, pas de GPU.",
+            "status": "completed",
+            "workers": [{"task_id": "t1", "status": "ok"}],
+        }
+
+    monkeypatch.setattr(
+        mcp_server_sse, "orchestrate_multi_agent", fake_multi_agent_slow
+    )
+    response = client.post(
+        "/mcp/sse",
+        content=json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {
+                    "name": "orchestrate",
+                    "arguments": {
+                        "mode": "multi_agent",
+                        "prompt": "info cpu et gpu ?",
+                        "stream": True,
+                        "event_granularity": "summary",
+                    },
+                },
+            }
+        ),
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200
+    assert "event: agent.worker.result" in response.text
+    assert "8 CPU, pas de GPU." in response.text
+    assert "orchestration_stream_interrupted" not in response.text
+    assert "data: [DONE]" in response.text
 
 
 def test_sse_disabled_returns_503(monkeypatch):

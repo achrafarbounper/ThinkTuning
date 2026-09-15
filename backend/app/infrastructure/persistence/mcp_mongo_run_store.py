@@ -21,6 +21,7 @@ class MongoMCPDurableRunStore:
     """
 
     EVENT_RETENTION_INDEX = "mcp_durable_events_created_at_ttl"
+    EVENT_ID_INDEX = "mcp_durable_events_run_id_event_id"
     DEFAULT_EVENT_RETENTION_DAYS = 30
 
     def __init__(
@@ -35,7 +36,7 @@ class MongoMCPDurableRunStore:
         self.runs.create_index("updated_at")
         self.runs.create_index("state")
         self.events.create_index([("run_id", 1), ("sequence", 1)], unique=True)
-        self.events.create_index([("run_id", 1), ("event_id", 1)], unique=True, sparse=True)
+        self._ensure_event_id_index()
         configured_retention = (
             retention_days
             if retention_days is not None
@@ -57,6 +58,39 @@ class MongoMCPDurableRunStore:
                 name=self.EVENT_RETENTION_INDEX,
                 expireAfterSeconds=configured_retention * 86400,
             )
+
+    def _ensure_event_id_index(self) -> None:
+        """Keep event-id uniqueness limited to events that have an identifier."""
+        expected_key = [("run_id", 1), ("event_id", 1)]
+        # `$ne: null` is not supported in MongoDB partial-index expressions.
+        # Events are normalized to string identifiers before insertion, so
+        # `$type: string` excludes both missing and legacy null values.
+        expected_filter = {"event_id": {"$type": "string"}}
+        indexes = self.events.index_information()
+        existing = indexes.get(self.EVENT_ID_INDEX)
+        if existing is not None and (
+            existing.get("key") != expected_key
+            or not existing.get("unique")
+            or existing.get("partialFilterExpression") != expected_filter
+        ):
+            self.events.drop_index(self.EVENT_ID_INDEX)
+
+        for name, metadata in indexes.items():
+            if name == self.EVENT_ID_INDEX or name == "_id_":
+                continue
+            if (
+                metadata.get("key") == expected_key
+                and metadata.get("unique")
+                and metadata.get("sparse")
+            ):
+                self.events.drop_index(name)
+
+        self.events.create_index(
+            expected_key,
+            name=self.EVENT_ID_INDEX,
+            unique=True,
+            partialFilterExpression=expected_filter,
+        )
 
     def create(
         self,
@@ -117,9 +151,25 @@ class MongoMCPDurableRunStore:
         try:
             from pymongo import ReturnDocument
 
+            latest_event = self.events.find_one(
+                {"run_id": str(run_id)},
+                sort=[("sequence", -1)],
+                projection={"sequence": 1},
+            )
+            latest_sequence = int(latest_event["sequence"]) if latest_event else 0
             counter = self.runs.find_one_and_update(
                 {"_id": str(run_id)},
-                {"$inc": {"event_sequence": 1}},
+                [{"$set": {
+                    "event_sequence": {
+                        "$add": [
+                            {"$max": [
+                                {"$ifNull": ["$event_sequence", 0]},
+                                latest_sequence,
+                            ]},
+                            1,
+                        ]
+                    }
+                }}],
                 return_document=ReturnDocument.AFTER,
             )
         except ImportError as exc:  # pragma: no cover - dependency is runtime-required
@@ -131,10 +181,11 @@ class MongoMCPDurableRunStore:
             "_id": uuid.uuid4().hex,
             "run_id": str(run_id),
             "sequence": sequence,
-            "event_id": str(event_id) if event_id is not None else None,
             "event": dict(event),
             "created_at": datetime.now(UTC),
         }
+        if event_id is not None:
+            document["event_id"] = str(event_id)
         try:
             self.events.insert_one(document)
         except DuplicateKeyError as exc:

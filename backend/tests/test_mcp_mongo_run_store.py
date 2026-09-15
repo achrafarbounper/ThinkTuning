@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import mongomock
 from unittest.mock import patch
 
-from app.infrastructure.persistence.mongodb import MongoClientProvider, MongoConfig
+import mongomock
+
 from app.infrastructure.persistence.mcp_mongo_run_store import MongoMCPDurableRunStore
+from app.infrastructure.persistence.mongodb import MongoClientProvider, MongoConfig
 
 
 def _store() -> MongoMCPDurableRunStore:
@@ -28,6 +29,45 @@ def test_mongo_durable_store_persists_events_and_leases() -> None:
     assert store.list_events_after("run-1", 0)[0]["sequence"] == 1
     assert store.list_events_after("run-1", 1) == []
     assert store.get("run-1").lease_owner == "worker-a"
+
+
+def test_mongo_durable_store_allows_multiple_events_without_event_id() -> None:
+    store = _store()
+    store.create("run-1")
+
+    store.append_event("run-1", {"event": "worker.thinking", "thinking": "first"})
+    store.append_event("run-1", {"event": "worker.thinking", "thinking": "second"})
+
+    assert store.list_events("run-1") == [
+        {"event": "worker.thinking", "thinking": "first"},
+        {"event": "worker.thinking", "thinking": "second"},
+    ]
+
+
+def test_mongo_durable_store_recovers_stale_event_sequence_counter() -> None:
+    store = _store()
+    store.create("run-1")
+    store.append_event("run-1", {"event": "first"})
+    store.runs.update_one({"_id": "run-1"}, {"$set": {"event_sequence": 0}})
+
+    store.append_event("run-1", {"event": "second"})
+
+    assert [event["event"] for event in store.list_events_after("run-1")] == [
+        "first",
+        "second",
+    ]
+
+
+def test_mongo_durable_store_scopes_event_id_index_to_identified_events() -> None:
+    store = _store()
+
+    index = store.events.index_information()[
+        MongoMCPDurableRunStore.EVENT_ID_INDEX
+    ]
+    assert index["unique"] is True
+    assert index["partialFilterExpression"] == {
+        "event_id": {"$type": "string"}
+    }
 
 
 def test_mongo_durable_store_lists_and_cancels() -> None:

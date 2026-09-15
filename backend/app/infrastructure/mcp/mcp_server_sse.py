@@ -47,6 +47,7 @@ from starlette.responses import Response
 
 from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
+from app.domain.ports import normalize_mcp_event_granularity
 from app.domain.ports.mcp_ports import MCPDurableRunStorePort
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_flow import (
@@ -65,6 +66,19 @@ from app.infrastructure.persistence.audit_store import ACT_MCP_ORCHESTRATE
 from app.infrastructure.security.api_key import is_valid_api_key
 
 logger = logging.getLogger("thinktuning.mcp.sse")
+
+# Noms d'événements terminaux : ils marquent TOUJOURS la réponse finale et
+# ne sont JAMAIS filtrés ni abandonnés (ni granularité, ni disconnect
+# transitoire) — invariants 2/3 de docs/mcp/MULTI_AGENT_SSE_FLOW.md.
+_TERMINAL_SSE_KINDS = frozenset(
+    {
+        "orchestrate.done",
+        "orchestrate.error",
+        "message",
+        "agent.done",
+        "agent.error",
+    }
+)
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -192,7 +206,19 @@ def _is_durable_replay(payload: object) -> bool:
 async def _replay_durable_events(payload: dict[str, Any]) -> AsyncIterator[str]:
     arguments = dict((payload.get("params") or {}).get("arguments") or {})
     run_id = str(arguments.get("run_id") or "").strip()
-    after_sequence = int(arguments.get("after_sequence", 0))
+    try:
+        after_sequence = int(arguments.get("after_sequence", 0))
+    except (TypeError, ValueError):
+        yield _sse_event(
+            "replay.error",
+            {"run_id": run_id, "error": "after_sequence must be an integer"},
+        )
+        yield "data: [DONE]\n\n"
+        return
+    if not run_id:
+        yield _sse_event("replay.error", {"run_id": "", "error": "run_id is required"})
+        yield "data: [DONE]\n\n"
+        return
     yield _sse_event("replay_started", {"run_id": run_id, "after_sequence": after_sequence})
     try:
         events = get_mcp_durable_run_store().list_events_after(run_id, after_sequence)
@@ -211,7 +237,12 @@ async def _replay_durable_events(payload: dict[str, Any]) -> AsyncIterator[str]:
     yield "data: [DONE]\n\n"
 
 
-async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> AsyncIterator[str]:
+async def _stream_orchestrate(
+    payload: dict[str, Any],
+    *,
+    client_id: str,
+    request: Request | None = None,
+) -> AsyncIterator[str]:
     """Relaye la réflexion et la progression du tool MCP en temps réel.
 
     Les événements de progression reprennent les payloads du flux core
@@ -224,9 +255,31 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
     params = payload.get("params") or {}
     arguments = dict(params.get("arguments") or {})
     arguments.pop("stream", None)
+    try:
+        event_granularity = normalize_mcp_event_granularity(
+            arguments.get("event_granularity", "summary")
+        )
+    except ValueError as exc:
+        yield _sse_event(
+            "orchestrate.error",
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32602, "message": str(exc)},
+            },
+        )
+        yield "data: [DONE]\n\n"
+        return
     events: queue.Queue[tuple[str, dict[str, Any]] | None] = queue.Queue()
+    disconnected = threading.Event()
 
     def emit(kind: str, data: dict[str, Any]) -> None:
+        # Les événements terminaux portent la réponse finale : ils ne sont
+        # JAMAIS abandonnés sur disconnect transitoire (le poll
+        # ``is_disconnected()`` peut être vrai fugacement derrière un proxy ;
+        # la boucle de lecture décidera seule d'interrompre le flux).
+        if disconnected.is_set() and kind not in _TERMINAL_SSE_KINDS:
+            return
         events.put((kind, data))
 
     def worker() -> None:
@@ -268,25 +321,28 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
             prompt = str(arguments.get("prompt") or "")
             session_id = str(arguments.get("session_id") or "default")
             scope = str(arguments.get("scope") or "default")
+            result: Any
             if str(arguments.get("mode") or "mono_agent") == "multi_agent":
-                result_text = json.dumps(
-                    orchestrate_multi_agent(
-                        prompt,
-                        session_id=session_id,
-                        scope=scope,
-                        model=str(arguments["model"]) if arguments.get("model") else None,
-                        parallel=bool(arguments.get("parallel")),
-                        enable_thinking=bool(arguments.get("enable_thinking")),
-                        event_granularity=str(arguments.get("event_granularity") or "summary"),
-                        resume_request_id=(
-                            str(arguments["resume_request_id"])
-                            if arguments.get("resume_request_id")
-                            else None
-                        ),
-                        on_event=relay,
+                multi_agent_result = orchestrate_multi_agent(
+                    prompt,
+                    session_id=session_id,
+                    scope=scope,
+                    model=str(arguments["model"]) if arguments.get("model") else None,
+                    parallel=bool(arguments.get("parallel")),
+                    enable_thinking=bool(arguments.get("enable_thinking")),
+                    event_granularity=str(arguments.get("event_granularity") or "summary"),
+                    resume_request_id=(
+                        str(arguments["resume_request_id"])
+                        if arguments.get("resume_request_id")
+                        else None
                     ),
+                    on_event=relay,
+                )
+                result_text = json.dumps(
+                    multi_agent_result,
                     ensure_ascii=False,
                 )
+                result = multi_agent_result
             else:
                 result = orchestrate_stream(
                     prompt,
@@ -319,6 +375,11 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
                 run_id=str(request_id) if request_id is not None else None,
             )
             events.put(("orchestrate.done", rpc))
+            # Keep the named progress event for existing clients, but also
+            # expose the terminal JSON-RPC response as the standard MCP
+            # message event. Generic SSE/MCP clients may ignore custom event
+            # names and otherwise stop after `orchestrate.started`.
+            events.put(("message", rpc))
         except Exception as exc:
             logger.exception("MCP orchestrate streaming failed")
             if recorder is not None:
@@ -338,6 +399,7 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
                 run_id=str(request_id) if request_id is not None else None,
             )
             events.put(("orchestrate.error", rpc))
+            events.put(("message", rpc))
         finally:
             if flow_token is not None:
                 clear_call_context(flow_token)
@@ -349,22 +411,152 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
     # produise son premier event. Le prélude part dès l'ouverture du flux,
     # suivi de heartbeats tant que le worker ne produit rien.
     yield _sse_event("orchestrate.started", {"status": "started"})
-    while True:
-        try:
-            item = await asyncio.wait_for(asyncio.to_thread(events.get), timeout=10.0)
-        except TimeoutError:
-            yield ": heartbeat\n\n"
-            continue
-        if item is None:
-            yield "data: [DONE]\n\n"
-            return
-        kind, data = item
-        if kind == "orchestrate.tool":
-            yield _sse_event(kind, {"core_tool": data, **data})
-        elif kind in {"orchestrate.done", "orchestrate.error"}:
-            yield _sse_event(kind, data)
-        else:
-            yield _sse_event(kind, data)
+    final_emitted = False
+    try:
+        while True:
+            # NOTE : pas de contrôle ``is_disconnected()`` en tête de boucle —
+            # un poll à chaque tour coupe le flux dès que le poll est
+            # fugacement vrai (proxy/onglet), même en pleine synthèse avec
+            # file vide (cas « 44s » : worker.result reçu puis erreur
+            # synthétique). La déconnexion n'est constatée qu'après un
+            # timeout d'attente (heartbeat), avec drain non-bloquant du
+            # terminal éventuellement déjà en file.
+            try:
+                item = await asyncio.wait_for(asyncio.to_thread(events.get), timeout=10.0)
+            except TimeoutError:
+                if request is not None and await request.is_disconnected():
+                    disconnected.set()
+                    drained_terminal = False
+                    while True:
+                        try:
+                            pending = events.get_nowait()
+                        except queue.Empty:
+                            break
+                        if pending is None:
+                            break
+                        pending_kind, pending_data = pending
+                        if pending_kind in _TERMINAL_SSE_KINDS:
+                            final_emitted = True
+                            drained_terminal = True
+                            yield _sse_event(pending_kind, pending_data)
+                            if pending_kind in {
+                                "orchestrate.done",
+                                "orchestrate.error",
+                                "message",
+                            }:
+                                break
+                    logger.info(
+                        "Client MCP déconnecté pendant le heartbeat : "
+                        "client_id=%s request_id=%s terminal_drainé=%s",
+                        client_id,
+                        request_id,
+                        drained_terminal,
+                    )
+                    break
+                yield ": heartbeat\n\n"
+                continue
+            if item is None:
+                break
+            kind, data = item
+            if kind in _TERMINAL_SSE_KINDS:
+                final_emitted = True
+            if not _event_allowed_for_sse(kind, event_granularity):
+                continue
+            if kind == "orchestrate.tool":
+                yield _sse_event(kind, {"core_tool": data, **data})
+            elif kind in {"orchestrate.done", "orchestrate.error"}:
+                yield _sse_event(kind, data)
+            else:
+                yield _sse_event(kind, data)
+    except (asyncio.CancelledError, GeneratorExit):
+        # Le client a coupé le flux (bouton Stop, onglet fermé) : aucun yield
+        # possible ici (GeneratorExit) — le worker daemon termine seul et
+        # Starlette ferme la connexion. On signale juste l'arrêt au worker.
+        disconnected.set()
+        return
+    # Clôture normale (worker terminé OU disconnect détecté mais socket encore
+    # écrivable) : contrat SSE uniforme trace* + message(JSON-RPC) + [DONE].
+    # Sans événement terminal, le front sort de boucle sans finalRpc et lève
+    # « sans réponse finale » : on émet une erreur synthétique traçable.
+    if not final_emitted:
+        synthetic = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "answer": "",
+                                "status": "failed",
+                                "failure_phase": "synthesis",
+                                "reason": "orchestration_stream_interrupted",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                ],
+                "isError": True,
+            },
+        }
+        logger.warning(
+            "Flux MCP terminé sans événement final : erreur synthétique émise "
+            "(client_id=%s request_id=%s)",
+            client_id,
+            request_id,
+        )
+        yield _sse_event("orchestrate.error", synthetic)
+        yield _sse_event("message", synthetic)
+    yield "data: [DONE]\n\n"
+
+
+def _event_allowed_for_sse(kind: str, granularity: str) -> bool:
+    """Apply one consistent event policy to both mono and multi-agent runs.
+
+    Les événements terminaux bypassent TOUJOURS le filtre : ils portent la
+    réponse finale et ne doivent jamais être abandonnés (invariant 2/3 de
+    docs/mcp/MULTI_AGENT_SSE_FLOW.md).
+    """
+    if kind in _TERMINAL_SSE_KINDS:
+        return True
+    if granularity == "verbose":
+        return True
+    if granularity == "minimal":
+        return kind in {
+            "orchestrate.started",
+            "orchestrate.start",
+            "orchestrate.done",
+            "orchestrate.error",
+            "message",
+        }
+    return kind in {
+        "orchestrate.started",
+        "orchestrate.start",
+        "orchestrate.thinking",
+        "orchestrate.tool",
+        "orchestrate.worker",
+        "orchestrate.synthesis",
+        "orchestrate.synthesizing",
+        "orchestrate.done",
+        "orchestrate.error",
+        "message",
+        "orchestration_fallback",
+        # Legacy coordinator event names remain the source of truth for the
+        # multi-agent adapter and must not be dropped by the MCP projection.
+        "agent.plan",
+        "agent.resuming",
+        "agent.worker.start",
+        "agent.worker.tool",
+        "agent.worker.thinking",
+        "agent.worker.result",
+        "agent.worker.error",
+        "agent.worker.approval",
+        "agent.phase",
+        "agent.synthesizing",
+        "agent.done",
+        "agent.error",
+    } or kind.startswith("orchestrate.worker.") or kind.startswith("orchestrate.synthesis.")
 
 
 @router.post("/sse", include_in_schema=False)
@@ -435,7 +627,7 @@ async def mcp_sse(
     if _is_streaming_orchestrate(request_payload):
         assert isinstance(request_payload, dict)
         return StreamingResponse(
-            _stream_orchestrate(request_payload, client_id=client_id),
+            _stream_orchestrate(request_payload, client_id=client_id, request=request),
             media_type="text/event-stream",
             headers=headers,
         )
@@ -454,8 +646,11 @@ async def mcp_sse(
         raw,
         client_id=client_id,
     )
+    # Contrat SSE uniforme : même le chemin non-stream termine par [DONE]
+    # (les lecteurs stricts front s'arrêtent sur la sentinelle, pas sur la
+    # fermeture TCP — sinon « sans réponse finale » sur proxy lent).
     return StreamingResponse(
-        iter([_sse_message(response_payload)]),
+        iter([_sse_message(response_payload), "data: [DONE]\n\n"]),
         media_type="text/event-stream",
         headers=headers,
     )

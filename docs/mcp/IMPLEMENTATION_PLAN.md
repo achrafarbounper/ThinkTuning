@@ -4,6 +4,25 @@
 > **Date** : 2026-09-08  
 > **Statut** : Ready for Engineering
 
+## Durcissement du transport SSE (septembre 2026)
+
+La surface `POST /mcp/sse` conserve son contrat JSON-RPC 2.0 et son mode
+streamable HTTP. Les paramètres JSON-RPC doivent être des objets : un payload
+invalide retourne `-32602` au lieu d'être interprété comme des paramètres
+vides. Pour `tools/call` avec `orchestrate`, `event_granularity` accepte
+`minimal`, `summary` ou `verbose` ; le transport applique cette politique
+avant d'émettre les événements SSE et termine toujours par `data: [DONE]`.
+Pour `orchestrate` en streaming, les événements nommés de progression sont
+conservés pour les clients ThinkTuning, tandis que la réponse JSON-RPC finale
+est également émise sous `event: message` afin de rester compatible avec les
+clients MCP/SSE génériques qui ignorent les noms d'événements personnalisés.
+
+La reprise `orchestrate_events` valide également `run_id` et
+`after_sequence`. Une erreur de curseur est exposée comme événement
+`replay.error`, puis le flux est fermé proprement. Les appels simples
+continuent d'utiliser l'événement JSON-RPC `message`, sans changement de
+chemin ni désactivation de l'authentification par défaut.
+
 ---
 
 ## 🔄 Chronologie d’Exécution (7 semaines)
@@ -441,6 +460,18 @@
 - [x] Ajouter le replay SSE après reconnexion avec `after_sequence`, et
   signaler `replay_started`, `orchestrate.replay`, `replay_completed` ou
   `replay.error`.
+- [x] Instrumenter la synthèse multi-agent avec un timeout dédié
+  (`MCP_SYNTHESIS_TIMEOUT_SECONDS`) et distinguer les flux sans premier token
+  des flux stagnants côté client LLM.
+- [x] Ajouter une deadline globale optionnelle
+  (`MCP_ORCHESTRATION_DEADLINE_SECONDS`) avec un événement
+  `agent.phase` terminal `orchestration_deadline_reached`.
+- [x] Propager les raisons `synthesis_timeout` et
+  `orchestration_deadline_reached` dans le résultat MCP tout en conservant
+  `status: partial_success` pour la compatibilité.
+- [x] Arrêter l'émission SSE lorsque le client se déconnecte ; le calcul LLM
+  restant suit une stratégie d'annulation best-effort et son résultat tardif
+  est ignoré.
 
 #### Contrat de persistance durable
 
@@ -451,10 +482,14 @@ mise à jour basée sur une version obsolète est rejetée explicitement afin de
 ne jamais écraser le travail d'un autre worker.
 
 Les événements sont stockés séparément, indexés par `(run_id, sequence)` et
-dédupliqués par `(run_id, event_id)`. La séquence est attribuée par
-`$inc` atomique dans le snapshot du run, ce qui évite les collisions lors
-d'écritures concurrentes. La rétention des événements peut donc évoluer
-indépendamment des snapshots.
+les événements qui possèdent un `event_id` sont dédupliqués par
+`(run_id, event_id)`. Un événement sans `event_id` reste valide et n'est pas
+dédupliqué par identifiant. La séquence est attribuée par
+une mise à jour MongoDB atomique par pipeline, en se recalant sur la séquence
+persistée la plus élevée avant d'incrémenter. Cela évite les collisions lors
+d'écritures concurrentes et récupère les snapshots historiques dont le compteur
+était obsolète. La rétention des événements peut donc évoluer indépendamment
+des snapshots.
 
 ### Tâche 17 : 35 Tools (extension avec write/exec)
 - [x] Ajouter 10 tools avec `APPROVE` (write/exec filtré) :

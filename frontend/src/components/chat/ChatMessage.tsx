@@ -91,8 +91,12 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
         )}
 
         {/* Orchestration multi-agents : plan + etat des workers (temps reel). */}
-        {!isUser && (message.multiPlan || message.multiWorkers) && (
-          <MultiAgentTrace plan={message.multiPlan} workers={message.multiWorkers} />
+        {!isUser && (message.multiPlan || message.multiWorkers || message.orchestrationNotice) && (
+          <MultiAgentTrace
+            plan={message.multiPlan}
+            workers={message.multiWorkers}
+            notice={message.orchestrationNotice}
+          />
         )}
 
         {/* Trace de raisonnement (« Réflexion »), au-dessus de la bulle. */}

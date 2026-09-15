@@ -386,12 +386,23 @@ export interface OrchestrateMcpResult {
   answer: string;
   thinking?: string;
   status: string;
+  phase?: string;
+  plan?: Array<Record<string, unknown>>;
+  workers?: Array<Record<string, unknown>>;
   actions?: OrchestrateMcpAction[];
   rounds_used?: number;
   tool_calls_used?: number;
   awaiting_approval?: boolean;
   request_id?: string;
   approval?: { tool?: string; reason?: string; args?: unknown };
+  orchestration?: {
+    mode?: string;
+    event?: string;
+    fallback?: string;
+    reason?: string;
+    source?: string;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
@@ -413,6 +424,9 @@ export interface OrchestrateMcpStreamEvent {
   delta?: string;
   tool?: Record<string, unknown>;
   multi_agent?: Record<string, unknown>;
+  orchestration?: Record<string, unknown>;
+  /** Événement métier de phase (synthèse, deadline globale, etc.). */
+  phase?: Record<string, unknown>;
   rpc?: JsonRpcResponse;
 }
 
@@ -433,7 +447,7 @@ export async function orchestrateViaMcp(
     mode: 'multi_agent',
     ...args,
   });
-  const text = result.content?.find((block) => block.type === 'text')?.text ?? '';
+  const text = result.content?.find((block: McpContentBlock) => block.type === 'text')?.text ?? '';
   if (result.isError) {
     throw new McpTransportError(
       `L'agent MCP a échoué : ${text || 'erreur inconnue (isError: true)'}`,
@@ -464,71 +478,200 @@ export async function orchestrateViaMcpStream(
   onEvent: (event: OrchestrateMcpStreamEvent) => void,
   config?: McpClientConfig,
 ): Promise<OrchestrateMcpResult> {
-  const client = new McpSseClient(config);
+  // `streamTool` can only observe response headers. Keep a second controller
+  // for the body so a stalled proxy/LLM cannot leave the chat busy forever.
+  const streamController = new AbortController();
+  const externalSignal = config?.signal;
+  const abortFromCaller = () => streamController.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) streamController.abort();
+    else externalSignal.addEventListener('abort', abortFromCaller, { once: true });
+  }
+  const timeout = window.setTimeout(
+    () => streamController.abort(),
+    config?.timeoutMs ?? MCP_DEFAULT_TIMEOUT_MS,
+  );
   const streamArgs = { mode: 'multi_agent' as const, ...args, stream: true };
-  const response = await client.streamTool('orchestrate', streamArgs);
-  if (!response.body) {
-    throw new McpTransportError('Le transport MCP n’a retourné aucun flux.', response.status);
+  let response: Response;
+  try {
+    response = await new McpSseClient({ ...config, signal: streamController.signal }).streamTool(
+      'orchestrate',
+      streamArgs,
+    );
+    if (!response.body) {
+      throw new McpTransportError('Le transport MCP n’a retourné aucun flux.', response.status);
+    }
+  } catch (error) {
+    externalSignal?.removeEventListener('abort', abortFromCaller);
+    window.clearTimeout(timeout);
+    throw error;
   }
   let finalRpc: JsonRpcResponse | undefined;
+  let legacyFinalAnswer: OrchestrateMcpResult | undefined;
+  // P1 : dernier message d'échec observé (agent.error, orchestrate.error,
+  // phase en échec) — utilisé pour un message d'erreur explicite au lieu
+  // d'une bulle vide ou d'un « Réponse non JSON » trompeur.
+  let lastFailureMessage: string | undefined;
+  // Type du dernier événement d'échec (pour distinguer orchestrate.error).
+  let lastFailureEvent: string | undefined;
 
-  for await (const event of readNamedSseEvents(response.body)) {
-    if (event.data === '[DONE]') break;
-    let payload: Record<string, unknown>;
-    try {
-      payload = JSON.parse(event.data) as Record<string, unknown>;
-    } catch {
+  try {
+    for await (const event of readNamedSseEvents(response.body)) {
+      if (event.data === '[DONE]') break;
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(event.data) as Record<string, unknown>;
+      } catch {
+        throw new McpTransportError(
+          `Événement MCP non JSON : ${event.data.slice(0, 200)}`,
+          response.status,
+        );
+      }
+
+      if (event.event === 'orchestrate.thinking') {
+        onEvent({
+          thinking_delta:
+            typeof payload.thinking_delta === 'string' ? payload.thinking_delta : '',
+        });
+      } else if (event.event === 'orchestrate.tool') {
+        const coreTool =
+          payload.core_tool && typeof payload.core_tool === 'object'
+            ? (payload.core_tool as Record<string, unknown>)
+            : payload;
+        onEvent({ tool: coreTool });
+      } else if (
+        event.event === 'orchestrate.start' ||
+        event.event === 'orchestrate.started' ||
+        event.event === 'orchestrate.lead' ||
+        event.event === 'orchestrate.worker' ||
+        event.event === 'orchestrate.synthesis' ||
+        event.event === 'orchestrate.synthesizing' ||
+        event.event === 'agent.plan' ||
+        event.event === 'agent.resuming' ||
+        event.event === 'agent.worker.start' ||
+        event.event === 'agent.worker.tool' ||
+        event.event === 'agent.worker.result' ||
+        event.event === 'agent.worker.error' ||
+        event.event === 'agent.worker.approval' ||
+        event.event === 'agent.worker.thinking' ||
+        event.event === 'agent.synthesizing' ||
+        event.event === 'agent.phase' ||
+        event.event === 'agent.done' ||
+        event.event === 'agent.error' ||
+        event.event === 'checkpoint_recovered' ||
+        event.event === 'orchestration_fallback'
+      ) {
+        onEvent({ multi_agent: payload });
+        if (event.event === 'agent.phase') {
+          onEvent({ phase: payload });
+          // P1 : mémorise les phases en échec (synthesis_timeout, deadline…)
+          // pour enrichir le message d'erreur final.
+          const status = typeof payload.status === 'string' ? payload.status : '';
+          if (status === 'timeout' || status === 'error' || status === 'failed') {
+            lastFailureEvent = 'agent.phase';
+            lastFailureMessage =
+              typeof payload.reason === 'string' && payload.reason
+                ? payload.reason === 'synthesis_timeout'
+                  ? 'La synthèse a dépassé son délai ; les résultats partiels sont conservés.'
+                  : payload.reason === 'orchestration_deadline_reached'
+                    ? 'La durée maximale de l’orchestration a été atteinte ; les résultats partiels sont conservés.'
+                    : `La phase ${String(payload.phase ?? 'inconnue')} a échoué (${payload.reason}).`
+                : 'Une phase de l’orchestration a échoué.';
+          }
+        }
+        if (event.event === 'orchestration_fallback') {
+          onEvent({ orchestration: payload });
+        }
+        // P1 : mémorise les erreurs agent même sans agent.done ultérieur.
+        if (event.event === 'agent.error') {
+          lastFailureEvent = 'agent.error';
+          if (typeof payload.message === 'string' && payload.message.trim()) {
+            lastFailureMessage = payload.message;
+          } else if (typeof payload.summary === 'string' && payload.summary.trim()) {
+            lastFailureMessage = payload.summary;
+          }
+        }
+        if (event.event === 'agent.done') {
+          const answer =
+            typeof payload.answer === 'string'
+              ? payload.answer
+              : typeof payload.final_answer === 'string'
+                ? payload.final_answer
+                : '';
+          if (answer) {
+            legacyFinalAnswer = {
+              answer,
+              status: typeof payload.status === 'string' ? payload.status : 'completed',
+            };
+          }
+        }
+      } else if (
+        event.event === 'orchestrate.done' ||
+        event.event === 'orchestrate.error' ||
+        event.event === 'message'
+      ) {
+        finalRpc = payload as unknown as JsonRpcResponse;
+        onEvent({ rpc: finalRpc });
+        // P1 : `orchestrate.error` porte le texte d'échec dans result.content
+        // (isError: true) — on l'extrait pour un message explicite.
+        if (event.event === 'orchestrate.error') {
+          lastFailureEvent = 'orchestrate.error';
+          try {
+            const result = (finalRpc as JsonRpcResponse<McpToolCallResult>).result;
+            const blockText =
+              result && typeof result === 'object'
+                ? result.content?.find((block) => block.type === 'text')?.text
+                : undefined;
+            if (typeof blockText === 'string' && blockText.trim()) {
+              // Le serveur peut émettre une erreur synthétique JSON
+              // (reason: orchestration_stream_interrupted) quand le flux se
+              // termine sans événement final : message lisible plutôt que JSON brut.
+              try {
+                const inner = JSON.parse(blockText) as {
+                  reason?: string;
+                  failure_phase?: string;
+                };
+                if (inner && inner.reason === 'orchestration_stream_interrupted') {
+                  lastFailureMessage =
+                    'Le flux MCP s’est interrompu avant la synthèse (réponse finale manquante) ; ' +
+                    'les événements agent.worker.result / agent.phase déjà affichés sont conservés.';
+                } else {
+                  lastFailureMessage = blockText.slice(0, 500);
+                }
+              } catch {
+                lastFailureMessage = blockText.slice(0, 500);
+              }
+            }
+          } catch {
+            /* conservation du message précédent */
+          }
+        }
+      }
+
+      // Let the chat paint each reasoning/tool frame before the next buffered
+      // network frame (and especially before the final JSON-RPC response).
+      if (
+        event.event === 'orchestrate.thinking' ||
+        event.event === 'orchestrate.tool' ||
+        event.event === 'orchestrate.worker' ||
+        event.event === 'orchestrate.synthesis'
+      ) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+    }
+  } catch (error) {
+    if (streamController.signal.aborted) {
       throw new McpTransportError(
-        `Événement MCP non JSON : ${event.data.slice(0, 200)}`,
-        response.status,
+        externalSignal?.aborted
+          ? 'La requête MCP a été annulée.'
+          : 'La réponse MCP a dépassé le délai autorisé.',
+        0,
       );
     }
-
-    if (event.event === 'orchestrate.thinking') {
-      onEvent({
-        thinking_delta:
-          typeof payload.thinking_delta === 'string' ? payload.thinking_delta : '',
-      });
-    } else if (event.event === 'orchestrate.tool') {
-      const coreTool =
-        payload.core_tool && typeof payload.core_tool === 'object'
-          ? (payload.core_tool as Record<string, unknown>)
-          : payload;
-      onEvent({ tool: coreTool });
-    } else if (
-      event.event === 'orchestrate.start' ||
-      event.event === 'orchestrate.started' ||
-      event.event === 'orchestrate.lead' ||
-      event.event === 'orchestrate.worker' ||
-      event.event === 'orchestrate.synthesis' ||
-      event.event === 'agent.plan' ||
-      event.event === 'agent.worker.start' ||
-      event.event === 'agent.worker.result' ||
-      event.event === 'agent.worker.error' ||
-      event.event === 'agent.worker.approval' ||
-      event.event === 'agent.worker.thinking' ||
-      event.event === 'checkpoint_recovered'
-    ) {
-      onEvent({ multi_agent: payload });
-    } else if (
-      event.event === 'orchestrate.done' ||
-      event.event === 'orchestrate.error' ||
-      event.event === 'message'
-    ) {
-      finalRpc = payload as unknown as JsonRpcResponse;
-      onEvent({ rpc: finalRpc });
-    }
-
-    // Let the chat paint each reasoning/tool frame before the next buffered
-    // network frame (and especially before the final JSON-RPC response).
-    if (
-      event.event === 'orchestrate.thinking' ||
-      event.event === 'orchestrate.tool' ||
-      event.event === 'orchestrate.worker' ||
-      event.event === 'orchestrate.synthesis'
-    ) {
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-    }
+    throw error;
+  } finally {
+    externalSignal?.removeEventListener('abort', abortFromCaller);
+    window.clearTimeout(timeout);
   }
 
   const text =
@@ -543,14 +686,46 @@ export async function orchestrateViaMcpStream(
     );
   }
   if (finalRpc?.result && (finalRpc.result as McpToolCallResult).isError) {
-    throw new McpTransportError(`L'agent MCP a échoué : ${text || 'erreur inconnue'}`, response.status);
+    // P1 : message d'échec observé en cours de flux plutôt que le texte brut.
+    throw new McpTransportError(
+      `L'agent MCP a échoué : ${lastFailureMessage || text || 'erreur inconnue'}`,
+      response.status,
+    );
   }
+  if (!text && legacyFinalAnswer) {
+    return legacyFinalAnswer;
+  }
+  // P1 : le serveur a fermé sans JSON-RPC final mais avec un agent.done
+  // porteur de réponse (cas nominal des tests de repli) — déjà retourné
+  // ci-dessus. Ici, sans texte ET sans réponse finale, on signale l'échec
+  // observé (agent.error / phase) plutôt qu'une bulle vide.
+  if (!text && !legacyFinalAnswer && lastFailureEvent) {
+    throw new McpTransportError(
+      `L'agent MCP a échoué (${lastFailureEvent}) : ${lastFailureMessage || 'erreur inconnue'}`,
+      response.status,
+    );
+  }
+  let parsed: OrchestrateMcpResult;
   try {
-    return JSON.parse(text) as OrchestrateMcpResult;
+    parsed = JSON.parse(text) as OrchestrateMcpResult;
   } catch {
+    if (legacyFinalAnswer) return legacyFinalAnswer;
     throw new McpTransportError(
       `Réponse d'orchestration non JSON : ${text.slice(0, 200)}`,
       response.status,
     );
   }
+  if (!parsed.answer && legacyFinalAnswer) {
+    return { ...parsed, answer: legacyFinalAnswer.answer };
+  }
+  if (
+    parsed.status !== 'awaiting_approval' &&
+    (typeof parsed.answer !== 'string' || !parsed.answer.trim())
+  ) {
+    throw new McpTransportError(
+      "L'orchestration MCP s'est terminée sans réponse finale.",
+      response.status,
+    );
+  }
+  return parsed;
 }

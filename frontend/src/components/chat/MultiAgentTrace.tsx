@@ -22,6 +22,7 @@ interface MultiAgentTraceProps {
   plan?: MultiAgentPlanTask[];
   /** État courant des workers (événements agent.worker.*). */
   workers?: MultiAgentWorkerState[];
+  notice?: string;
 }
 
 const STATUS_LABELS: Record<MultiWorkerStatus, string> = {
@@ -56,10 +57,10 @@ function WorkerRow({ worker }: { worker: MultiAgentWorkerState }) {
 }
 
 /** Bloc « Orchestration multi-agents » inséré au-dessus de la bulle de réponse. */
-export function MultiAgentTrace({ plan, workers }: MultiAgentTraceProps) {
+export function MultiAgentTrace({ plan, workers, notice }: MultiAgentTraceProps) {
   const hasPlan = Boolean(plan && plan.length > 0);
   const hasWorkers = Boolean(workers && workers.length > 0);
-  if (!hasPlan && !hasWorkers) return null;
+  if (!hasPlan && !hasWorkers && !notice) return null;
 
   return (
     <div className="multi-agent-trace" data-testid="multi-agent-trace">
@@ -71,6 +72,12 @@ export function MultiAgentTrace({ plan, workers }: MultiAgentTraceProps) {
           </span>
         )}
       </div>
+
+      {notice && (
+        <p className="multi-agent-trace__notice" role="status">
+          {notice}
+        </p>
+      )}
 
       {hasPlan && (
         <ol className="multi-agent-trace__plan">

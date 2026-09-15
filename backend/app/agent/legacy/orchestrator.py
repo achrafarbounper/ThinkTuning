@@ -204,6 +204,8 @@ class MultiAgentCoordinator:
         tool_registry=None,
         enable_tool_proposals: bool = False,
         max_tool_proposals_per_plan: int = 1,
+        synthesis_timeout_seconds: float | None = None,
+        orchestration_deadline_seconds: float | None = None,
     ):
         self._llm_client = llm_client
         self._lead_llm_client = lead_llm_client or llm_client
@@ -236,6 +238,19 @@ class MultiAgentCoordinator:
         self._plan_tool_proposals: list[dict[str, Any]] = []
         self._plan_tool_notes: list[dict[str, Any]] = []
         self._fallback_subject = None  # agent de repli conversationnel (lazy)
+        self._synthesis_timeout_seconds = (
+            float(synthesis_timeout_seconds)
+            if synthesis_timeout_seconds is not None
+            else float(os.getenv("MCP_SYNTHESIS_TIMEOUT_SECONDS", "180"))
+        )
+        self._orchestration_deadline_seconds = (
+            float(orchestration_deadline_seconds)
+            if orchestration_deadline_seconds is not None
+            else float(os.getenv("MCP_ORCHESTRATION_DEADLINE_SECONDS", "0") or 0)
+        )
+        if self._orchestration_deadline_seconds < 0:
+            self._orchestration_deadline_seconds = 0.0
+        self._synthesis_failure_reason: str | None = None
         # Mode « Réflexion » des workers (multi-agents). Le run peut le
         # surcharger par requête (``run(..., enable_thinking=...)``).
         self._enable_thinking = bool(enable_thinking)
@@ -747,6 +762,7 @@ class MultiAgentCoordinator:
         le worker rejoue l'action approuvée au lieu de redemander un approve.
         """
         started = time.perf_counter()
+        self._run_started = started
         self._on_event(
             on_event,
             EV_WORKER_START,
@@ -965,15 +981,98 @@ class MultiAgentCoordinator:
     def _synthesize(
         self, prompt: str, workers: list[dict[str, Any]], unexecuted: list[dict[str, Any]], on_event
     ) -> str:
+        synthesis_started = time.perf_counter()
+        self._synthesis_failure_reason = None
+        synthesis_timeout = self._synthesis_timeout_seconds
+        if self._orchestration_deadline_seconds > 0:
+            remaining = self._orchestration_deadline_seconds - (
+                time.perf_counter() - getattr(self, "_run_started", synthesis_started)
+            )
+            synthesis_timeout = min(synthesis_timeout, max(0.001, remaining))
         self._on_event(on_event, EV_SYNTHESIZING, {"worker_errors": len(unexecuted)})
+        self._on_event(
+            on_event,
+            "agent.phase",
+            {
+                "phase": "synthesis",
+                "status": "started",
+                "timeout_seconds": synthesis_timeout,
+            },
+        )
         synth_prompt = build_synthesis_prompt(prompt, workers, unexecuted)
         lead = self._build_lead()
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mcp-synthesis")
+        future = pool.submit(
+            lead.run_detailed,
+            synth_prompt,
+            on_thinking=None,
+            on_tool_event=None,
+        )
         try:
-            result = lead.run_detailed(synth_prompt, on_thinking=None, on_tool_event=None)
+            result = future.result(timeout=synthesis_timeout)
+            elapsed_ms = round((time.perf_counter() - synthesis_started) * 1000.0, 2)
+            self._on_event(
+                on_event,
+                "agent.phase",
+                {
+                    "phase": "synthesis",
+                    "status": "completed",
+                    "duration_ms": elapsed_ms,
+                },
+            )
+            return str(getattr(result, "answer", str(result)))
+        except TimeoutError as exc:
+            self._synthesis_failure_reason = "synthesis_timeout"
+            elapsed_ms = round((time.perf_counter() - synthesis_started) * 1000.0, 2)
+            logger.error(
+                "Synthèse dépassée : timeout=%.2fs elapsed_ms=%.0f",
+                synthesis_timeout,
+                elapsed_ms,
+            )
+            self._on_event(
+                on_event,
+                "agent.phase",
+                {
+                    "phase": "synthesis",
+                    "status": "timeout",
+                    "reason": (
+                        "orchestration_deadline_reached"
+                        if self._orchestration_deadline_seconds > 0
+                        and time.perf_counter() - getattr(self, "_run_started", synthesis_started)
+                        >= self._orchestration_deadline_seconds
+                        else "synthesis_timeout"
+                    ),
+                    "duration_ms": elapsed_ms,
+                },
+            )
+            self._synthesis_failure_reason = (
+                "orchestration_deadline_reached"
+                if self._orchestration_deadline_seconds > 0
+                and time.perf_counter() - getattr(self, "_run_started", synthesis_started)
+                >= self._orchestration_deadline_seconds
+                else "synthesis_timeout"
+            )
+            raise WorkerError(
+                self._synthesis_failure_reason,
+                "La synthèse finale a dépassé son délai maximal.",
+            ) from exc
         except Exception as exc:
+            self._synthesis_failure_reason = "synthesis_error"
             logger.error("Synthèse échouée : %s", exc)
+            self._on_event(
+                on_event,
+                "agent.phase",
+                {
+                    "phase": "synthesis",
+                    "status": "error",
+                    "reason": "synthesis_error",
+                },
+            )
             raise WorkerError(SYNTHESIS_FAILED, f"La synthèse finale a échoué : {exc}") from exc
-        return str(getattr(result, "answer", str(result)))
+        finally:
+            # A running provider call cannot always be interrupted safely.
+            # Do not wait for it here: its late result is intentionally ignored.
+            pool.shutdown(wait=False, cancel_futures=True)
 
     # --- Repli conversationnel (FSM : FALLBACK_CHAT, Approche B) ------------
 
@@ -1089,6 +1188,45 @@ class MultiAgentCoordinator:
         mono-agent), puis la synthèse finale intègre l'ensemble des résultats.
         """
         started = time.perf_counter()
+        self._synthesis_failure_reason = None
+        deadline_reason = "orchestration_deadline_reached"
+
+        def deadline_reached() -> bool:
+            return (
+                self._orchestration_deadline_seconds > 0
+                and time.perf_counter() - started >= self._orchestration_deadline_seconds
+            )
+
+        def deadline_outcome() -> dict[str, Any]:
+            self._on_event(
+                on_event,
+                "agent.phase",
+                {
+                    "phase": "orchestration",
+                    "status": "timeout",
+                    "reason": deadline_reason,
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000.0, 2),
+                },
+            )
+            self._on_event(
+                on_event,
+                EV_DONE,
+                {"status": "partial_success", "reason": deadline_reason},
+            )
+            return {
+                "status": "partial_success",
+                "phase": deadline_reason,
+                "reason": deadline_reason,
+                "final_answer": (
+                    "L'orchestration a atteint sa durée maximale avant "
+                    "de produire une réponse complète."
+                ),
+                "plan": [],
+                "workers": [],
+                "unexecuted": [],
+                "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            }
+
         if enable_thinking is not None:
             self._run_thinking: bool | None = bool(enable_thinking)
         try:
@@ -1102,6 +1240,8 @@ class MultiAgentCoordinator:
                     "workers": [],
                     "unexecuted": [],
                 }
+            if deadline_reached():
+                return deadline_outcome()
 
             # --- Reprise native : AUCUNE re-planification (FSM : resuming) ------
             if resume_request_id:
@@ -1111,6 +1251,8 @@ class MultiAgentCoordinator:
             # planification, pour que le plan lui-même s'adapte (chat ⇒
             # sous-tâches minimales ou vides ; action ⇒ plan outillé).
             intent_meta = self._classify_intent(str(prompt), on_event)
+            if deadline_reached():
+                return deadline_outcome()
 
             # 1. Plan (planning → dispatch)
             fsm = MultiRunFSM.start()  # planning
@@ -1153,6 +1295,8 @@ class MultiAgentCoordinator:
             # propagée aux workers (guidage prompt + contrat) puis filtrée par
             # rôle au dispatch.
             self._stamp_intent(tasks, intent_meta)
+            if deadline_reached():
+                return deadline_outcome()
             fsm = fsm.transition(MultiRunState.DISPATCH)
             self._on_event(on_event, EV_PLAN, {"plan": self._plan_dicts(tasks)})
 
@@ -1163,6 +1307,13 @@ class MultiAgentCoordinator:
 
             # 2. Dispatch (dispatch → waiting_workers)
             workers, unexecuted = self._dispatch(tasks, str(prompt), on_event)
+            if deadline_reached():
+                return {
+                    **deadline_outcome(),
+                    "plan": self._plan_dicts(tasks),
+                    "workers": workers,
+                    "unexecuted": unexecuted,
+                }
             fsm = fsm.transition(MultiRunState.WAITING_WORKERS)
 
             # Validation humaine requise : au moins une sous-tâche est bloquée
@@ -1221,6 +1372,13 @@ class MultiAgentCoordinator:
 
             # 3. Synthèse (continueBroken) — garde FSM : JAMAIS si un worker
             # attend une validation (can_synthesize : waiting_workers only).
+            if deadline_reached():
+                return {
+                    **deadline_outcome(),
+                    "plan": self._plan_dicts(tasks),
+                    "workers": workers,
+                    "unexecuted": unexecuted,
+                }
             final_answer, thinking = self._final_synthesis(
                 str(prompt), workers, unexecuted, on_event
             )
@@ -1228,7 +1386,11 @@ class MultiAgentCoordinator:
             fsm = fsm.transition(MultiRunState.COMPLETED)
 
             outcome = {
-                "status": "completed",
+                "status": (
+                    "partial_success"
+                    if self._synthesis_failure_reason == "synthesis_timeout"
+                    else "completed"
+                ),
                 "final_answer": final_answer,
                 "plan": self._plan_dicts(tasks),
                 "workers": workers,
@@ -1237,6 +1399,9 @@ class MultiAgentCoordinator:
                 "duration_ms": round((time.perf_counter() - started) * 1000.0, 2),
                 "fsm_state": fsm.state.value,
             }
+            if self._synthesis_failure_reason:
+                outcome["phase"] = self._synthesis_failure_reason
+                outcome["reason"] = self._synthesis_failure_reason
             if tool_proposals:
                 outcome["tool_proposals"] = tool_proposals
             if intent_meta is not None:
@@ -1257,6 +1422,7 @@ class MultiAgentCoordinator:
             return outcome
         finally:
             self._run_thinking = None
+            self._run_started = None
 
     # --- Reprise native (FSM : awaiting_approval → resuming → …) -------------
 
@@ -1468,10 +1634,23 @@ class MultiAgentCoordinator:
             try:
                 return self._synthesize(prompt, workers, unexecuted, on_event), thinking
             except WorkerError:
+                # Repli P1 (MULTI_AGENT_SSE_FLOW.md §5) : la synthèse LLM a
+                # échoué (timeout LLM / injoignable) mais les workers ont des
+                # résultats — on les concatène au lieu de renvoyer "".
+                summaries = [
+                    f"[{w.get('role', '?')}] "
+                    f"{(w.get('shareable_summary') or w.get('result') or '')}".strip()
+                    for w in workers
+                    if w.get("status") == "ok"
+                ]
+                summaries = [s for s in summaries if s.strip("[]: ")]
+                partial = "; ".join(s[:500] for s in summaries if s)
                 return (
-                    "La synthèse finale n'a pas pu être produite. "
+                    "La synthèse finale n'a pas pu être produite "
+                    f"({self._synthesis_failure_reason or 'synthesis_failed'}). "
                     f"Résultats partiels : {len(workers)} exécuté(s), "
                     f"{len(unexecuted)} en échec."
+                    + (f" {partial}" if partial else "")
                 ), thinking
         return (
             "Aucune sous-tâche n'a pu être exécutée. "

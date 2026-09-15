@@ -368,4 +368,266 @@ describe("orchestrateViaMcpStream", () => {
     });
     expect(result.answer).toBe("Réponse");
   });
+
+  it("attend la réponse JSON-RPC finale sous event: message après started/heartbeats", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ answer: "Réponse finale", status: "completed" }),
+        }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: orchestrate.started",
+        'data: {"status":"started"}',
+        "",
+        ": heartbeat",
+        "",
+        "event: message",
+        `data: ${JSON.stringify(rpc)}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events: Array<Record<string, unknown>> = [];
+    const result = await orchestrateViaMcpStream(
+      { prompt: "info cpu et gpu ?", mode: "multi_agent" },
+      (event) => events.push(event as Record<string, unknown>),
+      { baseUrl: "http://api" },
+    );
+
+    expect(events).toEqual([{ multi_agent: { status: "started" } }, { rpc }]);
+    expect(result.answer).toBe("Réponse finale");
+  });
+
+  it("relaie les événements legacy du planner, des workers et de la synthèse", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ answer: "Réponse finale", status: "completed" }),
+        }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        'event: agent.plan',
+        'data: {"event":"agent.plan","plan":[{"task_id":"t1"}]}',
+        "",
+        'event: agent.worker.thinking',
+        'data: {"event":"agent.worker.thinking","task_id":"t1","thinking":"Je vérifie."}',
+        "",
+        'event: agent.worker.result',
+        'data: {"event":"agent.worker.result","task_id":"t1","status":"ok"}',
+        "",
+        'event: agent.synthesizing',
+        'data: {"event":"agent.synthesizing","status":"running"}',
+        "",
+        'event: agent.phase',
+        'data: {"event":"agent.phase","phase":"synthesis","status":"timeout","reason":"synthesis_timeout"}',
+        "",
+        "event: message",
+        `data: ${JSON.stringify(rpc)}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events: Array<Record<string, unknown>> = [];
+    const result = await orchestrateViaMcpStream(
+      { prompt: "info cpu et gpu ?", enable_thinking: true },
+      (event) => events.push(event as Record<string, unknown>),
+      { baseUrl: "http://api" },
+    );
+
+    expect(events).toEqual([
+      { multi_agent: { event: "agent.plan", plan: [{ task_id: "t1" }] } },
+      {
+        multi_agent: {
+          event: "agent.worker.thinking",
+          task_id: "t1",
+          thinking: "Je vérifie.",
+        },
+      },
+      {
+        multi_agent: {
+          event: "agent.worker.result",
+          task_id: "t1",
+          status: "ok",
+        },
+      },
+      { multi_agent: { event: "agent.synthesizing", status: "running" } },
+      {
+        multi_agent: {
+          event: "agent.phase",
+          phase: "synthesis",
+          status: "timeout",
+          reason: "synthesis_timeout",
+        },
+      },
+      {
+        phase: {
+          event: "agent.phase",
+          phase: "synthesis",
+          status: "timeout",
+          reason: "synthesis_timeout",
+        },
+      },
+      { rpc },
+    ]);
+    expect(result.answer).toBe("Réponse finale");
+  });
+
+  it("utilise la réponse de agent.done si le serveur ferme sans message JSON-RPC", async () => {
+    fetchMock.mockResolvedValue(new Response(
+      [
+        'event: agent.done',
+        'data: {"event":"agent.done","status":"completed","answer":"Réponse de secours"}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await orchestrateViaMcpStream(
+      { prompt: "info cpu et gpu ?", mode: "multi_agent" },
+      () => undefined,
+      { baseUrl: "http://api" },
+    );
+
+    expect(result).toMatchObject({
+      answer: "Réponse de secours",
+      status: "completed",
+    });
+  });
+
+  it("conserve la réponse de agent.done si le JSON-RPC terminal est vide", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{ type: "text", text: JSON.stringify({ status: "completed" }) }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        'event: agent.done',
+        'data: {"event":"agent.done","status":"completed","final_answer":"Réponse worker"}',
+        "",
+        "event: message",
+        `data: ${JSON.stringify(rpc)}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await orchestrateViaMcpStream(
+      { prompt: "info cpu et gpu ?", mode: "multi_agent" },
+      () => undefined,
+      { baseUrl: "http://api" },
+    );
+
+    expect(result.answer).toBe("Réponse worker");
+  });
+
+  it("signale explicitement une orchestration terminée sans réponse", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{ type: "text", text: JSON.stringify({ status: "completed" }) }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: message",
+        `data: ${JSON.stringify(rpc)}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      orchestrateViaMcpStream(
+        { prompt: "info cpu et gpu ?", mode: "multi_agent" },
+        () => undefined,
+        { baseUrl: "http://api" },
+      ),
+    ).rejects.toThrow("sans réponse finale");
+  });
+
+  it("signale l'agent.error observé quand le flux se termine sans JSON-RPC (P0/P1)", async () => {
+    fetchMock.mockResolvedValue(new Response(
+      [
+        'event: agent.worker.thinking',
+        'data: {"event":"agent.worker.thinking","task_id":"task-1","role":"ops","thinking":" about","phase":"lead"}',
+        "",
+        'event: agent.error',
+        'data: {"event":"agent.error","message":"LLM injoignable pendant la synthèse."}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      orchestrateViaMcpStream(
+        { prompt: "info cpu et gpu ?", mode: "multi_agent" },
+        () => undefined,
+        { baseUrl: "http://api" },
+      ),
+    ).rejects.toThrow(/agent\.error.*LLM injoignable pendant la synthèse/);
+  });
+
+  it("remonte le texte de orchestrate.error au lieu d'une bulle vide (P1)", async () => {
+    fetchMock.mockResolvedValue(new Response(
+      [
+        'event: orchestrate.error',
+        'data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"orchestration_deadline_reached"}],"isError":true}}',
+        "",
+        'event: message',
+        'data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"orchestration_deadline_reached"}],"isError":true}}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      orchestrateViaMcpStream(
+        { prompt: "info cpu et gpu ?", mode: "multi_agent" },
+        () => undefined,
+        { baseUrl: "http://api" },
+      ),
+    ).rejects.toThrow(/L'agent MCP a échoué/);
+  });
 });

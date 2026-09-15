@@ -830,6 +830,8 @@ def _multi_coordinator_kwargs() -> dict:
     chat/action au superviseur (Approche B) — filtrage par rôle au dispatch +
     repli conversationnel FALLBACK_CHAT ; ``0``/« false » = désactivé
     (comportement V1, aucun worker filtré).
+    ``MCP_ORCHESTRATION_DEADLINE_SECONDS`` : garde-fou de durée totale du run ;
+    absent ou nul = désactivé.
     Lecture env directe transitoire — à migrer vers ``app/config/settings.py``
     quand celui-ci sera chargeable sans exigence de clé API (fail-fast actuel).
     """
@@ -840,6 +842,12 @@ def _multi_coordinator_kwargs() -> dict:
     except ValueError:
         total = 0
     kwargs: dict = {"max_total_tool_calls": total} if total > 0 else {}
+    try:
+        deadline = float(_os.getenv("MCP_ORCHESTRATION_DEADLINE_SECONDS", "0") or 0)
+    except ValueError:
+        deadline = 0.0
+    if deadline > 0:
+        kwargs["orchestration_deadline_seconds"] = deadline
     _true = {"1", "true", "yes", "on"}
     if _os.getenv("AGENT_MULTI_PARALLEL", "").strip().lower() in _true:
         kwargs["parallel"] = True

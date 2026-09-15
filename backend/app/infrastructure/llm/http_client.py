@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -130,6 +131,7 @@ class HttpLLMClient:
         retry_base_delay: float | None = None,
         circuit_failures: int | None = None,
         circuit_cooldown: float | None = None,
+        stream_stall_timeout: float | None = None,
     ) -> None:
         provider = (provider or "ollama").strip().lower()
         if provider not in PROVIDERS:
@@ -141,6 +143,15 @@ class HttpLLMClient:
         self.provider = provider
         self.api_key = api_key
         self.timeout = timeout
+        self.stream_stall_timeout = (
+            stream_stall_timeout
+            if stream_stall_timeout is not None
+            else (
+                float(os.environ["AGENT_LLM_STREAM_STALL_TIMEOUT"])
+                if os.getenv("AGENT_LLM_STREAM_STALL_TIMEOUT")
+                else None
+            )
+        )
         self.temperature = DEFAULT_TEMPERATURE if temperature is None else float(temperature)
         self.context_length = (
             DEFAULT_CONTEXT_LENGTH if context_length is None else int(context_length)
@@ -149,6 +160,7 @@ class HttpLLMClient:
         self.last_thinking = ""
         self.last_error: BaseException | None = None
         self.last_error_class: ErrorClass | None = None
+        self._stream_received_data = False
 
         self._transport = transport
         self.retry_attempts = (
@@ -187,14 +199,18 @@ class HttpLLMClient:
         on_content: Callable[[str], None] | None = None,
     ) -> str:
         started = time.perf_counter()
+        request_id = uuid.uuid4().hex[:12]
+        self._stream_received_data = False
         logger.info(
-            "llm_request provider=%s url=%s model=%s messages=%d "
-            "timeout=%s streaming=true num_ctx=%d",
+            "llm_request request_id=%s provider=%s url=%s model=%s messages=%d "
+            "timeout=%s stream_stall_timeout=%s streaming=true num_ctx=%d",
+            request_id,
             self.provider,
             self.url,
             self.model,
             len(messages),
             self.timeout,
+            self.stream_stall_timeout,
             self.context_length,
         )
         payload = _build_payload(
@@ -206,11 +222,30 @@ class HttpLLMClient:
             self.think,
         )
         try:
-            content, thinking = self._stream(payload, on_thinking, on_content)
+            content, thinking = self._stream(
+                payload,
+                on_thinking,
+                on_content,
+                request_id=request_id,
+                started=started,
+            )
         except BaseException as exc:  # noqa: BLE001 - re-levée après classification
             self.last_error = exc
             self.last_error_class = classify_llm_error(exc)
+            logger.error(
+                "llm_stream_failed request_id=%s reason=%s received_data=%s elapsed_ms=%.0f",
+                request_id,
+                "stalled_stream" if self._stream_received_data else "no_first_token",
+                self._stream_received_data,
+                (time.perf_counter() - started) * 1000,
+            )
             raise
+        if not self._stream_received_data:
+            logger.warning(
+                "llm_stream_empty request_id=%s reason=no_first_token elapsed_ms=%.0f",
+                request_id,
+                (time.perf_counter() - started) * 1000,
+            )
 
         content = repair_utf8_mojibake(content)
         thinking = repair_utf8_mojibake(thinking.strip())
@@ -220,7 +255,8 @@ class HttpLLMClient:
         self.last_thinking = repair_utf8_mojibake("\n\n".join(parts)) if parts else ""
 
         logger.info(
-            "llm_response status=ok elapsed_ms=%.0f content_chars=%d thinking_chars=%d",
+            "llm_response request_id=%s status=ok elapsed_ms=%.0f content_chars=%d thinking_chars=%d",
+            request_id,
             (time.perf_counter() - started) * 1000,
             len(content),
             len(self.last_thinking),
@@ -276,7 +312,10 @@ class HttpLLMClient:
         """TENTATIVE UNIQUE : POST + vérification du statut ; flux ouvert."""
         started = time.perf_counter()
         headers = self._headers()
-        client = httpx.Client(transport=self._transport, timeout=self.timeout)
+        timeout = self.timeout
+        if self.stream_stall_timeout is not None:
+            timeout = httpx.Timeout(timeout, read=self.stream_stall_timeout)
+        client = httpx.Client(transport=self._transport, timeout=timeout)
         resp = None
         try:
             # httpx : le streaming se fait via `send(request, stream=True)` — le
@@ -301,7 +340,15 @@ class HttpLLMClient:
         self._last_client = client
         return resp
 
-    def _stream(self, payload, on_thinking, on_content):
+    def _stream(
+        self,
+        payload,
+        on_thinking,
+        on_content,
+        *,
+        request_id: str,
+        started: float,
+    ):
         """Consomme le flux (NDJSON / SSE) et renvoie (content, thinking)."""
         resp = self._open_stream(payload)
         content_parts: list[str] = []
@@ -313,6 +360,12 @@ class HttpLLMClient:
                 chunk = _parse_chunk(line)
                 if chunk is None:
                     continue
+                self._stream_received_data = True
+                logger.debug(
+                    "llm_stream_progress request_id=%s elapsed_ms=%.0f",
+                    request_id,
+                    (time.perf_counter() - started) * 1000,
+                )
                 # Erreur métier du serveur EN PLEIN FLUX (statut HTTP 200) :
                 # sans ce contrôle elle serait ignorée silencieusement (réponse
                 # vide) et l'orchestrateur planterait en aval. RuntimeError est

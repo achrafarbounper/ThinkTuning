@@ -1113,6 +1113,22 @@
   margin-bottom: 6px;
 }
 
+.multi-agent-trace__notice {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, #d97706 35%, var(--chat-border));
+  border-radius: 7px;
+  color: #92400e;
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  font-size: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .multi-agent-trace__notice {
+    color: #fbbf24;
+  }
+}
+
 .multi-agent-trace__badge {
   font-weight: 600;
   font-size: 11px;

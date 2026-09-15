@@ -28,6 +28,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
+import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -383,12 +384,14 @@ def normalize_mcp_event(
             if key in payload:
                 payload["event"] = str(payload[key])
                 break
+    payload.setdefault("event_id", f"mcp-{uuid.uuid4().hex}")
+    payload.setdefault("timestamp", datetime.now(UTC).isoformat())
     payload.setdefault("phase", default_phase)
     payload.setdefault("parent_task_id", parent_task_id)
     if "worker_id" not in payload:
         payload["worker_id"] = default_worker_id
     payload["phase"] = str(payload.get("phase") or default_phase).strip().lower()
-    if payload["phase"] not in {"lead", "worker", "synthesis"}:
+    if payload["phase"] not in {"lead", "worker", "synthesis", "orchestration"}:
         payload["phase"] = default_phase
     return payload
 

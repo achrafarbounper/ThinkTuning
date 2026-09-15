@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import traceback
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -18,6 +20,49 @@ from app.domain.ports import (
     compute_mcp_status,
     normalize_mcp_event,
 )
+
+logger = logging.getLogger("thinktuning.mcp.multi_agent")
+
+
+def _truncate(value: Any, limit: int = 300) -> str:
+    """Tronque un résumé pour les logs (jamais de prompt complet en info)."""
+    text = "" if value is None else str(value)
+    text = text.replace("\n", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "…"
+
+
+def _traceback_text(exc: BaseException) -> str:
+    """Extrait la stacktrace la plus riche possible (rétrocompatibilité erreurs corrélées)."""
+    tb: BaseException | None = exc
+    parts: list[str] = []
+    while tb is not None:
+        tb_text = getattr(tb, "__traceback_text__", None)
+        if tb_text:
+            parts.append(f"[__traceback_text__] {tb_text}")
+        cause = getattr(tb, "__cause__", None)
+        if cause is not None:
+            parts.append(f"[cause] {cause}")
+        tb = cause
+    if parts:
+        return "\n".join(parts)
+    return "".join(
+        traceback.format_exception(type(exc), exc, getattr(exc, "__traceback__", None))
+    ).strip()
+
+
+def _format_traceback(exc: BaseException) -> dict[str, Any] | str:
+    """Formate la stacktrace/current/error pour le log MCP (inclut __traceback_text__)."""
+    if not hasattr(exc, "__traceback__") or exc.__traceback__ is None:
+        return _traceback_text(exc)
+    tb_lines = traceback.format_exc().splitlines()
+    if not tb_lines or tb_lines[-1].strip() == "":
+        tb_lines = tb_lines[:-1]
+    return _traceback_text(exc) + "\n" + "\n".join(tb_lines)
+
+
+_TRACEBACK_TRUNCATE = 400
 
 
 class MultiAgentMCPAdapter:
@@ -38,6 +83,29 @@ class MultiAgentMCPAdapter:
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> MCPOrchestrationResult:
         durable_state = self._prepare_durable_state(request)
+        logger.info(
+            "MCP multi-agent run démarré : run_id=%s session=%s model=%s "
+            "parallel=%s thinking=%s resume=%s granularity=%s durable=%s",
+            durable_state.run_id,
+            request.session_id,
+            request.model,
+            request.parallel,
+            request.enable_thinking,
+            bool(request.resume_request_id),
+            request.event_granularity,
+            self._durable_store is not None,
+        )
+        logger.debug(
+            "MCP multi-agent requête : run_id=%s prompt_len=%d scope=%s "
+            "prompt_preview=%r fingerprint=%s phase=%s checkpoint=%s",
+            durable_state.run_id,
+            len(request.prompt or ""),
+            request.scope,
+            _truncate(request.prompt, 120),
+            durable_state.request_fingerprint,
+            durable_state.phase,
+            durable_state.checkpoint,
+        )
         parent_task_id = durable_state.run_id
         lease_owner = f"mcp-adapter-{uuid.uuid4().hex}"
         if self._durable_store is not None:
@@ -48,6 +116,13 @@ class MultiAgentMCPAdapter:
 
         def record_event(kind: str, payload: dict[str, Any]) -> None:
             nonlocal durable_state
+            logger.debug(
+                "MCP multi-agent event : run_id=%s kind=%s phase=%s worker=%s",
+                parent_task_id,
+                kind,
+                payload.get("phase") or "lead",
+                payload.get("worker_id") or payload.get("role") or "-",
+            )
             event = normalize_mcp_event(
                 {"event": kind, **payload},
                 parent_task_id=parent_task_id,
@@ -72,6 +147,13 @@ class MultiAgentMCPAdapter:
                 on_event(kind, event)
 
         if request.resume_request_id:
+            logger.info(
+                "MCP multi-agent reprise : run_id=%s retry=%d checkpoint=%s phase=%s",
+                parent_task_id,
+                durable_state.retry_count,
+                durable_state.checkpoint,
+                durable_state.phase,
+            )
             recovery_event = normalize_mcp_event(
                 {
                     "event": "checkpoint_recovered",
@@ -89,6 +171,12 @@ class MultiAgentMCPAdapter:
                 on_event("checkpoint_recovered", recovery_event)
 
         try:
+            logger.debug(
+                "MCP multi-agent dispatch : run_id=%s streaming=%s orchestrator=%s",
+                parent_task_id,
+                on_event is not None,
+                type(self._orchestrator).__name__,
+            )
             result = (
                 self._orchestrator.run_streaming(
                     request.prompt,
@@ -137,6 +225,15 @@ class MultiAgentMCPAdapter:
                 )
             return normalized
         except Exception as exc:
+            logger.error(
+                "MCP multi-agent run échoué : run_id=%s type=%s message=%s traceback=%s",
+                parent_task_id,
+                type(exc).__name__,
+                exc,
+                _truncate(_format_traceback(exc), _TRACEBACK_TRUNCATE),
+                exc_info=True,
+            )
+            logger.debug("MCP multi-agent run cleanup avant relance : run_id=%s", parent_task_id)
             if self._durable_store is not None:
                 self._durable_store.transition(
                     durable_state.run_id,
@@ -286,6 +383,12 @@ class MultiAgentMCPAdapter:
             worker_errors=errors,
             synthesis=synthesis,
         )
+        result_status = str(result.get("status") or "").strip().lower()
+        if result_status in {"success", "partial_success", "failed"}:
+            status = result_status
+        reason = str(result.get("reason") or result.get("phase") or "").strip() or None
+        if reason in {"synthesis_timeout", "orchestration_deadline_reached"}:
+            failure_phase = "synthesis"
         normalized_events = []
         for event in result.get("events") or []:
             if isinstance(event, dict):
@@ -333,6 +436,7 @@ class MultiAgentMCPAdapter:
                 "event_granularity": request.event_granularity,
                 "fallback": None,
                 "failure_phase": failure_phase,
+                "reason": reason,
                 "event_policy": {
                     "granularity": request.event_granularity,
                     "hierarchy": ["lead", "worker", "synthesis"],
