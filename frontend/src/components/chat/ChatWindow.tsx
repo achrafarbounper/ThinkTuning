@@ -1711,28 +1711,26 @@ const base = resolveBaseUrl();
         <McpIcon />
         <span className="copilot-chat__think-label">MCP</span>
       </button>
-      {mcpMode && (
-        <label className="copilot-chat__mcp-mode">
-          <span className="copilot-chat__mcp-mode-label">Mode MCP</span>
-          <select
-            aria-label="Mode d'orchestration MCP"
-            value={mcpAgentMode}
-            disabled={isLoading}
-            onChange={(event) => {
-              const next = event.target.value === 'mono_agent' ? 'mono_agent' : 'multi_agent';
-              setMcpAgentMode(next);
-              try {
-                window.localStorage.setItem(MCP_AGENT_MODE_STORAGE_KEY, next);
-              } catch {
-                /* le choix reste actif pour la session */
-              }
-            }}
-          >
-            <option value="multi_agent">Multi-agent</option>
-            <option value="mono_agent">Mono-agent</option>
-          </select>
-        </label>
-      )}
+      <label className="copilot-chat__mcp-mode">
+        <span className="copilot-chat__mcp-mode-label">Orchestration MCP</span>
+        <select
+          aria-label="Mode d'orchestration MCP"
+          value={mcpAgentMode}
+          disabled={!mcpMode || isLoading}
+          onChange={(event) => {
+            const next = event.target.value === 'mono_agent' ? 'mono_agent' : 'multi_agent';
+            setMcpAgentMode(next);
+            try {
+              window.localStorage.setItem(MCP_AGENT_MODE_STORAGE_KEY, next);
+            } catch {
+              /* le choix reste actif pour la session */
+            }
+          }}
+        >
+          <option value="multi_agent">Multi-agent</option>
+          <option value="mono_agent">Mono-agent</option>
+        </select>
+      </label>
       <button
         type="button"
         className="copilot-chat__think-toggle"
