@@ -117,6 +117,9 @@ const CORE_MODE_STORAGE_KEY = 'thinktuning.coreMode';
  */
 const MCP_MODE_STORAGE_KEY = 'thinktuning.mcpMode';
 
+/** Clé de persistance du sous-mode d'orchestration utilisé par MCP. */
+const MCP_AGENT_MODE_STORAGE_KEY = 'thinktuning.mcpAgentMode';
+
 /** Nombre maximal de caractères d'arguments affichés sur la carte d'approbation. */
 const APPROVAL_ARGS_PREVIEW_LIMIT = 400;
 
@@ -235,6 +238,17 @@ function loadStoredMcpMode(): boolean {
     return window.localStorage.getItem(MCP_MODE_STORAGE_KEY) === 'true';
   } catch {
     return false;
+  }
+}
+
+/** Relit le sous-mode MCP choisi dans l'IHM (multi-agent par défaut). */
+function loadStoredMcpAgentMode(): 'mono_agent' | 'multi_agent' {
+  try {
+    return window.localStorage.getItem(MCP_AGENT_MODE_STORAGE_KEY) === 'mono_agent'
+      ? 'mono_agent'
+      : 'multi_agent';
+  } catch {
+    return 'multi_agent';
   }
 }
 
@@ -361,6 +375,10 @@ export function ChatWindow() {
   // (POST /mcp/sse, tool `orchestrate`) au lieu de l'API HTTP legacy —
   // le canal à privilégier quand MCP_FIRST=true gèle l'HTTP en lecture seule.
   const [mcpMode, setMcpMode] = useState<boolean>(loadStoredMcpMode);
+  // Sous-mode MCP choisi dans le chat : mono-agent ou multi-agent.
+  const [mcpAgentMode, setMcpAgentMode] = useState<'mono_agent' | 'multi_agent'>(
+    loadStoredMcpAgentMode,
+  );
   // Demande en attente de décision humaine (approve / reject), le cas échéant.
   const [pendingApproval, setPendingApproval] = useState<PendingApprovalData | null>(null);
 
@@ -1262,9 +1280,9 @@ const base = resolveBaseUrl();
           prompt,
           session_id: sessionId || undefined,
           enable_thinking: enableThinking,
-          mode: 'multi_agent',
+          mode: mcpAgentMode,
           model: selectedModel || undefined,
-          parallel: true,
+          parallel: mcpAgentMode === 'multi_agent',
           event_granularity: 'summary',
         },
         (event) => {
@@ -1414,6 +1432,7 @@ const base = resolveBaseUrl();
       sessionId,
       startMultiWorker,
       selectedModel,
+      mcpAgentMode,
     ],
   );
 
@@ -1692,6 +1711,28 @@ const base = resolveBaseUrl();
         <McpIcon />
         <span className="copilot-chat__think-label">MCP</span>
       </button>
+      {mcpMode && (
+        <label className="copilot-chat__mcp-mode">
+          <span className="copilot-chat__mcp-mode-label">Mode MCP</span>
+          <select
+            aria-label="Mode d'orchestration MCP"
+            value={mcpAgentMode}
+            disabled={isLoading}
+            onChange={(event) => {
+              const next = event.target.value === 'mono_agent' ? 'mono_agent' : 'multi_agent';
+              setMcpAgentMode(next);
+              try {
+                window.localStorage.setItem(MCP_AGENT_MODE_STORAGE_KEY, next);
+              } catch {
+                /* le choix reste actif pour la session */
+              }
+            }}
+          >
+            <option value="multi_agent">Multi-agent</option>
+            <option value="mono_agent">Mono-agent</option>
+          </select>
+        </label>
+      )}
       <button
         type="button"
         className="copilot-chat__think-toggle"

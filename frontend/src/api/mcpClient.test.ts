@@ -180,6 +180,28 @@ describe("orchestrateViaMcp", () => {
     expect(sent.method).toBe("tools/call");
     expect(sent.params.name).toBe("orchestrate");
     expect(sent.params.arguments.prompt).toBe("Analyse ce répertoire");
+    expect(sent.params.arguments.mode).toBe("multi_agent");
+  });
+
+  it("transmet explicitement le mode mono-agent demandé par l'IHM", async () => {
+    fetchMock.mockResolvedValue(sseResponse(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{ type: "text", text: JSON.stringify({ answer: "Réponse", status: "completed" }) }],
+        isError: false,
+      },
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await orchestrateViaMcp(
+      { prompt: "Réponse simple", mode: "mono_agent" },
+      { baseUrl: "http://api" },
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    const sent = JSON.parse(init.body as string);
+    expect(sent.params.arguments.mode).toBe("mono_agent");
   });
 
   it("transmet le réglage du mode Réflexion au tool orchestrate", async () => {
@@ -335,6 +357,9 @@ describe("orchestrateViaMcpStream", () => {
       { baseUrl: "http://api" },
     );
 
+    const [, init] = fetchMock.mock.calls[0];
+    const sent = JSON.parse(init.body as string);
+    expect(sent.params.arguments.mode).toBe("multi_agent");
     expect(events[0]).toEqual({ thinking_delta: "Réflexion" });
     expect(events[1].tool).toEqual({
       event: "tool_start",
