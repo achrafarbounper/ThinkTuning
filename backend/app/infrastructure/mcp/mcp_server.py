@@ -216,7 +216,10 @@ class MCPServer:
         params = payload.get("params", {})
         request_id = payload.get("id")
         if not isinstance(params, dict):
-            params = {}
+            raise ProtocolError(
+                ErrorCode.INVALID_PARAMS,
+                "Invalid params: 'params' must be an object",
+            )
         return self._handle_method(method, request_id, params, client_id)
 
     def _handle_method(

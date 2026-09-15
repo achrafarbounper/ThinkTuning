@@ -11,6 +11,7 @@ aucun appel réseau ni dépendance à un `.env`.
 from __future__ import annotations
 
 import inspect
+import logging
 
 import httpx
 import pytest
@@ -238,3 +239,18 @@ def test_call_stream_non_object_error_line_is_ignored():
     client = _client(handler, provider="ollama")
     assert client.call([{"role": "user", "content": "bonjour"}]) == "Bonjour"
 
+
+def test_empty_stream_is_classified_as_no_first_token(caplog):
+    def handler(request):
+        return httpx.Response(
+            200,
+            content=b"",
+            headers={"content-type": "application/x-ndjson"},
+        )
+
+    client = _client(handler, provider="ollama")
+    with caplog.at_level(logging.WARNING, logger="thinktuning.agent"):
+        assert client.call([{"role": "user", "content": "q"}]) == ""
+
+    assert "llm_stream_empty" in caplog.text
+    assert "reason=no_first_token" in caplog.text

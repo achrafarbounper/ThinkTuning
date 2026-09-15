@@ -301,6 +301,19 @@ def test_mcp_events_include_hierarchy_metadata() -> None:
     assert event["parent_task_id"] == "parent-1"
     assert event["worker_id"] == "worker-7"
     assert event["event"] == "worker_update"
+    assert event["event_id"].startswith("mcp-")
+    assert event["timestamp"]
+
+
+def test_mcp_orchestration_phase_is_not_collapsed_to_lead() -> None:
+    from app.domain.ports import normalize_mcp_event
+
+    event = normalize_mcp_event(
+        {"event": "agent.phase", "phase": "orchestration"},
+        parent_task_id="run-1",
+    )
+
+    assert event["phase"] == "orchestration"
 
 
 def test_mcp_request_accepts_minimal_event_granularity() -> None:

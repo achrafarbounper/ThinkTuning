@@ -286,6 +286,12 @@ class MultiAgentMCPAdapter:
             worker_errors=errors,
             synthesis=synthesis,
         )
+        result_status = str(result.get("status") or "").strip().lower()
+        if result_status in {"success", "partial_success", "failed"}:
+            status = result_status
+        reason = str(result.get("reason") or result.get("phase") or "").strip() or None
+        if reason in {"synthesis_timeout", "orchestration_deadline_reached"}:
+            failure_phase = "synthesis"
         normalized_events = []
         for event in result.get("events") or []:
             if isinstance(event, dict):
@@ -333,6 +339,7 @@ class MultiAgentMCPAdapter:
                 "event_granularity": request.event_granularity,
                 "fallback": None,
                 "failure_phase": failure_phase,
+                "reason": reason,
                 "event_policy": {
                     "granularity": request.event_granularity,
                     "hierarchy": ["lead", "worker", "synthesis"],

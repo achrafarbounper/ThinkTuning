@@ -47,6 +47,7 @@ from starlette.responses import Response
 
 from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
+from app.domain.ports import normalize_mcp_event_granularity
 from app.domain.ports.mcp_ports import MCPDurableRunStorePort
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_flow import (
@@ -192,7 +193,19 @@ def _is_durable_replay(payload: object) -> bool:
 async def _replay_durable_events(payload: dict[str, Any]) -> AsyncIterator[str]:
     arguments = dict((payload.get("params") or {}).get("arguments") or {})
     run_id = str(arguments.get("run_id") or "").strip()
-    after_sequence = int(arguments.get("after_sequence", 0))
+    try:
+        after_sequence = int(arguments.get("after_sequence", 0))
+    except (TypeError, ValueError):
+        yield _sse_event(
+            "replay.error",
+            {"run_id": run_id, "error": "after_sequence must be an integer"},
+        )
+        yield "data: [DONE]\n\n"
+        return
+    if not run_id:
+        yield _sse_event("replay.error", {"run_id": "", "error": "run_id is required"})
+        yield "data: [DONE]\n\n"
+        return
     yield _sse_event("replay_started", {"run_id": run_id, "after_sequence": after_sequence})
     try:
         events = get_mcp_durable_run_store().list_events_after(run_id, after_sequence)
@@ -211,7 +224,12 @@ async def _replay_durable_events(payload: dict[str, Any]) -> AsyncIterator[str]:
     yield "data: [DONE]\n\n"
 
 
-async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> AsyncIterator[str]:
+async def _stream_orchestrate(
+    payload: dict[str, Any],
+    *,
+    client_id: str,
+    request: Request | None = None,
+) -> AsyncIterator[str]:
     """Relaye la réflexion et la progression du tool MCP en temps réel.
 
     Les événements de progression reprennent les payloads du flux core
@@ -224,9 +242,27 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
     params = payload.get("params") or {}
     arguments = dict(params.get("arguments") or {})
     arguments.pop("stream", None)
+    try:
+        event_granularity = normalize_mcp_event_granularity(
+            arguments.get("event_granularity", "summary")
+        )
+    except ValueError as exc:
+        yield _sse_event(
+            "orchestrate.error",
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32602, "message": str(exc)},
+            },
+        )
+        yield "data: [DONE]\n\n"
+        return
     events: queue.Queue[tuple[str, dict[str, Any]] | None] = queue.Queue()
+    disconnected = threading.Event()
 
     def emit(kind: str, data: dict[str, Any]) -> None:
+        if disconnected.is_set():
+            return
         events.put((kind, data))
 
     def worker() -> None:
@@ -268,25 +304,28 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
             prompt = str(arguments.get("prompt") or "")
             session_id = str(arguments.get("session_id") or "default")
             scope = str(arguments.get("scope") or "default")
+            result: Any
             if str(arguments.get("mode") or "mono_agent") == "multi_agent":
-                result_text = json.dumps(
-                    orchestrate_multi_agent(
-                        prompt,
-                        session_id=session_id,
-                        scope=scope,
-                        model=str(arguments["model"]) if arguments.get("model") else None,
-                        parallel=bool(arguments.get("parallel")),
-                        enable_thinking=bool(arguments.get("enable_thinking")),
-                        event_granularity=str(arguments.get("event_granularity") or "summary"),
-                        resume_request_id=(
-                            str(arguments["resume_request_id"])
-                            if arguments.get("resume_request_id")
-                            else None
-                        ),
-                        on_event=relay,
+                multi_agent_result = orchestrate_multi_agent(
+                    prompt,
+                    session_id=session_id,
+                    scope=scope,
+                    model=str(arguments["model"]) if arguments.get("model") else None,
+                    parallel=bool(arguments.get("parallel")),
+                    enable_thinking=bool(arguments.get("enable_thinking")),
+                    event_granularity=str(arguments.get("event_granularity") or "summary"),
+                    resume_request_id=(
+                        str(arguments["resume_request_id"])
+                        if arguments.get("resume_request_id")
+                        else None
                     ),
+                    on_event=relay,
+                )
+                result_text = json.dumps(
+                    multi_agent_result,
                     ensure_ascii=False,
                 )
+                result = multi_agent_result
             else:
                 result = orchestrate_stream(
                     prompt,
@@ -319,6 +358,11 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
                 run_id=str(request_id) if request_id is not None else None,
             )
             events.put(("orchestrate.done", rpc))
+            # Keep the named progress event for existing clients, but also
+            # expose the terminal JSON-RPC response as the standard MCP
+            # message event. Generic SSE/MCP clients may ignore custom event
+            # names and otherwise stop after `orchestrate.started`.
+            events.put(("message", rpc))
         except Exception as exc:
             logger.exception("MCP orchestrate streaming failed")
             if recorder is not None:
@@ -338,6 +382,7 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
                 run_id=str(request_id) if request_id is not None else None,
             )
             events.put(("orchestrate.error", rpc))
+            events.put(("message", rpc))
         finally:
             if flow_token is not None:
                 clear_call_context(flow_token)
@@ -350,21 +395,80 @@ async def _stream_orchestrate(payload: dict[str, Any], *, client_id: str) -> Asy
     # suivi de heartbeats tant que le worker ne produit rien.
     yield _sse_event("orchestrate.started", {"status": "started"})
     while True:
+        if request is not None and await request.is_disconnected():
+            disconnected.set()
+            logger.info(
+                "Client MCP déconnecté pendant l'orchestration : client_id=%s request_id=%s",
+                client_id,
+                request_id,
+            )
+            return
         try:
             item = await asyncio.wait_for(asyncio.to_thread(events.get), timeout=10.0)
         except TimeoutError:
+            if request is not None and await request.is_disconnected():
+                disconnected.set()
+                logger.info(
+                    "Client MCP déconnecté pendant le heartbeat : client_id=%s request_id=%s",
+                    client_id,
+                    request_id,
+                )
+                return
             yield ": heartbeat\n\n"
             continue
         if item is None:
             yield "data: [DONE]\n\n"
             return
         kind, data = item
+        if not _event_allowed_for_sse(kind, event_granularity):
+            continue
         if kind == "orchestrate.tool":
             yield _sse_event(kind, {"core_tool": data, **data})
         elif kind in {"orchestrate.done", "orchestrate.error"}:
             yield _sse_event(kind, data)
         else:
             yield _sse_event(kind, data)
+
+
+def _event_allowed_for_sse(kind: str, granularity: str) -> bool:
+    """Apply one consistent event policy to both mono and multi-agent runs."""
+    if granularity == "verbose":
+        return True
+    if granularity == "minimal":
+        return kind in {
+            "orchestrate.started",
+            "orchestrate.start",
+            "orchestrate.done",
+            "orchestrate.error",
+            "message",
+        }
+    return kind in {
+        "orchestrate.started",
+        "orchestrate.start",
+        "orchestrate.thinking",
+        "orchestrate.tool",
+        "orchestrate.worker",
+        "orchestrate.synthesis",
+        "orchestrate.synthesizing",
+        "orchestrate.done",
+        "orchestrate.error",
+        "message",
+        "orchestration_fallback",
+        # Legacy coordinator event names remain the source of truth for the
+        # multi-agent adapter and must not be dropped by the MCP projection.
+        "agent.plan",
+        "agent.resuming",
+        "agent.worker.start",
+        "agent.worker.tool",
+        "agent.worker.thinking",
+        "agent.worker.result",
+        "agent.worker.error",
+        "agent.worker.approval",
+        "agent.phase",
+        "agent.synthesizing",
+        "agent.done",
+        "agent.error",
+    } or kind.startswith("orchestrate.worker.") or kind.startswith("orchestrate.synthesis.")
 
 
 @router.post("/sse", include_in_schema=False)
@@ -435,7 +539,7 @@ async def mcp_sse(
     if _is_streaming_orchestrate(request_payload):
         assert isinstance(request_payload, dict)
         return StreamingResponse(
-            _stream_orchestrate(request_payload, client_id=client_id),
+            _stream_orchestrate(request_payload, client_id=client_id, request=request),
             media_type="text/event-stream",
             headers=headers,
         )

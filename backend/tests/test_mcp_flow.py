@@ -337,6 +337,36 @@ def test_sse_streaming_orchestrate_persists_rich_flow(sse_client, monkeypatch):
     assert "Agent MCP" in rows[0]["agents"]
 
 
+def test_sse_streaming_multi_agent_emits_terminal_result(sse_client, monkeypatch):
+    """Le chemin multi-agent ne doit pas référencer le résultat mono-agent."""
+    from app.infrastructure.mcp import mcp_server_sse
+
+    def fake_orchestrate_multi_agent(prompt, **kwargs):
+        kwargs["on_event"]("orchestrate.synthesis", {"phase": "synthesis"})
+        return {
+            "answer": "CPU et GPU détectés.",
+            "status": "completed",
+            "workers": [],
+            "worker_errors": [],
+            "orchestration": {"mode": "multi_agent"},
+        }
+
+    monkeypatch.setattr(mcp_server_sse, "orchestrate_multi_agent", fake_orchestrate_multi_agent)
+    response = sse_client.post(
+        "/mcp/sse",
+        content=_sse_orchestrate_body(mode="multi_agent"),
+        headers=_SSE_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert "orchestrate.done" in response.text
+    assert "orchestrate.error" not in response.text
+    assert "CPU et GPU détectés." in response.text
+    rows = _rows()
+    assert len(rows) == 1
+    assert _row(rows[0]["id"])["status"] == fs.COMPLETED
+
+
 def test_sse_durable_replay_uses_injected_store(monkeypatch):
     from app.infrastructure.mcp import mcp_server_sse
 
@@ -364,6 +394,36 @@ def test_sse_durable_replay_uses_injected_store(monkeypatch):
     assert "worker.completed" in events[1]
     assert '"last_sequence": 4' in events[2]
     mcp_server_sse.configure_mcp_durable_run_store(None)
+
+
+def test_sse_durable_replay_rejects_invalid_cursor(sse_client):
+    response = sse_client.post(
+        "/mcp/sse",
+        content=json.dumps({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "orchestrate_events",
+                "arguments": {"run_id": "run-1", "after_sequence": "invalid", "stream": True},
+            },
+        }),
+        headers=_SSE_AUTH,
+    )
+    assert response.status_code == 200
+    assert "after_sequence must be an integer" in response.text
+    assert "data: [DONE]" in response.text
+
+
+def test_sse_orchestrate_rejects_invalid_event_granularity(sse_client):
+    response = sse_client.post(
+        "/mcp/sse",
+        content=_sse_orchestrate_body(event_granularity="all"),
+        headers=_SSE_AUTH,
+    )
+    assert response.status_code == 200
+    assert '"code": -32602' in response.text
+    assert "data: [DONE]" in response.text
 
 def test_sse_streaming_orchestrate_error_persists_error_flow(sse_client, monkeypatch):
     """Un run streaming en échec clôture la session en ``error`` (jamais bloquant)."""

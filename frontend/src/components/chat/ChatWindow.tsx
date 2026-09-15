@@ -1005,6 +1005,8 @@ export function ChatWindow() {
       // Plan local : permet de retrouver le texte d'une sous-tâche (nécessaire
       // pour relancer la sous-tâche bloquée avec resume_request_id).
       let planTasks: MultiAgentPlanTask[] = [];
+      let finalAnswerReceived = false;
+      const workerSummaries: string[] = [];
       for await (const frame of readNamedSseEvents(response.body)) {
         if (frame.data === '[DONE]') break;
 
@@ -1038,6 +1040,7 @@ export function ChatWindow() {
             break;
           case 'agent.worker.result':
             if (event.task_id) {
+              if (event.summary) workerSummaries.push(event.summary);
               completeMultiWorker(
                 assistantId,
                 event.task_id,
@@ -1089,8 +1092,15 @@ export function ChatWindow() {
             // Orchestration interrompue sur une validation : le texte final
             // récapitulatif n'est affiché que si aucune carte n'est pendante
             // (la carte suffit comme signal pour l'utilisateur).
-            if (event.answer && !event.answer.startsWith('Validation humaine requise')) {
-              appendDelta(assistantId, event.answer ?? event.final_answer ?? '');
+            {
+              const finalAnswer = event.final_answer ?? event.answer;
+              if (
+                finalAnswer &&
+                !finalAnswer.startsWith('Validation humaine requise')
+              ) {
+                appendDelta(assistantId, finalAnswer);
+                finalAnswerReceived = true;
+              }
             }
             break;
           case 'agent.error':
@@ -1099,6 +1109,9 @@ export function ChatWindow() {
             // agent.synthesizing et autres : rien a afficher pour l instant.
             break;
         }
+      }
+      if (!finalAnswerReceived && workerSummaries.length > 0) {
+        appendDelta(assistantId, workerSummaries.join('\n\n'));
       }
     },
     [
@@ -1275,6 +1288,10 @@ const base = resolveBaseUrl();
       prompt: string,
       controller: AbortController,
     ): Promise<void> => {
+      let streamedFinalAnswer = false;
+      // Résumés des workers (agent.worker.result) : repli P1 si la réponse
+      // finale est vide — la bulle n'est JAMAIS laissée vide sans explication.
+      const workerSummaries: string[] = [];
       const result = await orchestrateViaMcpStream(
         {
           prompt,
@@ -1297,9 +1314,11 @@ const base = resolveBaseUrl();
               appendToolCall(assistantId, {
                 tool: toolName,
                 args:
-                  toolEvent.args && typeof toolEvent.args === 'object'
-                    ? JSON.stringify(toolEvent.args)
-                    : undefined,
+                  typeof toolEvent.args === 'string'
+                    ? toolEvent.args
+                    : toolEvent.args && typeof toolEvent.args === 'object'
+                      ? JSON.stringify(toolEvent.args)
+                      : undefined,
                 status: 'running',
               });
             } else {
@@ -1318,8 +1337,34 @@ const base = resolveBaseUrl();
             }
           }
           const multiEvent = event.multi_agent;
+          if (event.orchestration) {
+            const reason = typeof event.orchestration.reason === 'string'
+              ? event.orchestration.reason
+              : 'capacité multi-agent indisponible';
+            patchMessage(
+              assistantId,
+              {
+                orchestrationNotice:
+                  `Le mode multi-agent MCP a été remplacé par le mode mono-agent (${reason}).`,
+              },
+            );
+          }
           if (multiEvent) {
             const eventName = String(multiEvent.event ?? '');
+            if (
+              eventName === 'agent.phase' &&
+              (multiEvent.status === 'timeout' || multiEvent.status === 'error')
+            ) {
+              const reason = typeof multiEvent.reason === 'string'
+                ? multiEvent.reason
+                : 'phase_failure';
+              const message = reason === 'synthesis_timeout'
+                ? 'La synthèse a dépassé son délai ; les résultats partiels sont conservés.'
+                : reason === 'orchestration_deadline_reached'
+                  ? 'La durée maximale de l’orchestration a été atteinte ; les résultats partiels sont conservés.'
+                  : 'Une phase de l’orchestration a échoué ; les résultats disponibles sont conservés.';
+              patchMessage(assistantId, { orchestrationNotice: message });
+            }
             if (
               eventName === 'agent.worker.thinking' &&
               typeof multiEvent.thinking === 'string'
@@ -1345,6 +1390,7 @@ const base = resolveBaseUrl();
               (
                 eventName === 'orchestrate.worker' ||
                 eventName === 'agent.worker.start' ||
+                eventName === 'agent.worker.tool' ||
                 eventName === 'agent.worker.result' ||
                 eventName === 'agent.worker.error' ||
                 eventName === 'agent.worker.approval'
@@ -1363,14 +1409,36 @@ const base = resolveBaseUrl();
               const existing = messagesRef.current
                 .find((message) => message.id === assistantId)
                 ?.multiWorkers?.some((worker) => worker.task_id === taskId);
+              // Mémorise le résumé dès le premier événement porteur (repli P1 :
+              // bulle jamais vide) — y compris quand le worker est créé ici.
+              const summaryText =
+                typeof multiEvent.summary === 'string' && multiEvent.summary.trim()
+                  ? multiEvent.summary.trim()
+                  : undefined;
               if (!existing) {
+                if (summaryText) workerSummaries.push(summaryText);
                 startMultiWorker(assistantId, {
                   task_id: taskId,
                   role: String(multiEvent.role ?? multiEvent.worker_id ?? 'worker'),
                   subtask: typeof multiEvent.subtask === 'string' ? multiEvent.subtask : undefined,
                   status: workerStatus,
                 });
+                // Le worker vient d'être créé avec son statut final : on
+                // complète aussitôt sa fiche (résumé visible dans la trace).
+                if (workerStatus !== 'running') {
+                  completeMultiWorker(
+                    assistantId,
+                    taskId,
+                    {
+                      summary: summaryText,
+                      message: typeof multiEvent.message === 'string' ? multiEvent.message : undefined,
+                      durationMs: typeof multiEvent.duration_ms === 'number' ? multiEvent.duration_ms : undefined,
+                    },
+                    workerStatus,
+                  );
+                }
               } else if (workerStatus !== 'running') {
+                if (summaryText) workerSummaries.push(summaryText);
                 completeMultiWorker(
                   assistantId,
                   taskId,
@@ -1382,6 +1450,38 @@ const base = resolveBaseUrl();
                   workerStatus,
                 );
               }
+            }
+            if (
+              (eventName === 'agent.done' ||
+                eventName === 'orchestrate.done' ||
+                eventName === 'orchestrate.synthesis') &&
+              typeof multiEvent.final_answer === 'string' &&
+              multiEvent.final_answer.trim()
+            ) {
+              appendDelta(assistantId, multiEvent.final_answer);
+              streamedFinalAnswer = true;
+            } else if (
+              eventName === 'agent.done' &&
+              typeof multiEvent.answer === 'string' &&
+              multiEvent.answer.trim()
+            ) {
+              appendDelta(assistantId, multiEvent.answer);
+              streamedFinalAnswer = true;
+            }
+            if (eventName === 'agent.error' || eventName === 'orchestrate.error') {
+              // P0 : une erreur d'orchestration n'est JAMAIS avalée — elle est
+              // affichée dans la bulle (miroir du chemin non-MCP askMultiAgentTurn).
+              const message =
+                typeof multiEvent.message === 'string' && multiEvent.message.trim()
+                  ? multiEvent.message
+                  : 'Échec de l’orchestration MCP.';
+              // Ajoute tout contenu partiel déjà collecté avant de lever : le
+              // catch de sendMessage affichera `message` via patchMessage(error).
+              const partial =
+                workerSummaries.length > 0
+                  ? `Résultats partiels des workers :\n${workerSummaries.join('\n')}\n\n`
+                  : '';
+              throw new Error(`${partial}${message}`);
             }
           }
         },
@@ -1412,9 +1512,56 @@ const base = resolveBaseUrl();
         });
         return;
       }
+      if (result.plan && Array.isArray(result.plan)) {
+        setMultiPlan(assistantId, result.plan as unknown as MultiAgentPlanTask[]);
+      }
+      const fallback = result.orchestration;
+      if (fallback?.event === 'orchestration_fallback' || fallback?.fallback) {
+        const reason = fallback.reason ?? 'capacité multi-agent indisponible';
+        patchMessage(assistantId, {
+          orchestrationNotice:
+            `Le mode multi-agent MCP a été remplacé par le mode mono-agent (${reason}).`,
+        }        );
+      }
+      const resultReason =
+        typeof result.orchestration?.reason === 'string'
+          ? result.orchestration.reason
+          : typeof result.phase === 'string'
+            ? result.phase
+            : undefined;
+      if (result.status === 'partial_success' && resultReason) {
+        const message =
+          resultReason === 'synthesis_timeout'
+            ? 'La synthèse a dépassé son délai ; les résultats partiels sont conservés.'
+            : resultReason === 'orchestration_deadline_reached'
+              ? 'La durée maximale de l’orchestration a été atteinte ; les résultats partiels sont conservés.'
+              : 'Réponse partielle : certains résultats n’ont pas pu être finalisés.';
+        patchMessage(assistantId, { orchestrationNotice: message });
+      }
       // completed / rejected / error : le run porte la réponse finale.
+      // P1 : si elle est vide, on replie sur les résumés des workers, puis sur
+      // un message explicite — la bulle n'est JAMAIS vide sans explication.
       flushStreamBuffer();
-      appendDelta(assistantId, result.answer || '');
+      if (!streamedFinalAnswer) {
+        const finalText = (result.answer || '').trim();
+        if (finalText) {
+          appendDelta(assistantId, result.answer || '');
+        } else if (workerSummaries.length > 0) {
+          patchMessage(assistantId, {
+            orchestrationNotice:
+              'Réponse finale indisponible ; résultats partiels des workers affichés.',
+          });
+          appendDelta(
+            assistantId,
+            `Résultats partiels des workers :\n${workerSummaries.join('\n')}`,
+          );
+        } else {
+          patchMessage(assistantId, {
+            error:
+              "L'orchestration MCP s'est terminée sans réponse finale. Relancez la demande ou vérifiez les journaux du serveur (thinktuning.mcp.sse).",
+          });
+        }
+      }
       flushStreamBuffer();
       patchMessage(assistantId, { thinkingStreaming: false });
     },

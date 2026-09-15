@@ -59,6 +59,8 @@ export interface ChatMessageData {
    * des événements SSE agent.worker.*.
    */
   multiWorkers?: MultiAgentWorkerState[];
+  /** Alerte de capacité/policy MCP (par ex. repli multi-agent -> mono-agent). */
+  orchestrationNotice?: string;
 }
 
 /* --- Mode Multi-agents (orchestration superviseur / workers) ---------------- */
@@ -110,6 +112,14 @@ export interface MultiAgentStreamEvent {
   request_id?: string;
   /** Décision structurée du gate (outil, args, motif) — cf. AgentApprovalInfo. */
   approval?: Pick<AgentApprovalInfo, 'tool' | 'args' | 'reason'>;
+  /** Repli explicite émis par la surface MCP quand le mode demandé n'est pas disponible. */
+  fallback?: string;
+  reason?: string;
+  source?: string;
+  phase?: string;
+  progress?: number;
+  event_id?: string;
+  timestamp?: string;
 }
 
 /** Contrat JSON de POST /api/agent/multi/ask (mode bloquant). */

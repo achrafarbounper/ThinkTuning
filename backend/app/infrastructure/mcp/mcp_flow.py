@@ -289,11 +289,15 @@ class MCPFlowRecorder:
         self.finish("error", error=message)
 
     def finish_from_result(self, result: Any) -> None:
-        """Clôture depuis un ``AgentRunResult`` (statut → session Flow Map)."""
-        raw_status = getattr(result, "status", "")
+        """Clôture depuis un résultat mono- ou multi-agent."""
+        if isinstance(result, dict):
+            raw_status = result.get("status", "")
+            answer = str(result.get("answer", "") or "")
+        else:
+            raw_status = getattr(result, "status", "")
+            answer = str(getattr(result, "answer", "") or "")
         run_status = str(getattr(raw_status, "value", raw_status) or "")
         flow_status = _RUN_TO_FLOW.get(run_status, "error")
-        answer = str(getattr(result, "answer", "") or "")
         self.record(MCP_DONE, {"answer": answer, "status": flow_status, "role": "Agent MCP"})
         self.finish(flow_status, answer_summary=answer[:300])
 

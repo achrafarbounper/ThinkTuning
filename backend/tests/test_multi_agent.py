@@ -17,6 +17,7 @@ Aucun réseau : tout est scripté. Lance : pytest tests/test_multi_agent.py -v
 """
 
 import os
+import time
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -165,6 +166,60 @@ def test_streaming_events_emitted():
     assert EV_WORKER_RESULT in kinds
     assert EV_SYNTHESIZING in kinds
     assert EV_DONE in kinds
+
+
+def test_synthesis_timeout_returns_partial_success_and_terminal_phase():
+    plan_json = '[{"task_id":"t1","role":"web","subtask":"cherche A"}]'
+
+    class SlowLead(FakeAgent):
+        def run_detailed(self, prompt, on_thinking=None, on_tool_event=None, **_):
+            self.prompts.append(prompt)
+            if len(self.prompts) == 1:
+                return FakeResult(plan_json)
+            time.sleep(0.05)
+            return FakeResult("late synthesis")
+
+    lead = SlowLead("lead", [])
+
+    def role_builder(role):
+        if role == "lead":
+            return lead
+        return FakeAgent(role, ["worker result"])
+
+    events = []
+    coordinator = MultiAgentCoordinator(
+        llm_client=None,
+        role_builder=role_builder,
+        synthesis_timeout_seconds=0.001,
+    )
+    outcome = coordinator.run("q", on_event=lambda kind, data: events.append((kind, data)))
+
+    assert outcome["status"] == "partial_success"
+    assert outcome["phase"] == "synthesis_timeout"
+    assert "synthèse finale n'a pas pu être produite" in outcome["final_answer"]
+    phases = [data for kind, data in events if kind == "agent.phase"]
+    assert any(p["status"] == "timeout" and p["reason"] == "synthesis_timeout" for p in phases)
+    assert sum(1 for kind, _ in events if kind == EV_DONE) == 1
+
+
+def test_orchestration_deadline_returns_terminal_partial_success():
+    events = []
+    coordinator = MultiAgentCoordinator(
+        llm_client=None,
+        role_builder=lambda role: FakeAgent(role, []),
+        orchestration_deadline_seconds=0.000001,
+    )
+
+    outcome = coordinator.run("q", on_event=lambda kind, data: events.append((kind, data)))
+
+    assert outcome["status"] == "partial_success"
+    assert outcome["reason"] == "orchestration_deadline_reached"
+    assert any(
+        kind == "agent.phase"
+        and data["reason"] == "orchestration_deadline_reached"
+        for kind, data in events
+    )
+    assert sum(1 for kind, _ in events if kind == EV_DONE) == 1
 
 
 def test_worker_failure_continue_broken():
@@ -482,4 +537,3 @@ def test_ensure_strict_alternance_is_idempotent():
     once = ensure_strict_alternance(messages)
     twice = ensure_strict_alternance(once)
     assert once == twice
-
