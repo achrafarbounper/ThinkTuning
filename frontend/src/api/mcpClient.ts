@@ -429,7 +429,10 @@ export async function orchestrateViaMcp(
   config?: McpClientConfig,
 ): Promise<OrchestrateMcpResult> {
   const client = new McpSseClient(config);
-  const result = await client.callTool('orchestrate', { ...args });
+  const result = await client.callTool('orchestrate', {
+    mode: 'multi_agent',
+    ...args,
+  });
   const text = result.content?.find((block) => block.type === 'text')?.text ?? '';
   if (result.isError) {
     throw new McpTransportError(
@@ -462,7 +465,7 @@ export async function orchestrateViaMcpStream(
   config?: McpClientConfig,
 ): Promise<OrchestrateMcpResult> {
   const client = new McpSseClient(config);
-  const streamArgs = { ...args, stream: true };
+  const streamArgs = { mode: 'multi_agent' as const, ...args, stream: true };
   const response = await client.streamTool('orchestrate', streamArgs);
   if (!response.body) {
     throw new McpTransportError('Le transport MCP n’a retourné aucun flux.', response.status);

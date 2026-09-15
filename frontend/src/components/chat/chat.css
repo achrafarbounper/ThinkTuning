@@ -689,6 +689,28 @@
     border-color 0.15s ease;
 }
 
+.copilot-chat__mcp-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chat-muted);
+  font-size: 12px;
+}
+
+.copilot-chat__mcp-mode-label {
+  white-space: nowrap;
+}
+
+.copilot-chat__mcp-mode select {
+  min-height: 28px;
+  padding: 3px 24px 3px 8px;
+  color: var(--chat-text);
+  background: var(--chat-surface);
+  border: 1px solid var(--chat-border);
+  border-radius: 6px;
+  font: inherit;
+}
+
 .copilot-chat__think-toggle svg {
   width: 15px;
   height: 15px;
