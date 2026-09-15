@@ -623,7 +623,24 @@ export async function orchestrateViaMcpStream(
                 ? result.content?.find((block) => block.type === 'text')?.text
                 : undefined;
             if (typeof blockText === 'string' && blockText.trim()) {
-              lastFailureMessage = blockText.slice(0, 500);
+              // Le serveur peut émettre une erreur synthétique JSON
+              // (reason: orchestration_stream_interrupted) quand le flux se
+              // termine sans événement final : message lisible plutôt que JSON brut.
+              try {
+                const inner = JSON.parse(blockText) as {
+                  reason?: string;
+                  failure_phase?: string;
+                };
+                if (inner && inner.reason === 'orchestration_stream_interrupted') {
+                  lastFailureMessage =
+                    'Le flux MCP s’est interrompu avant la synthèse (réponse finale manquante) ; ' +
+                    'les événements agent.worker.result / agent.phase déjà affichés sont conservés.';
+                } else {
+                  lastFailureMessage = blockText.slice(0, 500);
+                }
+              } catch {
+                lastFailureMessage = blockText.slice(0, 500);
+              }
             }
           } catch {
             /* conservation du message précédent */

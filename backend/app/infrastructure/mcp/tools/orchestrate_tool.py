@@ -57,6 +57,21 @@ from app.domain.ports import (
 from app.infrastructure.mcp.manifest_generator import MUTATING_ANNOTATIONS
 from app.infrastructure.mcp.mcp_server import ToolError
 
+# Noms d'événements terminaux (réponse finale — jamais filtrés) : définis
+# dans le transport SSE (source unique, invariant §5 MULTI_AGENT_SSE_FLOW).
+try:  # import paresseux : évite tout cycle au chargement du tool
+    from app.infrastructure.mcp.mcp_server_sse import _TERMINAL_SSE_KINDS
+except Exception:  # pragma: no cover - repli fail-safe
+    _TERMINAL_SSE_KINDS = frozenset(
+        {
+            "orchestrate.done",
+            "orchestrate.error",
+            "message",
+            "agent.done",
+            "agent.error",
+        }
+    )
+
 logger = logging.getLogger("thinktuning.mcp.orchestrate")
 
 MCP_ORCHESTRATION_FALLBACK_TOTAL = Counter(
@@ -192,6 +207,10 @@ def _normalize_agent_event(
 
 
 def _event_allowed_by_granularity(kind: str, granularity: str) -> bool:
+    # Les événements terminaux portent la réponse finale : jamais filtrés,
+    # quelle que soit la granularité (invariant §5 — garantie du terminal).
+    if kind in _TERMINAL_SSE_KINDS:
+        return True
     if granularity == "minimal":
         return kind in {
             "orchestrate.start",

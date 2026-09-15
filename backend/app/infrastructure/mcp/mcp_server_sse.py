@@ -67,6 +67,19 @@ from app.infrastructure.security.api_key import is_valid_api_key
 
 logger = logging.getLogger("thinktuning.mcp.sse")
 
+# Noms d'événements terminaux : ils marquent TOUJOURS la réponse finale et
+# ne sont JAMAIS filtrés ni abandonnés (ni granularité, ni disconnect
+# transitoire) — invariants 2/3 de docs/mcp/MULTI_AGENT_SSE_FLOW.md.
+_TERMINAL_SSE_KINDS = frozenset(
+    {
+        "orchestrate.done",
+        "orchestrate.error",
+        "message",
+        "agent.done",
+        "agent.error",
+    }
+)
+
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 # Interrupteur de rollback (docs/mcp/IMPLEMENTATION_PLAN.md) : ``false``/``0``
@@ -261,7 +274,11 @@ async def _stream_orchestrate(
     disconnected = threading.Event()
 
     def emit(kind: str, data: dict[str, Any]) -> None:
-        if disconnected.is_set():
+        # Les événements terminaux portent la réponse finale : ils ne sont
+        # JAMAIS abandonnés sur disconnect transitoire (le poll
+        # ``is_disconnected()`` peut être vrai fugacement derrière un proxy ;
+        # la boucle de lecture décidera seule d'interrompre le flux).
+        if disconnected.is_set() and kind not in _TERMINAL_SSE_KINDS:
             return
         events.put((kind, data))
 
@@ -394,44 +411,115 @@ async def _stream_orchestrate(
     # produise son premier event. Le prélude part dès l'ouverture du flux,
     # suivi de heartbeats tant que le worker ne produit rien.
     yield _sse_event("orchestrate.started", {"status": "started"})
-    while True:
-        if request is not None and await request.is_disconnected():
-            disconnected.set()
-            logger.info(
-                "Client MCP déconnecté pendant l'orchestration : client_id=%s request_id=%s",
-                client_id,
-                request_id,
-            )
-            return
-        try:
-            item = await asyncio.wait_for(asyncio.to_thread(events.get), timeout=10.0)
-        except TimeoutError:
-            if request is not None and await request.is_disconnected():
-                disconnected.set()
-                logger.info(
-                    "Client MCP déconnecté pendant le heartbeat : client_id=%s request_id=%s",
-                    client_id,
-                    request_id,
-                )
-                return
-            yield ": heartbeat\n\n"
-            continue
-        if item is None:
-            yield "data: [DONE]\n\n"
-            return
-        kind, data = item
-        if not _event_allowed_for_sse(kind, event_granularity):
-            continue
-        if kind == "orchestrate.tool":
-            yield _sse_event(kind, {"core_tool": data, **data})
-        elif kind in {"orchestrate.done", "orchestrate.error"}:
-            yield _sse_event(kind, data)
-        else:
-            yield _sse_event(kind, data)
+    final_emitted = False
+    try:
+        while True:
+            # NOTE : pas de contrôle ``is_disconnected()`` en tête de boucle —
+            # un poll à chaque tour coupe le flux dès que le poll est
+            # fugacement vrai (proxy/onglet), même en pleine synthèse avec
+            # file vide (cas « 44s » : worker.result reçu puis erreur
+            # synthétique). La déconnexion n'est constatée qu'après un
+            # timeout d'attente (heartbeat), avec drain non-bloquant du
+            # terminal éventuellement déjà en file.
+            try:
+                item = await asyncio.wait_for(asyncio.to_thread(events.get), timeout=10.0)
+            except TimeoutError:
+                if request is not None and await request.is_disconnected():
+                    disconnected.set()
+                    drained_terminal = False
+                    while True:
+                        try:
+                            pending = events.get_nowait()
+                        except queue.Empty:
+                            break
+                        if pending is None:
+                            break
+                        pending_kind, pending_data = pending
+                        if pending_kind in _TERMINAL_SSE_KINDS:
+                            final_emitted = True
+                            drained_terminal = True
+                            yield _sse_event(pending_kind, pending_data)
+                            if pending_kind in {
+                                "orchestrate.done",
+                                "orchestrate.error",
+                                "message",
+                            }:
+                                break
+                    logger.info(
+                        "Client MCP déconnecté pendant le heartbeat : "
+                        "client_id=%s request_id=%s terminal_drainé=%s",
+                        client_id,
+                        request_id,
+                        drained_terminal,
+                    )
+                    break
+                yield ": heartbeat\n\n"
+                continue
+            if item is None:
+                break
+            kind, data = item
+            if kind in _TERMINAL_SSE_KINDS:
+                final_emitted = True
+            if not _event_allowed_for_sse(kind, event_granularity):
+                continue
+            if kind == "orchestrate.tool":
+                yield _sse_event(kind, {"core_tool": data, **data})
+            elif kind in {"orchestrate.done", "orchestrate.error"}:
+                yield _sse_event(kind, data)
+            else:
+                yield _sse_event(kind, data)
+    except (asyncio.CancelledError, GeneratorExit):
+        # Le client a coupé le flux (bouton Stop, onglet fermé) : aucun yield
+        # possible ici (GeneratorExit) — le worker daemon termine seul et
+        # Starlette ferme la connexion. On signale juste l'arrêt au worker.
+        disconnected.set()
+        return
+    # Clôture normale (worker terminé OU disconnect détecté mais socket encore
+    # écrivable) : contrat SSE uniforme trace* + message(JSON-RPC) + [DONE].
+    # Sans événement terminal, le front sort de boucle sans finalRpc et lève
+    # « sans réponse finale » : on émet une erreur synthétique traçable.
+    if not final_emitted:
+        synthetic = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "answer": "",
+                                "status": "failed",
+                                "failure_phase": "synthesis",
+                                "reason": "orchestration_stream_interrupted",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                ],
+                "isError": True,
+            },
+        }
+        logger.warning(
+            "Flux MCP terminé sans événement final : erreur synthétique émise "
+            "(client_id=%s request_id=%s)",
+            client_id,
+            request_id,
+        )
+        yield _sse_event("orchestrate.error", synthetic)
+        yield _sse_event("message", synthetic)
+    yield "data: [DONE]\n\n"
 
 
 def _event_allowed_for_sse(kind: str, granularity: str) -> bool:
-    """Apply one consistent event policy to both mono and multi-agent runs."""
+    """Apply one consistent event policy to both mono and multi-agent runs.
+
+    Les événements terminaux bypassent TOUJOURS le filtre : ils portent la
+    réponse finale et ne doivent jamais être abandonnés (invariant 2/3 de
+    docs/mcp/MULTI_AGENT_SSE_FLOW.md).
+    """
+    if kind in _TERMINAL_SSE_KINDS:
+        return True
     if granularity == "verbose":
         return True
     if granularity == "minimal":
@@ -558,8 +646,11 @@ async def mcp_sse(
         raw,
         client_id=client_id,
     )
+    # Contrat SSE uniforme : même le chemin non-stream termine par [DONE]
+    # (les lecteurs stricts front s'arrêtent sur la sentinelle, pas sur la
+    # fermeture TCP — sinon « sans réponse finale » sur proxy lent).
     return StreamingResponse(
-        iter([_sse_message(response_payload)]),
+        iter([_sse_message(response_payload), "data: [DONE]\n\n"]),
         media_type="text/event-stream",
         headers=headers,
     )

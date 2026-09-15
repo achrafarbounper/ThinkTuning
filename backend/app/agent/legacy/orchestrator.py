@@ -1217,7 +1217,10 @@ class MultiAgentCoordinator:
                 "status": "partial_success",
                 "phase": deadline_reason,
                 "reason": deadline_reason,
-                "final_answer": "L'orchestration a atteint sa durée maximale avant de produire une réponse complète.",
+                "final_answer": (
+                    "L'orchestration a atteint sa durée maximale avant "
+                    "de produire une réponse complète."
+                ),
                 "plan": [],
                 "workers": [],
                 "unexecuted": [],
@@ -1631,10 +1634,23 @@ class MultiAgentCoordinator:
             try:
                 return self._synthesize(prompt, workers, unexecuted, on_event), thinking
             except WorkerError:
+                # Repli P1 (MULTI_AGENT_SSE_FLOW.md §5) : la synthèse LLM a
+                # échoué (timeout LLM / injoignable) mais les workers ont des
+                # résultats — on les concatène au lieu de renvoyer "".
+                summaries = [
+                    f"[{w.get('role', '?')}] "
+                    f"{(w.get('shareable_summary') or w.get('result') or '')}".strip()
+                    for w in workers
+                    if w.get("status") == "ok"
+                ]
+                summaries = [s for s in summaries if s.strip("[]: ")]
+                partial = "; ".join(s[:500] for s in summaries if s)
                 return (
-                    "La synthèse finale n'a pas pu être produite. "
+                    "La synthèse finale n'a pas pu être produite "
+                    f"({self._synthesis_failure_reason or 'synthesis_failed'}). "
                     f"Résultats partiels : {len(workers)} exécuté(s), "
                     f"{len(unexecuted)} en échec."
+                    + (f" {partial}" if partial else "")
                 ), thinking
         return (
             "Aucune sous-tâche n'a pu être exécutée. "

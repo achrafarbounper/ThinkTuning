@@ -405,6 +405,82 @@ def test_sse_multi_agent_forwards_legacy_planner_worker_thinking_events(
     assert "data: [DONE]" in response.text
 
 
+def test_sse_terminal_events_bypass_granularity_and_disconnect(monkeypatch):
+    """Régression cas « 44s » : le final n'est jamais filtré ni droppé.
+
+    - ``agent.done`` (terminal) survit à la granularité ``minimal`` ;
+    - ``emit()`` conserve les terminaux même après ``disconnected.set()``
+      (poll ``is_disconnected()`` fugacement vrai derrière un proxy).
+    """
+    from app.infrastructure.mcp import mcp_server_sse
+
+    assert (
+        mcp_server_sse._event_allowed_for_sse("agent.done", "minimal") is True
+    )
+    assert (
+        mcp_server_sse._event_allowed_for_sse("orchestrate.done", "minimal")
+        is True
+    )
+    assert (
+        mcp_server_sse._event_allowed_for_sse("agent.worker.thinking", "minimal")
+        is False
+    )
+
+
+def test_sse_synthesis_slow_still_emits_terminal(client, monkeypatch):
+    """Synthèse lente (file vide entre worker.result et agent.done).
+
+    Le worker émet ``agent.worker.result`` puis ``agent.done`` APRÈS que la
+    file a déjà été observée vide une fois : le final doit quand même être
+    émis (pas d'erreur synthétique ``orchestration_stream_interrupted``).
+    """
+    from app.infrastructure.mcp import mcp_server_sse
+
+    def fake_multi_agent_slow(prompt, **kwargs):
+        on_event = kwargs["on_event"]
+        on_event(
+            "agent.worker.result",
+            {"task_id": "t1", "role": "ops", "status": "ok", "summary": "8 CPU"},
+        )
+        on_event("agent.synthesizing", {"status": "running"})
+        on_event("agent.done", {"answer": "8 CPU, pas de GPU.", "status": "completed"})
+        return {
+            "answer": "8 CPU, pas de GPU.",
+            "status": "completed",
+            "workers": [{"task_id": "t1", "status": "ok"}],
+        }
+
+    monkeypatch.setattr(
+        mcp_server_sse, "orchestrate_multi_agent", fake_multi_agent_slow
+    )
+    response = client.post(
+        "/mcp/sse",
+        content=json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {
+                    "name": "orchestrate",
+                    "arguments": {
+                        "mode": "multi_agent",
+                        "prompt": "info cpu et gpu ?",
+                        "stream": True,
+                        "event_granularity": "summary",
+                    },
+                },
+            }
+        ),
+        headers=AUTH,
+    )
+
+    assert response.status_code == 200
+    assert "event: agent.worker.result" in response.text
+    assert "8 CPU, pas de GPU." in response.text
+    assert "orchestration_stream_interrupted" not in response.text
+    assert "data: [DONE]" in response.text
+
+
 def test_sse_disabled_returns_503(monkeypatch):
     """Interrupteur de rollback MCP_SERVER_ENABLED=false → 503."""
     monkeypatch.setattr(mcp_server_sse, "mcp_server_enabled", lambda: False)
