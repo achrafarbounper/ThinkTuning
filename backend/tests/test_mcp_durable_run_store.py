@@ -521,3 +521,46 @@ def test_adapter_releases_lease_after_failed_run(tmp_path) -> None:
     runs = store.list_runs(state="failed")
     assert len(runs) == 1
     assert runs[0].lease_owner is None
+
+
+def test_adapter_preserves_result_when_lease_was_reclaimed(tmp_path) -> None:
+    class LeaseReclaimedStore(MCPDurableRunStore):
+        def release_lease(self, run_id: str, owner: str):
+            raise ValueError(f"MCP run {run_id!r} is leased by another owner")
+
+    class FakeOrchestrator:
+        def run(self, prompt, **kwargs):
+            return {
+                "answer": "Spain won",
+                "lead": {"status": "completed"},
+                "synthesis": {"status": "completed"},
+            }
+
+    store = LeaseReclaimedStore(tmp_path / "mcp-runs.db")
+    result = MultiAgentMCPAdapter(
+        orchestrator=FakeOrchestrator(),
+        durable_store=store,
+    ).run(
+        MCPOrchestrationRequest.from_values(prompt="Who won the 2026 World Cup?")
+    )
+
+    assert result.answer == "Spain won"
+
+
+def test_adapter_preserves_primary_error_when_lease_was_reclaimed(tmp_path) -> None:
+    class LeaseReclaimedStore(MCPDurableRunStore):
+        def release_lease(self, run_id: str, owner: str):
+            raise ValueError(f"MCP run {run_id!r} is leased by another owner")
+
+    class FailingOrchestrator:
+        def run(self, prompt, **kwargs):
+            raise RuntimeError("web provider failed")
+
+    store = LeaseReclaimedStore(tmp_path / "mcp-runs.db")
+    adapter = MultiAgentMCPAdapter(
+        orchestrator=FailingOrchestrator(),
+        durable_store=store,
+    )
+
+    with pytest.raises(RuntimeError, match="web provider failed"):
+        adapter.run(MCPOrchestrationRequest.from_values(prompt="search"))
