@@ -53,24 +53,19 @@ from app.infrastructure.mcp.backpressure import (
     get_backpressure_gate,
 )
 from app.infrastructure.mcp.idempotency import (
-    IDEMPOTENCY_KEY_HEADER,
-    OUTCOME_CONFLICT,
     OUTCOME_INFLIGHT,
-    OUTCOME_REPLAY,
+    IdempotencyDecision,
     extract_idempotency_key,
     fingerprint_payload,
     get_idempotency_store,
 )
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_events import (
-    DEGRADATION_CLIENT_DISCONNECTED,
     DEGRADATION_MULTI_AGENT_FALLBACK,
     DEGRADATION_SYNTHESIS_ERROR,
-    EVENT_DEGRADED,
     RUN_STATUS_FAILED,
     TERMINAL_EVENT_KINDS,
     build_meta,
-    degraded_meta,
     event_allowed_for_sse,
     status_to_run_metric_label,
 )
