@@ -276,8 +276,12 @@ def get_settings_store() -> AgentSettingsStore:
 
 def reset_store_for_tests(path: str) -> AgentSettingsStore:
     """Réinitialise le store partagé vers une base isolée (tests)."""
-    global _store
+    global _store, _mongo_store
     _store = AgentSettingsStore(path)
+    # Les tests peuvent forcer ``PERSISTENCE_BACKEND=mongodb`` avec le
+    # fournisseur mocké. Dans ce cas, réinitialiser uniquement le singleton
+    # SQLite laisse l'instance Mongo précédente partager son état entre tests.
+    _mongo_store = None
     return _store
 
 
