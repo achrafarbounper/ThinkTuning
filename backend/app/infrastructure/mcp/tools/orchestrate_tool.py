@@ -341,9 +341,7 @@ def resolve_orchestration(
         else _mcp_parallel_default()
     )
     enable_thinking = _as_bool(args.get("enable_thinking"))
-    event_granularity = normalize_mcp_event_granularity(
-        args.get("event_granularity", "summary")
-    )
+    event_granularity = normalize_mcp_event_granularity(args.get("event_granularity", "summary"))
     run_id = str(args["run_id"]).strip() if args.get("run_id") else None
     resume_request_id = (
         str(args["resume_request_id"]).strip() if args.get("resume_request_id") else None
@@ -516,8 +514,7 @@ def _persist_mono_approval(
         payload = create_approval_request(store, action, prompt)
     except Exception as exc:  # pragma: no cover - panne de persistance
         logger.warning(
-            "MCP orchestrate : impossible de persister la demande d'approbation "
-            "(tool=%s) : %s",
+            "MCP orchestrate : impossible de persister la demande d'approbation (tool=%s) : %s",
             action.tool,
             exc,
         )
@@ -591,14 +588,11 @@ def run_mono_agent(
         # (``**kwargs`` ou paramètre nommé ``approval_gateway``) — les fabriques
         # historiques zero-arg restent compatibles (tests).
         accepts_gateway = any(
-            parameter.kind is inspect.Parameter.VAR_KEYWORD
-            or parameter.name == "approval_gateway"
+            parameter.kind is inspect.Parameter.VAR_KEYWORD or parameter.name == "approval_gateway"
             for parameter in inspect.signature(core_factory).parameters.values()
         )
         core = (
-            core_factory(approval_gateway=approval_gateway)
-            if accepts_gateway
-            else core_factory()
+            core_factory(approval_gateway=approval_gateway) if accepts_gateway else core_factory()
         )
     else:
         # Flow Map MCP (chemin non-streaming) : une session riche ouverte par

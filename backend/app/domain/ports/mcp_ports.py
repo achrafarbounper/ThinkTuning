@@ -92,9 +92,7 @@ class WorkerScopePolicy:
             raise ValueError("max_tools_per_worker must be >= 1")
         forbidden = sorted(set(self.forbidden_tools) & set(context.allowed_tools))
         if forbidden:
-            raise ValueError(
-                f"worker {worker_id} requests forbidden tools: {forbidden}"
-            )
+            raise ValueError(f"worker {worker_id} requests forbidden tools: {forbidden}")
         if len(context.allowed_tools) > self.max_tools_per_worker:
             raise ValueError(
                 f"worker {worker_id} exceeds max_tools_per_worker "

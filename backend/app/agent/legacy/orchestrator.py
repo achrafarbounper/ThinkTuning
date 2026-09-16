@@ -1655,8 +1655,7 @@ class MultiAgentCoordinator:
                     "La synthèse finale n'a pas pu être produite "
                     f"({self._synthesis_failure_reason or 'synthesis_failed'}). "
                     f"Résultats partiels : {len(workers)} exécuté(s), "
-                    f"{len(unexecuted)} en échec."
-                    + (f" {partial}" if partial else "")
+                    f"{len(unexecuted)} en échec." + (f" {partial}" if partial else "")
                 ), thinking
         return (
             "Aucune sous-tâche n'a pu être exécutée. "

@@ -812,33 +812,38 @@ def _event_allowed_for_sse(kind: str, granularity: str) -> bool:
             "orchestrate.error",
             "message",
         }
-    return kind in {
-        "orchestrate.started",
-        "orchestrate.start",
-        "orchestrate.thinking",
-        "orchestrate.tool",
-        "orchestrate.worker",
-        "orchestrate.synthesis",
-        "orchestrate.synthesizing",
-        "orchestrate.done",
-        "orchestrate.error",
-        "message",
-        "orchestration_fallback",
-        # Legacy coordinator event names remain the source of truth for the
-        # multi-agent adapter and must not be dropped by the MCP projection.
-        "agent.plan",
-        "agent.resuming",
-        "agent.worker.start",
-        "agent.worker.tool",
-        "agent.worker.thinking",
-        "agent.worker.result",
-        "agent.worker.error",
-        "agent.worker.approval",
-        "agent.phase",
-        "agent.synthesizing",
-        "agent.done",
-        "agent.error",
-    } or kind.startswith("orchestrate.worker.") or kind.startswith("orchestrate.synthesis.")
+    return (
+        kind
+        in {
+            "orchestrate.started",
+            "orchestrate.start",
+            "orchestrate.thinking",
+            "orchestrate.tool",
+            "orchestrate.worker",
+            "orchestrate.synthesis",
+            "orchestrate.synthesizing",
+            "orchestrate.done",
+            "orchestrate.error",
+            "message",
+            "orchestration_fallback",
+            # Legacy coordinator event names remain the source of truth for the
+            # multi-agent adapter and must not be dropped by the MCP projection.
+            "agent.plan",
+            "agent.resuming",
+            "agent.worker.start",
+            "agent.worker.tool",
+            "agent.worker.thinking",
+            "agent.worker.result",
+            "agent.worker.error",
+            "agent.worker.approval",
+            "agent.phase",
+            "agent.synthesizing",
+            "agent.done",
+            "agent.error",
+        }
+        or kind.startswith("orchestrate.worker.")
+        or kind.startswith("orchestrate.synthesis.")
+    )
 
 
 @router.post("/sse", include_in_schema=False)

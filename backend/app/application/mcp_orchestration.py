@@ -411,9 +411,7 @@ class MultiAgentMCPAdapter:
                 existing.request_fingerprint is not None
                 and existing.request_fingerprint != fingerprint
             ):
-                raise ValueError(
-                    f"resume context mismatch for durable MCP run {request.run_id!r}"
-                )
+                raise ValueError(f"resume context mismatch for durable MCP run {request.run_id!r}")
             resumed = existing.state != "pending"
             return PreparedDurableRun(
                 state=self._durable_store.transition(
@@ -509,10 +507,9 @@ class MultiAgentMCPAdapter:
         approval: dict[str, Any] | None = None
         task_id: str | None = None
         if awaiting_approval and approval_source is not None:
-            raw_request_id = (
-                approval_source.get("request_id")
-                or (approval_source.get("approval") or {}).get("request_id")
-            )
+            raw_request_id = approval_source.get("request_id") or (
+                approval_source.get("approval") or {}
+            ).get("request_id")
             if raw_request_id:
                 request_id = str(raw_request_id)
             raw_approval = approval_source.get("approval")
