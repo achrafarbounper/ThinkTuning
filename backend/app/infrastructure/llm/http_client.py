@@ -255,7 +255,8 @@ class HttpLLMClient:
         self.last_thinking = repair_utf8_mojibake("\n\n".join(parts)) if parts else ""
 
         logger.info(
-            "llm_response request_id=%s status=ok elapsed_ms=%.0f content_chars=%d thinking_chars=%d",
+            "llm_response request_id=%s status=ok elapsed_ms=%.0f "
+            "content_chars=%d thinking_chars=%d",
             request_id,
             (time.perf_counter() - started) * 1000,
             len(content),
