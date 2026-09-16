@@ -6,7 +6,137 @@
 
 ---
 
-## Unreleased — correctif garde multi-agent (SCRUM-152)
+## Unreleased — durcissement MCP multi-agent (SCRUM-151 → SCRUM-155)
+
+> **Version de surface** : `[tool.mcp].version` reste **`2.2.0`** — cette série
+> de lots (L0 → L4) durcit le **comportement** sans modifier la surface
+> exposée (`tools/list` inchangé). Aucun bump SemVer requis ; les évolutions de
+> contrat sont additives, à une exception documentée (empreinte d'idempotence,
+> §L4).
+
+### L4 — Documentation et contrats (SCRUM-155)
+
+#### Fixed
+- **Empreinte d'idempotence** (`app/infrastructure/mcp/idempotency.py`) : la
+  clé d'idempotence est désormais **réellement exclue** de l'empreinte
+  (`params.arguments.idempotency_key`), conformément au contrat documenté. Un
+  client envoyant la clé en en-tête `Idempotency-Key` au premier appel puis
+  dans le corps au réessai (ou l'inverse) se voyait refuser un `422 conflict`
+  pour une requête **identique**. Changement de comportement **assumé** (plus
+  permissif, jamais plus strict) — sans impact sur les clients qui conservent
+  la clé au même endroit.
+- Documentation réalignée sur le code des lots L0 → L3 :
+  `docs/mcp/MULTI_AGENT_SSE_FLOW.md` (§ `parallel`, phases/`worker_id`,
+  dépréciation `orchestrate.done`, découplage `run_id` / `resume_request_id`,
+  contrats STREAM et REPLAY, fenêtres de compatibilité, résilience) et
+  `docs/mcp/PATTERN_ALIVEMCP.md` (tableau `pattern` / `statut` / `preuve` /
+  `test`, fenêtres de compatibilité, évolution du manifeste).
+
+#### Added
+- `backend/tests/test_mcp_resilience.py` — **60 tests** couvrant les 5 briques
+  de résilience L2 (backpressure, idempotence, politique d'événements,
+  métriques, sweeper), auparavant **sans test dédié** : ces modules n'étaient
+  couverts que par les tests de transport.
+- `backend/scripts/example_mcp_stream_replay.py` — exemple **exécutable** des
+  contrats STREAM et REPLAY (run durable préparé, séquences, replay
+  incrémental, état final) : aucune dépendance réseau/LLM/base externe, et
+  auto-vérifié par assertions.
+
+### L3 — Transport client et typage (SCRUM-154)
+
+#### Changed
+- `frontend/src/api/mcpClient.ts` : `orchestrateViaMcpStream` expose une
+  **union discriminée** `McpOrchestrateEvent` (`started`, `thinking`, `tool`,
+  `multi_agent`, `phase`, `done`, `error`, `fallback`, `intent`, `skipped`,
+  `rpc`) — plus de champs optionnels à deviner côté consommateur.
+- **Timeout d'inactivité** (remplace le timeout absolu de 120 s) : le compteur
+  est armé à l'ouverture du flux puis réarmé à chaque chunk réseau, y compris
+  les commentaires de garde `: heartbeat`. Un run sain de plusieurs minutes
+  n'est plus coupé arbitrairement ; seul un silence complet (proxy mort, LLM
+  figé) déclenche l'annulation (`MCP_DEFAULT_INACTIVITY_TIMEOUT_MS`).
+
+#### Fixed
+- Un flux terminé sans réponse finale exploite désormais le dernier échec
+  observé (`agent.error`, `orchestrate.error`, phase en échec) pour produire un
+  message explicite, au lieu d'une bulle vide ou d'un « Réponse non JSON »
+  trompeur.
+
+
+### L2 — Résilience de la surface MCP (SCRUM-153)
+
+#### Added
+- `app/infrastructure/mcp/backpressure.py` — admission **bornée** des flux :
+  plafond global (`MCP_MAX_CONCURRENT_STREAMS`), plafond par client
+  (`MCP_MAX_CONCURRENT_STREAMS_PER_CLIENT`) et quota d'ouverture
+  (`MCP_SSE_OPEN_RATE_PER_MINUTE`). Refus **explicites** : `503` + `Retry-After`
+  + `error.code=mcp_backpressure`, ou `429` + `Retry-After` +
+  `error.code=mcp_sse_quota_exceeded`. Acquisition **non bloquante** (aucune
+  file d'attente, elle-même vecteur de saturation).
+- `app/infrastructure/mcp/idempotency.py` — `Idempotency-Key` (en-tête
+  prioritaire sur `params.arguments.idempotency_key`) avec verdicts
+  `new` / `replay` / `inflight` / `conflict`, TTL distincts (in-flight court),
+  éviction LRU bornée. Un réessai ne relance plus un run multi-agent complet.
+- `app/infrastructure/mcp/mcp_events.py` — **source unique** de la politique
+  d'événements (avant : deux jeux divergents, transport SSE et tool) :
+  invariants terminaux, granularités, vocabulaire de dégradation, `_meta`.
+- `app/infrastructure/mcp/mcp_metrics.py` — observabilité à **cardinalité
+  bornée** : `mcp_runs_total`, `mcp_runs_degraded_total`, `mcp_runs_active`,
+  `mcp_runs_reconciled_total`, `mcp_sse_streams_active`,
+  `mcp_backpressure_rejections_total`, `mcp_sse_quota_rejections_total`,
+  `mcp_sse_interrupted_total`, `mcp_security_rejections_total`,
+  `mcp_idempotency_total`. Aucun `client_id` en label ; toute fonction
+  `record_*` est défensive (jamais d'exception dans le transport).
+- `app/infrastructure/mcp/run_sweeper.py` — **sweeper** (thread daemon)
+  réconciliant les runs zombies : récolte des runs périmés
+  (`MCP_RUN_STALE_AFTER_SECONDS`) avec événement `orchestrate.degraded`
+  persisté, libération des leases expirés, alimentation de la jauge
+  `mcp_runs_active`. Grâce séparée et plus longue pour `awaiting_approval`
+  (attente humaine) ; `partial_success` jamais récolté (aboutissement
+  reprenable). Une passe ne lève jamais.
+
+#### Changed
+- Événement `orchestrate.degraded` : signal **explicite** de dégradation
+  (`reason` + `source`), rejouable et visible côté client.
+- `result._meta` toujours présent (`degraded`, `run_id`, `reason`,
+  `failure_phase`) — une dégradation ne peut plus être silencieuse.
+
+### L1 — Exécution durable et streaming (SCRUM-152)
+
+#### Added
+- Run durable **préparé avant le premier octet** : `orchestrate.started` expose
+  `run_id`, `resumed` et `last_sequence` (`prepare_run`), ce qui permet traçage,
+  reprise et annulation sans attendre la réponse finale.
+- Replay incrémental via `orchestrate_events` + `after_sequence` :
+  `replay_started`, `orchestrate.replay`, `replay_completed`, `replay.error`.
+- Champ `sequence` sur les événements persistés (curseur de reprise sans
+  requête supplémentaire).
+
+#### Fixed
+- Pont d'événements thread → asyncio réellement annulable (`_SseEventBridge`),
+  plus aucune fuite de thread par heartbeat.
+- Checkpoint et `last_sequence` **monotones** : un événement worker tardif ne
+  régresse plus `synthesis_running` en `workers_running`.
+- Annulation propre sur Stop, **y compris dès le prélude** `orchestrate.started`
+  (aucun run zombie, lease libéré).
+- Normalisation `phase` / `worker_id` réparée : un événement worker est classé
+  `worker` (auparavant `lead`, ce qui le faisait disparaître du Flow Map).
+- `parallel` réellement transmis à l'orchestrateur (dispatch + use cases, sans
+  muter le singleton) ; son absence conserve le défaut opérationnel
+  (`AGENT_MULTI_PARALLEL`).
+
+### L0 — Décision d'orchestration mutualisée (SCRUM-151)
+
+#### Changed
+- **Découplage `run_id` / `resume_request_id`** : `run_id` identifie le run
+  **durable** (replay, lease, reprise ciblée), `resume_request_id` identifie une
+  **demande d'approbation** AgentCore. `run_id` ne dépend plus de la validation
+  humaine ; un `run_id` inconnu ou terminal produit `-32602` avant exécution.
+- Décision d'orchestration **mutualisée** (`resolve_orchestration`) entre le
+  chemin stream et le handler du tool : toute divergence stream vs non-stream
+  devient impossible par construction (mode, garde multi-agent,
+  `WorkerScopePolicy`, granularité, identifiants).
+- Run `awaiting_approval` traité comme **non terminal** (repreneable avec le
+  même `run_id`), au lieu d'être confondu avec `completed`.
 
 ### Alignement de la garde `MCP_MULTI_AGENT_ENABLED`
 
@@ -25,6 +155,18 @@
   MCP divergeait de la configuration partagée.
 - Tests : `test_mcp_orchestrate.py` — 4 tests de précédence (défaut partagé,
   override local, env partagé, valeur persistée prioritaire).
+
+### Tests de la série L0 → L4
+
+- `tests/test_mcp_resilience.py` (nouveau, **60 tests**) : preuves des patterns
+  de résilience (backpressure, idempotence, politique d'événements, métriques,
+  sweeper).
+- `scripts/example_mcp_stream_replay.py` : exemple exécutable auto-vérifié des
+  contrats STREAM et REPLAY.
+- Suites existantes verrouillant L0 → L3 : `test_mcp_stream_stability.py`,
+  `test_mcp_durable_run_store.py`, `test_mcp_hitl_sse.py`,
+  `test_mcp_sse_done_always.py`, `test_multi_agent_resume.py`,
+  `test_mcp_orchestrate.py`, `test_mcp_manifest.py`, `test_mcp_version.py`.
 
 ## v2.2.0 — 2026-09-15
 

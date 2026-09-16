@@ -119,17 +119,45 @@ def fingerprint_payload(payload: object) -> str:
     logiquement identiques mais sérialisées différemment produisent la même
     empreinte (sinon chaque réessai serait vu comme un conflit).
     """
+    sanitized = _without_idempotency_key(payload)
     try:
         canonical = json.dumps(
-            payload,
+            sanitized,
             sort_keys=True,
             ensure_ascii=False,
             separators=(",", ":"),
             default=str,
         )
     except (TypeError, ValueError):
-        canonical = repr(payload)
+        canonical = repr(sanitized)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:MAX_FINGERPRINT_LENGTH]
+
+
+def _without_idempotency_key(payload: object) -> object:
+    """Copie du payload SANS ``params.arguments.idempotency_key`` (pure).
+
+    L4 (SCRUM-155) : la cle d'idempotence est une METADONNEE de transport, pas
+    une partie de la semantique de la requete -- elle ne doit donc jamais
+    entrer dans l'empreinte. Avant ce correctif, la fonction hachait le payload
+    complet alors que son contrat documente annoncait l'exclusion : un client
+    envoyant la cle en en-tete au premier appel puis dans le corps au reessai
+    (ou l'inverse) se voyait refuser un ``422 conflict`` pour une requete
+    pourtant identique.
+
+    Aucune mutation de l'entree : le payload du transport reste intact.
+    """
+    if not isinstance(payload, Mapping):
+        return payload
+    params = payload.get("params")
+    if not isinstance(params, Mapping):
+        return payload
+    arguments = params.get("arguments")
+    if not isinstance(arguments, Mapping) or IDEMPOTENCY_KEY_ARGUMENT not in arguments:
+        return payload
+    sanitized_arguments = {
+        key: value for key, value in arguments.items() if key != IDEMPOTENCY_KEY_ARGUMENT
+    }
+    return {**payload, "params": {**params, "arguments": sanitized_arguments}}
 
 
 # ---------------------------------------------------------------------------
