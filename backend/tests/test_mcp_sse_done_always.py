@@ -61,6 +61,18 @@ class _DisconnectedRequest:
         return True
 
 
+def _freeze_orchestration_port(monkeypatch) -> None:
+    """Fige la résolution du port d'orchestration (L1 : aucun durable en test).
+
+    Sans ce freeze, la préparation du run durable tenterait l'adaptateur de
+    production : dans les tests unitaires du transport, le streaming part sans
+    run durable (``run_id`` absent de ``orchestrate.started``). Les attributs
+    globaux sont posés via ``monkeypatch`` : restaurés à la fin du test.
+    """
+    monkeypatch.setattr(sse, "_orchestration_port", None, raising=True)
+    monkeypatch.setattr(sse, "_orchestration_port_resolved", True, raising=True)
+
+
 def test_stream_nominal_trace_then_done(monkeypatch) -> None:
     """Fin nominale : trace multi-agent, orchestrate.done, message, DONE."""
 
@@ -71,6 +83,7 @@ def test_stream_nominal_trace_then_done(monkeypatch) -> None:
         on_event("agent.phase", {"phase": "synthesis", "status": "ok"})
         return {"answer": "reponse finale"}
 
+    _freeze_orchestration_port(monkeypatch)
     monkeypatch.setattr(sse, "orchestrate_multi_agent", _fake_multi, raising=True)
     chunks = _collect(sse._stream_orchestrate(
         _stream_payload("bonjour", mode="multi_agent"),
@@ -100,6 +113,7 @@ def test_stream_disconnect_still_closes_with_done(monkeypatch) -> None:
         kwargs["on_event"]("agent.phase", {"phase": "lead"})
         return {"answer": "trop tard"}
 
+    _freeze_orchestration_port(monkeypatch)
     monkeypatch.setattr(sse, "orchestrate_multi_agent", _fake_multi, raising=True)
     chunks = _collect(sse._stream_orchestrate(
         _stream_payload("bonjour", mode="multi_agent"),
@@ -121,6 +135,7 @@ def test_stream_minimal_granularity_keeps_terminal_events(monkeypatch) -> None:
         on_event("orchestrate.synthesis", {"phase": "synthesis"})
         return {"answer": "ok minimal"}
 
+    _freeze_orchestration_port(monkeypatch)
     monkeypatch.setattr(sse, "orchestrate_multi_agent", _fake_multi, raising=True)
     chunks = _collect(sse._stream_orchestrate(
         _stream_payload("bonjour", mode="multi_agent", event_granularity="minimal"),
@@ -133,30 +148,33 @@ def test_stream_minimal_granularity_keeps_terminal_events(monkeypatch) -> None:
 
 
 def test_stream_without_final_event_emits_synthetic_error_then_done(monkeypatch) -> None:
-    """Filtre qui avale le terminal : erreur synthetique + DONE (jamais vide).
+    """Pont qui avale le terminal : erreur synthetique + DONE (jamais vide).
 
     Simule un pont d'evenements qui ne relaie QUE la trace (ex. filtre de
     granularite defectueux cote adaptateur) : le SSE doit quand meme clore
     par orchestrate.error + message + DONE.
+    L1 (SCRUM-152) : le pont est la classe ``_SseEventBridge`` (file asyncio
+    annulable) — le test monkeypatche ``put`` au lieu de l'ancien
+    ``queue.Queue`` (supprimé avec l'attente bloquante en thread).
     """
-    import queue as queue_mod
 
     def _fake_multi(prompt: str, **kwargs: Any) -> dict[str, Any]:
         kwargs["on_event"]("agent.worker.result", {"phase": "worker"})
         return {"answer": "perdu par le filtre"}
 
+    _freeze_orchestration_port(monkeypatch)
     monkeypatch.setattr(sse, "orchestrate_multi_agent", _fake_multi, raising=True)
-    real_queue = queue_mod.Queue
 
-    class _SwallowTerminalQueue(real_queue):  # type: ignore[misc]
+    real_bridge = sse._SseEventBridge
+
+    class _SwallowTerminalBridge(real_bridge):
         def put(self, item, *a, **k):
             if isinstance(item, tuple) and item[0] in {
                 "orchestrate.done", "orchestrate.error", "message"}:
                 return
             return super().put(item, *a, **k)
 
-    monkeypatch.setattr(queue_mod, "Queue", _SwallowTerminalQueue)
-    monkeypatch.setattr(sse.queue, "Queue", _SwallowTerminalQueue)
+    monkeypatch.setattr(sse, "_SseEventBridge", _SwallowTerminalBridge, raising=True)
     chunks = _collect(sse._stream_orchestrate(
         _stream_payload("bonjour", mode="multi_agent"),
         client_id="test", request=_ConnectedRequest()))

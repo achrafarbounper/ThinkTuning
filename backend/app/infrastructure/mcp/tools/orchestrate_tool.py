@@ -96,27 +96,63 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 
 
 def _mcp_multi_agent_enabled() -> bool:
-    """Gate MCP multi-agent : override env > config persistée > fail-closed.
+    """Gate MCP multi-agent : env explicite > base > env partagé > défaut.
 
-    On conserve un repli sûr par défaut (mono-agent) pour rester compatible
-    avec la surface historique, tout en acceptant une activation explicite via
-    la configuration partagée du runtime.
+    Résolution en cascade — la même valeur que celle utilisée par le reste du
+    runtime pour ``flag_multi_agent`` (``VALEURS_PAR_DEFAUT`` /
+    ``AGENT_MULTI_AGENT`` / ``AgentConfig.flag_multi_agent``), afin qu'une
+    bascule du dashboard soit visible du transport MCP sans redémarrage :
+
+    1. ``MCP_MULTI_AGENT_ENABLED`` — override LOCAL au transport MCP : dès
+       qu'elle est définie, elle tranche (``0`` = repli mono-agent explicite,
+       indépendamment de la configuration partagée) ;
+    2. valeur PERSISTÉE en base (SQLite/Mongo, clé ``flag_multi_agent``) :
+       seule une valeur explicitement écrite surclasse l'environnement
+       partagé — même précédence que ``agent_settings.get_agent_settings`` ;
+    3. ``AGENT_MULTI_AGENT`` — variable partagée du flag (défaut du module :
+       activé, cf. ``FLAG_NAMES``) ;
+    4. défaut du runtime (``VALEURS_PAR_DEFAUT``, flag activé) — jamais un
+       fail-closed silencieux : une base vide ne doit pas transformer une
+       activation produit en repli mono-agent (SCRUM-152).
+
+    Toute erreur de lecture (base indisponible, mode Mongo sans client) est
+    absorbée et retombe sur la couche suivante : le transport MCP n'échoue
+    jamais à cause de la configuration.
     """
-    for env_name in ("MCP_MULTI_AGENT_ENABLED", "AGENT_MULTI_AGENT"):
-        raw = os.getenv(env_name)
-        if raw is not None:
-            return _as_bool(raw, default=False)
+    local_override = os.getenv("MCP_MULTI_AGENT_ENABLED")
+    if local_override is not None:
+        return _as_bool(local_override, default=False)
 
     try:
-        from app.infrastructure.persistence.agent_settings import get_settings_store
+        from app.infrastructure.persistence.agent_settings import (
+            VALEURS_PAR_DEFAUT,
+            get_settings_store,
+        )
 
         persisted = get_settings_store().get_all()
         if "flag_multi_agent" in persisted:
-            return bool(persisted["flag_multi_agent"])
+            return _as_bool(persisted["flag_multi_agent"], default=False)
+        default = _as_bool(VALEURS_PAR_DEFAUT.get("flag_multi_agent"), default=False)
     except Exception:
-        pass
+        default = False
 
-    return False
+    shared_env = os.getenv("AGENT_MULTI_AGENT")
+    if shared_env is not None:
+        return _as_bool(shared_env, default=False)
+
+    return default
+
+
+def _mcp_parallel_default() -> bool:
+    """Parallélisme par défaut quand la requête ne précise pas ``parallel``.
+
+    Miroir de ``AGENT_MULTI_PARALLEL`` (même clé que le cache du coordinateur,
+    ``app/application/agent_cache.py``). L1 (SCRUM-152) : l'argument
+    ``parallel`` d'une requête est désormais RÉELLEMENT transmis à
+    l'orchestrateur ; l'absence d'argument conserve donc le défaut
+    opérationnel au lieu de le désactiver silencieusement.
+    """
+    return _as_bool(os.getenv("AGENT_MULTI_PARALLEL"), default=False)
 
 
 def _build_execution_context(
@@ -303,9 +339,10 @@ def resolve_orchestration(
     SOURCE UNIQUE des décisions pour tous les transports (P0 — SCRUM-151) :
 
       1. validation de ``mode`` (``mono_agent`` | ``multi_agent``) ;
-      2. garde ``MCP_MULTI_AGENT_ENABLED`` (override env > config persistée >
-         fail-closed) — un mode multi-agent indisponible produit un repli
-         EXPLICITE ``multi_agent_disabled`` (jamais un silence) ;
+      2. garde ``MCP_MULTI_AGENT_ENABLED`` (override env explicite > valeur
+         persistée > env partagé ``AGENT_MULTI_AGENT`` > défaut du runtime) —
+         un mode multi-agent indisponible produit un repli EXPLICITE
+         ``multi_agent_disabled`` (jamais un silence) ;
       3. ``WorkerScopePolicy`` sur le contexte EFFECTIF du worker → repli
          explicite ``worker_scope_violation`` ;
       4. normalisation de ``event_granularity`` (``ValueError`` → -32602 côté
@@ -323,11 +360,13 @@ def resolve_orchestration(
     session_id = str(args.get("session_id") or _DEFAULT_SESSION_ID).strip() or _DEFAULT_SESSION_ID
     scope = str(args.get("scope") or _DEFAULT_SCOPE).strip() or _DEFAULT_SCOPE
     model = str(args["model"]) if args.get("model") else None
-    parallel = _as_bool(args.get("parallel"))
-    enable_thinking = _as_bool(args.get("enable_thinking"))
-    event_granularity = normalize_mcp_event_granularity(
-        args.get("event_granularity", "summary")
+    parallel = (
+        _as_bool(args.get("parallel"))
+        if args.get("parallel") is not None
+        else _mcp_parallel_default()
     )
+    enable_thinking = _as_bool(args.get("enable_thinking"))
+    event_granularity = normalize_mcp_event_granularity(args.get("event_granularity", "summary"))
     run_id = str(args["run_id"]).strip() if args.get("run_id") else None
     resume_request_id = (
         str(args["resume_request_id"]).strip() if args.get("resume_request_id") else None
@@ -400,6 +439,7 @@ __all__ = [
     "ORCHESTRATE_TOOL_NAME",
     "OrchestrationResolution",
     "build_orchestrate_tool",
+    "build_orchestration_request",
     "orchestrate",
     "orchestrate_multi_agent",
     "orchestrate_stream",
@@ -499,8 +539,7 @@ def _persist_mono_approval(
         payload = create_approval_request(store, action, prompt)
     except Exception as exc:  # pragma: no cover - panne de persistance
         logger.warning(
-            "MCP orchestrate : impossible de persister la demande d'approbation "
-            "(tool=%s) : %s",
+            "MCP orchestrate : impossible de persister la demande d'approbation (tool=%s) : %s",
             action.tool,
             exc,
         )
@@ -574,14 +613,11 @@ def run_mono_agent(
         # (``**kwargs`` ou paramètre nommé ``approval_gateway``) — les fabriques
         # historiques zero-arg restent compatibles (tests).
         accepts_gateway = any(
-            parameter.kind is inspect.Parameter.VAR_KEYWORD
-            or parameter.name == "approval_gateway"
+            parameter.kind is inspect.Parameter.VAR_KEYWORD or parameter.name == "approval_gateway"
             for parameter in inspect.signature(core_factory).parameters.values()
         )
         core = (
-            core_factory(approval_gateway=approval_gateway)
-            if accepts_gateway
-            else core_factory()
+            core_factory(approval_gateway=approval_gateway) if accepts_gateway else core_factory()
         )
     else:
         # Flow Map MCP (chemin non-streaming) : une session riche ouverte par
@@ -679,6 +715,31 @@ def orchestrate_stream(
     )
 
 
+def build_orchestration_request(
+    resolution: OrchestrationResolution,
+    prompt: str,
+) -> MCPOrchestrationRequest:
+    """Construit la requête d'orchestration depuis une décision PARTAGÉE.
+
+    SOURCE UNIQUE de construction (L1 — SCRUM-152) : le handler du tool et le
+    transport SSE produisent exactement la même requête pour une même
+    résolution — indispensable pour que la préparation durable du run
+    (``prepare_run``, empreinte de requête) corresponde à l'exécution.
+    """
+    return MCPOrchestrationRequest.from_values(
+        prompt=prompt,
+        session_id=resolution.session_id or _DEFAULT_SESSION_ID,
+        scope=resolution.scope or _DEFAULT_SCOPE,
+        model=resolution.model,
+        parallel=resolution.parallel,
+        enable_thinking=resolution.enable_thinking,
+        event_granularity=resolution.event_granularity,
+        run_id=resolution.run_id,
+        resume_request_id=resolution.resume_request_id,
+        task_id=resolution.task_id,
+    )
+
+
 def orchestrate_multi_agent(
     prompt: str,
     *,
@@ -711,6 +772,18 @@ def orchestrate_multi_agent(
             def record_event(kind: str, payload: dict[str, Any]) -> None:
                 if not _event_allowed_by_granularity(kind, event_granularity):
                     return
+                if kind in {"agent.worker.approval", "orchestrate.approval"}:
+                    # L1 (SCRUM-152) : les approbations HITL sont tracées dans la
+                    # Flow Map (nœud d'approbation), pas comme un simple outil.
+                    raw = dict(payload or {})
+                    approval = raw.get("approval")
+                    detail = approval if isinstance(approval, dict) else raw
+                    recorder.record_approval(
+                        tool=str(detail.get("tool") or raw.get("tool") or ""),
+                        message=str(raw.get("message") or ""),
+                        request_id=raw.get("request_id"),
+                    )
+                    return
                 normalized = _normalize_agent_event(
                     kind,
                     dict(payload),
@@ -725,17 +798,21 @@ def orchestrate_multi_agent(
                 recorder.record_tool(normalized)
 
             on_event = record_event
-    request = MCPOrchestrationRequest.from_values(
-        prompt=prompt,
-        session_id=session_id or _DEFAULT_SESSION_ID,
-        scope=scope or _DEFAULT_SCOPE,
-        model=model,
-        parallel=parallel,
-        enable_thinking=enable_thinking,
-        event_granularity=event_granularity,
-        run_id=run_id,
-        resume_request_id=resume_request_id,
-        task_id=task_id,
+    request = build_orchestration_request(
+        OrchestrationResolution(
+            mode="multi_agent",
+            requested_mode="multi_agent",
+            session_id=session_id or _DEFAULT_SESSION_ID,
+            scope=scope or _DEFAULT_SCOPE,
+            model=model,
+            parallel=parallel,
+            enable_thinking=enable_thinking,
+            event_granularity=event_granularity,
+            run_id=run_id,
+            resume_request_id=resume_request_id,
+            task_id=task_id,
+        ),
+        prompt,
     )
     if orchestrator is None:
         from app.infrastructure.mcp.orchestration_factory import (

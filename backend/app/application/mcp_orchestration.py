@@ -8,6 +8,7 @@ import logging
 import traceback
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from app.domain.ports import (
@@ -22,6 +23,21 @@ from app.domain.ports import (
 )
 
 logger = logging.getLogger("thinktuning.mcp.multi_agent")
+
+
+@dataclass(frozen=True)
+class PreparedDurableRun:
+    """État durable résolu + nature du démarrage.
+
+    ``resumed`` distingue une VRAIE reprise (run déjà engagé) d'un run
+    simplement PRÉPARÉ par le transport pour exposer ``run_id`` dès
+    ``orchestrate.started`` (L1 — SCRUM-152). Sans cette distinction, un run
+    fraîchement créé serait compté comme une reprise (retry_count incrémenté et
+    événement ``checkpoint_recovered`` fallacieux).
+    """
+
+    state: MCPDurableRunState
+    resumed: bool = False
 
 
 def _truncate(value: Any, limit: int = 300) -> str:
@@ -82,7 +98,9 @@ class MultiAgentMCPAdapter:
         *,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> MCPOrchestrationResult:
-        durable_state = self._prepare_durable_state(request)
+        prepared = self._prepare_durable_state(request)
+        durable_state = prepared.state
+        resumed = prepared.resumed
         logger.info(
             "MCP multi-agent run démarré : run_id=%s session=%s model=%s "
             "parallel=%s thinking=%s resume_run=%s approval=%s task=%s "
@@ -133,7 +151,10 @@ class MultiAgentMCPAdapter:
                 default_worker_id=payload.get("worker_id"),
             )
             if self._durable_store is not None:
-                self._durable_store.append_event(parent_task_id, event)
+                # L1 (SCRUM-152) : la SÉQUENCE attribuée est renvoyée au client
+                # dans le payload streamé — le front mémorise ainsi son curseur
+                # de replay (``last_sequence``) sans requête supplémentaire.
+                event["sequence"] = self._durable_store.append_event(parent_task_id, event)
                 checkpoint = {
                     "lead": "lead_planned",
                     "worker": "workers_running",
@@ -149,16 +170,17 @@ class MultiAgentMCPAdapter:
             if on_event is not None:
                 on_event(kind, event)
 
-        if request.run_id:
+        if resumed:
             logger.info(
                 "MCP multi-agent reprise : run_id=%s retry=%d checkpoint=%s phase=%s "
-                "approval=%s task=%s",
+                "approval=%s task=%s last_sequence=%d",
                 parent_task_id,
                 durable_state.retry_count,
                 durable_state.checkpoint,
                 durable_state.phase,
                 request.resume_request_id,
                 request.task_id,
+                durable_state.last_sequence,
             )
             recovery_event = normalize_mcp_event(
                 {
@@ -172,7 +194,9 @@ class MultiAgentMCPAdapter:
                 default_phase=durable_state.phase,
             )
             if self._durable_store is not None:
-                self._durable_store.append_event(parent_task_id, recovery_event)
+                recovery_event["sequence"] = self._durable_store.append_event(
+                    parent_task_id, recovery_event
+                )
             if on_event is not None:
                 on_event("checkpoint_recovered", recovery_event)
 
@@ -321,11 +345,38 @@ class MultiAgentMCPAdapter:
             for run in self._durable_store.list_runs(state=state, limit=limit)
         ]
 
+    def prepare_run(
+        self,
+        request: MCPOrchestrationRequest,
+    ) -> dict[str, Any] | None:
+        """Prépare le run durable AVANT exécution (L1 — SCRUM-152).
+
+        Le transport SSE a besoin de ``run_id`` dès ``orchestrate.started``
+        (traçabilité + annulation sur Stop) : cette méthode CRÉE le run
+        (``pending``) ou retourne le run existant, sans transition ni incrément
+        de reprise (contrairement à ``_prepare_durable_state``, appelée par
+        ``run``). Idempotente : un ``prepare_run`` suivi de ``run`` sur le même
+        ``run_id`` ne compte PAS une reprise.
+        """
+        if self._durable_store is None:
+            return None
+        fingerprint = self._request_fingerprint(request)
+        if request.run_id:
+            existing = self._durable_store.get(request.run_id)
+            if existing is None:
+                raise ValueError(f"unknown durable MCP run {request.run_id!r}")
+            return existing.as_snapshot()
+        state = self._durable_store.create(
+            uuid.uuid4().hex[:12],
+            request_fingerprint=fingerprint,
+        )
+        return state.as_snapshot()
+
     def _prepare_durable_state(
         self,
         request: MCPOrchestrationRequest,
-    ) -> MCPDurableRunState:
-        """Résout l'état durable du run.
+    ) -> PreparedDurableRun:
+        """Résout l'état durable du run (+ nature du démarrage).
 
         DÉCOUPLAGE (P0 — SCRUM-151) : la reprise durable se fait EXCLUSIVEMENT
         sur ``request.run_id``. ``request.resume_request_id`` désigne une
@@ -334,14 +385,21 @@ class MultiAgentMCPAdapter:
         rendait toute approbation HITL inutilisable : le run était introuvable
         dans le store (ou pire, un run nommé d'après une demande
         d'approbation était créé).
+
+        L1 (SCRUM-152) : un run PRÉ-CRÉÉ par ``prepare_run`` est en ``pending``
+        — c'est un DÉMARRAGE, pas une reprise : aucun ``retry_count`` n'est
+        consommé et aucun ``checkpoint_recovered`` n'est émis pour lui.
         """
         fingerprint = self._request_fingerprint(request)
         if self._durable_store is None:
             # Sans store durable, aucun identifiant de run n'est persisté : on
             # n'invente PAS un run_id à partir de la demande d'approbation.
-            return MCPDurableRunState(
-                run_id=request.run_id or request.session_id,
-                request_fingerprint=fingerprint,
+            return PreparedDurableRun(
+                state=MCPDurableRunState(
+                    run_id=request.run_id or request.session_id,
+                    request_fingerprint=fingerprint,
+                ),
+                resumed=False,
             )
         if request.run_id:
             existing = self._durable_store.get(request.run_id)
@@ -353,25 +411,30 @@ class MultiAgentMCPAdapter:
                 existing.request_fingerprint is not None
                 and existing.request_fingerprint != fingerprint
             ):
-                raise ValueError(
-                    f"resume context mismatch for durable MCP run {request.run_id!r}"
-                )
-            return self._durable_store.transition(
-                existing.run_id,
-                "running",
-                phase=existing.phase,
-                checkpoint=existing.checkpoint,
-                retry_count=existing.retry_count + 1,
+                raise ValueError(f"resume context mismatch for durable MCP run {request.run_id!r}")
+            resumed = existing.state != "pending"
+            return PreparedDurableRun(
+                state=self._durable_store.transition(
+                    existing.run_id,
+                    "running",
+                    phase=existing.phase,
+                    checkpoint=existing.checkpoint,
+                    retry_count=(existing.retry_count + 1) if resumed else existing.retry_count,
+                ),
+                resumed=resumed,
             )
         state = self._durable_store.create(
             uuid.uuid4().hex[:12],
             request_fingerprint=fingerprint,
         )
-        return self._durable_store.transition(
-            state.run_id,
-            "running",
-            phase="lead",
-            checkpoint="initialized",
+        return PreparedDurableRun(
+            state=self._durable_store.transition(
+                state.run_id,
+                "running",
+                phase="lead",
+                checkpoint="initialized",
+            ),
+            resumed=False,
         )
 
     @staticmethod
@@ -444,10 +507,9 @@ class MultiAgentMCPAdapter:
         approval: dict[str, Any] | None = None
         task_id: str | None = None
         if awaiting_approval and approval_source is not None:
-            raw_request_id = (
-                approval_source.get("request_id")
-                or (approval_source.get("approval") or {}).get("request_id")
-            )
+            raw_request_id = approval_source.get("request_id") or (
+                approval_source.get("approval") or {}
+            ).get("request_id")
             if raw_request_id:
                 request_id = str(raw_request_id)
             raw_approval = approval_source.get("approval")

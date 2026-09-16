@@ -415,6 +415,95 @@ def test_resolve_orchestration_falls_back_when_flag_disabled(
     assert resolution.fallback["reason"] == "multi_agent_disabled"
 
 
+def test_resolve_orchestration_follows_shared_default_when_store_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Base vide → le multi-agent suit le défaut du runtime partagé (SCRUM-152).
+
+    RÉGRESSION : la garde retombait sur un ``fail-closed`` mono-agent dès
+    qu'aucune valeur n'était persistée, alors que le flag partagé
+    ``flag_multi_agent`` est ACTIVÉ par défaut (``VALEURS_PAR_DEFAUT``, comme
+    ``AgentConfig`` et le dashboard). Le transport MCP divergeait donc du reste
+    du runtime et refusait un mode pourtant activé côté produit — toute la
+    surface streaming retombait silencieusement en mono-agent.
+    """
+    import app.infrastructure.persistence.agent_settings as agent_settings
+    from app.infrastructure.mcp.tools.orchestrate_tool import resolve_orchestration
+
+    class EmptyStore:
+        def get_all(self) -> dict[str, Any]:
+            return {}
+
+    monkeypatch.delenv("MCP_MULTI_AGENT_ENABLED", raising=False)
+    monkeypatch.delenv("AGENT_MULTI_AGENT", raising=False)
+    monkeypatch.setattr(agent_settings, "get_settings_store", lambda: EmptyStore())
+
+    resolution = resolve_orchestration({"prompt": "x", "mode": "multi_agent"})
+    assert resolution.mode == "multi_agent"
+    assert resolution.requested_mode == "multi_agent"
+    assert resolution.fallback is None
+
+
+def test_resolve_orchestration_local_env_override_forces_mono_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``MCP_MULTI_AGENT_ENABLED=0`` reste un override LOCAL (Render : false)."""
+    import app.infrastructure.persistence.agent_settings as agent_settings
+    from app.infrastructure.mcp.tools.orchestrate_tool import resolve_orchestration
+
+    class EnabledStore:
+        def get_all(self) -> dict[str, Any]:
+            return {"flag_multi_agent": True}
+
+    monkeypatch.setenv("MCP_MULTI_AGENT_ENABLED", "0")
+    monkeypatch.setattr(agent_settings, "get_settings_store", lambda: EnabledStore())
+
+    resolution = resolve_orchestration({"prompt": "x", "mode": "multi_agent"})
+    assert resolution.mode == "mono_agent"
+    assert resolution.fallback is not None
+    assert resolution.fallback["reason"] == "multi_agent_disabled"
+
+
+def test_resolve_orchestration_shared_env_flag_disables_multi_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``AGENT_MULTI_AGENT=0`` (flag partagé) désactive le mode multi-agent."""
+    import app.infrastructure.persistence.agent_settings as agent_settings
+    from app.infrastructure.mcp.tools.orchestrate_tool import resolve_orchestration
+
+    class EmptyStore:
+        def get_all(self) -> dict[str, Any]:
+            return {}
+
+    monkeypatch.delenv("MCP_MULTI_AGENT_ENABLED", raising=False)
+    monkeypatch.setenv("AGENT_MULTI_AGENT", "0")
+    monkeypatch.setattr(agent_settings, "get_settings_store", lambda: EmptyStore())
+
+    resolution = resolve_orchestration({"prompt": "x", "mode": "multi_agent"})
+    assert resolution.mode == "mono_agent"
+    assert resolution.fallback["reason"] == "multi_agent_disabled"
+
+
+def test_resolve_orchestration_persisted_value_wins_over_shared_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La valeur PERSISTÉE surclasse l'env partagé (précédence des paramètres)."""
+    import app.infrastructure.persistence.agent_settings as agent_settings
+    from app.infrastructure.mcp.tools.orchestrate_tool import resolve_orchestration
+
+    class EnabledStore:
+        def get_all(self) -> dict[str, Any]:
+            return {"flag_multi_agent": True}
+
+    monkeypatch.delenv("MCP_MULTI_AGENT_ENABLED", raising=False)
+    monkeypatch.setenv("AGENT_MULTI_AGENT", "0")
+    monkeypatch.setattr(agent_settings, "get_settings_store", lambda: EnabledStore())
+
+    resolution = resolve_orchestration({"prompt": "x", "mode": "multi_agent"})
+    assert resolution.mode == "multi_agent"
+    assert resolution.fallback is None
+
+
 def test_worker_scope_policy_rejects_forbidden_tools_and_budget() -> None:
     """``WorkerScopePolicy`` APPLIQUE réellement outils interdits + plafond."""
     from app.domain.ports import ExecutionContext, WorkerScopePolicy
