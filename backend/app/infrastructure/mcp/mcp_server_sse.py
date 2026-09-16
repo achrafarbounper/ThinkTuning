@@ -56,6 +56,7 @@ from app.infrastructure.mcp.mcp_flow import (
 )
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.tools.orchestrate_tool import (
+    MonoAgentOutcome,
     _result_to_text,
     build_orchestration_request,
     orchestrate_multi_agent,
@@ -578,7 +579,10 @@ async def _stream_orchestrate(
                 # Tolérance de contrat : ``orchestrate_stream`` renvoie un
                 # ``MonoAgentOutcome`` (nouveau) ou un ``AgentRunResult`` brut
                 # (compat. historique / tests) — le transport supporte les deux.
-                mono_result = getattr(outcome, "result", outcome)
+                if isinstance(outcome, MonoAgentOutcome):
+                    mono_result = outcome.result
+                else:
+                    mono_result = outcome
                 result = mono_result
                 approval_payload = getattr(outcome, "approval", None)
                 approval_request_id = (approval_payload or {}).get("request_id")

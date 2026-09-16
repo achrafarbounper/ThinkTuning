@@ -251,6 +251,9 @@ class MultiAgentCoordinator:
         if self._orchestration_deadline_seconds < 0:
             self._orchestration_deadline_seconds = 0.0
         self._synthesis_failure_reason: str | None = None
+        # Indépendant du run en cours : ``None`` entre deux runs (réinitialisé
+        # dans le ``finally`` de ``run``), ``float`` pendant un run actif.
+        self._run_started: float | None = None
         # Mode « Réflexion » des workers (multi-agents). Le run peut le
         # surcharger par requête (``run(..., enable_thinking=...)``).
         self._enable_thinking = bool(enable_thinking)
@@ -1391,7 +1394,7 @@ class MultiAgentCoordinator:
             fsm = fsm.transition(MultiRunState.SYNTHESIZING)
             fsm = fsm.transition(MultiRunState.COMPLETED)
 
-            outcome = {
+            outcome: dict[str, Any] = {
                 "status": (
                     "partial_success"
                     if self._synthesis_failure_reason == "synthesis_timeout"

@@ -313,10 +313,10 @@ class HttpLLMClient:
         """TENTATIVE UNIQUE : POST + vérification du statut ; flux ouvert."""
         started = time.perf_counter()
         headers = self._headers()
-        timeout = self.timeout
+        httpx_timeout: httpx.Timeout | float | None = self.timeout
         if self.stream_stall_timeout is not None:
-            timeout = httpx.Timeout(timeout, read=self.stream_stall_timeout)
-        client = httpx.Client(transport=self._transport, timeout=timeout)
+            httpx_timeout = httpx.Timeout(self.timeout, read=self.stream_stall_timeout)
+        client = httpx.Client(transport=self._transport, timeout=httpx_timeout)
         resp = None
         try:
             # httpx : le streaming se fait via `send(request, stream=True)` — le
