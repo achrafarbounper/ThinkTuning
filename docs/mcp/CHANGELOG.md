@@ -6,6 +6,26 @@
 
 ---
 
+## Unreleased — correctif garde multi-agent (SCRUM-152)
+
+### Alignement de la garde `MCP_MULTI_AGENT_ENABLED`
+
+- La garde du mode multi-agent ne retombe plus sur un `fail-closed` silencieux
+  lorsque la base de paramètres est VIDE : la résolution suit désormais la même
+  cascade que le reste du runtime pour `flag_multi_agent` — override local
+  `MCP_MULTI_AGENT_ENABLED` (dès qu'elle est définie) > valeur PERSISTÉE
+  (SQLite/Mongo) > env partagé `AGENT_MULTI_AGENT` > défaut du runtime
+  (`VALEURS_PAR_DEFAUT`, flag activé).
+- Conséquence : un `orchestrate(mode=multi_agent)` sans configuration explicite
+  n'est plus converti en repli mono-agent alors que le produit active le mode ;
+  `MCP_MULTI_AGENT_ENABLED=0` (Render : `false`) reste un repli mono-agent
+  EXPLICITE avec `orchestration_fallback.reason=multi_agent_disabled`.
+- Ce correctif explique les 9 échecs de la suite (flux SSE multi-agent projetés
+  en `mono_agent`, `run_id`/`last_sequence` absents du prélude) : le transport
+  MCP divergeait de la configuration partagée.
+- Tests : `test_mcp_orchestrate.py` — 4 tests de précédence (défaut partagé,
+  override local, env partagé, valeur persistée prioritaire).
+
 ## v2.2.0 — 2026-09-15
 
 Release MCP alignée sur le catalogue admin et la persistance durable MongoDB.
