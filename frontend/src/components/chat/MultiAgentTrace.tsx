@@ -16,6 +16,11 @@ import type {
   MultiAgentWorkerState,
   MultiWorkerStatus,
 } from './types';
+import type {
+  MultiAgentTraceState,
+  TraceApprovalEntry,
+  TraceToolEntry,
+} from './mcpTrace';
 
 interface MultiAgentTraceProps {
   /** Plan validé par le superviseur (événement agent.plan). */
@@ -23,6 +28,12 @@ interface MultiAgentTraceProps {
   /** État courant des workers (événements agent.worker.*). */
   workers?: MultiAgentWorkerState[];
   notice?: string;
+  /**
+   * Trace ENRICHIE (L3 — SCRUM-154) : run_id durable, outils observés,
+   * intention détectée, workers filtrés (skipped) et actions d'approbation.
+   * Présente uniquement pour les tours MCP (trace partagée persistée).
+   */
+  trace?: MultiAgentTraceState;
 }
 
 const STATUS_LABELS: Record<MultiWorkerStatus, string> = {
@@ -56,11 +67,59 @@ function WorkerRow({ worker }: { worker: MultiAgentWorkerState }) {
   );
 }
 
+/** Ligne compacte « outil observé » de la timeline (L3 — enrichissement). */
+function ToolRow({ entry }: { entry: TraceToolEntry }) {
+  const done = entry.event !== 'tool_start' && entry.status !== 'running';
+  const failed = entry.status === 'error';
+  return (
+    <li
+      className={`multi-agent-trace__tool multi-agent-trace__tool--${failed ? 'error' : done ? 'ok' : 'running'}`}
+    >
+      <span className="multi-agent-trace__status" aria-hidden="true">
+        {failed ? '✕' : done ? '✓' : '⟳'}
+      </span>
+      <code className="multi-agent-trace__tool-name">{entry.tool}</code>
+      <span className="multi-agent-trace__state">
+        {done ? 'Exécuté' : 'En cours'}
+        {entry.duration_ms !== undefined &&
+          entry.duration_ms > 0 &&
+          ` · ${(entry.duration_ms / 1000).toFixed(1)} s`}
+      </span>
+    </li>
+  );
+}
+
+/** Ligne « approbation HITL » (L3 — actions d'approbation dans la trace). */
+function ApprovalRow({ entry }: { entry: TraceApprovalEntry }) {
+  const label = entry.tool ?? 'outil inconnu';
+  return (
+    <li className="multi-agent-trace__approval">
+      <span className="multi-agent-trace__status" aria-hidden="true">⏳</span>
+      <code className="multi-agent-trace__role">{label}</code>
+      <span className="multi-agent-trace__subtask" title={entry.reason}>
+        Validation humaine requise{entry.reason ? ` — ${entry.reason}` : ''}
+      </span>
+    </li>
+  );
+}
+
 /** Bloc « Orchestration multi-agents » inséré au-dessus de la bulle de réponse. */
-export function MultiAgentTrace({ plan, workers, notice }: MultiAgentTraceProps) {
+export function MultiAgentTrace({ plan, workers, notice, trace }: MultiAgentTraceProps) {
   const hasPlan = Boolean(plan && plan.length > 0);
   const hasWorkers = Boolean(workers && workers.length > 0);
-  if (!hasPlan && !hasWorkers && !notice) return null;
+  const hasTrace = Boolean(
+    trace &&
+      (trace.runId ||
+        trace.tools?.length ||
+        trace.skipped?.length ||
+        trace.approvals?.length ||
+        trace.intent),
+  );
+  if (!hasPlan && !hasWorkers && !notice && !hasTrace) return null;
+
+  const tools = trace?.tools ?? [];
+  const skipped = trace?.skipped ?? [];
+  const approvals = trace?.approvals ?? [];
 
   return (
     <div className="multi-agent-trace" data-testid="multi-agent-trace">
@@ -71,11 +130,21 @@ export function MultiAgentTrace({ plan, workers, notice }: MultiAgentTraceProps)
             {plan!.length} sous-tâche{plan!.length > 1 ? 's' : ''}
           </span>
         )}
+        {trace?.runId && (
+          <code className="multi-agent-trace__run-id" title="Identifiant durable du run (reprise / replay)">
+            run {trace.runId}
+          </code>
+        )}
       </div>
 
       {notice && (
         <p className="multi-agent-trace__notice" role="status">
           {notice}
+        </p>
+      )}
+      {trace?.intent && (
+        <p className="multi-agent-trace__intent" role="status">
+          Intention détectée : <strong>{trace.intent}</strong>
         </p>
       )}
 
@@ -90,6 +159,33 @@ export function MultiAgentTrace({ plan, workers, notice }: MultiAgentTraceProps)
             </li>
           ))}
         </ol>
+      )}
+
+      {tools.length > 0 && (
+        <ul className="multi-agent-trace__tools">
+          {tools.map((entry, index) => (
+            <ToolRow key={`tool-${index}`} entry={entry} />
+          ))}
+        </ul>
+      )}
+
+      {skipped.length > 0 && (
+        <ul className="multi-agent-trace__skipped">
+          {skipped.map((entry, index) => (
+            <li key={`skip-${index}`}>
+              <span aria-hidden="true">⤼</span> worker {entry.worker_id ?? '?'} ignoré
+              {entry.reason ? ` — ${entry.reason}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {approvals.length > 0 && (
+        <ul className="multi-agent-trace__approvals">
+          {approvals.map((entry, index) => (
+            <ApprovalRow key={`approval-${index}`} entry={entry} />
+          ))}
+        </ul>
       )}
 
       {hasWorkers && (

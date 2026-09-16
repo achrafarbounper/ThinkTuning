@@ -90,14 +90,20 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
           <ToolCallBlock calls={message.toolCalls} />
         )}
 
-        {/* Orchestration multi-agents : plan + etat des workers (temps reel). */}
-        {!isUser && (message.multiPlan || message.multiWorkers || message.orchestrationNotice) && (
-          <MultiAgentTrace
-            plan={message.multiPlan}
-            workers={message.multiWorkers}
-            notice={message.orchestrationNotice}
-          />
-        )}
+        {/* Orchestration multi-agents : plan + etat des workers (temps reel).
+            L3 : trace enrichie (run_id, outils, skipped/intent, approvals). */}
+        {!isUser &&
+          (message.multiPlan ||
+            message.multiWorkers ||
+            message.orchestrationNotice ||
+            message.trace) && (
+            <MultiAgentTrace
+              plan={message.multiPlan}
+              workers={message.multiWorkers}
+              notice={message.orchestrationNotice}
+              trace={message.trace}
+            />
+          )}
 
         {/* Trace de raisonnement (« Réflexion »), au-dessus de la bulle. */}
         {!isUser && message.thinking !== undefined && (

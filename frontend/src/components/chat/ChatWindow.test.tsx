@@ -2,12 +2,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatWindow } from './ChatWindow';
 
-const { orchestrateViaMcpStreamMock } = vi.hoisted(() => ({
+const { orchestrateViaMcpStreamMock, preflightMcpMock } = vi.hoisted(() => ({
   orchestrateViaMcpStreamMock: vi.fn(),
+  preflightMcpMock: vi.fn(),
 }));
 
 vi.mock('../../api/mcpClient', () => ({
   orchestrateViaMcpStream: orchestrateViaMcpStreamMock,
+  preflightMcp: preflightMcpMock,
+  // Message actionnable mocké fidèle au comportement réel (concat de l'action).
+  makeMcpErrorActionable: (error: unknown): string =>
+    error instanceof Error ? `${error.message} — Action : (mock)` : String(error),
+  // Classe mockée : l'instanceof dans useAssistantTurns doit fonctionner.
+  McpTransportError: class McpTransportError extends Error {
+    status: number;
+    code?: number;
+    constructor(message: string, status = 0, code?: number) {
+      super(message);
+      this.name = 'McpTransportError';
+      this.status = status;
+      this.code = code;
+    }
+  },
 }));
 
 vi.mock('../../context/useApp', () => ({
@@ -58,9 +74,13 @@ beforeEach(() => {
   orchestrateViaMcpStreamMock.mockImplementation(
     async (
       _args: unknown,
-      onEvent: (event: { rpc: { result: { content: Array<{ type: string; text: string }> } } }) => void,
+      onEvent: (event: {
+        kind: 'rpc';
+        rpc: { result: { content: Array<{ type: string; text: string }> } };
+      }) => void,
     ) => {
       onEvent({
+        kind: 'rpc',
         rpc: {
           result: {
             content: [
@@ -75,6 +95,14 @@ beforeEach(() => {
       return { answer: 'Réponse MCP', status: 'completed' };
     },
   );
+  // Badge MCP : preflight OK par défaut (diagnostic vert, 2 tools visibles).
+  preflightMcpMock.mockResolvedValue({
+    ok: true,
+    protocolVersion: '2025-06-18',
+    serverName: 'thinktuning-mcp',
+    toolCount: 2,
+    tools: ['orchestrate', 'ping'],
+  });
 });
 
 afterEach(() => {
@@ -210,18 +238,15 @@ describe('ChatWindow - sélecteur d’orchestration MCP', () => {
       window.localStorage.setItem('thinktuning.mcpMode', 'true');
 
       orchestrateViaMcpStreamMock.mockImplementationOnce(
-        async (
-          _args: unknown,
-          onEvent: (event: {
-            multi_agent?: Record<string, unknown>;
-            thinking_delta?: string;
-          }) => void,
-        ) => {
-          // Reproduit le flux observé : thinking token-par-token puis erreur,
-          // sans agent.done — la bulle ne doit PAS rester vide.
-          onEvent({ thinking_delta: ' about' });
+        async (_args: unknown, onEvent: (event: unknown) => void) => {
+          // Reproduit le flux observé (union discriminée L3) : thinking
+          // token-par-token, worker OK puis agent.error — la bulle ne doit
+          // PAS rester vide et l'erreur n'est JAMAIS avalée.
+          onEvent({ kind: 'thinking', delta: ' about' });
           onEvent({
-            multi_agent: {
+            kind: 'multi_agent',
+            event: 'agent.worker.thinking',
+            payload: {
               event: 'agent.worker.thinking',
               task_id: 'task-1',
               role: 'ops',
@@ -230,7 +255,9 @@ describe('ChatWindow - sélecteur d’orchestration MCP', () => {
             },
           });
           onEvent({
-            multi_agent: {
+            kind: 'multi_agent',
+            event: 'agent.worker.result',
+            payload: {
               event: 'agent.worker.result',
               task_id: 'task-1',
               role: 'ops',
@@ -239,10 +266,10 @@ describe('ChatWindow - sélecteur d’orchestration MCP', () => {
             },
           });
           onEvent({
-            multi_agent: {
-              event: 'agent.error',
-              message: 'LLM injoignable pendant la synthèse.',
-            },
+            kind: 'error',
+            event: 'agent.error',
+            message: 'LLM injoignable pendant la synthèse.',
+            payload: {},
           });
           throw new Error(
             'Résultats partiels des workers :\nCPU : 8 cœurs détectés.\n\nLLM injoignable pendant la synthèse.',
@@ -265,12 +292,11 @@ describe('ChatWindow - sélecteur d’orchestration MCP', () => {
       window.localStorage.setItem('thinktuning.mcpMode', 'true');
 
       orchestrateViaMcpStreamMock.mockImplementationOnce(
-        async (
-          _args: unknown,
-          onEvent: (event: { multi_agent?: Record<string, unknown> }) => void,
-        ) => {
+        async (_args: unknown, onEvent: (event: unknown) => void) => {
           onEvent({
-            multi_agent: {
+            kind: 'multi_agent',
+            event: 'agent.worker.result',
+            payload: {
               event: 'agent.worker.result',
               task_id: 'task-1',
               role: 'ops',
@@ -295,7 +321,7 @@ describe('ChatWindow - sélecteur d’orchestration MCP', () => {
     });
   });
 
-  it('restaure le sous-mode MCP persisté', () => {
+  it('restaure le sous-mode MCP persisté', async () => {
     window.localStorage.setItem('thinktuning.mcpMode', 'true');
     window.localStorage.setItem('thinktuning.mcpAgentMode', 'mono_agent');
 
@@ -308,16 +334,23 @@ describe('ChatWindow - sélecteur d’orchestration MCP', () => {
     expect(
       screen.getByRole('combobox', { name: "Mode d'orchestration MCP" }),
     ).toHaveValue('mono_agent');
+
+    // Le mode MCP restauré monte le badge, qui lance son diagnostic
+    // (initialize → ping → tools/list) au tick suivant. On attend sa
+    // résolution : les setState « checking → résultat » sont ainsi flushés
+    // DANS act(), sinon React signale une mise à jour hors act() survenue
+    // après la fin du test.
+    expect(await screen.findByText('MCP : OK (2 tools)')).toBeInTheDocument();
   });
 
   it('affiche une synthèse partielle quand la phase de synthèse expire', async () => {
     orchestrateViaMcpStreamMock.mockImplementationOnce(
-      async (
-        _args: unknown,
-        onEvent: (event: { phase?: Record<string, unknown> }) => void,
-      ) => {
+      async (_args: unknown, onEvent: (event: unknown) => void) => {
         onEvent({
-          phase: {
+          kind: 'phase',
+          status: 'timeout',
+          reason: 'synthesis_timeout',
+          payload: {
             event: 'agent.phase',
             phase: 'synthesis',
             status: 'timeout',
@@ -465,5 +498,124 @@ describe('ChatWindow - sélecteur d’orchestration MCP', () => {
       task_id: 't1',
     });
     expect(await screen.findByText('Run repris et terminé.')).toBeInTheDocument();
+  });
+});
+
+describe('ChatWindow - L3 (SCRUM-154) : badge, trace et repli HTTP', () => {
+  it('affiche le badge MCP avec le diagnostic preflight en mode MCP', async () => {
+    render(<ChatWindow />);
+
+    // Hors mode MCP : pas de badge.
+    expect(screen.queryByText(/MCP : OK/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^MCP$/ }));
+
+    // Le badge apparaît puis affiche le résultat du preflight (OK, 2 tools).
+    expect(await screen.findByText('MCP : OK (2 tools)')).toBeInTheDocument();
+    expect(preflightMcpMock).toHaveBeenCalledTimes(1);
+    expect(preflightMcpMock.mock.calls[0][0]).toMatchObject({ baseUrl: expect.any(String) });
+  });
+
+  it('attache la trace enrichie au tour MCP (run_id visible + persistance)', async () => {
+    orchestrateViaMcpStreamMock.mockImplementationOnce(
+      async (_args: unknown, onEvent: (event: unknown) => void) => {
+        // Prélude durable (run_id + curseur) puis un worker OK.
+        onEvent({ kind: 'started', run_id: 'run-42', resumed: false, last_sequence: 3 });
+        onEvent({
+          kind: 'multi_agent',
+          event: 'agent.worker.result',
+          payload: {
+            event: 'agent.worker.result',
+            task_id: 'task-1',
+            role: 'ops',
+            status: 'ok',
+            summary: 'Analyse terminée.',
+          },
+        });
+        onEvent({ kind: 'intent', intent: 'analyse', payload: {} });
+        return { answer: 'Réponse MCP tracée.', status: 'completed' };
+      },
+    );
+
+    render(<ChatWindow />);
+    fireEvent.click(screen.getByRole('button', { name: /^MCP$/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Votre message' }), {
+      target: { value: 'Trace-moi ça' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Envoyer' }));
+
+    // La bulle porte la trace enrichie (run_id rendu par MultiAgentTrace).
+    expect(await screen.findByText('Réponse MCP tracée.')).toBeInTheDocument();
+    expect(await screen.findByText(/run run-42/)).toBeInTheDocument();
+    expect(screen.getByText(/Intention détectée/)).toBeInTheDocument();
+
+    // La trace partagée est PERSISTÉE (restauration après rechargement).
+    const stored = window.localStorage.getItem('thinktuning.multiAgentTrace');
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored as string)).toMatchObject({
+      runId: 'run-42',
+      intent: 'analyse',
+      lastSequence: 3,
+    });
+    expect((JSON.parse(stored as string).workers ?? []).length).toBe(1);
+  });
+
+  it('propose le repli HTTP sur erreur MCP 503 et rejoue via le noyau legacy', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/chat/models')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ models: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      if (url.endsWith('/api/v1/sessions')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ sessions: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      // Repli core : stream inconnu (404) puis POST bloquant (réponse JSON).
+      if (url.endsWith('/api/v1/agent/ask/core/stream')) {
+        return Promise.resolve(new Response('not found', { status: 404 }));
+      }
+      if (url.endsWith('/api/v1/agent/ask/core')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ response: 'Réponse legacy HTTP.', status: 'completed', model: 'x' }),
+            { headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+
+    // Échec transport MCP 503 (MCP_FIRST gèle l'HTTP legacy) → actionable + repli.
+    orchestrateViaMcpStreamMock.mockImplementationOnce(async () => {
+      const { McpTransportError: MockedTransportError } = (await import(
+        '../../api/mcpClient'
+      )) as { McpTransportError: new (message: string, status?: number) => Error & { status: number } };
+      throw new MockedTransportError('Surface MCP indisponible (503).', 503);
+    });
+
+    render(<ChatWindow />);
+    fireEvent.click(screen.getByRole('button', { name: /^MCP$/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Votre message' }), {
+      target: { value: 'Demande bloquée par MCP_FIRST' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Envoyer' }));
+
+    // Erreur rendue ACTIONNABLE + bandeau de repli HTTP proposé.
+    expect(await screen.findByText(/Action : \(mock\)/)).toBeInTheDocument();
+    const resend = await screen.findByRole('button', { name: /Renvoyer via HTTP/ });
+    fireEvent.click(resend);
+
+    // La demande est rejouée via le pipeline legacy (noyau v2, HTTP).
+    expect(await screen.findByText('Réponse legacy HTTP.')).toBeInTheDocument();
+    // Le repli ne propose plus une seconde fois le même renvoi.
+    expect(screen.queryByRole('button', { name: /Renvoyer via HTTP/ })).not.toBeInTheDocument();
   });
 });

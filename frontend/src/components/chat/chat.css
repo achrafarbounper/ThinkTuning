@@ -1246,3 +1246,172 @@
     transform: rotate(360deg);
   }
 }
+
+/* --- L3 (SCRUM-154) : trace enrichie (run_id, intent, outils, skipped, ---- */
+/* --- approvals), badge d'état MCP et repli HTTP legacy --------------------- */
+
+/* Identifiant durable du run MCP (curseur de replay) — discret mais copiable. */
+.multi-agent-trace__run-id {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #8b949e);
+  background: rgba(139, 148, 158, 0.12);
+  border-radius: 6px;
+  padding: 1px 7px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Intention globale détectée (agent.intent). */
+.multi-agent-trace__intent {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #8b949e);
+}
+.multi-agent-trace__intent strong {
+  color: var(--accent-color, #58a6ff);
+  font-weight: 600;
+}
+
+/* Timeline des outils observés (orchestrate.tool / agent.worker.tool). */
+.multi-agent-trace__tools,
+.multi-agent-trace__skipped,
+.multi-agent-trace__approvals {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.multi-agent-trace__tool {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #8b949e);
+}
+.multi-agent-trace__tool--running .multi-agent-trace__status {
+  color: var(--status-running, #d29922);
+}
+.multi-agent-trace__tool--ok .multi-agent-trace__status {
+  color: var(--status-ok, #3fb950);
+}
+.multi-agent-trace__tool--error .multi-agent-trace__status {
+  color: var(--status-error, #f85149);
+}
+.multi-agent-trace__tool-name {
+  color: var(--accent-color, #58a6ff);
+  font-size: 0.72rem;
+}
+
+/* Workers filtrés par la politique d'intention (agent.worker.skipped). */
+.multi-agent-trace__skipped li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #8b949e);
+  font-style: italic;
+}
+
+/* Actions d'approbation HITL traversées pendant le run. */
+.multi-agent-trace__approvals li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--status-warn, #d29922);
+}
+
+/* --- Badge d'état MCP (preflight initialize → ping → tools/list) ---------- */
+.mcp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #8b949e);
+  max-width: 100%;
+}
+.mcp-status__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid rgba(139, 148, 158, 0.35);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mcp-status__button:hover {
+  border-color: var(--accent-color, #58a6ff);
+  color: var(--text-primary, #e6edf3);
+}
+.mcp-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-secondary, #8b949e);
+  flex: none;
+}
+.mcp-status--ok .mcp-status__dot {
+  background: var(--status-ok, #3fb950);
+}
+.mcp-status--checking .mcp-status__dot {
+  background: var(--status-warn, #d29922);
+  animation: mcp-pulse 1s ease-in-out infinite;
+}
+.mcp-status--error .mcp-status__dot {
+  background: var(--status-error, #f85149);
+}
+.mcp-status__error {
+  color: var(--status-error, #f85149);
+  font-size: 0.7rem;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes mcp-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* --- Repli HTTP legacy (bouton « Renvoyer via HTTP ») --------------------- */
+.copilot-chat__fallback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 12px;
+  padding: 8px 12px;
+  border: 1px solid rgba(210, 153, 34, 0.45);
+  border-radius: 10px;
+  background: rgba(210, 153, 34, 0.08);
+}
+.copilot-chat__fallback-hint {
+  margin: 0;
+  flex: 1;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #8b949e);
+}
+.copilot-chat__fallback-button {
+  border: 1px solid rgba(210, 153, 34, 0.6);
+  border-radius: 8px;
+  background: none;
+  color: var(--status-warn, #d29922);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.copilot-chat__fallback-button:hover {
+  background: rgba(210, 153, 34, 0.15);
+}
