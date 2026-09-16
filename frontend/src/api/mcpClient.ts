@@ -34,8 +34,19 @@ export const MCP_SSE_PATH = '/mcp/sse';
 /** Identifiant du dashboard dans l'audit MCP (agent_audit.subject). */
 export const MCP_CLIENT_ID = 'thinktuning-dashboard';
 
-/** Délai par défaut d'un aller-retour MCP (un tour orchestrate peut être long). */
+/** Délai par défaut d'un aller-retour MCP court (initialize / ping / tools). */
 export const MCP_DEFAULT_TIMEOUT_MS = 120_000;
+
+/**
+ * Délai d'inactivité par défaut du flux `orchestrate` (L3 — SCRUM-154).
+ *
+ * Un tour d'orchestration peut durer PLUSIEURS MINUTES : un timeout absolu
+ * (« 120 s quoi qu'il arrive ») coupait des runs sains. Le flux est désormais
+ * interrompu uniquement si AUCUN octet n'arrive pendant cette fenêtre — les
+ * heartbeats du serveur (`: heartbeat`, toutes les ~10 s) et les événements
+ * partiels (thinking / tool / worker) réarment le compteur.
+ */
+export const MCP_DEFAULT_INACTIVITY_TIMEOUT_MS = 120_000;
 
 /** Version du protocole MCP négociée par le serveur (handshake initialize). */
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -68,8 +79,14 @@ export interface McpClientConfig {
   clientId?: string;
   /** Identifiant de session MCP (Mcp-Session-Id) — défaut : généré. */
   sessionId?: string;
-  /** Timeout d'un aller-retour (ms) — défaut : MCP_DEFAULT_TIMEOUT_MS. */
+  /** Timeout d'un aller-retour court (ms) — défaut : MCP_DEFAULT_TIMEOUT_MS. */
   timeoutMs?: number;
+  /**
+   * Timeout d'INACTIVITÉ du flux orchestrate (ms) — L3 SCRUM-154. Le compteur
+   * est réarmé à chaque chunk réseau (heartbeats compris) ; un silence complet
+   * au-delà de cette fenêtre interrompt le flux. Défaut : 120 000.
+   */
+  inactivityTimeoutMs?: number;
   /** Signal d'annulation externe (ex : bouton Stop du chat). */
   signal?: AbortSignal;
 }
@@ -374,6 +391,98 @@ function describeNetworkError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Enrichit une erreur MCP en message ACTIONNABLE (L3 — SCRUM-154).
+ *
+ * Le message brut du transport ne dit pas quoi faire. Pour les statuts
+ * connus (401 / 403 / 503) on renvoie une instruction concrète :
+ *  - 401 : clé API absente/invalide → la saisir dans Paramètres (X-API-Key) ;
+ *  - 403 : clé valide mais portée insuffisante (scopes MCP) ;
+ *  - 503 : MCP_FIRST gèle la surface HTTP legacy → utiliser le mode MCP.
+ */
+export function makeMcpErrorActionable(error: unknown, baseUrl = ''): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = error instanceof McpTransportError ? error.status : 0;
+  if (status === 401) {
+    return (
+      `${message} — Action : vérifiez votre clé API dans les Paramètres du dashboard ` +
+      '(elle est transmise en en-tête X-API-Key au serveur MCP).'
+    );
+  }
+  if (status === 403) {
+    return (
+      `${message} — Action : votre clé API est valide mais sa portée (scope) est ` +
+      'insuffisante pour ce tool MCP ; demandez une clé avec les scopes requis.'
+    );
+  }
+  if (status === 503) {
+    return (
+      `${message} — Action : le mode MCP_FIRST gèle l'API HTTP legacy ; basculez le chat ` +
+      "en mode MCP (bouton « MCP » de l'en-tête) ou désactivez MCP_FIRST côté serveur."
+    );
+  }
+  if (status === 0 && /joindre|network|fetch/i.test(message)) {
+    return (
+      `${message} — Action : vérifiez que le backend est démarré sur ` +
+      `${baseUrl || "l'URL configurée"} et que CORS autorise l'origine du dashboard.`
+    );
+  }
+  return message;
+}
+
+/** Résultat du preflight MCP (diagnostic de disponibilité). */
+export interface McpPreflightResult {
+  /** Serveur joignable, handshake initialize + ping OK. */
+  ok: boolean;
+  /** Version de protocole négociée (initialize). */
+  protocolVersion?: string;
+  /** Nom du serveur (initialize.serverInfo.name). */
+  serverName?: string;
+  /** Nombre de tools visibles par ce client (tools/list). */
+  toolCount?: number;
+  /** Noms des tools visibles (utile au diagnostic UI). */
+  tools?: string[];
+  /** Erreur actionnable si ok=false (401/403/503/réseau…). */
+  error?: string;
+  /** Statut HTTP brut de l'échec (0 = réseau indisponible). */
+  status?: number;
+}
+
+/**
+ * Preflight MCP : séquence complète initialize → ping → tools/list.
+ *
+ * Appelé à l'activation du mode MCP et par le badge d'état (diagnostic) :
+ * valide le handshake, la vivacité du serveur et la visibilité des tools
+ * AVANT le premier tour d'orchestration. Toute étape renvoie une erreur
+ * actionnable (401/403/503 explicités) — jamais une exception brute.
+ * initialize / ping / tools/list passent tous par `McpSseClient.call`, dont
+ * le parseur tolère la sentinelle `data: [DONE]` qui clôt le flux SSE.
+ */
+export async function preflightMcp(
+  config?: McpClientConfig,
+): Promise<McpPreflightResult> {
+  const client = new McpSseClient(config);
+  try {
+    const init = await client.initialize();
+    await client.ping();
+    const tools = await client.listTools();
+    return {
+      ok: true,
+      protocolVersion: init.protocolVersion,
+      serverName:
+        typeof init.serverInfo?.name === 'string' ? init.serverInfo.name : undefined,
+      toolCount: tools.length,
+      tools: tools.map((tool) => tool.name),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: makeMcpErrorActionable(error, config?.baseUrl ?? ''),
+      status: error instanceof McpTransportError ? error.status : 0,
+    };
+  }
+}
+
 // --- Intégration dashboard (données.read *readonly* dans le flux du tool) -----
 
 /** Une action d'un run orchestrate (trace — lecture seule dans le dashboard). */
@@ -455,17 +564,150 @@ export interface OrchestrateReplayEvent {
   [key: string]: unknown;
 }
 
-export interface OrchestrateMcpStreamEvent {
-  thinking_delta?: string;
-  delta?: string;
-  tool?: Record<string, unknown>;
-  multi_agent?: Record<string, unknown>;
-  orchestration?: Record<string, unknown>;
-  /** Événement métier de phase (synthèse, deadline globale, etc.). */
-  phase?: Record<string, unknown>;
-  /** Prélude `orchestrate.started` : curseur de reprise mémorisable. */
-  started?: McpOrchestrateStarted;
-  rpc?: JsonRpcResponse;
+/**
+ * Union discriminée des événements d'un tour `orchestrate` en streaming
+ * (L3 — SCRUM-154). Remplace l'objet large `OrchestrateMcpStreamEvent` :
+ * chaque variante porte un `kind` explicite, ce qui permet un `switch`
+ * exhaustif côté consommateur (ChatWindow / applyMcpEvent) avec typage
+ * étroit par branche — plus de champs optionnels à deviner.
+ *
+ * Variantes :
+ *  - `started`     : prélude `orchestrate.started` (run_id durable + curseur) ;
+ *  - `thinking`    : fragment de raisonnement (`orchestrate.thinking`) ;
+ *  - `tool`        : événement d'outil du noyau (`orchestrate.tool`/core_tool) ;
+ *  - `multi_agent` : tout événement d'orchestration nommé (agent.*,
+ *    orchestrate.*) — brut, pour la trace ;
+ *  - `phase`       : phase métier (synthèse, deadline, timeout) ;
+ *  - `done`        : fin d'orchestration (agent.done / orchestrate.done) ;
+ *  - `error`       : échec explicite (agent.error / orchestrate.error) ;
+ *  - `fallback`    : repli orchestration (multi → mono) ou conversationnel ;
+ *  - `intent`      : intention globale détectée (agent.intent) ;
+ *  - `skipped`     : worker filtré par la politique d'intention
+ *    (agent.worker.skipped) ;
+ *  - `rpc`         : réponse JSON-RPC finale (event: message).
+ */
+export type McpOrchestrateEvent =
+  | {
+      kind: 'started';
+      run_id: string | null;
+      resumed: boolean;
+      last_sequence: number;
+    }
+  | { kind: 'thinking'; delta: string }
+  | { kind: 'tool'; tool: Record<string, unknown> }
+  | { kind: 'multi_agent'; event: string; payload: Record<string, unknown> }
+  | { kind: 'phase'; status: string; reason?: string; payload: Record<string, unknown> }
+  | { kind: 'done'; payload: Record<string, unknown> }
+  | { kind: 'error'; event: string; message: string; payload: Record<string, unknown> }
+  | { kind: 'fallback'; reason?: string; payload: Record<string, unknown> }
+  | { kind: 'intent'; intent?: string; payload: Record<string, unknown> }
+  | {
+      kind: 'skipped';
+      worker_id?: string | null;
+      reason?: string;
+      payload: Record<string, unknown>;
+    }
+  | { kind: 'rpc'; rpc: JsonRpcResponse };
+
+/** Noms SSE d'orchestration relayés tels quels (variantes `multi_agent`). */
+const ORCHESTRATE_MULTI_AGENT_EVENTS = new Set([
+  'orchestrate.start',
+  'orchestrate.started',
+  'orchestrate.lead',
+  'orchestrate.worker',
+  'orchestrate.synthesis',
+  'orchestrate.synthesizing',
+  'agent.plan',
+  'agent.resuming',
+  'agent.worker.start',
+  'agent.worker.tool',
+  'agent.worker.thinking',
+  'agent.synthesizing',
+  'checkpoint_recovered',
+]);
+
+/**
+ * Traduit une trame SSE nommée du flux `orchestrate` en union discriminée
+ * {@link McpOrchestrateEvent}. Fonction PURE (testable sans transport).
+ */
+export function toMcpOrchestrateEvent(
+  sseEvent: string,
+  payload: Record<string, unknown>,
+): McpOrchestrateEvent {
+  switch (sseEvent) {
+    case 'orchestrate.started':
+      return {
+        kind: 'started',
+        run_id: typeof payload.run_id === 'string' && payload.run_id ? payload.run_id : null,
+        resumed: payload.resumed === true,
+        last_sequence:
+          typeof payload.last_sequence === 'number' && Number.isFinite(payload.last_sequence)
+            ? payload.last_sequence
+            : 0,
+      };
+    case 'orchestrate.thinking':
+      return {
+        kind: 'thinking',
+        delta: typeof payload.thinking_delta === 'string' ? payload.thinking_delta : '',
+      };
+    case 'orchestrate.tool': {
+      const coreTool =
+        payload.core_tool && typeof payload.core_tool === 'object'
+          ? (payload.core_tool as Record<string, unknown>)
+          : payload;
+      return { kind: 'tool', tool: coreTool };
+    }
+    case 'agent.phase':
+      return {
+        kind: 'phase',
+        status: typeof payload.status === 'string' ? payload.status : '',
+        reason: typeof payload.reason === 'string' ? payload.reason : undefined,
+        payload,
+      };
+    case 'agent.done':
+    case 'orchestrate.done':
+      return { kind: 'done', payload };
+    case 'agent.error':
+    case 'orchestrate.error':
+      return {
+        kind: 'error',
+        event: sseEvent,
+        message: typeof payload.message === 'string' ? payload.message : '',
+        payload,
+      };
+    case 'agent.fallback':
+    case 'orchestration_fallback':
+      return {
+        kind: 'fallback',
+        reason: typeof payload.reason === 'string' ? payload.reason : undefined,
+        payload,
+      };
+    case 'agent.intent':
+      return {
+        kind: 'intent',
+        intent: typeof payload.intent === 'string' ? payload.intent : undefined,
+        payload,
+      };
+    case 'agent.worker.skipped':
+      return {
+        kind: 'skipped',
+        worker_id:
+          typeof payload.worker_id === 'string' || payload.worker_id === null
+            ? (payload.worker_id as string | null)
+            : typeof payload.task_id === 'string'
+              ? payload.task_id
+              : undefined,
+        reason: typeof payload.reason === 'string' ? payload.reason : undefined,
+        payload,
+      };
+    default:
+      if (ORCHESTRATE_MULTI_AGENT_EVENTS.has(sseEvent)) {
+        return { kind: 'multi_agent', event: sseEvent, payload };
+      }
+      // Événement inconnu : relayé en multi_agent générique (tolérance aux
+      // évolutions du serveur — la trace ne perd aucune information).
+      return { kind: 'multi_agent', event: sseEvent, payload };
+  }
 }
 
 /**
@@ -513,7 +755,7 @@ export async function orchestrateViaMcp(
  */
 export async function orchestrateViaMcpStream(
   args: OrchestrateMcpArgs,
-  onEvent: (event: OrchestrateMcpStreamEvent) => void,
+  onEvent: (event: McpOrchestrateEvent) => void,
   config?: McpClientConfig,
 ): Promise<OrchestrateMcpResult> {
   // `streamTool` can only observe response headers. Keep a second controller
@@ -525,10 +767,28 @@ export async function orchestrateViaMcpStream(
     if (externalSignal.aborted) streamController.abort();
     else externalSignal.addEventListener('abort', abortFromCaller, { once: true });
   }
-  const timeout = window.setTimeout(
-    () => streamController.abort(),
-    config?.timeoutMs ?? MCP_DEFAULT_TIMEOUT_MS,
-  );
+  // L3 (SCRUM-154) : TIMEOUT D'INACTIVITÉ (remplace le timeout absolu de 120 s).
+  // Le compteur est armé à l'ouverture du flux puis réarmé à chaque chunk
+  // réseau — y compris les commentaires de garde `: heartbeat` émis toutes
+  // les ~10 s par le serveur. Un run sain de plusieurs minutes (LLM lent,
+  // entraînement, outils longs) n'est PLUS coupé arbitrairement ; seul un
+  // silence complet (proxy mort, LLM figé) déclenche l'annulation.
+  const inactivityMs = config?.inactivityTimeoutMs ?? MCP_DEFAULT_INACTIVITY_TIMEOUT_MS;
+  let idleTimer = 0;
+  let idleFired = false;
+  const disarmInactivity = (): void => {
+    if (idleTimer) {
+      window.clearTimeout(idleTimer);
+      idleTimer = 0;
+    }
+  };
+  const armInactivity = (): void => {
+    disarmInactivity();
+    idleTimer = window.setTimeout(() => {
+      idleFired = true;
+      streamController.abort();
+    }, inactivityMs);
+  };
   const streamArgs = { mode: 'multi_agent' as const, ...args, stream: true };
   let response: Response;
   try {
@@ -541,7 +801,7 @@ export async function orchestrateViaMcpStream(
     }
   } catch (error) {
     externalSignal?.removeEventListener('abort', abortFromCaller);
-    window.clearTimeout(timeout);
+    disarmInactivity();
     throw error;
   }
   let finalRpc: JsonRpcResponse | undefined;
@@ -554,7 +814,17 @@ export async function orchestrateViaMcpStream(
   let lastFailureEvent: string | undefined;
 
   try {
-    for await (const event of readNamedSseEvents(response.body)) {
+    armInactivity();
+    for await (const event of readNamedSseEvents(response.body, {
+      // Chaque chunk réseau (heartbeats compris) réarme le compteur
+      // d'inactivité — c'est le mécanisme « keep-alive » du tour MCP.
+      onActivity: armInactivity,
+      // L3 (SCRUM-154) : ponte l'abort du transport vers la lecture pendante.
+      // Sans ce signal, un silence (proxy mort) laisserait la boucle bloquée
+      // sur `reader.read()` pour toujours — `streamTool` a retiré son listener
+      // de transfert dès la réception des en-têtes.
+      signal: streamController.signal,
+    })) {
       if (event.data === '[DONE]') break;
       let payload: Record<string, unknown>;
       try {
@@ -566,105 +836,16 @@ export async function orchestrateViaMcpStream(
         );
       }
 
-      // L1 (SCRUM-152) : ``orchestrate.started`` expose le curseur de reprise
-      // (run_id + last_sequence) — le chat peut le mémoriser puis rejouer les
-      // événements manquants après une coupure via ``replayOrchestrateEvents``.
-      if (event.event === 'orchestrate.started') {
-        const started: McpOrchestrateStarted = {
-          run_id: typeof payload.run_id === 'string' && payload.run_id ? payload.run_id : null,
-          resumed: payload.resumed === true,
-          last_sequence:
-            typeof payload.last_sequence === 'number' && Number.isFinite(payload.last_sequence)
-              ? payload.last_sequence
-              : 0,
-        };
-        onEvent({ started });
-      }
-
-      if (event.event === 'orchestrate.thinking') {
-        onEvent({
-          thinking_delta:
-            typeof payload.thinking_delta === 'string' ? payload.thinking_delta : '',
-        });
-      } else if (event.event === 'orchestrate.tool') {
-        const coreTool =
-          payload.core_tool && typeof payload.core_tool === 'object'
-            ? (payload.core_tool as Record<string, unknown>)
-            : payload;
-        onEvent({ tool: coreTool });
-      } else if (
-        event.event === 'orchestrate.start' ||
-        event.event === 'orchestrate.started' ||
-        event.event === 'orchestrate.lead' ||
-        event.event === 'orchestrate.worker' ||
-        event.event === 'orchestrate.synthesis' ||
-        event.event === 'orchestrate.synthesizing' ||
-        event.event === 'agent.plan' ||
-        event.event === 'agent.resuming' ||
-        event.event === 'agent.worker.start' ||
-        event.event === 'agent.worker.tool' ||
-        event.event === 'agent.worker.result' ||
-        event.event === 'agent.worker.error' ||
-        event.event === 'agent.worker.approval' ||
-        event.event === 'agent.worker.thinking' ||
-        event.event === 'agent.synthesizing' ||
-        event.event === 'agent.phase' ||
-        event.event === 'agent.done' ||
-        event.event === 'agent.error' ||
-        event.event === 'checkpoint_recovered' ||
-        event.event === 'orchestration_fallback'
-      ) {
-        onEvent({ multi_agent: payload });
-        if (event.event === 'agent.phase') {
-          onEvent({ phase: payload });
-          // P1 : mémorise les phases en échec (synthesis_timeout, deadline…)
-          // pour enrichir le message d'erreur final.
-          const status = typeof payload.status === 'string' ? payload.status : '';
-          if (status === 'timeout' || status === 'error' || status === 'failed') {
-            lastFailureEvent = 'agent.phase';
-            lastFailureMessage =
-              typeof payload.reason === 'string' && payload.reason
-                ? payload.reason === 'synthesis_timeout'
-                  ? 'La synthèse a dépassé son délai ; les résultats partiels sont conservés.'
-                  : payload.reason === 'orchestration_deadline_reached'
-                    ? 'La durée maximale de l’orchestration a été atteinte ; les résultats partiels sont conservés.'
-                    : `La phase ${String(payload.phase ?? 'inconnue')} a échoué (${payload.reason}).`
-                : 'Une phase de l’orchestration a échoué.';
-          }
-        }
-        if (event.event === 'orchestration_fallback') {
-          onEvent({ orchestration: payload });
-        }
-        // P1 : mémorise les erreurs agent même sans agent.done ultérieur.
-        if (event.event === 'agent.error') {
-          lastFailureEvent = 'agent.error';
-          if (typeof payload.message === 'string' && payload.message.trim()) {
-            lastFailureMessage = payload.message;
-          } else if (typeof payload.summary === 'string' && payload.summary.trim()) {
-            lastFailureMessage = payload.summary;
-          }
-        }
-        if (event.event === 'agent.done') {
-          const answer =
-            typeof payload.answer === 'string'
-              ? payload.answer
-              : typeof payload.final_answer === 'string'
-                ? payload.final_answer
-                : '';
-          if (answer) {
-            legacyFinalAnswer = {
-              answer,
-              status: typeof payload.status === 'string' ? payload.status : 'completed',
-            };
-          }
-        }
-      } else if (
+      // Enveloppes JSON-RPC finales (`event: message` / `orchestrate.done` /
+      // `orchestrate.error`) : capturées comme réponse du tool et relayées via
+      // la variante `rpc` de l'union — PAS via le mapper d'événements métier.
+      if (
+        event.event === 'message' ||
         event.event === 'orchestrate.done' ||
-        event.event === 'orchestrate.error' ||
-        event.event === 'message'
+        event.event === 'orchestrate.error'
       ) {
         finalRpc = payload as unknown as JsonRpcResponse;
-        onEvent({ rpc: finalRpc });
+        onEvent({ kind: 'rpc', rpc: finalRpc });
         // P1 : `orchestrate.error` porte le texte d'échec dans result.content
         // (isError: true) — on l'extrait pour un message explicite.
         if (event.event === 'orchestrate.error') {
@@ -699,6 +880,48 @@ export async function orchestrateViaMcpStream(
             /* conservation du message précédent */
           }
         }
+        continue;
+      }
+
+      // L1 (SCRUM-152) : `orchestrate.started` expose le curseur de reprise
+      // (run_id + last_sequence) — mémorisé par le chat pour rejouer les
+      // événements manquants après une coupure (replayOrchestrateEvents).
+      // L3 (SCRUM-154) : mapping PUR vers l'union discriminée
+      // `McpOrchestrateEvent` (started / thinking / tool / multi_agent /
+      // phase / done / error / fallback / intent / skipped).
+      const mapped = toMcpOrchestrateEvent(event.event, payload);
+      onEvent(mapped);
+
+      // P1 : mémorise les échecs observés pour enrichir le message d'erreur
+      // final — même sans réponse JSON-RPC explicite (agent.error, phase).
+      if (mapped.kind === 'phase') {
+        if (mapped.status === 'timeout' || mapped.status === 'error' || mapped.status === 'failed') {
+          lastFailureEvent = 'agent.phase';
+          lastFailureMessage = mapped.reason
+            ? mapped.reason === 'synthesis_timeout'
+              ? 'La synthèse a dépassé son délai ; les résultats partiels sont conservés.'
+              : mapped.reason === 'orchestration_deadline_reached'
+                ? 'La durée maximale de l’orchestration a été atteinte ; les résultats partiels sont conservés.'
+                : `La phase ${String(mapped.payload.phase ?? 'inconnue')} a échoué (${mapped.reason}).`
+            : 'Une phase de l’orchestration a échoué.';
+        }
+      } else if (mapped.kind === 'error') {
+        lastFailureEvent = mapped.event;
+        const summary = typeof mapped.payload.summary === 'string' ? mapped.payload.summary : '';
+        lastFailureMessage = mapped.message.trim() || summary.trim() || undefined;
+      } else if (mapped.kind === 'done') {
+        const answer =
+          typeof mapped.payload.answer === 'string'
+            ? mapped.payload.answer
+            : typeof mapped.payload.final_answer === 'string'
+              ? mapped.payload.final_answer
+              : '';
+        if (answer) {
+          legacyFinalAnswer = {
+            answer,
+            status: typeof mapped.payload.status === 'string' ? mapped.payload.status : 'completed',
+          };
+        }
       }
 
       // Let the chat paint each reasoning/tool frame before the next buffered
@@ -717,14 +940,18 @@ export async function orchestrateViaMcpStream(
       throw new McpTransportError(
         externalSignal?.aborted
           ? 'La requête MCP a été annulée.'
-          : 'La réponse MCP a dépassé le délai autorisé.',
+          : idleFired
+            ? `Aucune activité du serveur MCP depuis ${Math.round(inactivityMs / 1000)} s ` +
+              '(timeout d’inactivité, heartbeats compris) — le flux a été interrompu ; ' +
+              'la trace déjà affichée est conservée.'
+            : 'La réponse MCP a dépassé le délai autorisé.',
         0,
       );
     }
     throw error;
   } finally {
     externalSignal?.removeEventListener('abort', abortFromCaller);
-    window.clearTimeout(timeout);
+    disarmInactivity();
   }
 
   const text =

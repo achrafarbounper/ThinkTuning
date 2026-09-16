@@ -7,9 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   McpSseClient,
   McpTransportError,
+  makeMcpErrorActionable,
   orchestrateViaMcp,
   orchestrateViaMcpStream,
   parseSseData,
+  preflightMcp,
   replayOrchestrateEvents,
 } from "./mcpClient";
 
@@ -345,10 +347,12 @@ describe("orchestrateViaMcpStream", () => {
       event_granularity: "summary",
     });
     expect(events[0]).toEqual({
-      multi_agent: {
-        event: "orchestrate.worker",
-        worker_id: "t1",
-        status: "completed",
+      kind: 'multi_agent',
+      event: 'orchestrate.worker',
+      payload: {
+        event: 'orchestrate.worker',
+        worker_id: 't1',
+        status: 'completed',
       },
     });
   });
@@ -393,11 +397,14 @@ describe("orchestrateViaMcpStream", () => {
     const [, init] = fetchMock.mock.calls[0];
     const sent = JSON.parse(init.body as string);
     expect(sent.params.arguments.mode).toBe("multi_agent");
-    expect(events[0]).toEqual({ thinking_delta: "Réflexion" });
-    expect(events[1].tool).toEqual({
-      event: "tool_start",
-      tool: "now",
-      args: {},
+    expect(events[0]).toEqual({ kind: "thinking", delta: "Réflexion" });
+    expect(events[1]).toEqual({
+      kind: "tool",
+      tool: {
+        event: "tool_start",
+        tool: "now",
+        args: {},
+      },
     });
     expect(result.answer).toBe("Réponse");
   });
@@ -439,9 +446,8 @@ describe("orchestrateViaMcpStream", () => {
     );
 
     expect(events).toEqual([
-      { started: { run_id: null, resumed: false, last_sequence: 0 } },
-      { multi_agent: { status: "started" } },
-      { rpc },
+      { kind: "started", run_id: null, resumed: false, last_sequence: 0 },
+      { kind: "rpc", rpc },
     ]);
     expect(result.answer).toBe("Réponse finale");
   });
@@ -493,39 +499,42 @@ describe("orchestrateViaMcpStream", () => {
     );
 
     expect(events).toEqual([
-      { multi_agent: { event: "agent.plan", plan: [{ task_id: "t1" }] } },
       {
-        multi_agent: {
+        kind: "multi_agent",
+        event: "agent.plan",
+        payload: { event: "agent.plan", plan: [{ task_id: "t1" }] },
+      },
+      {
+        kind: "multi_agent",
+        event: "agent.worker.thinking",
+        payload: {
           event: "agent.worker.thinking",
           task_id: "t1",
           thinking: "Je vérifie.",
         },
       },
       {
-        multi_agent: {
-          event: "agent.worker.result",
-          task_id: "t1",
-          status: "ok",
-        },
+        kind: "multi_agent",
+        event: "agent.worker.result",
+        payload: { event: "agent.worker.result", task_id: "t1", status: "ok" },
       },
-      { multi_agent: { event: "agent.synthesizing", status: "running" } },
       {
-        multi_agent: {
+        kind: "multi_agent",
+        event: "agent.synthesizing",
+        payload: { event: "agent.synthesizing", status: "running" },
+      },
+      {
+        kind: "phase",
+        status: "timeout",
+        reason: "synthesis_timeout",
+        payload: {
           event: "agent.phase",
           phase: "synthesis",
           status: "timeout",
           reason: "synthesis_timeout",
         },
       },
-      {
-        phase: {
-          event: "agent.phase",
-          phase: "synthesis",
-          status: "timeout",
-          reason: "synthesis_timeout",
-        },
-      },
-      { rpc },
+      { kind: "rpc", rpc },
     ]);
     expect(result.answer).toBe("Réponse finale");
   });
@@ -799,18 +808,13 @@ describe("orchestrate.started : curseur de reprise (L1 SCRUM-152)", () => {
     );
 
     expect(events[0]).toEqual({
-      started: { run_id: "run-l1", resumed: false, last_sequence: 7 },
+      kind: "started",
+      run_id: "run-l1",
+      resumed: false,
+      last_sequence: 7,
     });
-    // Le relais multi_agent historique reste intact (compat clients existants).
-    expect(events[1]).toEqual({
-      multi_agent: {
-        status: "started",
-        mode: "multi_agent",
-        run_id: "run-l1",
-        resumed: false,
-        last_sequence: 7,
-      },
-    });
+    // La réponse JSON-RPC finale (event: message) suit le prélude.
+    expect(events[1]).toEqual({ kind: "rpc", rpc });
   });
 
   it("mémorise une VRAIE reprise (resumed: true) et tolère les payloads partiels", async () => {
@@ -847,7 +851,10 @@ describe("orchestrate.started : curseur de reprise (L1 SCRUM-152)", () => {
       { baseUrl: "http://api" },
     );
     expect(events[0]).toEqual({
-      started: { run_id: "run-9", resumed: true, last_sequence: 0 },
+      kind: "started",
+      run_id: "run-9",
+      resumed: true,
+      last_sequence: 0,
     });
   });
 });
@@ -957,5 +964,161 @@ describe("replayOrchestrateEvents (L1 SCRUM-152)", () => {
     expect(result.events).toEqual([]);
     // replay_completed (0) ne doit PAS faire régresser le curseur du client.
     expect(result.last_sequence).toBe(9);
+  });
+});
+
+describe("timeout d'inactivité du flux orchestrate (L3 SCRUM-154)", () => {
+  /**
+   * Réponse SSE « vivante » : le contrôleur du flux est exposé pour pomper
+   * des chunks à la main. Le signal fetch est câblé pour propager l'abort
+   * vers le flux (comportement du fetch réel) — sinon une lecture pendante
+   * sur un flux ouvert ne se terminerait jamais dans le mock.
+   */
+  function openSseStream(): {
+    controller: ReadableStreamDefaultController<Uint8Array>;
+    encoder: TextEncoder;
+  } {
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+      },
+    });
+    const encoder = new TextEncoder();
+    const response = new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => {
+      init.signal?.addEventListener(
+        "abort",
+        () => streamController.error(new DOMException("Aborted", "AbortError")),
+        { once: true },
+      );
+      return Promise.resolve(response);
+    });
+    return { controller: streamController, encoder };
+  }
+
+  it("interrompt le flux après un silence complet (timeout d'inactivité, message explicite)", async () => {
+    vi.useFakeTimers();
+    openSseStream();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = orchestrateViaMcpStream(
+      { prompt: "Long run", mode: "multi_agent" },
+      () => undefined,
+      { baseUrl: "http://api", inactivityTimeoutMs: 100 },
+    );
+    // Le handler de rejet est attaché IMMÉDIATEMENT : l'abort d'inactivité
+    // survient pendant l'avance des timers, et un rejet sans handler (même
+    // quelques micro-tâches) est signalé comme « unhandled rejection ».
+    const errPromise = captureError(pending);
+    // Le flux n'émet RIEN : seul le silence doit déclencher l'interruption.
+    await vi.advanceTimersByTimeAsync(120);
+
+    const err = await errPromise;
+    expect(err).toBeInstanceOf(McpTransportError);
+    expect(err.status).toBe(0);
+    expect(err.message).toContain("inactivité");
+    expect(err.message).toContain("conservée");
+    vi.useRealTimers();
+  });
+
+  it("garde le flux VIVANT tant que les heartbeats arrivent (réarmement du compteur)", async () => {
+    vi.useFakeTimers();
+    const { controller, encoder } = openSseStream();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = orchestrateViaMcpStream(
+      { prompt: "Run lent", mode: "multi_agent" },
+      () => undefined,
+      { baseUrl: "http://api", inactivityTimeoutMs: 80 },
+    );
+    // 8 heartbeats espacés de 30 ms (240 ms au total, > inactivityTimeoutMs) :
+    // chaque chunk réseau réarme le compteur — le flux ne doit PAS être coupé.
+    for (let i = 0; i < 8; i += 1) {
+      await vi.advanceTimersByTimeAsync(30);
+      controller.enqueue(encoder.encode(": heartbeat\n\n"));
+    }
+    // Clôture nominale : la réponse JSON-RPC finale puis la sentinelle [DONE].
+    controller.enqueue(
+      encoder.encode(
+        'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\\"answer\\":\\"answer JSON\\",\\"status\\":\\"completed\\"}"}],"isError":false}}\n\ndata: [DONE]\n\n',
+      ),
+    );
+    controller.close();
+
+    await expect(pending).resolves.toMatchObject({ answer: "answer JSON" });
+    vi.useRealTimers();
+  });
+});
+
+describe("makeMcpErrorActionable (L3 SCRUM-154)", () => {
+  it("explique l'action à mener pour 401 / 403 / 503 et le réseau", () => {
+    expect(makeMcpErrorActionable(new McpTransportError("X-API-Key manquante.", 401))).toContain(
+      "vérifiez votre clé API",
+    );
+    expect(makeMcpErrorActionable(new McpTransportError("Scope insuffisant.", 403))).toContain(
+      "portée (scope)",
+    );
+    expect(makeMcpErrorActionable(new McpTransportError("Endpoint gelé.", 503))).toContain(
+      "MCP_FIRST",
+    );
+    expect(
+      makeMcpErrorActionable(
+        new McpTransportError(
+          "Impossible de joindre le serveur MCP à http://api (fetch failed).",
+          0,
+        ),
+        "http://api",
+      ),
+    ).toContain("CORS");
+    // Statut inconnu : message brut conservé, sans invention.
+    expect(makeMcpErrorActionable(new McpTransportError("Boom.", 418))).toBe("Boom.");
+  });
+});
+
+describe("preflightMcp (L3 SCRUM-154)", () => {
+  it("enchaîne initialize → ping → tools/list et retourne le diagnostic", async () => {
+    let call = 0;
+    fetchMock.mockImplementation(() => {
+      call += 1;
+      return Promise.resolve(
+        sseResponse(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: call,
+            result:
+              call === 3 ? { tools: [{ name: "orchestrate" }, { name: "read_file" }] } : {},
+          }),
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await preflightMcp({ baseUrl: "http://api", apiKey: "secret" });
+    expect(result.ok).toBe(true);
+    expect(result.toolCount).toBe(2);
+    expect(result.tools).toEqual(["orchestrate", "read_file"]);
+    // Chaque étape passe par POST /mcp/sse avec l'argumentaire JSON-RPC attendu.
+    const first = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(first.method).toBe("initialize");
+    expect(first.params.protocolVersion).toBe("2025-06-18");
+  });
+
+  it("retourne une erreur ACTIONNABLE (jamais d'exception brute) sur 401", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ detail: "X-API-Key manquante" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await preflightMcp({ baseUrl: "http://api" });
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(401);
+    expect(result.error).toContain("vérifiez votre clé API");
   });
 });

@@ -2,6 +2,8 @@
  * Types partagés par les composants du chat.
  */
 
+import type { MultiAgentTraceState } from './mcpTrace';
+
 /** Rôle d'un participant à la conversation. */
 export type Role = 'user' | 'assistant';
 
@@ -61,6 +63,19 @@ export interface ChatMessageData {
   multiWorkers?: MultiAgentWorkerState[];
   /** Alerte de capacité/policy MCP (par ex. repli multi-agent -> mono-agent). */
   orchestrationNotice?: string;
+  /**
+   * Trace multi-agent ENRICHIE (L3 — SCRUM-154) : run_id durable, outils
+   * observés, événements skipped/intent et actions d'approbation HITL.
+   * Miroir de l'état partagé `useMultiAgentTrace` (persisté en localStorage),
+   * rendu par `MultiAgentTrace` au-dessus de la bulle.
+   */
+  trace?: MultiAgentTraceState;
+  /**
+   * Repli HTTP legacy proposé à l'utilisateur (L3) : présent quand un tour MCP
+   * a échoué avec une erreur où l'API HTTP legacy reste une option (401/403/
+   * indisponibilité). Porte le prompt d'origine à renvoyer hors mode MCP.
+   */
+  fallbackPrompt?: string;
 }
 
 /* --- Mode Multi-agents (orchestration superviseur / workers) ---------------- */
