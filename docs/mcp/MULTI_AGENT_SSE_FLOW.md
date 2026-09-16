@@ -367,6 +367,13 @@ Un run dont le processus est mort entre deux transitions resterait non terminal
 | `partial_success` | **Jamais récolté** (aboutissement reprenable) | `skipped` |
 | `awaiting_approval` | Grâce **plus longue** (attente humaine) | `skipped` jusqu'au seuil |
 
+Si le lease expire pendant une exécution encore active, le sweeper peut le
+libérer puis un autre worker peut reprendre le même `run_id` avant que
+l'adaptateur ne termine son `finally`. Dans ce cas, la libération par
+l'ancien propriétaire est un conflit de nettoyage attendu : l'adaptateur le
+journalise et conserve le propriétaire repris. Ce conflit ne doit jamais
+remplacer un résultat réussi ni masquer l'exception primaire de l'orchestrateur.
+
 Variables : `MCP_RUN_SWEEPER_ENABLED`, `MCP_RUN_SWEEPER_INTERVAL_SECONDS`,
 `MCP_RUN_STALE_AFTER_SECONDS`, `MCP_RUN_AWAITING_APPROVAL_GRACE_SECONDS`.
 Une passe ne lève JAMAIS (store indisponible → `errors` incrémenté, cycle

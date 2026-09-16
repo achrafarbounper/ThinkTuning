@@ -287,7 +287,18 @@ class MultiAgentMCPAdapter:
             raise
         finally:
             if self._durable_store is not None:
-                self._durable_store.release_lease(parent_task_id, lease_owner)
+                try:
+                    self._durable_store.release_lease(parent_task_id, lease_owner)
+                except ValueError as exc:
+                    if "is leased by another owner" not in str(exc):
+                        raise
+                    logger.warning(
+                        "MCP multi-agent lease déjà repris pendant le nettoyage : "
+                        "run_id=%s owner=%s message=%s",
+                        parent_task_id,
+                        lease_owner,
+                        exc,
+                    )
 
     def cancel(
         self,
