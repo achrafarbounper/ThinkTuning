@@ -71,7 +71,13 @@ def test_initialize_handshake():
     })))
     assert reply["id"] == 1
     assert reply["result"]["protocolVersion"] == "2025-06-18"
-    assert reply["result"]["capabilities"]["tools"]["listChanged"] is False
+    assert reply["result"]["capabilities"] == {
+        "tools": {"listChanged": False},
+        "resources": {"subscribe": False, "listChanged": False},
+        "prompts": {"listChanged": False},
+        "sampling": {},
+    }
+    assert "logging" not in reply["result"]["capabilities"]
     assert reply["result"]["serverInfo"]["name"] == "thinktuning-mcp"
 
 
@@ -225,7 +231,7 @@ def test_sse_call_tool(client):
     )
     assert response.status_code == 200
     assert '"text"' in response.text
-    assert '"2.2.0"' in response.text
+    assert '"2.3.0"' in response.text
 
 
 def test_sse_rejects_non_object_params(client):

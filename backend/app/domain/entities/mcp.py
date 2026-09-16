@@ -130,8 +130,10 @@ class MCPVersion(BaseModel):
 
 
 # Version MCP courante — fallback du loader quand pyproject.toml est absent ou
-# inexploitable. 2.2.0 active le catalogue admin livré avec la release.
-DEFAULT_MCP_VERSION = MCPVersion(major=2, minor=2, patch=0)
+# inexploitable. 2.3.0 annonce explicitement les capacités supportées lors de
+# l'handshake (tools/resources/prompts avec listChanged/subscribe explicites,
+# sans logging) ; le catalogue admin livré avec la release 2.2.0 est conservé.
+DEFAULT_MCP_VERSION = MCPVersion(major=2, minor=3, patch=0)
 
 
 class MCPScopeRole(StrEnum):

@@ -168,6 +168,49 @@
   `test_mcp_sse_done_always.py`, `test_multi_agent_resume.py`,
   `test_mcp_orchestrate.py`, `test_mcp_manifest.py`, `test_mcp_version.py`.
 
+## v2.3.0 — 2026-09-16
+
+Release MCP — négociation de capacités **explicite** lors de l'handshake
+(`initialize`). Aucun changement de surface : `tools/list` inchangé, bump
+mineur, clients 2.2.x inchangés (les indicateurs étaient déjà faux ; ils sont
+désormais déclarés comme tels, et `logging` reste omis).
+
+### Version courante
+
+- La surface MCP par défaut est désormais `2.3.0` (`[tool.mcp].version` de
+  `backend/pyproject.toml` ; repli `DEFAULT_MCP_VERSION` aligné).
+- Le catalogue admin livré en v2.2.0 est conservé tel quel (gate
+  `version >= MCPVersion(2, 2, 0)` inchangé) — aucun tool ajouté ou retiré.
+
+### Capacités explicites (`initialize`)
+
+- Le contrat de capacités est isolé dans `MCPServer._server_capabilities()`
+  (`app/infrastructure/mcp/mcp_server.py`) et `_initialize_result()` délègue :
+  projection reconstruite à chaque handshake, sans état partagé ni dépendance
+  à la version du client.
+- Annonce fidèle au support réel : `tools` (toujours, `listChanged: false`),
+  `resources` et `prompts` (`subscribe: false`, `listChanged: false`)
+  uniquement si les providers correspondants sont câblés, `sampling` si le
+  `SamplingPort` est injecté (extension historique v2.0.0 conservée).
+- `logging` reste **omis** : annoncer `logging: {}` prétendrait supporter
+  `logging/setLevel` et `notifications/message`, non implémentés. Les méthodes
+  non annoncées (`resources/subscribe`, `resources/unsubscribe`,
+  `logging/setLevel`) répondent `METHOD_NOT_FOUND` (-32601) — fail-closed.
+- Aucune notification de catalogue (`notifications/*/list_changed`) n'est
+  émise ni traitée : les registres sont statiques et `listChanged` reste
+  explicitement `false` (les événements SSE d'orchestration ne sont pas des
+  notifications MCP de catalogue).
+
+### Tests
+
+- `backend/tests/test_mcp_capabilities.py` (nouveau) : câblage providers →
+  capacités (paramétré 8×), handshake + catalogues d'un client 2.2.x,
+  méthodes non annoncées → `METHOD_NOT_FOUND`, notifications de catalogue
+  entrantes ignorées, aucune notification non sollicitée sur stdio et SSE.
+- `backend/tests/test_mcp_server_basic.py` : `test_initialize_handshake`
+  verrouille le dictionnaire de capacités complet (et l'absence de `logging`).
+- `docs/mcp/MANIFEST.md` régénéré (v2.3.0, 62 tools — catalogue inchangé).
+
 ## v2.2.0 — 2026-09-15
 
 Release MCP alignée sur le catalogue admin et la persistance durable MongoDB.

@@ -1,18 +1,16 @@
-# Manifeste MCP ThinkTuning — v2.2.0
+# Manifeste MCP ThinkTuning — v2.3.0
 
 > ⚠️ **FICHIER GÉNÉRÉ** — ne pas éditer à la main.
-> Source : `backend/app/infrastructure/tools/tools_config.json`
-> (standard `thinktuning.tool/v1`) ;
-> régénération : `python -m app.infrastructure.mcp.manifest_generator`
-> (depuis `backend/`, avec `PYTHONIOENCODING=utf-8` sous Windows).
+> Source : `app/infrastructure/tools/tools_config.json` (standard `thinktuning.tool/v1`) ;
+> régénération : `python -m app.infrastructure.mcp.manifest_generator` (depuis `backend/`).
 
 | Attribut | Valeur |
 |---|---|
 | Serveur | `thinktuning-mcp` |
-| Version surface | 2.2.0 |
+| Version surface | 2.3.0 |
 | Protocole MCP | 2025-06-18 |
 | Tools | **62** (read-only : **37** · mutation : **25**) |
-| Généré le | 2026-09-11T23:20:45.159Z |
+| Généré le | 2026-09-16T21:48:23.319Z |
 | Avertissements | 5 |
 
 ## Catalogue
@@ -62,7 +60,7 @@ docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 | `job_list` | read_only | ✅ | — | ✅ | builtin | Liste les jobs d'entraÃ®nement les plus rÃ©cents (lecture seule) |
 | `list_dir` | read_only | ✅ | — | ✅ | builtin | Liste un rÃ©pertoire (dossiers d'abord, puis fichiers, ordre alphabÃ©tique) |
 | `make_dir` | contributor | — | ✅ | — | builtin | CrÃ©e un rÃ©pertoire (parents inclus, sans erreur s'il existe dÃ©jÃ ) |
-| `model_versions` | read_only | ✅ | — | ✅ | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que app/infrastructure/persistence/model_versioning… |
+| `model_versions` | read_only | ✅ | — | ✅ | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que core/model_versio… |
 | `move_path` | contributor | — | ✅ | — | builtin | DÃ©place/renomme fichier ou rÃ©pertoire dans la sandbox |
 | `now` | read_only | ✅ | — | ✅ | builtin | Horodatage courant ISO lisible ('2026-08-25 14:03:27+00:00') |
 | `postgres_query` | read_only | ✅ | — | ✅ | builtin | ExÃ©cute une requÃªte SQL sur PostgreSQL |

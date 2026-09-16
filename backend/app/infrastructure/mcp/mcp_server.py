@@ -431,22 +431,34 @@ class MCPServer:
 
     # --- initialize -----------------------------------------------------------------
 
-    def _initialize_result(self) -> dict[str, Any]:
-        """Résultat de l'handshake : protocole, capabilities, serverInfo."""
-        capabilities: dict[str, Any] = {"tools": {"listChanged": False}}
+    def _server_capabilities(self) -> dict[str, dict[str, bool]]:
+        """Annonce le support réel, indépendamment de la version du client.
+
+        Les registres permettent la lecture, mais aucun canal de notification
+        de catalogue ni abonnement aux ressources n'est câblé : les indicateurs
+        restent explicitement faux. Les logs Python et les événements SSE
+        d'orchestration ne sont pas des notifications MCP de catalogue/logging.
+        ``logging`` est omis : ``logging: {}`` annoncerait un support inexistant
+        de ``logging/setLevel`` et ``notifications/message``.
+
+        Une nouvelle projection est construite à chaque handshake, sans état
+        partagé ni exigence supplémentaire pour les clients 2.2.x.
+        """
+        capabilities: dict[str, dict[str, bool]] = {"tools": {"listChanged": False}}
         if self.resource_provider is not None:
-            # Tâche 8 : la surface expose des resources → capability annoncée.
             capabilities["resources"] = {"subscribe": False, "listChanged": False}
         if self.prompt_provider is not None:
-            # Tâche 9 : la surface expose des prompts → capability annoncée.
             capabilities["prompts"] = {"listChanged": False}
         if self.sampling_port is not None:
-            # Tâche 15 (v2.0.0) : capacité sampling annoncée → clients doivent
-            # mettre à jour pour gérer ``sampling/create`` (breaking change).
+            # Extension historique conservée pour la compatibilité 2.2.x.
             capabilities["sampling"] = {}
+        return capabilities
+
+    def _initialize_result(self) -> dict[str, Any]:
+        """Résultat de l'handshake : protocole, capabilities, serverInfo."""
         return {
             "protocolVersion": MCP_PROTOCOL_VERSION,
-            "capabilities": capabilities,
+            "capabilities": self._server_capabilities(),
             "serverInfo": {"name": self.name, "version": str(self.version)},
         }
 

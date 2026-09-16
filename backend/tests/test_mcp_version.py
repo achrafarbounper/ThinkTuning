@@ -128,7 +128,7 @@ def test_backend_pyproject_declares_mcp_version() -> None:
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     assert pyproject.is_file()
     source = pyproject.read_text(encoding="utf-8")
-    assert MCPVersion.from_toml_source(source) == MCPVersion.parse("2.2.0")
+    assert MCPVersion.from_toml_source(source) == MCPVersion.parse("2.3.0")
 
 
 def test_mcp_release_version_is_consistent_with_manifest() -> None:
@@ -143,7 +143,7 @@ def test_mcp_release_version_is_consistent_with_manifest() -> None:
 
 def test_load_default_discovery_reads_backend_pyproject() -> None:
     """Le wiring réel : découverte racine package → backend/pyproject.toml."""
-    assert load_mcp_version() == MCPVersion.parse("2.2.0")
+    assert load_mcp_version() == MCPVersion.parse("2.3.0")
 
 
 # --- Loader infrastructure (I/O + fallback) ------------------------------------
@@ -198,7 +198,7 @@ def test_load_invalid_version_strict_raises(tmp_path: Path) -> None:
 
 def test_default_constant_is_s1_bootstrap_version() -> None:
     """Le fallback porte bien la version du livrable S6 (v2.0.0)."""
-    assert DEFAULT_MCP_VERSION == MCPVersion.parse("2.2.0")
+    assert DEFAULT_MCP_VERSION == MCPVersion.parse("2.3.0")
 
 
 def test_comparison_with_other_type_raises() -> None:
