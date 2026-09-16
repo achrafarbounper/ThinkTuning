@@ -47,7 +47,33 @@ from starlette.responses import Response
 from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
 from app.domain.ports.mcp_ports import MCPDurableRunStorePort, MCPOrchestrationPort
+from app.infrastructure.mcp import mcp_metrics
+from app.infrastructure.mcp.backpressure import (
+    CapacityRejection,
+    get_backpressure_gate,
+)
+from app.infrastructure.mcp.idempotency import (
+    IDEMPOTENCY_KEY_HEADER,
+    OUTCOME_CONFLICT,
+    OUTCOME_INFLIGHT,
+    OUTCOME_REPLAY,
+    extract_idempotency_key,
+    fingerprint_payload,
+    get_idempotency_store,
+)
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
+from app.infrastructure.mcp.mcp_events import (
+    DEGRADATION_CLIENT_DISCONNECTED,
+    DEGRADATION_MULTI_AGENT_FALLBACK,
+    DEGRADATION_SYNTHESIS_ERROR,
+    EVENT_DEGRADED,
+    RUN_STATUS_FAILED,
+    TERMINAL_EVENT_KINDS,
+    build_meta,
+    degraded_meta,
+    event_allowed_for_sse,
+    status_to_run_metric_label,
+)
 from app.infrastructure.mcp.mcp_flow import (
     MCPCallContext,
     begin_orchestrate_flow,
@@ -68,18 +94,10 @@ from app.infrastructure.security.api_key import is_valid_api_key
 
 logger = logging.getLogger("thinktuning.mcp.sse")
 
-# Noms d'événements terminaux : ils marquent TOUJOURS la réponse finale et
-# ne sont JAMAIS filtrés ni abandonnés (ni granularité, ni disconnect
-# transitoire) — invariants 2/3 de docs/mcp/MULTI_AGENT_SSE_FLOW.md.
-_TERMINAL_SSE_KINDS = frozenset(
-    {
-        "orchestrate.done",
-        "orchestrate.error",
-        "message",
-        "agent.done",
-        "agent.error",
-    }
-)
+# Noms d'événements terminaux : source unique dans ``mcp_events`` (L2 —
+# SCRUM-153). L'alias privé reste exposé pour la rétro-compatibilité des
+# appelants historiques (``orchestrate_tool``, tests).
+_TERMINAL_SSE_KINDS = TERMINAL_EVENT_KINDS
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -325,6 +343,216 @@ def _sse_message(payload: dict[str, Any] | str | None) -> str:
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
     """Sérialise une progression MCP en événement SSE nommé."""
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+# ---------------------------------------------------------------------------
+# L2 (SCRUM-153) — admission, idempotence, dégradation, métriques
+# ---------------------------------------------------------------------------
+
+
+def _rejection_response(rejection: CapacityRejection, *, session_id: str) -> JSONResponse:
+    """Traduit un refus d'admission en réponse HTTP (``Retry-After`` = contrat).
+
+    Le refus est un contrat EXPLICITE (``503``/``429`` + en-têtes) plutôt qu'une
+    file d'attente silencieuse : le client sait qu'il doit réessayer, et la
+    surface reste disponible pour les autres clients.
+    """
+    if rejection.scope == "quota":
+        mcp_metrics.record_sse_quota_rejection("rate")
+    else:
+        mcp_metrics.record_backpressure(rejection.scope)
+    logger.warning(
+        "Requête MCP refusée (capacité) : scope=%s code=%s retry_after=%ss session=%s",
+        rejection.scope,
+        rejection.code,
+        rejection.retry_after_seconds,
+        session_id,
+    )
+    return JSONResponse(
+        status_code=rejection.status_code,
+        content=rejection.as_error_payload(),
+        headers={"Mcp-Session-Id": session_id, "Cache-Control": "no-cache", **rejection.headers},
+    )
+
+
+def _admission_guard(
+    generator: AsyncIterator[str],
+    *,
+    client_id: str,
+    idempotency: tuple[str | None, str] | None = None,
+) -> AsyncIterator[str]:
+    """Libère la place de flux à la fermeture (fin normale OU déconnexion).
+
+    ``StreamingResponse`` ferme le générateur dès que le client coupe la
+    connexion ; le ``finally`` garantit donc qu'aucune place n'est perdue —
+    sans cela, quelques onglets fermés suffiraient à bloquer la surface MCP
+    jusqu'au redémarrage (fuite de sémaphore).
+
+    ``idempotency`` : la clé d'une requête STREAM n'est jamais « complétée »
+    (un flux n'est pas rejouable en une réponse mémorisée ; le contrat de
+    reprise est ``orchestrate_events`` + ``after_sequence``, L1) — elle sert de
+    garde anti-doublon pendant l'exécution puis est libérée ici.
+    """
+
+    async def _wrapped() -> AsyncIterator[str]:
+        try:
+            async for chunk in generator:
+                yield chunk
+        finally:
+            gate = get_backpressure_gate()
+            gate.release(client_id)
+            mcp_metrics.MCP_SSE_STREAMS_ACTIVE.set(gate.active_streams)
+            if idempotency is not None and idempotency[0]:
+                get_idempotency_store().release(idempotency[0], idempotency[1])
+
+    return _wrapped()
+
+
+def _reserve_idempotency(
+    payload: object,
+    *,
+    header_value: str | None,
+) -> tuple[str | None, str, IdempotencyDecision]:
+    """Réserve la clé d'idempotence et comptabilise l'issue.
+
+    Retourne ``(key, fingerprint, décision)``. Quand aucune clé exploitable
+    n'est fournie, la décision est ``new`` sans enregistrement : le
+    comportement L1 (non idempotent) est intégralement conservé. L'appelant
+    DOIT terminer par ``complete`` (succès) ou ``release`` (échec) dès que
+    ``key`` est non ``None`` et la décision ``new``.
+    """
+    key = extract_idempotency_key(payload, header_value)
+    fingerprint = fingerprint_payload(payload)
+    decision = get_idempotency_store().reserve(key or "", fingerprint)
+    mcp_metrics.record_idempotency(decision.outcome)
+    return key, fingerprint, decision
+
+
+def _idempotency_error_response(
+    decision: IdempotencyDecision,
+    *,
+    session_id: str,
+    request_id: object,
+) -> JSONResponse:
+    """Refus HTTP d'un rejeu impossible (conflit de clé / exécution en vol)."""
+    if decision.outcome == OUTCOME_INFLIGHT:
+        status_code = 409
+        code = "mcp_idempotency_in_flight"
+        message = (
+            "Une requête portant cette clé d'idempotence est déjà en cours — "
+            "réessayer après Retry-After (aucune exécution n'est dupliquée)."
+        )
+        headers = {"Retry-After": "2"}
+    else:
+        status_code = 422
+        code = "mcp_idempotency_conflict"
+        message = (
+            "Clé d'idempotence déjà utilisée pour une requête DIFFÉRENTE "
+            "(empreinte divergente) : générer une nouvelle clé."
+        )
+        headers = {}
+    logger.warning(
+        "Requête MCP refusée (idempotence) : outcome=%s source_key_set=%s session=%s",
+        decision.outcome,
+        decision.record is not None,
+        session_id,
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {"code": code, "message": message},
+        },
+        headers={"Mcp-Session-Id": session_id, "Cache-Control": "no-cache", **headers},
+    )
+
+
+def _extract_run_status(result: object) -> str:
+    """Extrait le statut d'un résultat de run, quelle que soit son enveloppe.
+
+    Trois formes circulent : le dict multi-agent (``status`` direct), le texte
+    JSON du tool non-stream (``_result_to_text`` → ``status`` en clair) et la
+    réponse JSON-RPC complète (``result.content[0].text`` contient ce même
+    texte). Sans cette normalisation, le compteur ``mcp_runs_total`` resterait
+    un mélange de « en cours » et d'échecs silencieux.
+    """
+    payload = result
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            return ""
+    if not isinstance(payload, dict):
+        return ""
+    status = payload.get("status")
+    if status:
+        return str(status)
+    # Réponse JSON-RPC complète : le statut est dans ``result.content[0].text``.
+    rpc_result = payload.get("result")
+    if isinstance(rpc_result, dict):
+        content = rpc_result.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    nested = _extract_run_status(item["text"])
+                    if nested:
+                        return nested
+    return ""
+
+
+def _record_run_outcome(result: object, *, run_id: str | None = None) -> str:
+    """Comptabilise l'issue d'un run (``mcp_runs_total``) — jamais bloquant.
+
+    Retourne le statut BRUT observé (utile à l'appelant pour décider d'une
+    dégradation explicite), sans jamais lever.
+    """
+    status = _extract_run_status(result)
+    mcp_metrics.record_run_status(status_to_run_metric_label(status or "in_progress"))
+    logger.debug("Run MCP terminé : status=%s run_id=%s", status or "unknown", run_id)
+    return status
+
+
+def _run_degradation_reason(result: object, *, fallback: bool) -> str | None:
+    """Cause canonique de dégradation d'un run terminé (``None`` = nominal).
+
+    Repli mono-agent explicite et aboutissement sans réponse finale (échec /
+    budget épuisé / boucle rejetée) sont des GARANTIES RELÂCHÉES : le client
+    doit les distinguer d'un succès sans inspecter les traces.
+    """
+    if fallback:
+        return DEGRADATION_MULTI_AGENT_FALLBACK
+    label = status_to_run_metric_label(_extract_run_status(result))
+    if label == RUN_STATUS_FAILED:
+        return DEGRADATION_SYNTHESIS_ERROR
+    return None
+
+
+def _attach_stream_meta(
+    result_text: str,
+    *,
+    run_id: str | None,
+    reason: str | None = None,
+    failure_phase: str | None = None,
+) -> str:
+    """Ajoute le bloc ``_meta`` (dégradation explicite) à la réponse JSON du run.
+
+    ``_meta.degraded`` est TOUJOURS présent (``False`` = nominal) : le client ne
+    doit jamais avoir à deviner si une garantie a été relâchée.
+    """
+    try:
+        parsed = json.loads(result_text)
+    except (TypeError, ValueError):
+        return result_text
+    if not isinstance(parsed, dict):
+        return result_text
+    parsed["_meta"] = build_meta(
+        run_id=run_id,
+        degraded=reason is not None,
+        reason=reason,
+        failure_phase=failure_phase,
+    )
+    return json.dumps(parsed, ensure_ascii=False)
 
 
 def _is_streaming_orchestrate(payload: object) -> bool:
@@ -798,56 +1026,14 @@ async def _stream_orchestrate(
 
 
 def _event_allowed_for_sse(kind: str, granularity: str) -> bool:
-    """Apply one consistent event policy to both mono and multi-agent runs.
+    """Politique d'événements SSE — délègue à ``mcp_events`` (source unique).
 
-    Les événements terminaux bypassent TOUJOURS le filtre : ils portent la
-    réponse finale et ne doivent jamais être abandonnés (invariant 2/3 de
-    docs/mcp/MULTI_AGENT_SSE_FLOW.md).
+    Conservé comme shim privé : les appelants historiques (et les tests de
+    non-régression) importent ce nom. Le comportement est celui de la
+    projection ``sse`` de ``mcp_events`` (whitelist stricte par défaut,
+    terminaux jamais filtrés — invariant §5 de MULTI_AGENT_SSE_FLOW.md).
     """
-    if kind in _TERMINAL_SSE_KINDS:
-        return True
-    if granularity == "verbose":
-        return True
-    if granularity == "minimal":
-        return kind in {
-            "orchestrate.started",
-            "orchestrate.start",
-            "orchestrate.done",
-            "orchestrate.error",
-            "message",
-        }
-    return (
-        kind
-        in {
-            "orchestrate.started",
-            "orchestrate.start",
-            "orchestrate.thinking",
-            "orchestrate.tool",
-            "orchestrate.worker",
-            "orchestrate.synthesis",
-            "orchestrate.synthesizing",
-            "orchestrate.done",
-            "orchestrate.error",
-            "message",
-            "orchestration_fallback",
-            # Legacy coordinator event names remain the source of truth for the
-            # multi-agent adapter and must not be dropped by the MCP projection.
-            "agent.plan",
-            "agent.resuming",
-            "agent.worker.start",
-            "agent.worker.tool",
-            "agent.worker.thinking",
-            "agent.worker.result",
-            "agent.worker.error",
-            "agent.worker.approval",
-            "agent.phase",
-            "agent.synthesizing",
-            "agent.done",
-            "agent.error",
-        }
-        or kind.startswith("orchestrate.worker.")
-        or kind.startswith("orchestrate.synthesis.")
-    )
+    return event_allowed_for_sse(kind, granularity)
 
 
 @router.post("/sse", include_in_schema=False)

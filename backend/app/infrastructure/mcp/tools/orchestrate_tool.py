@@ -59,22 +59,16 @@ from app.domain.ports import (
     normalize_mcp_event_granularity,
 )
 from app.infrastructure.mcp.manifest_generator import MUTATING_ANNOTATIONS
+from app.infrastructure.mcp.mcp_events import (
+    event_allowed_for_tool as _event_allowed_by_granularity,
+)
 from app.infrastructure.mcp.mcp_server import ToolError
 
-# Noms d'événements terminaux (réponse finale — jamais filtrés) : définis
-# dans le transport SSE (source unique, invariant §5 MULTI_AGENT_SSE_FLOW).
-try:  # import paresseux : évite tout cycle au chargement du tool
-    from app.infrastructure.mcp.mcp_server_sse import _TERMINAL_SSE_KINDS
-except Exception:  # pragma: no cover - repli fail-safe
-    _TERMINAL_SSE_KINDS = frozenset(
-        {
-            "orchestrate.done",
-            "orchestrate.error",
-            "message",
-            "agent.done",
-            "agent.error",
-        }
-    )
+# Politique d'événements : SOURCE UNIQUE ``app.infrastructure.mcp.mcp_events``
+# (L2 — SCRUM-153). Ce module est PUR (aucune I/O) : l'import est sûr et ne
+# peut pas créer de cycle avec le transport SSE. L'alias privé
+# ``_event_allowed_by_granularity`` est conservé pour la rétro-compatibilité
+# des appelants et tests historiques.
 
 logger = logging.getLogger("thinktuning.mcp.orchestrate")
 
@@ -257,28 +251,11 @@ def _normalize_agent_event(
     return event
 
 
-def _event_allowed_by_granularity(kind: str, granularity: str) -> bool:
-    # Les événements terminaux portent la réponse finale : jamais filtrés,
-    # quelle que soit la granularité (invariant §5 — garantie du terminal).
-    if kind in _TERMINAL_SSE_KINDS:
-        return True
-    if granularity == "minimal":
-        return kind in {
-            "orchestrate.start",
-            "orchestrate.done",
-            "orchestrate.error",
-            "orchestration_fallback",
-        }
-    if granularity == "summary":
-        return kind in {
-            "orchestrate.start",
-            "orchestrate.worker",
-            "orchestrate.synthesis",
-            "orchestrate.done",
-            "orchestrate.error",
-            "orchestration_fallback",
-        }
-    return True
+# ``_event_allowed_by_granularity`` est désormais l'alias importé de
+# ``mcp_events.event_allowed_for_tool`` (voir l'import en tête de module) :
+# la politique du chemin non-stream n'est plus dupliquée ici. Invariant commun
+# aux deux transports — les événements terminaux portent la réponse finale et
+# ne sont JAMAIS filtrés (garantie du terminal).
 
 
 @dataclass(frozen=True)

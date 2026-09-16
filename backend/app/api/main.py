@@ -112,7 +112,17 @@ async def lifespan(_app: FastAPI):
             name="startup-classifier-warmup",
             daemon=True,
         ).start()
+    # L2 (SCRUM-153) : réconciliation des runs durables MCP (runs zombies,
+    # leases expirés) — thread daemon, idempotent, ne lève JAMAIS au démarrage
+    # (une indisponibilité est loggée, jamais un échec de démarrage de l'API).
+    from app.infrastructure.mcp.run_sweeper import start_run_sweeper
+
+    start_run_sweeper()
     yield
+    # Arrêt propre du sweeper au shutdown (sans lever).
+    from app.infrastructure.mcp.run_sweeper import stop_run_sweeper
+
+    stop_run_sweeper()
 
 
 from app.api.middlewares.maintenance import maintenance_mode_middleware  # noqa: E402
