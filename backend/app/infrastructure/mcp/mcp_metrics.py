@@ -111,9 +111,7 @@ _VALID_RUN_STATUSES = frozenset(
     {"success", "partial_success", "failed", "awaiting_approval", "in_progress"}
 )
 _VALID_BACKPRESSURE_SCOPES = frozenset({"global", "client", "quota"})
-_VALID_SECURITY_REASONS = frozenset(
-    {"scope", "quota", "rate_limit", "policy", "auth", "sse_quota"}
-)
+_VALID_SECURITY_REASONS = frozenset({"scope", "quota", "rate_limit", "policy", "auth", "sse_quota"})
 _VALID_IDEMPOTENCY_OUTCOMES = frozenset({"new", "replay", "conflict", "inflight"})
 _VALID_SWEEPER_ACTIONS = frozenset({"stale_run_reaped", "lease_expired"})
 
@@ -155,9 +153,7 @@ def record_backpressure(scope: str) -> None:
 
 def record_stream_interrupted(reason: str) -> None:
     """Comptabilise une interruption de flux SSE (sans événement terminal)."""
-    MCP_SSE_INTERRUPTED_TOTAL.labels(
-        reason=str(reason or "unknown").strip() or "unknown"
-    ).inc()
+    MCP_SSE_INTERRUPTED_TOTAL.labels(reason=str(reason or "unknown").strip() or "unknown").inc()
 
 
 def record_security_rejection(reason: str) -> None:

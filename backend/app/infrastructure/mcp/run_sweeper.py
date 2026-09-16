@@ -122,6 +122,7 @@ class SweepReport:
             "error_details": list(self.error_details),
         }
 
+
 # ---------------------------------------------------------------------------
 # Sweeper
 # ---------------------------------------------------------------------------
@@ -364,6 +365,7 @@ class RunSweeper:
                 self.sweep_once()
             except Exception:  # pragma: no cover - filet de sécurité
                 logger.exception("Sweeper MCP : passe de réconciliation interrompue")
+
 
 # ---------------------------------------------------------------------------
 # Intégration applicative (lifespan FastAPI) — injectable pour les tests

@@ -248,7 +248,7 @@ class IdempotencyStore:
         with self._lock:
             return [record.as_dict() for record in self._entries.values()]
 
-# -- écriture -----------------------------------------------------------
+    # -- écriture -----------------------------------------------------------
     def reserve(self, key: str, fingerprint: str) -> IdempotencyDecision:
         """Réserve la clé (ou révèle replay / in-flight / conflit).
 
@@ -344,6 +344,7 @@ class IdempotencyStore:
     def _evict_locked(self) -> None:
         while len(self._entries) > self._max_entries:
             self._entries.popitem(last=False)
+
 
 # ---------------------------------------------------------------------------
 # Singleton de transport (injectable pour les tests)

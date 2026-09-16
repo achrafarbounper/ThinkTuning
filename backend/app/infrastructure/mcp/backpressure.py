@@ -125,6 +125,7 @@ class CapacityRejection:
             }
         }
 
+
 # ---------------------------------------------------------------------------
 # Porte d'admission
 # ---------------------------------------------------------------------------
@@ -198,7 +199,7 @@ class BackpressureGate:
             ),
         )
 
-# -- admission ----------------------------------------------------------
+    # -- admission ----------------------------------------------------------
     def try_acquire(self, client_id: str | None) -> CapacityRejection | None:
         """Tente de réserver une place de flux (``None`` = admission accordée).
 
@@ -266,6 +267,7 @@ class BackpressureGate:
 
 def _normalize_client(client_id: str | None) -> str:
     return str(client_id or "").strip() or "anonymous"
+
 
 # ---------------------------------------------------------------------------
 # Singleton de transport (injectable pour les tests)
