@@ -41,7 +41,7 @@
 |---|---|---|---|
 | **Idempotency** | ✅ | `app/infrastructure/mcp/idempotency.py` : en-tête `Idempotency-Key` (prioritaire sur `params.arguments.idempotency_key`), verdicts `new` / `replay` / `inflight` / `conflict`, TTL distincts (in-flight court), éviction LRU bornée, empreinte **excluant la clé** | `tests/test_mcp_resilience.py` (§2, 13 tests) |
 | **Backpressure** | ✅ | `app/infrastructure/mcp/backpressure.py` : `BoundedSemaphore` en acquisition **non bloquante**, plafonds global + par client, quota d'ouverture via `TokenBucket`, `CapacityRejection` → `503`/`429` + `Retry-After` + `error.code` | `tests/test_mcp_resilience.py` (§1, 6 tests) |
-| **Schema Evolution** | ◐ | `MANIFEST.md` **généré** et vérifié en synchronisation (anti-divergence), version SemVer `[tool.mcp].version` (`backend/pyproject.toml` = `2.2.0`), changements additifs documentés dans `CHANGELOG.md`. **Manque** : dual-accept automatique et règle « suppression après 30 jours sans appels » | `tests/test_mcp_manifest.py` (`test_committed_catalog_is_in_sync`), `tests/test_mcp_version.py` |
+| **Schema Evolution** | ◐ | `MANIFEST.md` **généré** et vérifié en synchronisation (anti-divergence), version SemVer `[tool.mcp].version` (`backend/pyproject.toml` = `2.3.0`), changements additifs documentés dans `CHANGELOG.md`. **Manque** : dual-accept automatique et règle « suppression après 30 jours sans appels » | `tests/test_mcp_manifest.py` (`test_committed_catalog_is_in_sync`), `tests/test_mcp_version.py` |
 | **Canary Deployment** | ◐ | **Aucun canary de déploiement.** Substitut : **feature gate par version** — `mcp_server_factory._bootstrap_tools` n'expose `orchestrate` qu'à partir de `MCPVersion(2, 0, 0)` et l'extension admin qu'à partir de `2.2.0` | `tests/test_mcp_version.py` (`test_ordering_matches_roadmap_milestones`) |
 | **Graceful Degradation** | ✅ | `app/infrastructure/mcp/mcp_events.py` (`build_meta` / `degraded_meta` : `_meta.degraded` **toujours** présent + `reason` + `failure_phase`), `orchestrate.degraded` persisté, repli synthèse sans bulle vide, repli mono-agent explicite (`orchestration_fallback`) | `tests/test_mcp_resilience.py` (§3/§4), `tests/test_mcp_stream_stability.py` |
 | **Request Batching** | ✅ | `app/application/dynamic_batcher.py` (regroupement des prédictions), consommé par `app/api/routes/predict.py` | `tests/test_async_batching.py` |
@@ -171,7 +171,7 @@ PYTHONIOENCODING=utf-8 python -m app.infrastructure.mcp.manifest_generator
 |---|---|---|
 | `[tool.mcp].version` | `backend/pyproject.toml` | **Source unique** de la version de surface (indépendante de la version du package) |
 | `MCPVersion` | `app/domain/entities/mcp.py` | Value object ordonnable/hashable, parsé depuis TOML |
-| `DEFAULT_MCP_VERSION` | `app/domain/entities/mcp.py` = `2.2.0` | Repli si `pyproject.toml` absent (image Docker allégée) |
+| `DEFAULT_MCP_VERSION` | `app/domain/entities/mcp.py` = `2.3.0` | Repli si `pyproject.toml` absent (image Docker allégée) |
 | `load_mcp_version` | `app/infrastructure/mcp/version_loader.py` | Seule I/O du versioning (hexagonale) ; mode `strict=True` pour la CI |
 
 **Tolérance** : sans `pyproject.toml`, le serveur démarre quand même (warning +
@@ -191,7 +191,7 @@ démarrage. `strict=True` propage l'erreur (tests de contrat, CI).
 | Attribut | Valeur |
 |---|---|
 | Serveur | `thinktuning-mcp` |
-| Version surface | `2.2.0` |
+| Version surface | `2.3.0` |
 | Protocole MCP | `2025-06-18` |
 | Tools | 62 (37 read-only · 25 mutation) |
 | Avertissements | **5** — 3 tools non classés par la policy legacy (`find_duplicates`, `run_shell`, `train_model`, posture fail-closed), 1 description manquante (`add`), 1 posture `dangerous` (`git_commit`, jamais exécuté). Le mode `strict` transforme ces avertissements en échec (gating CI). |
