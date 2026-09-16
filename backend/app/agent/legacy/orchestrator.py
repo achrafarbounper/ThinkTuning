@@ -658,9 +658,14 @@ class MultiAgentCoordinator:
     # --- Dispatch ----------------------------------------------------------
 
     def _dispatch(
-        self, tasks: list[PlanTask], prompt: str, on_event
+        self, tasks: list[PlanTask], prompt: str, on_event, *, parallel: bool | None = None
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Exécute chaque sous-tâche sur son worker. Retourne (workers, unexecuted).
+
+        ``parallel`` : override PAR REQUÊTE du parallélisme (L1 — SCRUM-152).
+        ``None`` conserve le défaut de construction (``AGENT_MULTI_PARALLEL``) ;
+        ``False``/``True`` l'impose pour CETTE requête sans muter l'instance
+        partagée (le coordinateur est un singleton mis en cache).
 
         Approche B : filtrage LOCAL par rôle (politique d'intention) AVANT
         toute construction d'agent — un worker « ignored » ne coûte NI appel
@@ -711,7 +716,7 @@ class MultiAgentCoordinator:
             task, worker_prompt = spec
             return self._run_worker(task, worker_prompt, on_event)
 
-        if self._parallel and len(specs) > 1:
+        if (self._parallel if parallel is None else bool(parallel)) and len(specs) > 1:
             with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
                 results = list(pool.map(run_one, specs))
         else:
@@ -1173,6 +1178,7 @@ class MultiAgentCoordinator:
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
         resume_request_id: str | None = None,
         enable_thinking: bool | None = None,
+        parallel: bool | None = None,
     ) -> dict[str, Any]:
         """Exécute (ou REPREND) le cycle complet — contrat de sortie stable.
 
@@ -1306,7 +1312,7 @@ class MultiAgentCoordinator:
             tool_proposals = self._handle_tool_proposals(on_event)
 
             # 2. Dispatch (dispatch → waiting_workers)
-            workers, unexecuted = self._dispatch(tasks, str(prompt), on_event)
+            workers, unexecuted = self._dispatch(tasks, str(prompt), on_event, parallel=parallel)
             if deadline_reached():
                 return {
                     **deadline_outcome(),

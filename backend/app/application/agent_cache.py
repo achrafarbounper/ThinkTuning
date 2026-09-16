@@ -992,6 +992,9 @@ def ask_multi_agent(
             prompt,
             resume_request_id=resume_request_id,
             enable_thinking=enable_thinking,
+            # L1 (SCRUM-152) : ``parallel`` est RÉELLEMENT transmis par requête
+            # (auparavant accepté puis ignoré : seul AGENT_MULTI_PARALLEL agissait).
+            parallel=parallel,
         )
         _trace_multi_run(prompt, result)
         return result
@@ -1037,6 +1040,8 @@ def ask_multi_agent_streaming(
             on_event=on_event,
             resume_request_id=resume_request_id,
             enable_thinking=enable_thinking,
+            # L1 (SCRUM-152) : parallélisme effectif par requête (stream inclus).
+            parallel=parallel,
         )
         _trace_multi_run(prompt, result)
         return result

@@ -10,6 +10,7 @@ import {
   orchestrateViaMcp,
   orchestrateViaMcpStream,
   parseSseData,
+  replayOrchestrateEvents,
 } from "./mcpClient";
 
 const fetchMock = vi.fn();
@@ -437,7 +438,11 @@ describe("orchestrateViaMcpStream", () => {
       { baseUrl: "http://api" },
     );
 
-    expect(events).toEqual([{ multi_agent: { status: "started" } }, { rpc }]);
+    expect(events).toEqual([
+      { started: { run_id: null, resumed: false, last_sequence: 0 } },
+      { multi_agent: { status: "started" } },
+      { rpc },
+    ]);
     expect(result.answer).toBe("Réponse finale");
   });
 
@@ -755,5 +760,202 @@ describe("orchestrateViaMcpStream", () => {
     expect(result.run_id).not.toBe(result.request_id);
     expect(result.task_id).toBe("t1");
     expect(result.approval?.tool).toBe("write_file");
+  });
+});
+
+describe("orchestrate.started : curseur de reprise (L1 SCRUM-152)", () => {
+  it("mémorise run_id / resumed / last_sequence exposés par le prélude", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ answer: "Réponse", status: "completed" }),
+        }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: orchestrate.started",
+        'data: {"status":"started","mode":"multi_agent","run_id":"run-l1","resumed":false,"last_sequence":7}',
+        "",
+        "event: message",
+        `data: ${JSON.stringify(rpc)}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events: Array<Record<string, unknown>> = [];
+    await orchestrateViaMcpStream(
+      { prompt: "bonjour", mode: "multi_agent" },
+      (event) => events.push(event as Record<string, unknown>),
+      { baseUrl: "http://api" },
+    );
+
+    expect(events[0]).toEqual({
+      started: { run_id: "run-l1", resumed: false, last_sequence: 7 },
+    });
+    // Le relais multi_agent historique reste intact (compat clients existants).
+    expect(events[1]).toEqual({
+      multi_agent: {
+        status: "started",
+        mode: "multi_agent",
+        run_id: "run-l1",
+        resumed: false,
+        last_sequence: 7,
+      },
+    });
+  });
+
+  it("mémorise une VRAIE reprise (resumed: true) et tolère les payloads partiels", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ answer: "Reprise", status: "completed" }),
+        }],
+        isError: false,
+      },
+    };
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: orchestrate.started",
+        'data: {"status":"started","run_id":"run-9","resumed":true}', // pas de last_sequence
+        "",
+        "event: message",
+        `data: ${JSON.stringify(rpc)}`,
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events: Array<Record<string, unknown>> = [];
+    await orchestrateViaMcpStream(
+      { prompt: "reprise", mode: "multi_agent", run_id: "run-9" },
+      (event) => events.push(event as Record<string, unknown>),
+      { baseUrl: "http://api" },
+    );
+    expect(events[0]).toEqual({
+      started: { run_id: "run-9", resumed: true, last_sequence: 0 },
+    });
+  });
+});
+
+describe("replayOrchestrateEvents (L1 SCRUM-152)", () => {
+  function replayResponse(): Response {
+    return new Response(
+      [
+        "event: replay_started",
+        'data: {"run_id":"run-l1","after_sequence":2}',
+        "",
+        "event: orchestrate.replay",
+        'data: {"sequence":3,"event":"agent.worker.result","phase":"worker","worker_id":"w1","summary":"ok"}',
+        "",
+        "event: orchestrate.replay",
+        'data: {"sequence":4,"event":"agent.synthesizing","phase":"synthesis"}',
+        "",
+        "event: replay_completed",
+        'data: {"run_id":"run-l1","last_sequence":4}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+  }
+
+  it("POSTe orchestrate_events avec le curseur puis rejoue les événements en ordre", async () => {
+    fetchMock.mockResolvedValue(replayResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const seen: string[] = [];
+    const result = await replayOrchestrateEvents(
+      "run-l1",
+      2,
+      (event) => seen.push(`${event.sequence}:${event.event}`),
+      { baseUrl: "http://api" },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/mcp/sse");
+    const sent = JSON.parse(init.body as string);
+    expect(sent.method).toBe("tools/call");
+    expect(sent.params.name).toBe("orchestrate_events");
+    expect(sent.params.arguments).toEqual({
+      run_id: "run-l1",
+      after_sequence: 2,
+      replay: true,
+      stream: true,
+    });
+
+    expect(seen).toEqual(["3:agent.worker.result", "4:agent.synthesizing"]);
+    expect(result.run_id).toBe("run-l1");
+    // Le NOUVEAU curseur (replay_completed) est retourné pour mémorisation.
+    expect(result.last_sequence).toBe(4);
+    expect(result.events).toHaveLength(2);
+    expect(result.events[0]).toMatchObject({
+      sequence: 3,
+      event: "agent.worker.result",
+      phase: "worker",
+      worker_id: "w1",
+    });
+  });
+
+  it("lève McpTransportError sur replay.error et sur un run_id vide", async () => {
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: replay_started",
+        'data: {"run_id":"ghost","after_sequence":0}',
+        "",
+        "event: replay.error",
+        'data: {"run_id":"ghost","error":"unknown durable MCP run"}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await captureError(replayOrchestrateEvents("ghost", 0, () => undefined));
+    expect(err).toBeInstanceOf(McpTransportError);
+    expect(err.message).toContain("unknown durable MCP run");
+
+    const empty = await captureError(replayOrchestrateEvents("   ", 0, () => undefined));
+    expect(empty).toBeInstanceOf(McpTransportError);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // le run_id vide ne POSTe pas
+  });
+
+  it("plafonne le curseur à after_sequence quand aucun événement n'est rejoué", async () => {
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: replay_started",
+        'data: {"run_id":"run-l1","after_sequence":9}',
+        "",
+        "event: replay_completed",
+        'data: {"run_id":"run-l1","last_sequence":0}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await replayOrchestrateEvents("run-l1", 9, () => undefined);
+    expect(result.events).toEqual([]);
+    // replay_completed (0) ne doit PAS faire régresser le curseur du client.
+    expect(result.last_sequence).toBe(9);
   });
 });

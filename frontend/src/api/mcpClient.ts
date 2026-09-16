@@ -436,6 +436,25 @@ export interface OrchestrateMcpArgs {
   task_id?: string;
 }
 
+/** Curseur durable exposé par `orchestrate.started` (L1 SCRUM-152). */
+export interface McpOrchestrateStarted {
+  /** Identifiant DURABLE du run (null : store durable indisponible). */
+  run_id?: string | null;
+  /** Vraie reprise d'un run déjà engagé (vs run simplement préparé). */
+  resumed?: boolean;
+  /** Dernière séquence d'événement déjà persistée (curseur de replay). */
+  last_sequence?: number;
+}
+
+/** Événement durable rejoué par `orchestrate_events` (L1 SCRUM-152). */
+export interface OrchestrateReplayEvent {
+  event: string;
+  sequence?: number;
+  phase?: string;
+  worker_id?: string | null;
+  [key: string]: unknown;
+}
+
 export interface OrchestrateMcpStreamEvent {
   thinking_delta?: string;
   delta?: string;
@@ -444,6 +463,8 @@ export interface OrchestrateMcpStreamEvent {
   orchestration?: Record<string, unknown>;
   /** Événement métier de phase (synthèse, deadline globale, etc.). */
   phase?: Record<string, unknown>;
+  /** Prélude `orchestrate.started` : curseur de reprise mémorisable. */
+  started?: McpOrchestrateStarted;
   rpc?: JsonRpcResponse;
 }
 
@@ -543,6 +564,21 @@ export async function orchestrateViaMcpStream(
           `Événement MCP non JSON : ${event.data.slice(0, 200)}`,
           response.status,
         );
+      }
+
+      // L1 (SCRUM-152) : ``orchestrate.started`` expose le curseur de reprise
+      // (run_id + last_sequence) — le chat peut le mémoriser puis rejouer les
+      // événements manquants après une coupure via ``replayOrchestrateEvents``.
+      if (event.event === 'orchestrate.started') {
+        const started: McpOrchestrateStarted = {
+          run_id: typeof payload.run_id === 'string' && payload.run_id ? payload.run_id : null,
+          resumed: payload.resumed === true,
+          last_sequence:
+            typeof payload.last_sequence === 'number' && Number.isFinite(payload.last_sequence)
+              ? payload.last_sequence
+              : 0,
+        };
+        onEvent({ started });
       }
 
       if (event.event === 'orchestrate.thinking') {
@@ -745,4 +781,85 @@ export async function orchestrateViaMcpStream(
     );
   }
   return parsed;
+}
+
+export interface ReplayOrchestrateEventsResult {
+  run_id: string;
+  /** NOUVEAU curseur à mémoriser pour un replay incrémental suivant. */
+  last_sequence: number;
+  events: OrchestrateReplayEvent[];
+}
+
+/**
+ * Rejoue les événements durables d'un run MCP après une coupure (L1 — SCRUM-152).
+ *
+ * Consomme le tool `orchestrate_events` (transport SSE) : le serveur émet
+ * `replay_started`, une suite d'`orchestrate.replay` (payloads durables
+ * portant leur `sequence`), `replay_completed` (curseur final) puis [DONE].
+ * Le callback reçoit chaque événement dans l'ordre du run ; le résultat
+ * expose le NOUVEAU curseur (`last_sequence`) à mémoriser — un replay
+ * ultérieur repart de ce curseur sans rejouer l'historique complet.
+ */
+export async function replayOrchestrateEvents(
+  runId: string,
+  afterSequence: number,
+  onEvent: (event: OrchestrateReplayEvent) => void,
+  config?: McpClientConfig,
+): Promise<ReplayOrchestrateEventsResult> {
+  const trimmedRunId = runId.trim();
+  if (!trimmedRunId) {
+    throw new McpTransportError('Le replay MCP exige un run_id de run durable.', 0);
+  }
+  const after = Math.max(0, Math.floor(afterSequence));
+  const response = await new McpSseClient(config).streamTool('orchestrate_events', {
+    run_id: trimmedRunId,
+    after_sequence: after,
+    replay: true,
+    stream: true,
+  });
+  if (!response.body) {
+    throw new McpTransportError('Le transport MCP n’a retourné aucun flux.', response.status);
+  }
+  const events: OrchestrateReplayEvent[] = [];
+  let lastSequence = after;
+  for await (const event of readNamedSseEvents(response.body)) {
+    if (event.data === '[DONE]') break;
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(event.data) as Record<string, unknown>;
+    } catch {
+      throw new McpTransportError(
+        `Événement MCP non JSON : ${event.data.slice(0, 200)}`,
+        response.status,
+      );
+    }
+    if (event.event === 'orchestrate.replay') {
+      const sequence =
+        typeof payload.sequence === 'number' && Number.isFinite(payload.sequence)
+          ? payload.sequence
+          : undefined;
+      if (sequence !== undefined && sequence > lastSequence) lastSequence = sequence;
+      const replayed: OrchestrateReplayEvent = {
+        ...payload,
+        event: typeof payload.event === 'string' ? payload.event : event.event,
+        ...(sequence !== undefined ? { sequence } : {}),
+      };
+      events.push(replayed);
+      onEvent(replayed);
+    } else if (event.event === 'replay_completed') {
+      if (
+        typeof payload.last_sequence === 'number' &&
+        Number.isFinite(payload.last_sequence) &&
+        payload.last_sequence > lastSequence
+      ) {
+        lastSequence = payload.last_sequence;
+      }
+    } else if (event.event === 'replay.error') {
+      throw new McpTransportError(
+        `Le replay MCP a échoué : ${String(payload.error ?? 'erreur inconnue')}`,
+        response.status,
+      );
+    }
+  }
+  return { run_id: trimmedRunId, last_sequence: lastSequence, events };
 }

@@ -127,7 +127,7 @@ data: {"task_id":"w-1","status":"ok","summary":"..."}
 
 | Événement | Phase | Payload utile |
 |---|---|---|
-| `orchestrate.started` / `orchestrate.start` | lead | `status`, `run_id` |
+| `orchestrate.started` / `orchestrate.start` | lead | `status`, `mode`, `run_id`, `resumed`, `last_sequence` |
 | `agent.resuming` | lead | `resume_request_id`, checkpoint |
 | `agent.plan` | lead | `plan: [{task_id, role, subtask}]` |
 | `agent.worker.start` | worker | `task_id`, `role`, `subtask`, `status=running` |
@@ -142,6 +142,22 @@ data: {"task_id":"w-1","status":"ok","summary":"..."}
 | `agent.error` | phase courante | `message`, `error_code`, phase |
 | `checkpoint_recovered` | reprise | checkpoint et `retry_count` |
 | `orchestration_fallback` | lead | `mode=mono_agent`, `reason`, `source` |
+
+L1 (SCRUM-152) : le prélude `orchestrate.started` est émis AVANT le premier
+octet utile et porte le run durable PRÉPARÉ (`prepare_run`) :
+
+- `run_id` : identifiant durable du run (exposé dès l'ouverture du flux — le
+  client peut tracer, annuler et reprendre sans attendre la réponse finale) ;
+  `null` si le store durable est indisponible (le flux reste fonctionnel) ;
+- `resumed` : `true` uniquement pour une VRAIE reprise (run déjà engagé) ;
+  un run fraîchement préparé est un DÉMARREMENT, pas une reprise (aucun
+  `retry_count` consommé, aucun `checkpoint_recovered` fallacieux) ;
+- `last_sequence` : curseur de replay mémorisé par le run — le client coupé
+  reprend avec `after_sequence=last_sequence` sans rejouer l'historique.
+
+Chaque événement de progression relayé porte en outre sa `sequence` durable
+(attribuée par le store, mémorisée dans `last_sequence`) : le front peut ainsi
+suivre son curseur sans requête supplémentaire.
 
 La granularité `minimal` conserve seulement début, fin, erreur et repli ;
 `summary` conserve les transitions workers/synthèse ; `verbose` conserve les
@@ -188,15 +204,24 @@ stateDiagram-v2
 Checkpoints : `initialized`, `lead_planned`, `workers_running`,
 `synthesis_running`, `completed`. Ils décrivent la reprise durable et ne
 remplacent pas `resume_request_id`, qui reprend une demande d'approbation
-AgentCore.
+AgentCore. L1 (SCRUM-152) : la progression est MONOTONE — un checkpoint ne
+régresse jamais (un événement worker tardif ne réécrit pas
+`synthesis_running` en `workers_running`), et `last_sequence` suit la même
+règle (max des séquences observées) pour que le replay reprenne exactement
+après le dernier événement émis.
 
 ## 5. Approbation, annulation et reprise
 
 - **Approbation** : `agent.worker.approval` expose `request_id` et le motif ;
   aucune mutation n'est exécutée automatiquement. Après décision humaine,
   le client relance avec `resume_request_id`.
-- **Annulation** : le client annule la requête HTTP ; pour une reprise
-  durable, `orchestrate_events`/lifecycle store utilise `run_id` et produit
+- **Annulation** : le client annule la requête HTTP (bouton Stop) ; le
+  transport SSE annule alors le run durable de façon détachée
+  (`transition → cancelled`, événement `run_cancelled`) — sans cela le run
+  restait `running` à jamais (run zombie non repris, lease jamais libéré).
+  L'annulation s'applique aussi à un Stop survenant dès le prélude
+  `orchestrate.started`. Pour une reprise durable,
+  `orchestrate_events`/lifecycle store utilise `run_id` et produit
   `run_cancelled`.
 - **Reconnexion SSE** : appeler `orchestrate_events` avec `run_id` et
   `after_sequence`. Les événements persistés après ce curseur sont réémis
@@ -224,12 +249,20 @@ AgentCore.
 
 | Événements | Projection |
 |---|---|
+| `orchestrate.started` | `started` (curseur `run_id` / `resumed` / `last_sequence`) |
 | `agent.plan` | `ChatMessageData.multiPlan` |
 | `agent.worker.*` | `ChatMessageData.multiWorkers` |
 | `agent.worker.thinking` / `orchestrate.thinking` | `thinking` |
 | `agent.worker.tool` / `orchestrate.tool` | `toolCalls` |
 | `orchestration_fallback` | `orchestrationNotice` |
 | `event: message` | réponse finale et statut |
+
+L1 (SCRUM-152) : le client mémorise le curseur de reprise exposé par
+`orchestrate.started` (via l'event `started` de `orchestrateViaMcpStream`),
+puis rejoue les événements manquants après une coupure avec
+`replayOrchestrateEvents(runId, lastSequence, onEvent)` — le tool
+`orchestrate_events` réémet les événements persistés après le curseur
+(`orchestrate.replay`) et retourne le NOUVEAU curseur pour le replay suivant.
 
 `MultiAgentTrace` affiche le plan, le statut de chaque worker et les
 approbations sans exposer le raisonnement brut par défaut.

@@ -140,14 +140,23 @@ class MongoMCPDurableRunStore:
             raise ValueError(f"MCP run {run_id!r} was modified concurrently")
         return updated
 
-    def append_event(self, run_id: str, event: dict[str, Any]) -> None:
+    def append_event(self, run_id: str, event: dict[str, Any]) -> int:
+        """Persiste un événement et retourne sa séquence (monotone).
+
+        L1 (SCRUM-152) : le curseur ``last_sequence`` du run est mis à jour
+        dans la même opération atomique que le compteur — un client rejoué
+        reprend avec ``after_sequence=last_sequence``.
+        """
         if self.get(run_id) is None:
             raise KeyError(f"unknown MCP run {run_id!r}")
         event_id = event.get("event_id")
-        if event_id is not None and self.events.find_one(
-            {"run_id": str(run_id), "event_id": str(event_id)}
-        ):
-            return
+        if event_id is not None:
+            existing = self.events.find_one(
+                {"run_id": str(run_id), "event_id": str(event_id)},
+                projection={"sequence": 1},
+            )
+            if existing is not None:
+                return int(existing.get("sequence", 0))
         try:
             from pymongo import ReturnDocument
 
@@ -159,17 +168,33 @@ class MongoMCPDurableRunStore:
             latest_sequence = int(latest_event["sequence"]) if latest_event else 0
             counter = self.runs.find_one_and_update(
                 {"_id": str(run_id)},
-                [{"$set": {
-                    "event_sequence": {
-                        "$add": [
-                            {"$max": [
-                                {"$ifNull": ["$event_sequence", 0]},
-                                latest_sequence,
-                            ]},
-                            1,
-                        ]
-                    }
-                }}],
+                [
+                    {
+                        "$set": {
+                            "event_sequence": {
+                                "$add": [
+                                    {
+                                        "$max": [
+                                            {"$ifNull": ["$event_sequence", 0]},
+                                            latest_sequence,
+                                        ]
+                                    },
+                                    1,
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "$set": {
+                            "last_sequence": {
+                                "$max": [
+                                    {"$ifNull": ["$last_sequence", 0]},
+                                    "$event_sequence",
+                                ]
+                            }
+                        }
+                    },
+                ],
                 return_document=ReturnDocument.AFTER,
             )
         except ImportError as exc:  # pragma: no cover - dependency is runtime-required
@@ -190,12 +215,26 @@ class MongoMCPDurableRunStore:
             self.events.insert_one(document)
         except DuplicateKeyError as exc:
             if event_id is not None:
-                return
+                return sequence
             raise exc
         except OperationFailure as exc:
             if exc.code == 11000 and event_id is not None:
-                return
+                return sequence
             raise
+        return sequence
+
+    def last_sequence(self, run_id: str) -> int:
+        """Dernière séquence persistée : max du curseur run et des événements."""
+        cursored = 0
+        document = self.runs.find_one({"_id": str(run_id)}, projection={"last_sequence": 1})
+        if document is not None:
+            cursored = int(document.get("last_sequence") or 0)
+        latest = self.events.find_one(
+            {"run_id": str(run_id)},
+            sort=[("sequence", -1)],
+            projection={"sequence": 1},
+        )
+        return max(cursored, int(latest["sequence"]) if latest else 0)
 
     def list_events(self, run_id: str) -> list[dict[str, Any]]:
         return [

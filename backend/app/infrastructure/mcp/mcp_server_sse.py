@@ -35,7 +35,6 @@ import asyncio
 import json
 import logging
 import os
-import queue
 import threading
 import uuid
 from collections.abc import AsyncIterator
@@ -47,7 +46,7 @@ from starlette.responses import Response
 
 from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
-from app.domain.ports.mcp_ports import MCPDurableRunStorePort
+from app.domain.ports.mcp_ports import MCPDurableRunStorePort, MCPOrchestrationPort
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_flow import (
     MCPCallContext,
@@ -58,6 +57,7 @@ from app.infrastructure.mcp.mcp_flow import (
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.tools.orchestrate_tool import (
     _result_to_text,
+    build_orchestration_request,
     orchestrate_multi_agent,
     orchestrate_stream,
     resolve_orchestration,
@@ -127,6 +127,157 @@ def get_mcp_durable_run_store() -> MCPDurableRunStorePort:
     )
 
     return MongoMCPDurableRunStore()
+
+
+# --- Orchestration durable : préparation du run + annulation -------------------
+_orchestration_port: MCPOrchestrationPort | None = None
+_orchestration_port_resolved = False
+
+
+def configure_mcp_orchestration_port(port: MCPOrchestrationPort | None) -> None:
+    """Injecte le port d'orchestration utilisé pour la préparation/annulation.
+
+    ``None`` fige la résolution (aucun run durable sur ce transport) — les
+    tests unitaires du streaming instancient ainsi un adapter sur un store
+    dédié (SQLite/mongomock) sans jamais toucher la production.
+    """
+    global _orchestration_port, _orchestration_port_resolved
+    _orchestration_port = port
+    _orchestration_port_resolved = True
+
+
+def get_mcp_orchestration_port() -> MCPOrchestrationPort | None:
+    """Résout le port d'orchestration (Mongo en production, mémoïsé).
+
+    ``None`` (store durable indisponible) laisse le streaming FONCTIONNEL :
+    le flux part simplement sans ``run_id`` durable ni annulation persistée.
+    """
+    global _orchestration_port, _orchestration_port_resolved
+    if _orchestration_port is not None:
+        return _orchestration_port
+    if _orchestration_port_resolved:
+        return None
+    try:
+        from app.infrastructure.mcp.orchestration_factory import (
+            build_mcp_orchestration_adapter,
+        )
+
+        _orchestration_port = build_mcp_orchestration_adapter()
+    except Exception:
+        logger.warning(
+            "Port d'orchestration MCP indisponible : streaming sans run durable.",
+            exc_info=True,
+        )
+        _orchestration_port = None
+    _orchestration_port_resolved = True
+    return _orchestration_port
+
+
+def _cancel_durable_stream_run(run_id: str | None, *, reason: str) -> None:
+    """Annule un run durable de façon DÉTACHÉE (jamais bloquante).
+
+    Le bouton Stop ferme la connexion HTTP : la boucle SSE reçoit
+    ``GeneratorExit``/``asyncio.CancelledError`` et ne peut plus ``await``.
+    L'annulation part donc dans un thread daemon — sans annulation, le run
+    restait ``running`` pour toujours (run zombie : plus aucun client ne le
+    reprendra, et la reprise du même ``run_id`` restait bloquée par le lease).
+    """
+    if not run_id:
+        return
+
+    def _cancel() -> None:
+        try:
+            port = get_mcp_orchestration_port()
+            if port is None:
+                return
+            port.cancel(run_id, reason=reason)
+            logger.info(
+                "Run durable MCP annulé : run_id=%s reason=%s",
+                run_id,
+                reason,
+            )
+        except Exception:
+            # Un run déjà terminal (completed/failed/cancelled) n'est PAS une
+            # anomalie : la transition est simplement refusée.
+            logger.info(
+                "Annulation du run durable MCP ignorée : run_id=%s reason=%s",
+                run_id,
+                reason,
+            )
+
+    threading.Thread(target=_cancel, name=f"mcp-cancel-{run_id}", daemon=True).start()
+
+
+# --- Pont d'événements thread → boucle asyncio (annulable) ---------------------
+_HEARTBEAT_TIMEOUT_SECONDS = 10.0
+_HEARTBEAT = object()
+
+
+class _SseEventBridge:
+    """Pont réellement ANNULABLE entre le worker (thread) et le flux SSE.
+
+    Le worker exécute du code SYNCHRONE (AgentCore / orchestrateur) : il publie
+    ses événements depuis un thread. L'ancienne implémentation attendait
+    ``asyncio.to_thread(events.get)`` — à chaque timeout de heartbeat, le thread
+    consommateur restait BLOQUÉ sur ``queue.Queue.get()`` (fuite d'un thread par
+    heartbeat, et aucune annulation possible). Ici la file appartient à la
+    boucle (``asyncio.Queue``) et l'attente ``await bridge.get(timeout)`` est
+    interrompue proprement : aucun thread orphelin, ``CancelledError`` honorée.
+    """
+
+    def __init__(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._queue: asyncio.Queue[Any] = asyncio.Queue()
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def _put_nowait(self, item: Any) -> None:
+        if self._closed:
+            return
+        self._queue.put_nowait(item)
+
+    def put(self, item: Any) -> None:
+        """Publie depuis le thread worker (thread-safe, jamais bloquant)."""
+        if self._closed:
+            return
+        try:
+            self._loop.call_soon_threadsafe(self._put_nowait, item)
+        except RuntimeError:  # boucle fermée (client parti) : on abandonne
+            self._closed = True
+
+    def close(self) -> None:
+        """Signale la fin du worker (sentinelle ``None``)."""
+        if self._closed:
+            return
+        try:
+            self._loop.call_soon_threadsafe(self._put_nowait, None)
+        except RuntimeError:
+            self._closed = True
+
+    def drain_nowait(self) -> list[Any]:
+        """Vide la file sans bloquer (drain du terminal sur déconnexion)."""
+        drained: list[Any] = []
+        while True:
+            try:
+                drained.append(self._queue.get_nowait())
+            except asyncio.QueueEmpty:
+                return drained
+
+    async def get(self, wait_seconds: float) -> Any:
+        """Attente annulable ; renvoie ``_HEARTBEAT`` si le délai expire.
+
+        ``asyncio.timeout`` (et non ``asyncio.wait_for`` sur un thread) : la
+        coroutine d'attente est RÉELLEMENT annulée et retirée de la file — aucun
+        thread ni tâche fantôme ne subsiste après un heartbeat.
+        """
+        try:
+            async with asyncio.timeout(wait_seconds):
+                return await self._queue.get()
+        except TimeoutError:
+            return _HEARTBEAT
 
 
 def mcp_server_enabled() -> bool:
@@ -273,7 +424,43 @@ async def _stream_orchestrate(
         )
         yield "data: [DONE]\n\n"
         return
-    events: queue.Queue[tuple[str, dict[str, Any]] | None] = queue.Queue()
+
+    # --- Run durable PRÉPARÉ avant le premier octet (L1 — SCRUM-152) ---------
+    # Le client doit connaître son ``run_id`` DÈS ``orchestrate.started`` pour
+    # (a) afficher la traçabilité, (b) reprendre après coupure
+    # (``orchestrate_events`` + ``after_sequence``), (c) annuler proprement.
+    prompt = str(arguments.get("prompt") or "")
+    durable_run_id: str | None = resolution.run_id
+    durable_resumed = bool(resolution.run_id)
+    last_sequence = 0
+    if resolution.mode == "multi_agent":
+        try:
+            prepared = get_mcp_orchestration_port()
+            if prepared is not None:
+                prepared_snapshot = prepared.prepare_run(
+                    build_orchestration_request(resolution, prompt)
+                )
+                if prepared_snapshot:
+                    durable_run_id = str(prepared_snapshot.get("run_id") or "") or durable_run_id
+                    durable_resumed = bool(prepared_snapshot.get("run_id")) and bool(
+                        resolution.run_id
+                    )
+                    last_sequence = int(prepared_snapshot.get("last_sequence") or 0)
+        except ValueError as exc:
+            # ``run_id`` inconnu / terminal / empreinte divergente : erreur de
+            # paramètres explicite (même code que la validation d'arguments).
+            yield _sse_event(
+                "orchestrate.error",
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32602, "message": str(exc)},
+                },
+            )
+            yield "data: [DONE]\n\n"
+            return
+
+    bridge = _SseEventBridge()
     disconnected = threading.Event()
 
     def emit(kind: str, data: dict[str, Any]) -> None:
@@ -283,7 +470,7 @@ async def _stream_orchestrate(
         # la boucle de lecture décidera seule d'interrompre le flux).
         if disconnected.is_set() and kind not in _TERMINAL_SSE_KINDS:
             return
-        events.put((kind, data))
+        bridge.put((kind, data))
 
     def worker() -> None:
         # --- Flow Map MCP (chemin streaming) ----------------------------------
@@ -306,22 +493,46 @@ async def _stream_orchestrate(
                 prompt=str(arguments.get("prompt") or ""),
                 session_id=str(arguments.get("session_id") or "default"),
                 scope=str(arguments.get("scope") or "default"),
+                run_id=durable_run_id,
             )
         except Exception:  # pragma: no cover - le flow ne doit JAMAIS casser le flux
             recorder = None
 
         def relay(kind: str, data: dict[str, Any]) -> None:
-            """Relie SSE (temps réel) et Flow Map (persistance) sans les coupler."""
+            """Relie SSE (temps réel) et Flow Map (persistance) sans les coupler.
+
+            L1 (SCRUM-152) : la Flow Map reçoit la TRACE COMPLÈTE du run en
+            streaming (plan, workers, synthèse, approbations) — auparavant seuls
+            ``thinking``/``tool`` étaient persistés, si bien qu'une session
+            ouverte par le chemin SSE apparaissait vide dans la Flow Map, et les
+            approbations HITL n'y figuraient jamais.
+            """
             emit(kind, data)
             if recorder is None:
                 return
-            if kind == "orchestrate.thinking":
-                recorder.record_thinking(str(data.get("thinking_delta") or ""))
-            elif kind == "orchestrate.tool":
-                recorder.record_tool(dict(data))
+            try:
+                payload = dict(data or {})
+                if kind == "orchestrate.thinking":
+                    recorder.record_thinking(str(payload.get("thinking_delta") or ""))
+                elif kind == "orchestrate.tool":
+                    recorder.record_tool(payload)
+                elif kind in {"agent.worker.approval", "orchestrate.approval"}:
+                    raw_approval = payload.get("approval")
+                    approval = raw_approval if isinstance(raw_approval, dict) else payload
+                    recorder.record_approval(
+                        tool=str(approval.get("tool") or payload.get("tool") or ""),
+                        message=str(payload.get("message") or ""),
+                        request_id=payload.get("request_id"),
+                    )
+                elif kind not in {"orchestrate.started", "orchestrate.done", "message"}:
+                    # Plan / reprise / workers / synthèse / phases : tracés dans
+                    # la timeline (mêmes noms d'événements que le chemin
+                    # non-stream, cf. ``orchestrate_multi_agent``).
+                    recorder.record_tool({"event": kind, **payload})
+            except Exception:  # pragma: no cover - le flow ne casserait rien
+                logger.debug("Flow MCP : relais d'événement ignoré (%s)", kind)
 
         try:
-            prompt = str(arguments.get("prompt") or "")
             result: Any
             approval_payload: dict[str, Any] | None = None
             approval_request_id: str | None = None
@@ -339,7 +550,10 @@ async def _stream_orchestrate(
                     parallel=resolution.parallel,
                     enable_thinking=resolution.enable_thinking,
                     event_granularity=resolution.event_granularity,
-                    run_id=resolution.run_id,
+                    # ``run_id`` PRÉPARÉ (L1) : le run exposé dans
+                    # ``orchestrate.started`` est EXACTEMENT celui exécuté puis
+                    # repris — plus de run « fantôme » créé par le worker.
+                    run_id=durable_run_id,
                     resume_request_id=resolution.resume_request_id,
                     task_id=resolution.task_id,
                     on_event=relay,
@@ -407,16 +621,16 @@ async def _stream_orchestrate(
                     "mode": resolution.mode,
                     "requested_mode": resolution.requested_mode,
                     "fallback_reason": (resolution.fallback or {}).get("reason"),
-                    "run_id": resolution.run_id,
+                    "run_id": durable_run_id,
                 },
                 run_id=str(request_id) if request_id is not None else None,
             )
-            events.put(("orchestrate.done", rpc))
+            emit("orchestrate.done", rpc)
             # Keep the named progress event for existing clients, but also
             # expose the terminal JSON-RPC response as the standard MCP
             # message event. Generic SSE/MCP clients may ignore custom event
             # names and otherwise stop after `orchestrate.started`.
-            events.put(("message", rpc))
+            emit("message", rpc)
         except Exception as exc:
             logger.exception("MCP orchestrate streaming failed")
             if recorder is not None:
@@ -435,20 +649,41 @@ async def _stream_orchestrate(
                 detail={"method": "tools/call", "tool": "orchestrate", "is_error": True},
                 run_id=str(request_id) if request_id is not None else None,
             )
-            events.put(("orchestrate.error", rpc))
-            events.put(("message", rpc))
+            emit("orchestrate.error", rpc)
+            emit("message", rpc)
         finally:
             if flow_token is not None:
                 clear_call_context(flow_token)
-            events.put(None)
+            bridge.close()
 
-    threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=worker, name="mcp-orchestrate-worker", daemon=True).start()
     # Prélude immédiat (fix déployé Render) : sans premier byte rapide, le
     # proxy Render coupe le flux avant que le LLM (lent/injoignable) ne
     # produise son premier event. Le prélude part dès l'ouverture du flux,
-    # suivi de heartbeats tant que le worker ne produit rien.
-    yield _sse_event("orchestrate.started", {"status": "started"})
+    # suivi de heartbeats tant que le worker ne produit rien. L1 (SCRUM-152) :
+    # le prélude porte ``run_id`` (reprise/replay) et ``last_sequence``.
+    # L1 (SCRUM-152) : l'arrêt client peut survenir DÈS le prélude — ce yield
+    # est suspendu HORS de la boucle protégée, un Stop ici ne passerait donc
+    # JAMAIS par le ``except`` de la boucle : même contrat d'annulation (sans
+    # cela, un Stop juste après ``orchestrate.started`` laissait un run
+    # zombie « running » à jamais, lease jamais libéré).
+    try:
+        yield _sse_event(
+            "orchestrate.started",
+            {
+                "status": "started",
+                "mode": resolution.mode,
+                "run_id": durable_run_id,
+                "resumed": durable_resumed,
+                "last_sequence": last_sequence,
+            },
+        )
+    except (asyncio.CancelledError, GeneratorExit):
+        disconnected.set()
+        _cancel_durable_stream_run(durable_run_id, reason="client disconnected")
+        return
     final_emitted = False
+    interrupted_reason: str | None = None
     try:
         while True:
             # NOTE : pas de contrôle ``is_disconnected()`` en tête de boucle —
@@ -458,17 +693,12 @@ async def _stream_orchestrate(
             # synthétique). La déconnexion n'est constatée qu'après un
             # timeout d'attente (heartbeat), avec drain non-bloquant du
             # terminal éventuellement déjà en file.
-            try:
-                item = await asyncio.wait_for(asyncio.to_thread(events.get), timeout=10.0)
-            except TimeoutError:
+            item = await bridge.get(_HEARTBEAT_TIMEOUT_SECONDS)
+            if item is _HEARTBEAT:
                 if request is not None and await request.is_disconnected():
                     disconnected.set()
                     drained_terminal = False
-                    while True:
-                        try:
-                            pending = events.get_nowait()
-                        except queue.Empty:
-                            break
+                    for pending in bridge.drain_nowait():
                         if pending is None:
                             break
                         pending_kind, pending_data = pending
@@ -484,11 +714,14 @@ async def _stream_orchestrate(
                                 break
                     logger.info(
                         "Client MCP déconnecté pendant le heartbeat : "
-                        "client_id=%s request_id=%s terminal_drainé=%s",
+                        "client_id=%s request_id=%s run_id=%s terminal_drainé=%s",
                         client_id,
                         request_id,
+                        durable_run_id,
                         drained_terminal,
                     )
+                    if not final_emitted:
+                        interrupted_reason = "client disconnected"
                     break
                 yield ": heartbeat\n\n"
                 continue
@@ -508,8 +741,12 @@ async def _stream_orchestrate(
     except (asyncio.CancelledError, GeneratorExit):
         # Le client a coupé le flux (bouton Stop, onglet fermé) : aucun yield
         # possible ici (GeneratorExit) — le worker daemon termine seul et
-        # Starlette ferme la connexion. On signale juste l'arrêt au worker.
+        # Starlette ferme la connexion. On signale l'arrêt au worker ET on
+        # annule le run durable : sans cela, le run restait ``running`` à
+        # jamais (run zombie non repris, lease jamais libéré).
         disconnected.set()
+        if not final_emitted:
+            _cancel_durable_stream_run(durable_run_id, reason="client disconnected")
         return
     # Clôture normale (worker terminé OU disconnect détecté mais socket encore
     # écrivable) : contrat SSE uniforme trace* + message(JSON-RPC) + [DONE].
@@ -529,6 +766,7 @@ async def _stream_orchestrate(
                                 "status": "failed",
                                 "failure_phase": "synthesis",
                                 "reason": "orchestration_stream_interrupted",
+                                "run_id": durable_run_id,
                             },
                             ensure_ascii=False,
                         ),
@@ -539,9 +777,16 @@ async def _stream_orchestrate(
         }
         logger.warning(
             "Flux MCP terminé sans événement final : erreur synthétique émise "
-            "(client_id=%s request_id=%s)",
+            "(client_id=%s request_id=%s run_id=%s)",
             client_id,
             request_id,
+            durable_run_id,
+        )
+        # Flux interrompu côté serveur : le run durable ne doit pas rester
+        # « running » sans client (reprise possible via un nouveau run).
+        _cancel_durable_stream_run(
+            durable_run_id,
+            reason=interrupted_reason or "orchestration_stream_interrupted",
         )
         yield _sse_event("orchestrate.error", synthetic)
         yield _sse_event("message", synthetic)
@@ -695,7 +940,9 @@ async def mcp_sse(
 
 __all__ = [
     "configure_mcp_durable_run_store",
+    "configure_mcp_orchestration_port",
     "get_mcp_durable_run_store",
+    "get_mcp_orchestration_port",
     "mcp_auth_required",
     "mcp_server_enabled",
     "router",

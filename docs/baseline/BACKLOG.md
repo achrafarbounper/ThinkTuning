@@ -31,6 +31,27 @@
 
 ## P1 — Socle structurel (rendre la refactorisation sûre)
 
+> ✅ **SCRUM-152 (L1) clôturé le 16/09/2026** (branche SCRUM-152) : exécution
+> durable MCP et streaming SSE rendus fiables — pont d'événements thread →
+> asyncio réellement annulable (`_SseEventBridge`, file boucle-ownée,
+> `asyncio.timeout` : plus aucune fuite de thread consommateur par heartbeat) ;
+> run durable PRÉPARÉ avant le premier octet (`orchestrate.started` expose
+> `run_id`/`resumed`/`last_sequence` — plus de run fantôme créé par le worker) ;
+> checkpoint et `last_sequence` MONOTONES (un événement worker tardif ne
+> régresse plus `synthesis_running`) ; replay incrémental via
+> `orchestrate_events` + `after_sequence` (séquences renvoyées par
+> `append_event`, idempotent sur `event_id`) ; `parallel` réellement effectif
+> par requête (dispatch + use cases, sans muter le singleton) ; Flow Map
+> complète en streaming (plan, workers, synthèse, approbations HITL) ;
+> annulation propre sur Stop (aucun run zombie, y compris dès le prélude) ;
+> normalisation `phase`/`worker_id` réparée (un événement worker est classé
+> « worker »). Front : curseur mémorisé depuis `orchestrate.started` et
+> `replayOrchestrateEvents` (vitest). Preuves : `pytest` 2103 passed /
+> 2 skipped ; `test_mcp_stream_stability.py` 14 tests ; vitest 226 passed ;
+> `ruff check` vert sur les fichiers du lot ; `tsc --noEmit` vert.
+
+
+
 > ✅ **B-8 clôturé le 14/09/2026** (branche P1) : erreur mypy résiduelle corrigée
 > (`agent_core.py:581` — lambda à 2 paramètres non inférable contre
 > `Callable[[dict[str, Any]], Any]`, remplacée par une fonction locale annotée

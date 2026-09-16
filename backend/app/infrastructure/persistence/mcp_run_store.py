@@ -109,6 +109,7 @@ class MCPDurableRunStore:
             worker_errors=tuple(payload["worker_errors"]),
             retry_count=payload["retry_count"],
             version=payload.get("version", 0),
+            last_sequence=int(payload.get("last_sequence", 0) or 0),
             last_error=payload["last_error"],
             created_at=datetime.fromisoformat(payload["created_at"]),
             updated_at=datetime.fromisoformat(payload["updated_at"]),
@@ -127,7 +128,13 @@ class MCPDurableRunStore:
                 )
             return updated
 
-    def append_event(self, run_id: str, event: dict[str, Any]) -> None:
+    def append_event(self, run_id: str, event: dict[str, Any]) -> int:
+        """Persiste un événement et retourne sa séquence (monotone).
+
+        L1 (SCRUM-152) : la séquence est MÉMORISÉE sur le run
+        (``last_sequence``) dans la même transaction — un client rejoué reprend
+        avec ``after_sequence=last_sequence`` sans rejouer l'historique.
+        """
         if self.get(run_id) is None:
             raise KeyError(f"unknown MCP run {run_id!r}")
         with self._lock, self._connect() as connection:
@@ -140,13 +147,14 @@ class MCPDurableRunStore:
             if event_id is not None:
                 existing = connection.execute(
                     """
-                    SELECT 1 FROM mcp_durable_events
+                    SELECT sequence FROM mcp_durable_events
                     WHERE run_id = ? AND event_id = ?
                     """,
                     (str(run_id), str(event_id)),
                 ).fetchone()
                 if existing is not None:
-                    return
+                    # Idempotence : la séquence EXISTANTE reste le curseur.
+                    return int(existing[0])
             connection.execute(
                 """
                 INSERT INTO mcp_durable_events(run_id, sequence, event_id, event_json)
@@ -159,6 +167,31 @@ class MCPDurableRunStore:
                     json.dumps(dict(event), ensure_ascii=False),
                 ),
             )
+            connection.execute(
+                """
+                UPDATE mcp_durable_runs
+                SET state_json = json_set(
+                    state_json,
+                    '$.last_sequence',
+                    MAX(
+                        COALESCE(json_extract(state_json, '$.last_sequence'), 0),
+                        ?
+                    )
+                )
+                WHERE run_id = ?
+                """,
+                (sequence, str(run_id)),
+            )
+        return sequence
+
+    def last_sequence(self, run_id: str) -> int:
+        """Dernière séquence d'événement du run (0 si aucun événement)."""
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM mcp_durable_events WHERE run_id = ?",
+                (str(run_id),),
+            ).fetchone()
+        return int(row[0]) if row is not None else 0
 
     def list_events(self, run_id: str) -> list[dict[str, Any]]:
         with self._lock, self._connect() as connection:
@@ -335,6 +368,7 @@ class MCPDurableRunStore:
             worker_errors=tuple(payload["worker_errors"]),
             retry_count=payload["retry_count"],
             version=payload.get("version", 0),
+            last_sequence=int(payload.get("last_sequence", 0) or 0),
             last_error=payload["last_error"],
             created_at=datetime.fromisoformat(payload["created_at"]),
             updated_at=datetime.fromisoformat(payload["updated_at"]),

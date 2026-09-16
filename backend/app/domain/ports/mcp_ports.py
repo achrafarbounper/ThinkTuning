@@ -197,6 +197,9 @@ VALID_MCP_ORCHESTRATION_STATUSES = {
 }
 VALID_MCP_FAILURE_PHASES = {"lead", "worker", "synthesis"}
 VALID_MCP_EVENT_GRANULARITIES = {"minimal", "summary", "verbose"}
+# Phases canoniques d'un événement durable/streamé (hiérarchie lead → worker
+# → synthesis). ``orchestration`` reste accepté (événements de haut niveau).
+_VALID_MCP_EVENT_PHASES = {"lead", "worker", "synthesis", "orchestration"}
 VALID_MCP_RUN_STATES = {
     "pending",
     "running",
@@ -214,6 +217,17 @@ VALID_MCP_RUN_CHECKPOINTS = {
     "workers_running",
     "synthesis_running",
     "completed",
+}
+# L1 (SCRUM-152) : ordre TOTAL des checkpoints — un checkpoint ne régresse
+# JAMAIS (les événements d'un worker peuvent arriver après un événement de
+# synthèse sur le chemin SSE ; repartir de ``lead_planned`` rejouerait des
+# phases déjà acquittées côté reprise).
+_MCP_CHECKPOINT_RANK = {
+    "initialized": 0,
+    "lead_planned": 1,
+    "workers_running": 2,
+    "synthesis_running": 3,
+    "completed": 4,
 }
 _MCP_RUN_TRANSITIONS = {
     "pending": {"running", "cancelled"},
@@ -261,6 +275,10 @@ class MCPDurableRunState:
     worker_errors: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     retry_count: int = 0
     version: int = 0
+    # L1 (SCRUM-152) : dernière séquence d'événement MÉMORISÉE par le run —
+    # un client coupé reprend le flux avec ``after_sequence=last_sequence``
+    # sans rejouer tout l'historique (replay incrémental).
+    last_sequence: int = 0
     last_error: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -274,8 +292,17 @@ class MCPDurableRunState:
         failure_phase: str | None = None,
         worker_errors: Iterable[dict[str, Any]] | None = None,
         retry_count: int | None = None,
+        last_sequence: int | None = None,
         last_error: str | None = None,
     ) -> MCPDurableRunState:
+        """Applique une transition d'état VALIDÉE par la machine à états.
+
+        L1 (SCRUM-152) : le ``checkpoint`` est MONOTONE — une transition ne
+        peut jamais revenir en arrière (un événement worker tardif ne doit pas
+        réécrire ``synthesis_running`` en ``workers_running``). Le
+        ``last_sequence`` suit la même règle (max des séquences observées) pour
+        que le replay reprenne exactement après le dernier événement émis.
+        """
         normalized_state = str(new_state or "").strip().lower()
         if normalized_state not in VALID_MCP_RUN_STATES:
             raise ValueError(f"state must be one of {sorted(VALID_MCP_RUN_STATES)}")
@@ -284,13 +311,20 @@ class MCPDurableRunState:
                 f"invalid lifecycle transition from {self.state!r} to {normalized_state!r}"
             )
         next_phase = str(phase or self.phase).strip().lower() if phase is not None else self.phase
-        next_checkpoint = (
+        candidate_checkpoint = (
             str(checkpoint or self.checkpoint).strip().lower()
             if checkpoint is not None
             else self.checkpoint
         )
-        if next_checkpoint not in VALID_MCP_RUN_CHECKPOINTS:
+        if candidate_checkpoint not in VALID_MCP_RUN_CHECKPOINTS:
             raise ValueError(f"checkpoint must be one of {sorted(VALID_MCP_RUN_CHECKPOINTS)}")
+        # MONOTONIE : on conserve le checkpoint le plus AVANCÉ des deux. Un
+        # événement tardif (worker après synthèse) ne peut donc pas faire
+        # régresser la progression durable ni provoquer un rejeu de phase.
+        next_checkpoint = max(
+            (self.checkpoint, candidate_checkpoint),
+            key=lambda value: _MCP_CHECKPOINT_RANK.get(value, 0),
+        )
         next_failure_phase: str | None
         if failure_phase is not None:
             normalized_failure = str(failure_phase).strip().lower()
@@ -303,6 +337,8 @@ class MCPDurableRunState:
         next_errors = tuple(worker_errors) if worker_errors is not None else self.worker_errors
         next_retry_count = int(retry_count) if retry_count is not None else self.retry_count
         next_last_error = last_error if last_error is not None else self.last_error
+        # MONOTONIE du curseur de replay : la séquence ne recule jamais.
+        next_last_sequence = max(int(self.last_sequence), int(last_sequence or 0))
         if normalized_state in {"failed", "partial_success", "completed", "cancelled"}:
             next_phase = next_phase or "lead"
         return MCPDurableRunState(
@@ -317,6 +353,7 @@ class MCPDurableRunState:
             worker_errors=next_errors,
             retry_count=next_retry_count,
             version=self.version + 1,
+            last_sequence=next_last_sequence,
             last_error=next_last_error,
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
@@ -359,6 +396,7 @@ class MCPDurableRunState:
             "worker_errors": list(self.worker_errors),
             "retry_count": self.retry_count,
             "version": self.version,
+            "last_sequence": self.last_sequence,
             "last_error": self.last_error,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -378,11 +416,23 @@ class MCPDurableRunStorePort(Protocol):
 
     def get(self, run_id: str) -> MCPDurableRunState | None: ...
 
-    def append_event(self, run_id: str, event: dict[str, Any]) -> None: ...
+    def append_event(self, run_id: str, event: dict[str, Any]) -> int:
+        """Persiste un événement et retourne sa SÉQUENCE (curseur de replay).
+
+        L1 (SCRUM-152) : la séquence retournée est mémorisée sur le run
+        (``last_sequence``) et renvoyée au client dans l'événement streamé —
+        un flux coupé reprend donc avec ``after_sequence=last_sequence`` sans
+        rejouer l'historique complet. Idempotent sur ``event_id``.
+        """
+        ...
 
     def list_events(self, run_id: str) -> list[dict[str, Any]]: ...
 
     def list_events_after(self, run_id: str, after_sequence: int = 0) -> list[dict[str, Any]]: ...
+
+    def last_sequence(self, run_id: str) -> int:
+        """Dernière séquence persistée du run (0 si aucun événement)."""
+        ...
 
     def list_runs(
         self,
@@ -421,6 +471,7 @@ class MCPDurableRunStorePort(Protocol):
         failure_phase: str | None = None,
         worker_errors: Iterable[dict[str, Any]] | None = None,
         retry_count: int | None = None,
+        last_sequence: int | None = None,
         last_error: str | None = None,
     ) -> MCPDurableRunState: ...
 
@@ -442,7 +493,19 @@ def normalize_mcp_event(
     default_phase: str = "lead",
     default_worker_id: str | None = None,
 ) -> dict[str, Any]:
-    """Ensure every emitted MCP event carries stable hierarchy metadata."""
+    """Ensure every emitted MCP event carries stable hierarchy metadata.
+
+    L1 (SCRUM-152) — normalisation RÉPARÉE de ``phase`` / ``worker_id`` :
+
+      * un événement porteur d'un ``worker_id`` est TOUJOURS classé ``worker`` :
+        auparavant, un événement worker sans ``phase`` explicite retombait sur
+        ``default_phase`` (``lead``), ce qui faisait disparaître le worker de la
+        hiérarchie durable et du Flow Map ;
+      * un ``phase`` inconnu (``dispatch``, ``phase-1``…) n'est plus écrasé
+        silencieusement par le défaut : il est dérivé du nom d'événement ;
+      * ``worker_id`` est normalisé (chaîne nettoyée, ``None`` si vide) sans
+        jamais écraser une valeur explicite.
+    """
     payload = dict(event or {})
     if "event" not in payload:
         for key in ("kind", "type", "name"):
@@ -451,13 +514,30 @@ def normalize_mcp_event(
                 break
     payload.setdefault("event_id", f"mcp-{uuid.uuid4().hex}")
     payload.setdefault("timestamp", datetime.now(UTC).isoformat())
-    payload.setdefault("phase", default_phase)
     payload.setdefault("parent_task_id", parent_task_id)
-    if "worker_id" not in payload:
-        payload["worker_id"] = default_worker_id
-    payload["phase"] = str(payload.get("phase") or default_phase).strip().lower()
-    if payload["phase"] not in {"lead", "worker", "synthesis", "orchestration"}:
-        payload["phase"] = default_phase
+
+    # --- worker_id : explicite > défaut ; jamais la chaîne vide -------------
+    raw_worker = payload.get("worker_id", default_worker_id)
+    worker_id = str(raw_worker).strip() if raw_worker is not None else ""
+    payload["worker_id"] = worker_id or None
+
+    # --- phase : explicite valide > dérivation (worker/synthèse) > défaut ---
+    raw_phase = str(payload.get("phase") or "").strip().lower()
+    event_name = str(payload.get("event") or "").strip().lower()
+    if raw_phase in _VALID_MCP_EVENT_PHASES:
+        phase = raw_phase
+    elif payload.get("worker_id") is not None:
+        phase = "worker"
+    elif event_name.startswith(("orchestrate.worker", "agent.worker", "mcp.orchestrate.worker")):
+        phase = "worker"
+    elif event_name.startswith(
+        ("orchestrate.synthesis", "agent.synthesis", "mcp.orchestrate.synthesis")
+    ):
+        phase = "synthesis"
+    else:
+        normalized_default = str(default_phase or "lead").strip().lower()
+        phase = normalized_default if normalized_default in _VALID_MCP_EVENT_PHASES else "lead"
+    payload["phase"] = phase
     return payload
 
 
@@ -592,6 +672,21 @@ class MCPOrchestrationPort(Protocol):
         *,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> MCPOrchestrationResult: ...
+
+    def prepare_run(
+        self,
+        request: MCPOrchestrationRequest,
+    ) -> dict[str, Any] | None:
+        """Prépare (crée ou retrouve) le run durable AVANT l'exécution.
+
+        L1 (SCRUM-152) : le transport SSE doit exposer ``run_id`` DÈS
+        l'événement ``orchestrate.started`` (et pouvoir annuler le run si le
+        client clique Stop). La préparation est donc séparée de ``run`` :
+        elle crée le run (statut ``pending``) ou retourne le run existant, sans
+        transition ni incrément de reprise. ``None`` si le stockage durable est
+        indisponible (le run reste alors non durable).
+        """
+        ...
 
     def cancel(
         self,

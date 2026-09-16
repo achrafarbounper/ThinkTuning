@@ -119,6 +119,18 @@ def _mcp_multi_agent_enabled() -> bool:
     return False
 
 
+def _mcp_parallel_default() -> bool:
+    """Parallélisme par défaut quand la requête ne précise pas ``parallel``.
+
+    Miroir de ``AGENT_MULTI_PARALLEL`` (même clé que le cache du coordinateur,
+    ``app/application/agent_cache.py``). L1 (SCRUM-152) : l'argument
+    ``parallel`` d'une requête est désormais RÉELLEMENT transmis à
+    l'orchestrateur ; l'absence d'argument conserve donc le défaut
+    opérationnel au lieu de le désactiver silencieusement.
+    """
+    return _as_bool(os.getenv("AGENT_MULTI_PARALLEL"), default=False)
+
+
 def _build_execution_context(
     *,
     session_id: str,
@@ -323,7 +335,11 @@ def resolve_orchestration(
     session_id = str(args.get("session_id") or _DEFAULT_SESSION_ID).strip() or _DEFAULT_SESSION_ID
     scope = str(args.get("scope") or _DEFAULT_SCOPE).strip() or _DEFAULT_SCOPE
     model = str(args["model"]) if args.get("model") else None
-    parallel = _as_bool(args.get("parallel"))
+    parallel = (
+        _as_bool(args.get("parallel"))
+        if args.get("parallel") is not None
+        else _mcp_parallel_default()
+    )
     enable_thinking = _as_bool(args.get("enable_thinking"))
     event_granularity = normalize_mcp_event_granularity(
         args.get("event_granularity", "summary")
@@ -400,6 +416,7 @@ __all__ = [
     "ORCHESTRATE_TOOL_NAME",
     "OrchestrationResolution",
     "build_orchestrate_tool",
+    "build_orchestration_request",
     "orchestrate",
     "orchestrate_multi_agent",
     "orchestrate_stream",
@@ -679,6 +696,31 @@ def orchestrate_stream(
     )
 
 
+def build_orchestration_request(
+    resolution: OrchestrationResolution,
+    prompt: str,
+) -> MCPOrchestrationRequest:
+    """Construit la requête d'orchestration depuis une décision PARTAGÉE.
+
+    SOURCE UNIQUE de construction (L1 — SCRUM-152) : le handler du tool et le
+    transport SSE produisent exactement la même requête pour une même
+    résolution — indispensable pour que la préparation durable du run
+    (``prepare_run``, empreinte de requête) corresponde à l'exécution.
+    """
+    return MCPOrchestrationRequest.from_values(
+        prompt=prompt,
+        session_id=resolution.session_id or _DEFAULT_SESSION_ID,
+        scope=resolution.scope or _DEFAULT_SCOPE,
+        model=resolution.model,
+        parallel=resolution.parallel,
+        enable_thinking=resolution.enable_thinking,
+        event_granularity=resolution.event_granularity,
+        run_id=resolution.run_id,
+        resume_request_id=resolution.resume_request_id,
+        task_id=resolution.task_id,
+    )
+
+
 def orchestrate_multi_agent(
     prompt: str,
     *,
@@ -711,6 +753,18 @@ def orchestrate_multi_agent(
             def record_event(kind: str, payload: dict[str, Any]) -> None:
                 if not _event_allowed_by_granularity(kind, event_granularity):
                     return
+                if kind in {"agent.worker.approval", "orchestrate.approval"}:
+                    # L1 (SCRUM-152) : les approbations HITL sont tracées dans la
+                    # Flow Map (nœud d'approbation), pas comme un simple outil.
+                    raw = dict(payload or {})
+                    approval = raw.get("approval")
+                    detail = approval if isinstance(approval, dict) else raw
+                    recorder.record_approval(
+                        tool=str(detail.get("tool") or raw.get("tool") or ""),
+                        message=str(raw.get("message") or ""),
+                        request_id=raw.get("request_id"),
+                    )
+                    return
                 normalized = _normalize_agent_event(
                     kind,
                     dict(payload),
@@ -725,17 +779,21 @@ def orchestrate_multi_agent(
                 recorder.record_tool(normalized)
 
             on_event = record_event
-    request = MCPOrchestrationRequest.from_values(
-        prompt=prompt,
-        session_id=session_id or _DEFAULT_SESSION_ID,
-        scope=scope or _DEFAULT_SCOPE,
-        model=model,
-        parallel=parallel,
-        enable_thinking=enable_thinking,
-        event_granularity=event_granularity,
-        run_id=run_id,
-        resume_request_id=resume_request_id,
-        task_id=task_id,
+    request = build_orchestration_request(
+        OrchestrationResolution(
+            mode="multi_agent",
+            requested_mode="multi_agent",
+            session_id=session_id or _DEFAULT_SESSION_ID,
+            scope=scope or _DEFAULT_SCOPE,
+            model=model,
+            parallel=parallel,
+            enable_thinking=enable_thinking,
+            event_granularity=event_granularity,
+            run_id=run_id,
+            resume_request_id=resume_request_id,
+            task_id=task_id,
+        ),
+        prompt,
     )
     if orchestrator is None:
         from app.infrastructure.mcp.orchestration_factory import (

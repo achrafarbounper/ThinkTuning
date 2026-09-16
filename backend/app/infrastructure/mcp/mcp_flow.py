@@ -312,12 +312,17 @@ def begin_orchestrate_flow(
     prompt: str,
     session_id: str = "default",
     scope: str = "default",
+    run_id: str | None = None,
 ) -> MCPFlowRecorder | None:
     """Ouvre la session RICHE d'un run orchestrate (``tools/call orchestrate``).
 
     Session créée UNIQUEMENT si un contexte d'appel est posé par le transport
     (un ``orchestrate()`` appelé hors transport — tests unitaires, usage interne
     — ne produit AUCUNE session). Non bloquant : ``None`` en cas d'échec.
+
+    ``run_id`` (L1 — SCRUM-152) : identifiant durable du run, tracé dans
+    l'événement d'ouverture pour corréler Flow Map, événements durables et
+    audit (le chemin streaming le connaît AVANT l'exécution).
     """
     if not _MCP_FLOW_ENABLED:
         return None
@@ -340,6 +345,7 @@ def begin_orchestrate_flow(
                 "request_id": ctx.request_id,
                 "session_id": session_id,
                 "scope": scope,
+                "run_id": run_id,
             },
         )
         _CURRENT_RECORDER.set(recorder)
