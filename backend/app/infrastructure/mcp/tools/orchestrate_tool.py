@@ -96,27 +96,51 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 
 
 def _mcp_multi_agent_enabled() -> bool:
-    """Gate MCP multi-agent : override env > config persistée > fail-closed.
+    """Gate MCP multi-agent : env explicite > base > env partagé > défaut.
 
-    On conserve un repli sûr par défaut (mono-agent) pour rester compatible
-    avec la surface historique, tout en acceptant une activation explicite via
-    la configuration partagée du runtime.
+    Résolution en cascade — la même valeur que celle utilisée par le reste du
+    runtime pour ``flag_multi_agent`` (``VALEURS_PAR_DEFAUT`` /
+    ``AGENT_MULTI_AGENT`` / ``AgentConfig.flag_multi_agent``), afin qu'une
+    bascule du dashboard soit visible du transport MCP sans redémarrage :
+
+    1. ``MCP_MULTI_AGENT_ENABLED`` — override LOCAL au transport MCP : dès
+       qu'elle est définie, elle tranche (``0`` = repli mono-agent explicite,
+       indépendamment de la configuration partagée) ;
+    2. valeur PERSISTÉE en base (SQLite/Mongo, clé ``flag_multi_agent``) :
+       seule une valeur explicitement écrite surclasse l'environnement
+       partagé — même précédence que ``agent_settings.get_agent_settings`` ;
+    3. ``AGENT_MULTI_AGENT`` — variable partagée du flag (défaut du module :
+       activé, cf. ``FLAG_NAMES``) ;
+    4. défaut du runtime (``VALEURS_PAR_DEFAUT``, flag activé) — jamais un
+       fail-closed silencieux : une base vide ne doit pas transformer une
+       activation produit en repli mono-agent (SCRUM-152).
+
+    Toute erreur de lecture (base indisponible, mode Mongo sans client) est
+    absorbée et retombe sur la couche suivante : le transport MCP n'échoue
+    jamais à cause de la configuration.
     """
-    for env_name in ("MCP_MULTI_AGENT_ENABLED", "AGENT_MULTI_AGENT"):
-        raw = os.getenv(env_name)
-        if raw is not None:
-            return _as_bool(raw, default=False)
+    local_override = os.getenv("MCP_MULTI_AGENT_ENABLED")
+    if local_override is not None:
+        return _as_bool(local_override, default=False)
 
     try:
-        from app.infrastructure.persistence.agent_settings import get_settings_store
+        from app.infrastructure.persistence.agent_settings import (
+            VALEURS_PAR_DEFAUT,
+            get_settings_store,
+        )
 
         persisted = get_settings_store().get_all()
         if "flag_multi_agent" in persisted:
-            return bool(persisted["flag_multi_agent"])
+            return _as_bool(persisted["flag_multi_agent"], default=False)
+        default = _as_bool(VALEURS_PAR_DEFAUT.get("flag_multi_agent"), default=False)
     except Exception:
-        pass
+        default = False
 
-    return False
+    shared_env = os.getenv("AGENT_MULTI_AGENT")
+    if shared_env is not None:
+        return _as_bool(shared_env, default=False)
+
+    return default
 
 
 def _mcp_parallel_default() -> bool:
@@ -315,9 +339,10 @@ def resolve_orchestration(
     SOURCE UNIQUE des décisions pour tous les transports (P0 — SCRUM-151) :
 
       1. validation de ``mode`` (``mono_agent`` | ``multi_agent``) ;
-      2. garde ``MCP_MULTI_AGENT_ENABLED`` (override env > config persistée >
-         fail-closed) — un mode multi-agent indisponible produit un repli
-         EXPLICITE ``multi_agent_disabled`` (jamais un silence) ;
+      2. garde ``MCP_MULTI_AGENT_ENABLED`` (override env explicite > valeur
+         persistée > env partagé ``AGENT_MULTI_AGENT`` > défaut du runtime) —
+         un mode multi-agent indisponible produit un repli EXPLICITE
+         ``multi_agent_disabled`` (jamais un silence) ;
       3. ``WorkerScopePolicy`` sur le contexte EFFECTIF du worker → repli
          explicite ``worker_scope_violation`` ;
       4. normalisation de ``event_granularity`` (``ValueError`` → -32602 côté
