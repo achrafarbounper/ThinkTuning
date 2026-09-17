@@ -350,9 +350,7 @@ class MultiAgentMCPAdapter:
         if source is None:
             raise KeyError(f"unknown MCP run {run_id!r}")
         if not source.is_retryable:
-            raise ValueError(
-                f"MCP run {run_id!r} is not retryable (state={source.state!r})"
-            )
+            raise ValueError(f"MCP run {run_id!r} is not retryable (state={source.state!r})")
         new_state = self._durable_store.create(
             uuid.uuid4().hex[:12],
             request_fingerprint=source.request_fingerprint,

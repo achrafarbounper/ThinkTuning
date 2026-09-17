@@ -61,9 +61,7 @@ logger = logging.getLogger("thinktuning.mcp.sweeper")
 
 #: États strictement terminaux de la FSM durable (MCP 2.3.0 : ``expired`` est
 #: le terminal de PÉREMPTION — récolte du sweeper, réessayable via retry).
-TERMINAL_RUN_STATES: frozenset[str] = frozenset(
-    {"completed", "failed", "cancelled", "expired"}
-)
+TERMINAL_RUN_STATES: frozenset[str] = frozenset({"completed", "failed", "cancelled", "expired"})
 
 #: États ABOUTIS (y compris ``partial_success``) : jamais récoltés — un
 #: ``partial_success`` reste reprenable à la demande du client.
