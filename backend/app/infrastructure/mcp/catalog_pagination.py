@@ -207,9 +207,7 @@ def decode_cursor(
     return int(payload["o"])
 
 
-def paginate(
-    items: list[Any], page_size: int, offset: int
-) -> tuple[list[Any], int | None]:
+def paginate(items: list[Any], page_size: int, offset: int) -> tuple[list[Any], int | None]:
     """Découpe ``items`` en page — retourne ``(page, next_offset | None)``.
 
     ``next_offset`` est ``None`` quand la page couvre la fin de la liste
@@ -235,4 +233,3 @@ __all__ = [
     "encode_cursor",
     "paginate",
 ]
-
