@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -770,7 +771,7 @@ async def _replay_stream(
     # 3. Mode follow : drain du store jusqu'à l'état ABOUTI (ou timeout borné)
     #    — chaque poll ne rejoue QUE les événements > watermark : un run dont
     #    les événements arrivent pendant la reprise n'est jamais ré-émis.
-    deadline = asyncio.get_event_loop().time() + resume_follow_timeout_seconds()
+    deadline = time.monotonic() + resume_follow_timeout_seconds()
     poll = resume_follow_poll_seconds()
     while True:
         await asyncio.sleep(poll)
@@ -798,7 +799,7 @@ async def _replay_stream(
             yield _completion(cursor)
             yield "data: [DONE]\n\n"
             return
-        if asyncio.get_event_loop().time() >= deadline:
+        if time.monotonic() >= deadline:
             yield _completion(cursor, timed_out=True)
             yield "data: [DONE]\n\n"
             return
