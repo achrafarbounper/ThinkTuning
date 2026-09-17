@@ -464,11 +464,16 @@ Le contrat de stream lie le transport (`POST /mcp/sse`,
 (sections 1 à 4) puis vérifie les invariants par assertions — aucune
 dépendance réseau, LLM ou base externe.
 
-## 7. Contrat de REPLAY
+## 7. Contrat de REPLAY / REPRISE
 
-Le replay lie `tools/call orchestrate_events` au run durable.
+Le replay lie `tools/call orchestrate_events` au run durable. Depuis MCP 2.3.0
+(SCRUM-163), il est aussi le mécanisme de **REPRISE** d'un flux coupé :
+trois sources de curseur, un mode `follow`, et un comportement documenté en
+cas de curseur expiré.
 
 ### Requête
+
+Par IDENTIFIANT (L1 — SCRUM-152) :
 
 ```json
 {
@@ -487,30 +492,91 @@ Le replay lie `tools/call orchestrate_events` au run durable.
 }
 ```
 
+Par CURSEUR de reprise (`resume_token`, MCP 2.3.0) :
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 44,
+  "method": "tools/call",
+  "params": {
+    "name": "orchestrate_events",
+    "arguments": {
+      "resume_token": "eyJyIjoi...<opaque, signé, TTL>...",
+      "follow": true,
+      "replay": true,
+      "stream": true
+    }
+  }
+}
+```
+
+Le `resume_token` est **opaque** : le client le renvoie tel quel. Il est émis
+par le serveur dans `replay_started` et `replay_completed` (TTL
+`MCP_RESUME_TOKEN_TTL_SECONDS`, défaut 900 s ; signé HMAC-SHA256, lié au run).
+Un client SSE standard reconnecté peut aussi simplement renvoyer l'en-tête
+`Last-Event-ID` (chaque trame `orchestrate.replay` porte sa séquence en ligne
+`id:`) — la priorité du curseur est : `resume_token` > `after_sequence` >
+`Last-Event-ID`.
+
 ### Séquence normative
 
 ```text
-1. replay_started   { run_id, after_sequence }
-2. orchestrate.replay × N   (événements persistés de sequence > after_sequence)
-3. replay_completed { run_id, last_sequence }
+1. replay_started   { run_id, after_sequence, follow, resume_token, resume_token_ttl_seconds }
+2. orchestrate.replay × N   (événements persistés de sequence > after_sequence, ordre conservé)
+3. replay_completed { run_id, last_sequence, resume_token[, follow_timed_out] }
 4. data: [DONE]
 ```
 
-En cas d'erreur : `replay.error { run_id, error }` puis `data: [DONE]` — la
-sentinelle est émise dans **tous** les cas.
+En cas d'erreur : `replay.error { run_id, error, error_code }` puis
+`data: [DONE]` — la sentinelle est émise dans **tous** les cas, et
+`error_code` est un vocabulaire borné : `resume_token_expired`,
+`resume_token_invalid`, `after_sequence_invalid`, `run_id_required`,
+`run_not_found`, `store_unavailable`.
+
+### Curseur expiré (comportement documenté)
+
+Un `resume_token` au-delà de son TTL est rejeté **explicitement** :
+`replay.error` + `error_code: "resume_token_expired"` + `[DONE]` (aucun
+repli silencieux, aucun replay partiel). Le client reprend alors :
+
+1. **avec son identifiant** : `run_id` + son dernier `after_sequence` connu —
+   la séquence persistée ne périt JAMAIS, seul le token signé périt ;
+2. **sans état** : `run_id` seul (replay complet `after_sequence=0`) —
+   l'invariant R3/R9 (jamais de ré-émission `<=` curseur reçu) rend ce
+   re-démarrage sans doublon côté client (dé-dup par `sequence`/`event_id`).
+
+Même logique si le secret HMAC est renouvelé (curseurs par process : ils ne
+survivent pas à un redémarrage — le client retombe sur le chemin 1).
+
+### Mode `follow` (run encore en cours)
+
+`follow: true` prolonge le replay par un **drain borné** du store : le serveur
+interroge le run jusqu'à son état ABOUTI (`completed` / `failed` / `cancelled`
+/ `expired` / `partial_success`) — chaque poll ne ré-émet QUE les événements
+de séquence > watermark (aucun doublon, ordre conservé). Bornes :
+`MCP_RESUME_FOLLOW_POLL_SECONDS` (défaut 1.0 s) et
+`MCP_RESUME_FOLLOW_TIMEOUT_SECONDS` (défaut 300 s). Au timeout :
+`replay_completed { ..., follow_timed_out: true, last_sequence }` + `[DONE]` —
+le client reprendra plus tard depuis `last_sequence` (aucune perte : l'historique
+émis reste acquis, le run continue d'être persisté côté serveur).
 
 ### Garanties
 
 | # | Garantie | Détail |
 |---|---|---|
-| R1 | `run_id` **obligatoire** | Absent/vide → `replay.error`, puis `[DONE]` |
-| R2 | `after_sequence` borné | Coercition `max(0, floor(n))` |
-| R3 | Réémission **strictement postérieure** au curseur | `list_events_after(run_id, after_sequence)` |
-| R4 | Ordre des séquences **conservé** | `sequence` croissante |
-| R5 | `replay_completed.last_sequence` = dernière séquence réémise, sinon `after_sequence` | Curseur suivant |
-| R6 | Un store illisible n'échoue **pas** silencieusement | `replay.error` + log d'exception |
+| R1 | `run_id` **ou** `resume_token` obligatoire | Absents → `replay.error` (`run_id_required`), puis `[DONE]` |
+| R2 | `after_sequence` borné | Négatif/non entier → `replay.error` (`after_sequence_invalid`) : rejouer TOUT dupliquerait l'historique déjà consommé |
+| R3 | Réémission **strictement postérieure** au curseur | `list_events_after(run_id, after_sequence)` + watermark monotone (défensif, anti-doublon) |
+| R4 | Ordre des séquences **conservé** | Tri défensif sur `sequence`, séquences émises strictement croissantes |
+| R5 | `replay_completed.last_sequence` = dernière séquence réémise, sinon curseur d'entrée | Curseur suivant (+ `resume_token` signé pour la prochaine reprise) |
+| R6 | Un store illisible n'échoue **pas** silencieusement | `replay.error` (`store_unavailable`) + log d'exception |
 | R7 | Replay **idempotent** : rejouer depuis un curseur déjà dépassé renvoie 0 événement | Conséquence de R3 |
 | R8 | Un replay peut inclure des événements normalisés post-terminal (`orchestrate.lead` / `.worker` / `.synthesis`) — le curseur d'un client encore en stream peut donc être **inférieur** au `last_sequence` durable | `MultiAgentMCPAdapter.run` |
+| R9 | **Absence de doublons** (MCP 2.3.0) : un événement `<=` curseur résolu n'est JAMAIS ré-émis, même en cas de bord large du store ou de reprise par `resume_token` | Watermark monotone (`_replay_stream`) |
+| R10 | **Run inconnu explicite** : `run_id` inexistant → `replay.error` (`run_not_found`), jamais un replay vide silencieux | `store.get(run_id)` |
+| R11 | **Curseur expiré explicite** : `resume_token` périmé/falsifié/croisé → `replay.error` + `error_code` + `[DONE]`, puis reprise documentée par identifiant | `resume_cursor.decode_resume_token` |
+| R12 | **Follow borné** : le drain d'un run en cours se termine TOUJOURS (état abouti ou timeout) par `replay_completed` + `[DONE]` | `MCP_RESUME_FOLLOW_TIMEOUT_SECONDS` |
 
 ### Différence stream ↔ replay
 
@@ -656,11 +722,19 @@ avec arguments sensibles hachés ou redigés.
     réexécuter un run via `orchestrate_events` est impossible par construction.
 12. **L4** — Les labels de métriques restent **bornés** : aucun identifiant
     client, run ou requête arbitraire n'entre dans un label.
+13. **MCP 2.3.0 (SCRUM-163)** — La reprise SSE est **sans doublon** (watermark
+    monotone : jamais de ré-émission `<=` curseur) et **d'ordre conservé**
+    (séquences strictement croissantes) ; un curseur de reprise périmé est une
+    **erreur explicite** (`replay.error` + `error_code` + `[DONE]`), jamais un
+    repli silencieux — le client documenté reprend par identifiant
+    (`run_id` + `after_sequence`, séquence qui ne périt jamais).
 
 ## Références d'implémentation
 
 - [mcp_server_sse.py](../../backend/app/infrastructure/mcp/mcp_server_sse.py)
 - [mcp_events.py](../../backend/app/infrastructure/mcp/mcp_events.py) — politique d'événements (source unique)
+- [resume_cursor.py](../../backend/app/infrastructure/mcp/resume_cursor.py) — curseur de reprise opaque (MCP 2.3.0)
+- [test_mcp_sse_resume.py](../../backend/tests/test_mcp_sse_resume.py) — tests de reconnexion (SCRUM-163)
 - [backpressure.py](../../backend/app/infrastructure/mcp/backpressure.py) — admission bornée
 - [idempotency.py](../../backend/app/infrastructure/mcp/idempotency.py) — `Idempotency-Key`
 - [mcp_metrics.py](../../backend/app/infrastructure/mcp/mcp_metrics.py) — métriques bornées

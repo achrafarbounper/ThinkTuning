@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -76,6 +77,14 @@ from app.infrastructure.mcp.mcp_flow import (
     set_call_context,
 )
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
+from app.infrastructure.mcp.resume_cursor import (
+    ResumeTokenError,
+    decode_resume_token,
+    encode_resume_token,
+    resume_follow_poll_seconds,
+    resume_follow_timeout_seconds,
+)
+from app.infrastructure.mcp.run_sweeper import SETTLED_RUN_STATES
 from app.infrastructure.mcp.tools.orchestrate_tool import (
     MonoAgentOutcome,
     _result_to_text,
@@ -335,9 +344,17 @@ def _sse_message(payload: dict[str, Any] | str | None) -> str:
     return f"event: message\ndata: {data}\n\n"
 
 
-def _sse_event(event: str, payload: dict[str, Any]) -> str:
-    """Sérialise une progression MCP en événement SSE nommé."""
-    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+def _sse_event(event: str, payload: dict[str, Any], *, event_id: int | None = None) -> str:
+    """Sérialise une progression MCP en événement SSE nommé.
+
+    ``event_id`` (MCP 2.3.0 — SCRUM-163) : curseur natif SSE — la séquence du
+    run durable portée par la ligne ``id:``. Un client EventSource standard
+    reconnecté la renvoie automatiquement en en-tête ``Last-Event-ID`` (la
+    troisième source de curseur acceptée par ``_replay_durable_events``, après
+    ``resume_token`` et ``after_sequence``).
+    """
+    id_line = f"id: {int(event_id)}\n" if event_id is not None else ""
+    return f"{id_line}event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -578,38 +595,208 @@ def _is_durable_replay(payload: object) -> bool:
     )
 
 
-async def _replay_durable_events(payload: dict[str, Any]) -> AsyncIterator[str]:
+def _replay_error(run_id: str, message: str, *, error_code: str) -> str:
+    """Sérialise une erreur de reprise avec un code explicite (contrat client)."""
+    return _sse_event(
+        "replay.error",
+        {"run_id": run_id, "error": message, "error_code": error_code},
+    )
+
+
+def _is_settled_run(state: object) -> bool:
+    """Run ABOUTI (terminal ou ``partial_success``) : plus rien à suivre."""
+    return str(getattr(state, "state", "") or "").strip() in SETTLED_RUN_STATES
+
+
+def token_ttl_seconds_value() -> int:
+    """TTL du curseur de reprise (indirection pour override test)."""
+    from app.infrastructure.mcp import resume_cursor as _rc
+
+    return _rc.token_ttl_seconds()
+
+
+async def _replay_durable_events(
+    payload: dict[str, Any], *, last_event_id: str | None = None
+) -> AsyncIterator[str]:
+    """Reprise des événements d'un run durable (MCP 2.3.0 — SCRUM-163).
+
+    Contrats (MULTI_AGENT_SSE_FLOW.md §7) : SANS doublon (watermark monotone),
+    ORDRE conservé (séquences strictement croissantes), curseur par priorité
+    ``resume_token`` > ``after_sequence`` > ``Last-Event-ID`` natif SSE,
+    erreur EXPLICITE ``replay.error`` (``error_code`` borné) sur curseur
+    expiré/invalide puis ``[DONE]``, et ``follow=true`` pour drainer un run
+    encore en cours jusqu'à son état abouti (ou timeout borné).
+    Tout chemin se termine par ``data: [DONE]`` (invariant §11-3).
+    """
     arguments = dict((payload.get("params") or {}).get("arguments") or {})
-    run_id = str(arguments.get("run_id") or "").strip()
-    try:
-        after_sequence = int(arguments.get("after_sequence", 0))
-    except (TypeError, ValueError):
-        yield _sse_event(
-            "replay.error",
-            {"run_id": run_id, "error": "after_sequence must be an integer"},
+    run_id_arg = str(arguments.get("run_id") or "").strip()
+    token_value = str(arguments.get("resume_token") or "").strip()
+
+    # 1. Résolution du curseur : resume_token > after_sequence > Last-Event-ID
+    if token_value:
+        try:
+            # Anti-re-jeu croisé : si le client fournit AUSSI un run_id, le
+            # token doit porter exactement ce run_id.
+            run_id, after_sequence = decode_resume_token(
+                token_value, expected_run_id=run_id_arg or None
+            )
+        except ResumeTokenError as exc:
+            yield _replay_error(
+                run_id_arg,
+                str(exc),
+                error_code="resume_token_expired" if exc.expired else "resume_token_invalid",
+            )
+            yield "data: [DONE]\n\n"
+            return
+    else:
+        # Fallback L1 : run_id + after_sequence, sinon Last-Event-ID natif SSE.
+        run_id = run_id_arg
+        raw_after = arguments.get("after_sequence")
+        if raw_after is None and last_event_id:
+            raw_after = last_event_id.strip()
+        try:
+            after_sequence = int(raw_after or 0)
+        except (TypeError, ValueError):
+            yield _replay_error(
+                run_id,
+                "after_sequence must be an integer",
+                error_code="after_sequence_invalid",
+            )
+            yield "data: [DONE]\n\n"
+            return
+    if after_sequence < 0:
+        yield _replay_error(
+            run_id, "after_sequence must be >= 0", error_code="after_sequence_invalid"
         )
         yield "data: [DONE]\n\n"
         return
     if not run_id:
-        yield _sse_event("replay.error", {"run_id": "", "error": "run_id is required"})
+        yield _replay_error("", "run_id or resume_token is required", error_code="run_id_required")
         yield "data: [DONE]\n\n"
         return
-    yield _sse_event("replay_started", {"run_id": run_id, "after_sequence": after_sequence})
+    async for chunk in _replay_stream(run_id, after_sequence, bool(arguments.get("follow"))):
+        yield chunk
+
+
+async def _replay_stream(
+    run_id: str, after_sequence: int, follow_requested: bool
+) -> AsyncIterator[str]:
+    """Émet le replay (historique + follow éventuel) du run ``run_id``.
+
+    L'ordre est garanti par tri défensif sur ``sequence`` et l'absence de
+    doublon par watermark monotone (``cursor``) : un événement de séquence
+    ``<=`` au curseur n'est JAMAIS émis, même si le store renvoie un bord
+    large. Chaque évolution du curseur est retournée au client
+    (``resume_token`` signé) pour la prochaine reconnexion.
+    """
+    store = get_mcp_durable_run_store()
+    # ``get`` peut manquer sur un store legacy minimal (fakes de transport) :
+    # la vérification d'existence est alors sautée (compatibilité L1), tandis
+    # que les stores réels produisent une erreur EXPLICITE ``run_not_found``.
+    get_state = getattr(store, "get", None)
+    if callable(get_state):
+        try:
+            state = get_state(run_id)
+        except Exception as exc:  # pragma: no cover - store indisponible
+            logger.exception("MCP durable event replay failed (run lookup)")
+            yield _replay_error(run_id, str(exc), error_code="store_unavailable")
+            yield "data: [DONE]\n\n"
+            return
+        if state is None:
+            yield _replay_error(run_id, f"unknown MCP run {run_id!r}", error_code="run_not_found")
+            yield "data: [DONE]\n\n"
+            return
     try:
-        events = get_mcp_durable_run_store().list_events_after(run_id, after_sequence)
-        for event in events:
-            yield _sse_event("orchestrate.replay", event)
-        yield _sse_event(
-            "replay_completed",
-            {
-                "run_id": run_id,
-                "last_sequence": (events[-1]["sequence"] if events else after_sequence),
-            },
-        )
-    except Exception as exc:
-        logger.exception("MCP durable event replay failed")
-        yield _sse_event("replay.error", {"run_id": run_id, "error": str(exc)})
-    yield "data: [DONE]\n\n"
+        events = store.list_events_after(run_id, after_sequence)
+    except Exception as exc:  # store indisponible : erreur explicite, jamais silencieuse
+        logger.exception("MCP durable event replay failed (store read)")
+        yield _replay_error(run_id, str(exc), error_code="store_unavailable")
+        yield "data: [DONE]\n\n"
+        return
+
+    # 2. Historique persisté : anti-doublon + ordre (watermark monotone)
+    cursor = max(0, after_sequence)
+    yield _sse_event(
+        "replay_started",
+        {
+            "run_id": run_id,
+            "after_sequence": after_sequence,
+            "follow": follow_requested,
+            # Curseur de reprise pour la PROCHAINE reconnexion (opaque, signé,
+            # TTL — voir resume_cursor.py). En cas d'expiration, le client
+            # documenté retombe sur run_id + after_sequence.
+            "resume_token": encode_resume_token(run_id, cursor),
+            "resume_token_ttl_seconds": token_ttl_seconds_value(),
+        },
+    )
+    for event in sorted(events, key=lambda item: int(item.get("sequence") or 0)):
+        sequence = int(event.get("sequence") or 0)
+        if sequence <= cursor:
+            # Déjà vu par le client : JAMAIS ré-émis (absence de doublons).
+            continue
+        cursor = sequence
+        # ``id:`` = curseur SSE natif : un EventSource reconnecté renvoie
+        # automatiquement la dernière séquence via ``Last-Event-ID``.
+        yield _sse_event("orchestrate.replay", event, event_id=sequence)
+
+    def _completion(sequence: int, *, timed_out: bool = False) -> str:
+        completed: dict[str, Any] = {
+            "run_id": run_id,
+            "last_sequence": sequence,
+            "resume_token": encode_resume_token(run_id, sequence),
+            "resume_token_ttl_seconds": token_ttl_seconds_value(),
+        }
+        if timed_out:
+            completed["follow_timed_out"] = True
+        return _sse_event("replay_completed", completed)
+
+    if not follow_requested:
+        yield _completion(cursor)
+        yield "data: [DONE]\n\n"
+        return
+    if not callable(get_state):
+        # Suivi impossible sans ``get`` (store legacy minimal) : le drain
+        # dégrade en replay one-shot — l'historique reste complet et sans
+        # doublon, seule la poursuite temps réel est absente.
+        yield _completion(cursor)
+        yield "data: [DONE]\n\n"
+        return
+
+    # 3. Mode follow : drain du store jusqu'à l'état ABOUTI (ou timeout borné)
+    #    — chaque poll ne rejoue QUE les événements > watermark : un run dont
+    #    les événements arrivent pendant la reprise n'est jamais ré-émis.
+    deadline = time.monotonic() + resume_follow_timeout_seconds()
+    poll = resume_follow_poll_seconds()
+    while True:
+        await asyncio.sleep(poll)
+        state = get_state(run_id)
+        if state is None:
+            # Run disparu (récolté) : clôture explicite — l'historique déjà
+            # rejoué reste acquis (aucune perte des événements émis).
+            yield _completion(cursor)
+            yield "data: [DONE]\n\n"
+            return
+        try:
+            batch = store.list_events_after(run_id, cursor)
+        except Exception as exc:  # pragma: no cover - store redevenant indisponible
+            logger.exception("MCP durable event replay failed (follow read)")
+            yield _replay_error(run_id, str(exc), error_code="store_unavailable")
+            yield "data: [DONE]\n\n"
+            return
+        for event in batch:
+            sequence = int(event.get("sequence") or 0)
+            if sequence <= cursor:
+                continue
+            cursor = sequence
+            yield _sse_event("orchestrate.replay", event, event_id=sequence)
+        if _is_settled_run(state):
+            yield _completion(cursor)
+            yield "data: [DONE]\n\n"
+            return
+        if time.monotonic() >= deadline:
+            yield _completion(cursor, timed_out=True)
+            yield "data: [DONE]\n\n"
+            return
 
 
 async def _stream_orchestrate(
@@ -1105,8 +1292,15 @@ async def mcp_sse(
         )
     if _is_durable_replay(request_payload):
         assert isinstance(request_payload, dict)
+        # Reprise SSE native (MCP 2.3.0) : l'en-tête ``Last-Event-ID`` d'un
+        # client reconnecté porte la dernière séquence reçue — utilisé comme
+        # curseur de repli quand ``after_sequence`` est absent (le
+        # ``resume_token`` explicite reste prioritaire).
         return StreamingResponse(
-            _replay_durable_events(request_payload),
+            _replay_durable_events(
+                request_payload,
+                last_event_id=(request.headers.get("Last-Event-ID") or "").strip() or None,
+            ),
             media_type="text/event-stream",
             headers=headers,
         )
