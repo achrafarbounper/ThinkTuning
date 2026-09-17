@@ -280,6 +280,7 @@ def build_mcp_server(
     orchestrate_tool: MCPTool | None = None,
     orchestration_port: MCPOrchestrationPort | None = None,
     durable_run_tools: bool = False,
+    page_size: int | None = None,
 ) -> MCPServer:
     """Construit un ``MCPServer`` prêt à l'emploi pour un transport.
 
@@ -306,6 +307,9 @@ def build_mcp_server(
             écriture. Les transports passent ``mcp_audit.audit_mcp_call`` —
             chaque tools/call, resources/read, prompts/get et sampling/create
             est alors journalisé dans ``agent_audit`` (subject=client_id).
+        page_size: taille MAX de page des catalogues (v2.3.0, pagination par
+            curseur opaque) ; ``None`` → env ``MCP_PAGINATION_PAGE_SIZE`` (50).
+            Sans ``params.cursor``, la réponse reste identique aux 2.2.x.
         orchestrate_tool: tool ``orchestrate`` (S6, tâche 16) à exposer sur la
             surface v2.0.0+ ; ``None`` → ``build_orchestrate_tool()`` (noyau
             agentique réel, construit paresseusement à l'appel). Ignoré si
@@ -390,6 +394,7 @@ def build_mcp_server(
         prompt_provider=prompt_provider,
         sampling_port=sampling_port,
         audit=audit,
+        page_size=page_size,
     )
     logger.info(
         "Serveur MCP construit : %s@%s (scope=%s, tools=%d, resources=%d, prompts=%d)",
