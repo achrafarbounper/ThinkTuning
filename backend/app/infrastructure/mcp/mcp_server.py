@@ -36,6 +36,16 @@ from app.domain.ports.mcp_ports import (
     MCPToolRegistryPort,
     SamplingPort,
 )
+from app.infrastructure.mcp.catalog_pagination import (
+    KIND_PROMPTS,
+    KIND_RESOURCES,
+    KIND_TOOLS,
+    CursorError,
+    decode_cursor,
+    default_page_size,
+    encode_cursor,
+    paginate,
+)
 from app.infrastructure.mcp.mcp_flow import (
     MCPCallContext,
     MCPFlowRecorder,
@@ -138,6 +148,10 @@ class MCPServer:
         audit: hook d'audit ``(action, *, subject, detail, run_id)`` invoqué
             pour chaque appel MCP d'action (tâche 12) — ``None`` → aucune
             écriture (les transports branchent ``mcp_audit.audit_mcp_call``).
+        page_size: taille MAX de page des catalogues (v2.3.0 — pagination par
+            curseur opaque sur ``tools/list`` / ``resources/list`` /
+            ``prompts/list``) ; ``None`` → env ``MCP_PAGINATION_PAGE_SIZE``
+            (50). Sans ``params.cursor``, la réponse reste identique aux 2.2.x.
     """
 
     def __init__(
@@ -151,6 +165,7 @@ class MCPServer:
         prompt_provider: MCPPromptRegistryPort | None = None,
         sampling_port: SamplingPort | None = None,
         audit: Callable[..., Any] | None = None,
+        page_size: int | None = None,
     ) -> None:
         self.name = name
         self.version = version
@@ -165,6 +180,11 @@ class MCPServer:
         # Hook d'audit injecté (S4, tâche 12) : ``None`` → aucune écriture (les
         # transports SSE/stdio branchent ``app.infrastructure.mcp.mcp_audit``).
         self.audit = audit
+        # Pagination des catalogues (v2.3.0) : taille MAX de page configurable
+        # (``MCPServer(page_size=...)`` > env ``MCP_PAGINATION_PAGE_SIZE`` > 50).
+        # Défaut 50 > tailles des catalogues actuels : sans ``params.cursor``,
+        # la réponse reste IDENTIQUE aux versions 2.2.x (compatibilité).
+        self.page_size = max(1, int(page_size)) if page_size is not None else default_page_size()
 
     # --- Surface publique --------------------------------------------------------
 
@@ -305,17 +325,15 @@ class MCPServer:
         if method == MCPMethod.PING:
             return success_result(request_id, {})
         if method == MCPMethod.TOOLS_LIST:
-            return success_result(
-                request_id, {"tools": [tool.to_dict() for tool in self._visible_tools()]}
-            )
+            return self._handle_tools_list(request_id, params)
         if method == MCPMethod.TOOLS_CALL:
             return self._handle_tools_call(request_id, params)
         if method == MCPMethod.RESOURCES_LIST:
-            return self._handle_resources_list(request_id)
+            return self._handle_resources_list(request_id, params)
         if method == MCPMethod.RESOURCES_READ:
             return self._handle_resources_read(request_id, params)
         if method == MCPMethod.PROMPTS_LIST:
-            return self._handle_prompts_list(request_id)
+            return self._handle_prompts_list(request_id, params)
         if method == MCPMethod.PROMPTS_GET:
             return self._handle_prompts_get(request_id, params)
         if method == MCPMethod.SAMPLING_CREATE:
@@ -567,6 +585,17 @@ class MCPServer:
             if self.scope.granted(tool.required_scope)
         ]
 
+    def _handle_tools_list(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        """``tools/list`` : catalogue des tools visibles (pagination v2.3.0)."""
+        result, error = self._paginated_catalog(
+            KIND_TOOLS,
+            params,
+            [tool.to_dict() for tool in self._visible_tools()],
+        )
+        if error is not None:
+            return error_result(request_id, ErrorCode.INVALID_PARAMS, error)
+        return success_result(request_id, {"tools": result[0], **result[1]})
+
     def _handle_tools_call(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Exécution d'un tool : validation paramètres → dispatch → isError."""
         name = params.get("name")
@@ -598,8 +627,8 @@ class MCPServer:
 
     # --- resources/list & resources/read (tâche 8) -------------------------------------
 
-    def _handle_resources_list(self, request_id: Any) -> dict[str, Any]:
-        """``resources/list`` : catalogue des resources exposées (métadonnées).
+    def _handle_resources_list(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        """``resources/list`` : catalogue des resources exposées (pagination v2.3.0).
 
         La liste est rendue par le port (vérité non filtrée) ; le filtrage par
         scope s'ajoutera avec le client store (S4, tâche 11) — toutes les
@@ -608,14 +637,14 @@ class MCPServer:
         if self.resource_provider is None:
             # Aucun registre branché (constructions sur mesure) : surface vide.
             return success_result(request_id, {"resources": []})
-        return success_result(
-            request_id,
-            {
-                "resources": [
-                    resource.to_dict() for resource in self.resource_provider.list_resources()
-                ]
-            },
+        result, error = self._paginated_catalog(
+            KIND_RESOURCES,
+            params,
+            [resource.to_dict() for resource in self.resource_provider.list_resources()],
         )
+        if error is not None:
+            return error_result(request_id, ErrorCode.INVALID_PARAMS, error)
+        return success_result(request_id, {"resources": result[0], **result[1]})
 
     def _handle_resources_read(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """``resources/read`` : résolution d'une URI → contenu du tool interne."""
@@ -671,8 +700,8 @@ class MCPServer:
 
     # --- prompts/list & prompts/get (tâche 9) ------------------------------------------
 
-    def _handle_prompts_list(self, request_id: Any) -> dict[str, Any]:
-        """``prompts/list`` : catalogue des prompts exposés (métadonnées pures).
+    def _handle_prompts_list(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        """``prompts/list`` : catalogue des prompts exposés (pagination v2.3.0).
 
         La liste est rendue par le port (vérité non filtrée) ; le filtrage par
         scope s'ajoutera avec le client store (S4, ``visible_prompts``) — les
@@ -681,10 +710,55 @@ class MCPServer:
         if self.prompt_provider is None:
             # Aucun registre branché (constructions sur mesure) : surface vide.
             return success_result(request_id, {"prompts": []})
-        return success_result(
-            request_id,
-            {"prompts": [prompt.to_dict() for prompt in self.prompt_provider.list_prompts()]},
+        result, error = self._paginated_catalog(
+            KIND_PROMPTS,
+            params,
+            [prompt.to_dict() for prompt in self.prompt_provider.list_prompts()],
         )
+        if error is not None:
+            return error_result(request_id, ErrorCode.INVALID_PARAMS, error)
+        return success_result(request_id, {"prompts": result[0], **result[1]})
+
+    # --- Pagination des catalogues (v2.3.0) ---------------------------------------------
+
+    def _paginated_catalog(
+        self,
+        kind: str,
+        params: dict[str, Any],
+        items: list[dict[str, Any]],
+    ) -> tuple[tuple[list[dict[str, Any]], dict[str, Any]], str | None]:
+        """Découpe un catalogue en page — cœur commun des 3 méthodes ``*/list``.
+
+        Args:
+            kind: catalogue émetteur (lie le curseur : ``tools`` / ``resources``
+                / ``prompts`` — un curseur croisé est rejeté).
+            params: ``params`` JSON-RPC de la requête (lit ``cursor``).
+            items: items du catalogue DÉJÀ projetés en dictionnaires MCP.
+
+        Returns:
+            ``((page, extra), None)`` où ``extra`` porte ``nextCursor`` (absent
+            sur la dernière page), ou ``(..., message)`` si le curseur est
+            invalide/expiré (→ ``Invalid params`` -32602, réparable client).
+
+        Compatibilité : sans ``cursor``, page 1 ; avec la taille de page par
+        défaut (50) supérieure aux catalogues actuels, la réponse est
+        identique aux versions 2.2.x (aucun ``nextCursor`` émis).
+        """
+        cursor = params.get("cursor")
+        offset = 0
+        if cursor is not None:
+            if not isinstance(cursor, str) or not cursor:
+                return (([], {}), "Invalid params: 'cursor' must be an opaque string")
+            try:
+                offset = decode_cursor(cursor, kind)
+            except CursorError as exc:
+                prefix = "cursor expired" if exc.expired else "Invalid cursor"
+                return (([], {}), f"{prefix}: {exc}")
+        page, next_offset = paginate(items, self.page_size, offset)
+        extra: dict[str, Any] = (
+            {"nextCursor": encode_cursor(kind, next_offset)} if next_offset is not None else {}
+        )
+        return ((page, extra), None)
 
     def _handle_prompts_get(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """``prompts/get`` : résolution d'un template nommé → messages.

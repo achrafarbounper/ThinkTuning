@@ -6,7 +6,51 @@
 
 ---
 
-## Unreleased — durcissement MCP multi-agent (SCRUM-151 → SCRUM-155)
+## Unreleased — pagination des catalogues (SCRUM-157)
+
+> **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (déjà bumpée en
+> SCRUM-156). La pagination est **additive** : aucun changement de forme pour
+> les clients qui ne paginent pas (SemVer : feature rétrocompatible → minor).
+
+### Added — pagination par curseur OPAQUE (v2.3.0)
+
+- `tools/list`, `resources/list` et `prompts/list` acceptent un
+  **curseur opaque** (`params.cursor`) et répondent avec `nextCursor` quand
+  des items restent à lire (spec MCP : `ListToolsResult` / `ListResourcesResult`
+  / `ListPromptsResult`). Le client renvoie `nextCursor` tel quel — il ne
+  décode jamais le curseur (base64url + **signature HMAC-SHA256**, infalsifiable).
+- `app/infrastructure/mcp/catalog_pagination.py` — codec de curseur pur et
+  testable : versionnage du format (`v`), **liage au catalogue** (un curseur
+  `tools/list` est rejeté sur `resources/list`) et **expiration** par TTL
+  (curseur périmé → `Invalid params` -32602, le client repart d'une liste).
+- **Taille de page configurable** : `MCPServer(page_size=...)` /
+  `build_mcp_server(page_size=...)`, défaut via env
+  `MCP_PAGINATION_PAGE_SIZE` (50, borné ≥ 1). Une taille < 1 est ramenée à 1.
+- **TTL configurable** : env `MCP_PAGINATION_CURSOR_TTL_SECONDS` (défaut 900).
+- **Secret configurable** : env `MCP_PAGINATION_SECRET` (défaut : secret
+  aléatoire par process — les curseurs ne survivent pas à un redémarrage).
+
+#### Compatibilité (critère d'acceptation)
+- Sans `params.cursor` : première page. Avec la taille de page **par défaut
+  (50) supérieure aux catalogues actuels** (40 tools, 10 resources, 5 prompts),
+  la réponse est **identique aux versions 2.2.x** : liste complète, champ
+  `nextCursor` absent — aucun client existant n'est affecté.
+- Aucune capability ajoutée à l'handshake (la pagination fait partie de la
+  sémantique `*/list` MCP, pas de `capabilities`) : la forme des capabilities
+  v2.3.0 (SCRUM-156) est inchangée.
+- Curseur invalide / falsifié / expiré / croisé / non-string → erreur
+  JSON-RPC `Invalid params` (-32602), message actionable, jamais un crash.
+
+#### Tests
+- `backend/tests/test_mcp_pagination.py` — 24 tests : itération complète des
+  3 catalogues (ordre préservé, aucune perte ni duplication), opacité du
+  curseur, falsification (signature cassée, secret étranger), curseurs
+  invalides/paramétrés, curseur croisé, curseur non-string, taille de page
+  (constructeur, env, env invalide, clamp), compat sans curseur, et
+  **expiration** (unitaire via horloge décalée + serveur via TTL env).
+
+---
+
 
 > **Version de surface** : `[tool.mcp].version` reste **`2.2.0`** — cette série
 > de lots (L0 → L4) durcit le **comportement** sans modifier la surface
