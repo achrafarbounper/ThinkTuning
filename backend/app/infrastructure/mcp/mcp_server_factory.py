@@ -95,6 +95,11 @@ from app.infrastructure.mcp.protocol import MCP_SERVER_NAME, empty_input_schema
 from app.infrastructure.mcp.resources.resource_provider import (
     build_legacy_resource_provider,
 )
+from app.infrastructure.mcp.resume_cursor import (
+    ResumeTokenError,
+    decode_resume_token,
+    encode_resume_token,
+)
 from app.infrastructure.mcp.sampling.sampling_adapter import build_sampling_adapter
 from app.infrastructure.mcp.tools.orchestrate_tool import build_orchestrate_tool
 from app.infrastructure.mcp.version_loader import load_mcp_version
@@ -153,18 +158,42 @@ def _durable_run_tools(
 
     def events(arguments: dict[str, Any]) -> str:
         run_id = str(arguments.get("run_id") or "").strip()
-        if not run_id:
-            raise ValueError("'run_id' is required")
-        after_sequence = int(arguments.get("after_sequence", 0))
-        if after_sequence < 0:
-            raise ValueError("'after_sequence' must be >= 0")
+        after_sequence: int
+        resume_token = str(arguments.get("resume_token") or "").strip()
+        if resume_token:
+            # Reprise par CURSEUR opaque (MCP 2.3.0) : le token porte le
+            # couple (run_id, after_sequence) signé — un run_id explicite
+            # DOIT correspondre (anti-re-jeu croisé entre runs).
+            try:
+                token_run_id, after_sequence = decode_resume_token(
+                    resume_token, expected_run_id=run_id or None
+                )
+            except ResumeTokenError as exc:
+                raise ValueError(f"resume_token invalid ({exc})") from exc
+            run_id = token_run_id
+        else:
+            if not run_id:
+                raise ValueError("'run_id' is required")
+            after_sequence = int(arguments.get("after_sequence", 0))
+            if after_sequence < 0:
+                raise ValueError("'after_sequence' must be >= 0")
         port = resolve()
         result = port.get_run(run_id)
         if result is None:
             raise ValueError(f"unknown MCP run {run_id!r}")
         events = port.get_events(run_id, after_sequence=after_sequence)
+        last_sequence = after_sequence
+        for event in events:
+            sequence = int(event.get("sequence") or 0)
+            if sequence > last_sequence:
+                last_sequence = sequence
         return json.dumps(
-            {"run_id": run_id, "events": events},
+            {
+                "run_id": run_id,
+                "events": events,
+                "last_sequence": last_sequence,
+                "resume_token": encode_resume_token(run_id, last_sequence),
+            },
             ensure_ascii=False,
             default=str,
         )
@@ -237,12 +266,21 @@ def _durable_run_tools(
         ),
         MCPTool(
             name="orchestrate_events",
-            description="Read the persisted event history of a durable MCP run.",
+            description=(
+                "Read or RESUME the persisted event history of a durable MCP run — "
+                "by identifier (run_id + after_sequence) or opaque signed "
+                "resume_token (MCP 2.3.0)."
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
                     "run_id": {"type": "string"},
                     "after_sequence": {"type": "integer", "minimum": 0},
+                    # Curseur de reprise OPAQUE émis par le serveur
+                    # (replay_started/replay_completed, TTL 900 s) — utilisé
+                    # seul, il remplace run_id + after_sequence. Expiré →
+                    # erreur explicite (voir docs/mcp/MULTI_AGENT_SSE_FLOW.md §7).
+                    "resume_token": {"type": "string"},
                 },
                 "required": ["run_id"],
                 "additionalProperties": False,

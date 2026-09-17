@@ -965,6 +965,60 @@ describe("replayOrchestrateEvents (L1 SCRUM-152)", () => {
     // replay_completed (0) ne doit PAS faire régresser le curseur du client.
     expect(result.last_sequence).toBe(9);
   });
+
+  it("reprend par CURSEUR opaque (resume_token) et capture le token renvoyé (MCP 2.3.0)", async () => {
+    fetchMock.mockResolvedValue(new Response(
+      [
+        "event: replay_started",
+        'data: {"run_id":"run-tok","after_sequence":4,"follow":true,"resume_token":"server-issued-1"}',
+        "",
+        "event: orchestrate.replay",
+        'data: {"sequence":5,"event":"agent.synthesizing","phase":"synthesis"}',
+        "",
+        "event: replay_completed",
+        'data: {"run_id":"run-tok","last_sequence":5,"resume_token":"server-issued-2"}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const seen: string[] = [];
+    const result = await replayOrchestrateEvents(
+      "", // reprise par token : le run_id explicite est INUTILE
+      0,
+      (event) => seen.push(`${event.sequence}:${event.event}`),
+      { baseUrl: "http://api" },
+      { resumeToken: "server-issued-1", follow: true },
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    const sent = JSON.parse(init.body as string);
+    // Le token REMPLACE run_id + after_sequence (aucune ambiguïté de curseur).
+    expect(sent.params.arguments).toEqual({
+      resume_token: "server-issued-1",
+      follow: true,
+      replay: true,
+      stream: true,
+    });
+
+    expect(seen).toEqual(["5:agent.synthesizing"]);
+    // Le run est résolu par le serveur (replay_started) et le NOUVEAU token
+    // (replay_completed) est retourné pour la prochaine reprise.
+    expect(result.run_id).toBe("run-tok");
+    expect(result.last_sequence).toBe(5);
+    expect(result.resume_token).toBe("server-issued-2");
+  });
+
+  it("lève McpTransportError sans run_id NI resume_token (reprise impossible)", async () => {
+    const empty = await captureError(
+      replayOrchestrateEvents("   ", 0, () => undefined, undefined, { follow: true }),
+    );
+    expect(empty).toBeInstanceOf(McpTransportError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("timeout d'inactivité du flux orchestrate (L3 SCRUM-154)", () => {

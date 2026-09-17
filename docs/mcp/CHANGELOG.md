@@ -37,9 +37,49 @@
   et `run_retry_scheduled` (sur le nouveau run), rejouables via
   `orchestrate_events` (`runs/events`).
 
+### Added — reprise des événements SSE (MCP 2.3.0, SCRUM-163)
+
+- **Reprise par identifiant OU curseur** (`orchestrate_events` — transport
+  SSE `/mcp/sse`) :
+  - identifiant (L1, inchangé) : `run_id` + `after_sequence` ;
+  - curseur opaque : `resume_token` (base64url + HMAC-SHA256 tronquée,
+    TTL `MCP_RESUME_TOKEN_TTL_SECONDS` défaut 900 s, lié au run) émis par
+    `replay_started` / `replay_completed` — le client le renvoie tel quel ;
+  - reconnexion SSE **native** : chaque trame `orchestrate.replay` porte sa
+    séquence en ligne `id:` — un client reconnecté renvoie l'en-tête
+    `Last-Event-ID`, accepté en repli (priorité : `resume_token` >
+    `after_sequence` > `Last-Event-ID`).
+- **Garanties de reprise** (tests `backend/tests/test_mcp_sse_resume.py`,
+  24 tests) :
+  - **sans doublon** : watermark monotone — un événement `<=` curseur n'est
+    JAMAIS ré-émis (y compris re-démarrage sans état, `after_sequence=0`) ;
+  - **ordre conservé** : tri défensif sur `sequence`, émissions strictement
+    croissantes ;
+  - **curseur expiré documenté** : `replay.error` + `error_code` borné
+    (`resume_token_expired` / `resume_token_invalid` / `after_sequence_invalid`
+    / `run_id_required` / `run_not_found` / `store_unavailable`) + `[DONE]`,
+    puis reprise par identifiant (la séquence persistée ne périt jamais) ;
+  - **mode `follow`** : drain borné d'un run encore en cours jusqu'à son état
+    abouti (`MCP_RESUME_FOLLOW_POLL_SECONDS` / `MCP_RESUME_FOLLOW_TIMEOUT_SECONDS`),
+    timeout explicite `follow_timed_out: true` — `[DONE]` dans tous les cas.
+- `orchestrate_events` (tool non-stream) accepte aussi `resume_token` et
+  retourne `last_sequence` + un `resume_token` frais.
+- Modules : `resume_cursor.py` (curseur signé, PUR), `_replay_stream`
+  (historique + follow), doc `MULTI_AGENT_SSE_FLOW.md` §7 (garanties R9-R12).
+
 ### Criteria (critères d'acceptation)
 - **Reprise après déconnexion** : replay incrémental `after_sequence`
   (L1/SCRUM-152, inchangé et couvert par tests).
+- **Reprise par identifiant OU curseur** : `run_id` + `after_sequence` ou
+  `resume_token` opaque signé (+ en-tête natif `Last-Event-ID`).
+- **Absence de doublons** : watermark monotone (jamais de ré-émission `<=`
+  curseur, même re-démarrage sans état).
+- **Ordre conservé** : séquences émises strictement croissantes.
+- **Curseur expiré documenté** : erreur explicite `error_code=resume_token_expired`,
+  reprise par identifiant documentée (§7 MULTI_AGENT_SSE_FLOW.md).
+- **Tests de reconnexion** : `backend/tests/test_mcp_sse_resume.py` (24 tests —
+  doublons, ordre, token expiré/falsifié/croisé, run inconnu, `Last-Event-ID`,
+  follow drain/timeout).
 - **Annulation propre** : `orchestrate_cancel` one-shot, terminal, FSM
   fail-closed (deuxième annulation refusée).
 - **Autorisation vérifiée** : `orchestrate_get_run`/`orchestrate_events` en

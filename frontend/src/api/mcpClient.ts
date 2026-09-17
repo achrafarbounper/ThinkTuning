@@ -1015,6 +1015,24 @@ export interface ReplayOrchestrateEventsResult {
   /** NOUVEAU curseur à mémoriser pour un replay incrémental suivant. */
   last_sequence: number;
   events: OrchestrateReplayEvent[];
+  /**
+   * Curseur de reprise OPAQUE renvoyé par le serveur (MCP 2.3.0 — SCRUM-163) :
+   * à mémoriser et rejouer tel quel pour la PROCHAINE reconnexion (TTL
+   * `MCP_RESUME_TOKEN_TTL_SECONDS`) ; à expiration, retomber sur
+   * `run_id` + `last_sequence` (voir docs/mcp/MULTI_AGENT_SSE_FLOW.md §7).
+   */
+  resume_token?: string;
+}
+
+/** Options de reprise des événements (MCP 2.3.0 — SCRUM-163). */
+export interface ReplayOrchestrateEventsOptions {
+  /**
+   * Curseur de reprise OPAQUE (`resume_token` émis par le serveur) : utilisé
+   * SEUL, il remplace `run_id` + `after_sequence` (anti-doublon garanti).
+   */
+  resumeToken?: string;
+  /** Suivre un run ENCORE EN COURS : drain borné jusqu'à l'état abouti. */
+  follow?: boolean;
 }
 
 /**
@@ -1024,23 +1042,33 @@ export interface ReplayOrchestrateEventsResult {
  * `replay_started`, une suite d'`orchestrate.replay` (payloads durables
  * portant leur `sequence`), `replay_completed` (curseur final) puis [DONE].
  * Le callback reçoit chaque événement dans l'ordre du run ; le résultat
- * expose le NOUVEAU curseur (`last_sequence`) à mémoriser — un replay
- * ultérieur repart de ce curseur sans rejouer l'historique complet.
+ * expose le NOUVEAU curseur (`last_sequence` + `resume_token`) à mémoriser —
+ * un replay ultérieur repart de ce curseur sans rejouer l'historique complet.
+ *
+ * MCP 2.3.0 (SCRUM-163) : avec `options.resumeToken`, la reprise se fait par
+ * CURSEUR opaque (le token remplace run_id + after_sequence) ; avec
+ * `options.follow`, le serveur poursuit le drain d'un run encore en cours
+ * jusqu'à son état abouti (ou timeout : `follow_timed_out`).
  */
 export async function replayOrchestrateEvents(
   runId: string,
   afterSequence: number,
   onEvent: (event: OrchestrateReplayEvent) => void,
   config?: McpClientConfig,
+  options?: ReplayOrchestrateEventsOptions,
 ): Promise<ReplayOrchestrateEventsResult> {
+  const resumeToken = options?.resumeToken?.trim() ?? '';
   const trimmedRunId = runId.trim();
-  if (!trimmedRunId) {
+  if (!trimmedRunId && !resumeToken) {
     throw new McpTransportError('Le replay MCP exige un run_id de run durable.', 0);
   }
   const after = Math.max(0, Math.floor(afterSequence));
   const response = await new McpSseClient(config).streamTool('orchestrate_events', {
-    run_id: trimmedRunId,
-    after_sequence: after,
+    // Reprise par CURSEUR : le token remplace l'identifiant (aucun doublon).
+    ...(resumeToken
+      ? { resume_token: resumeToken }
+      : { run_id: trimmedRunId, after_sequence: after }),
+    ...(options?.follow ? { follow: true } : {}),
     replay: true,
     stream: true,
   });
@@ -1049,6 +1077,8 @@ export async function replayOrchestrateEvents(
   }
   const events: OrchestrateReplayEvent[] = [];
   let lastSequence = after;
+  let resolvedRunId = trimmedRunId;
+  let resumeTokenOut: string | undefined;
   for await (const event of readNamedSseEvents(response.body)) {
     if (event.data === '[DONE]') break;
     let payload: Record<string, unknown>;
@@ -1073,6 +1103,11 @@ export async function replayOrchestrateEvents(
       };
       events.push(replayed);
       onEvent(replayed);
+    } else if (event.event === 'replay_started') {
+      // Reprise par token : le serveur résout lui-même le run — mémorisé.
+      if (typeof payload.run_id === 'string' && payload.run_id) {
+        resolvedRunId = payload.run_id;
+      }
     } else if (event.event === 'replay_completed') {
       if (
         typeof payload.last_sequence === 'number' &&
@@ -1081,6 +1116,9 @@ export async function replayOrchestrateEvents(
       ) {
         lastSequence = payload.last_sequence;
       }
+      if (typeof payload.resume_token === 'string' && payload.resume_token) {
+        resumeTokenOut = payload.resume_token;
+      }
     } else if (event.event === 'replay.error') {
       throw new McpTransportError(
         `Le replay MCP a échoué : ${String(payload.error ?? 'erreur inconnue')}`,
@@ -1088,5 +1126,5 @@ export async function replayOrchestrateEvents(
       );
     }
   }
-  return { run_id: trimmedRunId, last_sequence: lastSequence, events };
+  return { run_id: resolvedRunId, last_sequence: lastSequence, events, ...(resumeTokenOut ? { resume_token: resumeTokenOut } : {}) };
 }
