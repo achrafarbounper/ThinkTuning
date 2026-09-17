@@ -847,6 +847,20 @@ def test_server_exposes_durable_run_tools_with_injected_port() -> None:
                 },
             )()
 
+        def retry(self, run_id, *, reason=None):
+            return type(
+                "State",
+                (),
+                {
+                    "as_snapshot": lambda self: {
+                        "run_id": "run-2",
+                        "state": "pending",
+                        "parent_run_id": run_id,
+                        "reason": reason,
+                    }
+                },
+            )()
+
     server = build_mcp_server(
         scope=MCPScopeRole.CONTRIBUTOR,
         version=MCPVersion(major=2, minor=0, patch=0),
@@ -861,6 +875,7 @@ def test_server_exposes_durable_run_tools_with_injected_port() -> None:
         "orchestrate_get_run",
         "orchestrate_list_runs",
         "orchestrate_cancel",
+        "orchestrate_retry",
         "orchestrate_events",
     } <= names
 
@@ -877,6 +892,22 @@ def test_server_exposes_durable_run_tools_with_injected_port() -> None:
     )
     assert response["result"]["isError"] is False
     assert json.loads(response["result"]["content"][0]["text"])["run_id"] == "run-1"
+
+    retry_response = json.loads(
+        server.handle_text(
+            _rpc(
+                "tools/call",
+                {
+                    "name": "orchestrate_retry",
+                    "arguments": {"run_id": "run-1", "reason": "sweeper"},
+                },
+            )
+        )
+    )
+    assert retry_response["result"]["isError"] is False
+    retry_payload = json.loads(retry_response["result"]["content"][0]["text"])
+    assert retry_payload["parent_run_id"] == "run-1"
+    assert retry_payload["state"] == "pending"
 
 
 def test_server_orchestrate_call_roundtrip() -> None:

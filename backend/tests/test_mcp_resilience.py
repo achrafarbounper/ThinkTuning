@@ -459,13 +459,15 @@ def test_sweeper_reaps_stale_running_run_and_publishes_degradation(tmp_path) -> 
     assert report.active == 1
     reaped = store.get("run-1")
     assert reaped is not None
-    assert reaped.state == "failed"
+    # MCP 2.3.0 : la péremption est un état TERMINAL DÉDIÉ — ni ``failed``
+    # (échec métier) ni ``cancelled`` (décision client).
+    assert reaped.state == "expired"
     assert reaped.last_error == ACTION_STALE_RUN_REAPED
     # La dégradation est persistée : rejouable et visible côté client.
     assert [event["event"] for event in store.list_events("run-1")][-1] == EVENT_DEGRADED
 
 
-def test_sweeper_reaps_pending_run_as_cancelled(tmp_path) -> None:
+def test_sweeper_reaps_pending_run_as_expired(tmp_path) -> None:
     store = _store(tmp_path)
     store.create("run-1")
     sweeper = RunSweeper(store, stale_after_seconds=900, clock=lambda: _future())
@@ -475,7 +477,7 @@ def test_sweeper_reaps_pending_run_as_cancelled(tmp_path) -> None:
     assert report.stale_reaped == 1
     reaped = store.get("run-1")
     assert reaped is not None
-    assert reaped.state == "cancelled"
+    assert reaped.state == "expired"
 
 
 def test_sweeper_never_reaps_settled_partial_success(tmp_path) -> None:
@@ -517,7 +519,7 @@ def test_sweeper_grants_a_longer_grace_to_human_approvals(tmp_path) -> None:
     assert sweeper.sweep_once().stale_reaped == 1
     reaped = store.get("run-1")
     assert reaped is not None
-    assert reaped.state == "failed"
+    assert reaped.state == "expired"
 
 
 def test_sweeper_releases_expired_lease_without_failing(tmp_path) -> None:

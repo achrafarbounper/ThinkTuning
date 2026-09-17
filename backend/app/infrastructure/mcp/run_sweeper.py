@@ -10,8 +10,8 @@ par ``acquire_lease``), et la jauge ``mcp_runs_active`` dérive indéfiniment.
 Ce module ajoute un **sweeper** (thread daemon, une passe par intervalle) qui :
 
 1. **récolte** les runs non terminaux dont ``updated_at`` est plus vieux que
-   ``MCP_RUN_STALE_AFTER_SECONDS`` → transition vers ``failed`` (ou
-   ``cancelled`` pour un ``pending`` — la FSM interdit ``pending → failed``),
+   ``MCP_RUN_STALE_AFTER_SECONDS`` → transition vers ``expired`` (MCP 2.3.0 :
+   la PÉREMPTION est un état terminal DÉDIÉ, distinct de l'échec métier),
    avec ``last_error = stale_run_reaped`` et un événement ``orchestrate.degraded``
    persisté (la dégradation est ainsi rejouable et visible côté client) ;
 2. **libère** les leases expirés des runs encore actifs (``lease_expires_at``
@@ -59,13 +59,16 @@ logger = logging.getLogger("thinktuning.mcp.sweeper")
 # États
 # ---------------------------------------------------------------------------
 
-#: États strictement terminaux de la FSM durable.
-TERMINAL_RUN_STATES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
+#: États strictement terminaux de la FSM durable (MCP 2.3.0 : ``expired`` est
+#: le terminal de PÉREMPTION — récolte du sweeper, réessayable via retry).
+TERMINAL_RUN_STATES: frozenset[str] = frozenset(
+    {"completed", "failed", "cancelled", "expired"}
+)
 
 #: États ABOUTIS (y compris ``partial_success``) : jamais récoltés — un
 #: ``partial_success`` reste reprenable à la demande du client.
 SETTLED_RUN_STATES: frozenset[str] = frozenset(
-    {"completed", "failed", "cancelled", "partial_success"}
+    {"completed", "failed", "cancelled", "expired", "partial_success"}
 )
 
 #: États candidats à la récolte s'ils sont périmés.
@@ -267,23 +270,21 @@ class RunSweeper:
         return True
 
     def _reap(self, state: MCPDurableRunState, *, reason: str) -> None:
-        """Réconcilie un run périmé vers un état terminal EXPLICITE.
+        """Réconcilie un run périmé vers ``expired`` (MCP 2.3.0).
 
-        ``pending`` est récolté en ``cancelled`` : la FSM interdit
-        ``pending → failed`` (aucune phase n'a démarré, il n'y a donc pas
-        d'échec métier à déclarer). ``running`` / ``awaiting_approval``
-        basculent en ``failed`` avec ``last_error`` = cause de récolte.
+        La péremption n'est PAS un échec métier : tout run récolté
+        (``pending`` / ``running`` / ``awaiting_approval``) bascule vers l'état
+        terminal DÉDIÉ ``expired`` avec ``last_error`` = cause de récolte. Un
+        run ``expired`` reste visible côté client (``runs/get``) et RÉESSAYABLE
+        via ``runs/retry`` (nouveau run lié — jamais de ré-exécution implicite).
         """
         state_name = str(state.state or "").strip().lower()
-        if state_name == "pending":
-            self._store.cancel(state.run_id, reason=reason)
-        else:
-            self._store.transition(
-                state.run_id,
-                "failed",
-                failure_phase=state.failure_phase,
-                last_error=reason,
-            )
+        self._store.transition(
+            state.run_id,
+            "expired",
+            failure_phase=state.failure_phase,
+            last_error=reason,
+        )
         self._append_degradation_event(state, reason=reason)
         mcp_metrics.record_sweeper_action(ACTION_STALE_RUN_REAPED)
         mcp_metrics.record_degradation(reason)
