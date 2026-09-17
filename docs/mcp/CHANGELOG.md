@@ -51,6 +51,59 @@
 
 ---
 
+## Unreleased — dépréciation des tools (MCP 2.3.0)
+
+> **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (inchangée).
+> La dépréciation est **additive** : les champs nouveaux s'ajoutent à la
+> projection `tools/list` sans retirer quoi que ce soit (feature
+> rétrocompatible → pas de bump).
+
+### Added — métadonnées de retrait + audit d'usage
+
+- **Manifeste / standard `thinktuning.tool/v1`** : une définition peut déclarer
+  `deprecated` (bool), `deprecationMessage` (str) et `sunsetAt` (date ISO).
+  `tools_config.json` → `compile_tool` → entrée de manifeste :
+  `deprecated` est **toujours présent** (booléen explicite),
+  `deprecationMessage` / `sunsetAt` sont émis **si renseignés** ; compteur
+  `deprecatedCount` au niveau du manifeste et warning de compilation par tool
+  déprécié (« retrait prévu … / date non fixée »).
+- **`tools/list`** : chaque tool projeté expose `deprecated`, et — si le tool
+  est déprécié — `deprecationMessage` et `sunsetAt` (le client sait quoi faire
+  AVANT d'appeler). Catalogue `docs/mcp/MANIFEST.md` régénéré : colonnes
+  `Deprecated` / `Sunset` + ligne « Dépréciés ».
+- **Audit d'usage** : chaque `tools/call` sur un tool déprécié émet un
+  événement d'audit **dédié** `mcp_tool_deprecated` (nouvelle action
+  normalisée, intégrée à `MCP_ACTIONS`) en plus de l'événement d'appel
+  normal `mcp_tool_call` **enrichi** (`deprecated`, `deprecationMessage`,
+  `sunsetAt` dans `detail`). Écriture non bloquante (contrat tâche 12
+  inchangé). Un avertissement runtime est aussi loggé à chaque appel.
+
+#### Compatibilité (critère d'acceptation)
+- Tool NON déprécié : `detail` d'audit **inchangé** (aucun champ de retrait),
+  entrée de manifeste inchangée hors `deprecated: false` — aucun consommateur
+  existant n'est affecté.
+- Tool déprécié : l'appel **procède normalement** (aucune erreur nouvelle,
+  contrat d'appel et réponse identiques) — la dépréciation n'est qu'un signal
+  (log + audit + projection `tools/list`).
+- `MCPTool` : nouveaux champs à défauts neutres (`False` / `""`) — toutes les
+  constructions existantes restent valides.
+
+#### Tests
+- `backend/tests/test_mcp_deprecation.py` — 10 tests : projection
+  design-time (présence/absence des 3 clés, warnings), compteur
+  `deprecatedCount`, projection `entry_to_mcp_tool` / `MCPTool.to_dict`,
+  événement d'audit dédié + enrichissement (tools déprécié / normal /
+  inconnu), rendu Markdown.
+- Contrats adaptés : `test_compiled_entry_shape` (clé `deprecated`),
+  `test_all_mcp_actions_are_declared` (6 actions normalisées).
+
+#### Documentation
+- Politique de retrait : `docs/mcp/MCP_GOVERNANCE.md` §5 (cycle de vie
+  ACTIVE → DEPRECATED → SUNSET → RETIRÉ, règles minimales, checklist,
+  exemple de déclaration).
+
+---
+
 
 > **Version de surface** : `[tool.mcp].version` reste **`2.2.0`** — cette série
 > de lots (L0 → L4) durcit le **comportement** sans modifier la surface

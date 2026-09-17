@@ -10,7 +10,9 @@ SÉPARATION DESIGN-TIME / RUNTIME (règle du standard) :
         ``$schema``, ``name``, ``description``, ``version``, ``category``,
         ``required_args``, ``parameters``, ``allowed_binaries`` (option),
         ``safety`` (option : ``{"level": "safe|restricted|dangerous",
-        "requires_approval": bool}``).
+        "requires_approval": bool}``),
+        retrait MCP 2.3.0 (option) : ``deprecated`` (bool),
+        ``deprecationMessage`` (str), ``sunsetAt`` (date ISO).
 
     RUNTIME (porté par ``RegisteredTool``, JAMAIS sérialisé dans le JSON) :
         ``enabled``, ``experimental``, ``deprecated``, ``owner``,

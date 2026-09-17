@@ -42,6 +42,7 @@ from app.infrastructure.persistence.audit_store import (
     ACT_MCP_RESOURCE_READ,
     ACT_MCP_SAMPLING,
     ACT_MCP_TOOL_CALL,
+    ACT_MCP_TOOL_DEPRECATED,
     MCP_ACTIONS,
     reset_audit_store,
 )
@@ -187,17 +188,21 @@ def test_catalogue_and_handshake_methods_are_not_audited():
 
 
 def test_all_mcp_actions_are_declared():
-    """Le contrat tâche 12 : les 5 actions normalisées sont déclarées."""
+    """Le contrat tâche 12 : les 6 actions normalisées sont déclarées.
+
+    MCP 2.3.0 ajoute ``mcp_tool_deprecated`` (usage d'un tool déprécié).
+    """
     assert MCP_ACTIONS == (
         "mcp_tool_call",
+        "mcp_tool_deprecated",
         "mcp_resource_read",
         "mcp_prompt_get",
         "mcp_sampling",
         "mcp_orchestrate",
     )
     assert {
-        ACT_MCP_TOOL_CALL, ACT_MCP_RESOURCE_READ, ACT_MCP_PROMPT_GET,
-        ACT_MCP_SAMPLING, ACT_MCP_ORCHESTRATE,
+        ACT_MCP_TOOL_CALL, ACT_MCP_TOOL_DEPRECATED, ACT_MCP_RESOURCE_READ,
+        ACT_MCP_PROMPT_GET, ACT_MCP_SAMPLING, ACT_MCP_ORCHESTRATE,
     } == set(MCP_ACTIONS)
 
 

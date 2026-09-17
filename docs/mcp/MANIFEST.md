@@ -10,7 +10,8 @@
 | Version surface | 2.3.0 |
 | Protocole MCP | 2025-06-18 |
 | Tools | **62** (read-only : **37** · mutation : **25**) |
-| Généré le | 2026-09-16T21:48:23.319Z |
+| Dépréciés | **0** |
+| Généré le | 2026-09-17T08:31:09.834Z |
 | Avertissements | 5 |
 
 ## Catalogue
@@ -20,71 +21,74 @@ Posture (annotations MCP `tools/list`) : `readOnly` = readOnlyHint,
 `Scope requis` = rôle minimal pour VOIR le tool (`MCPScopeRole`,
 docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime
 (tâche 5) reste le garde-fou effectif à chaque appel.
+`Deprecated` = tool en fin de vie (`deprecated` du manifeste) ;
+`Sunset` = date de retrait annoncée (`sunsetAt`, ISO). Voir la
+politique de retrait : docs/mcp/MCP_GOVERNANCE.md §5.
 
-| Tool | Scope requis | readOnly | destructive | idempotent | Catégorie | Description |
-|---|---|:-:|:-:|:-:|---|---|
-| `add` | read_only | ✅ | — | ✅ | builtin | — |
-| `append_file` | contributor | — | ✅ | — | builtin | Ajoute `content` Ã la fin d'un fichier DANS la sandbox (crÃ©e le fichier et ses parents si nÃ©cessaire â€” co… |
-| `calc` | read_only | ✅ | — | ✅ | builtin | Ã‰value une expression arithmÃ©tique pure et renvoie {expression, result} |
-| `call_api` | contributor | — | ✅ | — | builtin | Appel HTTP générique GET/POST vers une API externe (schéma http/https, sortie tronquée). GET sans corps ; POS… |
-| `cancel_training` | operator | — | ✅ | — | builtin | Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au procha… |
-| `copy_path` | contributor | — | ✅ | — | builtin | Copie fichier ou arborescence dans la sandbox |
-| `count_lines` | read_only | ✅ | — | ✅ | builtin | DÃ©compte lignes, mots, caractÃ¨res et octets (Ã©quivalent `wc`) |
-| `dataset_stats` | read_only | ✅ | — | ✅ | builtin | Profil rapide d'un dataset CSV/TSV/JSONL sous la sandbox : lignes, colonnes, valeurs manquantes, distribution… |
-| `dedupe_lines` | contributor | — | ✅ | — | builtin | Supprime les lignes dupliquÃ©es d'un fichier (dans la sandbox) |
-| `disk_usage` | read_only | ✅ | — | ✅ | builtin | Espace disque libre + taille des enfants directs d'un dossier sandbox (les entraÃ®nements meurent silencieuse… |
-| `docker_exec` | operator | — | ✅ | — | builtin | ExÃ©cute `command` dans le conteneur autorisÃ© (liste d'arguments, jamais de shell ; allowlist AGENT_DOCKER_A… |
-| `docker_logs` | read_only | ✅ | — | ✅ | builtin | DerniÃ¨res `tail` lignes de logs d'un conteneur (stdout + stderr) |
-| `docker_ps` | read_only | ✅ | — | ✅ | builtin | Liste les conteneurs (un objet JSON par conteneur, format `docker ps`) |
-| `docker_stats` | read_only | ✅ | — | ✅ | builtin | Consommation CPU/RAM par conteneur (`docker stats --no-stream`, un objet JSON par conteneur â€” mÃªme convent… |
-| `download_file` | contributor | — | ✅ | — | builtin | TÃ©lÃ©charge un fichier http(s) DANS la sandbox, en streaming |
-| `env_info` | read_only | ✅ | — | ✅ | builtin | Diagnostic lecture seule : Python, OS, CPU et versions des packages clÃ©s |
-| `file_checksum` | read_only | ✅ | — | ✅ | builtin | Empreinte (hash) d'un fichier : md5, sha1, sha256 (dÃ©faut) ou sha512 |
-| `file_info` | read_only | ✅ | — | ✅ | builtin | MÃ©tadonnÃ©es d'un fichier ou dossier (type, taille, dates, encodage, lignes) |
-| `find_duplicates` | admin | — | ✅ | — | builtin | DÃ©tecte les fichiers au contenu identique (par empreinte) sous `path` |
-| `find_file` | read_only | ✅ | — | ✅ | builtin | Cherche rÃ©cursivement les fichiers/dossiers dont le chemin relatif ou le nom correspond Ã `pattern` (regex P… |
-| `git_branch` | read_only | ✅ | — | ✅ | builtin | Gestion des branches via le backend Git MCP optionnel. |
-| `git_commit` | admin | — | ✅ | — | builtin | Crée un commit via le backend Git MCP optionnel, après approbation. |
-| `git_diff` | read_only | ✅ | — | ✅ | builtin | `git diff` (index <-> travail), optionnellement `--cached` et restreint Ã un chemin de la sandbox |
-| `git_log` | read_only | ✅ | — | ✅ | builtin | `git log --oneline` des N derniers commits (limit plafonnÃ© Ã 100) |
-| `git_status` | read_only | ✅ | — | ✅ | builtin | `git status --short --branch` sur le dÃ©pÃ´t de la racine sandbox |
-| `github_get_pr` | read_only | ✅ | — | ✅ | builtin | Récupère une pull request via le backend GitHub MCP optionnel. |
-| `github_get_workflow_run` | read_only | ✅ | — | ✅ | builtin | Récupère une exécution GitHub Actions via le backend GitHub MCP optionnel. |
-| `github_list_issues` | read_only | ✅ | — | ✅ | builtin | Liste les issues via le backend GitHub MCP optionnel. |
-| `github_list_prs` | read_only | ✅ | — | ✅ | builtin | Liste les pull requests via le backend GitHub MCP optionnel. |
-| `gpu_info` | read_only | ✅ | — | ✅ | builtin | Ã‰tat GPU complet : disponibilitÃ© CUDA, VRAM, utilisation |
-| `head_file` | read_only | ✅ | — | ✅ | builtin | PremiÃ¨res lignes d'un fichier texte (pendant symÃ©trique de tail_file) |
-| `http_get` | read_only | ✅ | — | ✅ | builtin | GET HTTP : renvoie {status, reason, url, content_type, body tronquÃ©} |
-| `http_post` | contributor | — | ✅ | — | builtin | POST HTTP : corps brut (`data`) ou JSON (`json_payload`), mutuellement exclusifs |
-| `job_get` | read_only | ✅ | — | ✅ | builtin | Charge le payload COMPLET d'un job (hyperparamÃ¨tres, erreur, chemin modÃ¨le) |
-| `job_list` | read_only | ✅ | — | ✅ | builtin | Liste les jobs d'entraÃ®nement les plus rÃ©cents (lecture seule) |
-| `list_dir` | read_only | ✅ | — | ✅ | builtin | Liste un rÃ©pertoire (dossiers d'abord, puis fichiers, ordre alphabÃ©tique) |
-| `make_dir` | contributor | — | ✅ | — | builtin | CrÃ©e un rÃ©pertoire (parents inclus, sans erreur s'il existe dÃ©jÃ ) |
-| `model_versions` | read_only | ✅ | — | ✅ | builtin | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que core/model_versio… |
-| `move_path` | contributor | — | ✅ | — | builtin | DÃ©place/renomme fichier ou rÃ©pertoire dans la sandbox |
-| `now` | read_only | ✅ | — | ✅ | builtin | Horodatage courant ISO lisible ('2026-08-25 14:03:27+00:00') |
-| `postgres_query` | read_only | ✅ | — | ✅ | builtin | ExÃ©cute une requÃªte SQL sur PostgreSQL |
-| `predict_sentiment` | read_only | ✅ | — | ✅ | builtin | PrÃ©dit le sentiment (positive/neutral/negative) d'une liste de textes FR/EN avec le modÃ¨le courant |
-| `read_file` | read_only | ✅ | — | ✅ | builtin | Lit un fichier texte (UTF-8) ; tronque au-delÃ de max_bytes |
-| `read_json` | read_only | ✅ | — | ✅ | builtin | Lit et parse un fichier JSON ; message d'erreur prÃ©cis si invalide |
-| `remove_path` | contributor | — | ✅ | — | builtin | Supprime fichier ou rÃ©pertoire |
-| `run_command` | operator | — | ✅ | — | builtin | ExÃ©cute une commande en liste d'arguments, ex : ["git", "--version"] |
-| `run_python` | operator | — | ✅ | — | builtin | ExÃ©cute un extrait Python dans un sous-processus fraÃ®chement crÃ©Ã© |
-| `run_shell` | admin | — | ✅ | — | builtin | Exécute une commande SÛRE en liste d'arguments (allowlist AGENT_ALLOWED_BINARIES, jamais de shell, timeout pl… |
-| `search_in_files` | read_only | ✅ | — | ✅ | builtin | Cherche `pattern` (regex Python, insensible Ã la casse) dans le contenu des fichiers sous `path` |
-| `split_file` | contributor | — | ✅ | — | builtin | DÃ©coupe un gros fichier en morceaux numÃ©rotÃ©s (max_lines lignes chacun) |
-| `start_training` | operator | — | ✅ | — | builtin | Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_… |
-| `stop_training` | operator | — | ✅ | — | builtin | Alias de cancel_training : demande l'arrÃªt propre d'un entraÃ®nement en cours (pending/running) via son job_… |
-| `tail_file` | read_only | ✅ | — | ✅ | builtin | DerniÃ¨res `lines` lignes d'un fichier texte (lecture arriÃ¨re bornÃ©e Ã 256 Ko : adaptÃ© aux logs qui grossi… |
-| `touch` | contributor | — | ✅ | — | builtin | CrÃ©e un fichier vide ou rafraÃ®chit sa date de modification (sans Ã©craser) |
-| `train_model` | admin | — | ✅ | — | builtin | Lance un entraÃ®nement et ATTEND sa fin (bloquant, timeout en secondes) ; retourne le statut final, le chemin… |
-| `unzip_file` | contributor | — | ✅ | — | builtin | Extrait une archive .zip de la sandbox vers un dossier de la sandbox |
-| `web_fetch` | read_only | ✅ | — | ✅ | builtin | RÃ©cupÃ¨re une page distante : {status, reason, url, content_type, title, body} |
-| `web_read` | read_only | ✅ | — | ✅ | builtin | Lit une page web et en extrait le TEXTE lisible (sans HTML) |
-| `web_search` | read_only | ✅ | — | ✅ | builtin | Recherche web : SearXNG auto-hébergée en primaire, repli DuckDuckGo Lite ; {query, engine, result_count, resu… |
-| `write_file` | contributor | — | ✅ | — | builtin | Ã‰crit `content` DANS la sandbox (rÃ©tro-compatible : chemins relatifs rÃ©solus depuis la racine autorisÃ©e,… |
-| `write_json` | contributor | — | ✅ | — | builtin | SÃ©rialise `data` (dict ou list) en JSON UTF-8 indentÃ© DANS la sandbox |
-| `zip_path` | contributor | — | ✅ | — | builtin | Compresse un fichier ou un dossier de la sandbox vers une archive .zip |
+| Tool | Scope requis | readOnly | destructive | idempotent | Catégorie | Deprecated | Sunset | Description |
+|---|---|:-:|:-:|:-:|---|:-:|---|---|
+| `add` | read_only | ✅ | — | ✅ | builtin | — | — | — |
+| `append_file` | contributor | — | ✅ | — | builtin | — | — | Ajoute `content` Ã la fin d'un fichier DANS la sandbox (crÃ©e le fichier et ses parents si nÃ©cessaire â€” co… |
+| `calc` | read_only | ✅ | — | ✅ | builtin | — | — | Ã‰value une expression arithmÃ©tique pure et renvoie {expression, result} |
+| `call_api` | contributor | — | ✅ | — | builtin | — | — | Appel HTTP générique GET/POST vers une API externe (schéma http/https, sortie tronquée). GET sans corps ; POS… |
+| `cancel_training` | operator | — | ✅ | — | builtin | — | — | Demande l'arrÃªt d'un entraÃ®nement en cours (pending/running) via son job_id ; le thread s'arrÃªte au procha… |
+| `copy_path` | contributor | — | ✅ | — | builtin | — | — | Copie fichier ou arborescence dans la sandbox |
+| `count_lines` | read_only | ✅ | — | ✅ | builtin | — | — | DÃ©compte lignes, mots, caractÃ¨res et octets (Ã©quivalent `wc`) |
+| `dataset_stats` | read_only | ✅ | — | ✅ | builtin | — | — | Profil rapide d'un dataset CSV/TSV/JSONL sous la sandbox : lignes, colonnes, valeurs manquantes, distribution… |
+| `dedupe_lines` | contributor | — | ✅ | — | builtin | — | — | Supprime les lignes dupliquÃ©es d'un fichier (dans la sandbox) |
+| `disk_usage` | read_only | ✅ | — | ✅ | builtin | — | — | Espace disque libre + taille des enfants directs d'un dossier sandbox (les entraÃ®nements meurent silencieuse… |
+| `docker_exec` | operator | — | ✅ | — | builtin | — | — | ExÃ©cute `command` dans le conteneur autorisÃ© (liste d'arguments, jamais de shell ; allowlist AGENT_DOCKER_A… |
+| `docker_logs` | read_only | ✅ | — | ✅ | builtin | — | — | DerniÃ¨res `tail` lignes de logs d'un conteneur (stdout + stderr) |
+| `docker_ps` | read_only | ✅ | — | ✅ | builtin | — | — | Liste les conteneurs (un objet JSON par conteneur, format `docker ps`) |
+| `docker_stats` | read_only | ✅ | — | ✅ | builtin | — | — | Consommation CPU/RAM par conteneur (`docker stats --no-stream`, un objet JSON par conteneur â€” mÃªme convent… |
+| `download_file` | contributor | — | ✅ | — | builtin | — | — | TÃ©lÃ©charge un fichier http(s) DANS la sandbox, en streaming |
+| `env_info` | read_only | ✅ | — | ✅ | builtin | — | — | Diagnostic lecture seule : Python, OS, CPU et versions des packages clÃ©s |
+| `file_checksum` | read_only | ✅ | — | ✅ | builtin | — | — | Empreinte (hash) d'un fichier : md5, sha1, sha256 (dÃ©faut) ou sha512 |
+| `file_info` | read_only | ✅ | — | ✅ | builtin | — | — | MÃ©tadonnÃ©es d'un fichier ou dossier (type, taille, dates, encodage, lignes) |
+| `find_duplicates` | admin | — | ✅ | — | builtin | — | — | DÃ©tecte les fichiers au contenu identique (par empreinte) sous `path` |
+| `find_file` | read_only | ✅ | — | ✅ | builtin | — | — | Cherche rÃ©cursivement les fichiers/dossiers dont le chemin relatif ou le nom correspond Ã `pattern` (regex P… |
+| `git_branch` | read_only | ✅ | — | ✅ | builtin | — | — | Gestion des branches via le backend Git MCP optionnel. |
+| `git_commit` | admin | — | ✅ | — | builtin | — | — | Crée un commit via le backend Git MCP optionnel, après approbation. |
+| `git_diff` | read_only | ✅ | — | ✅ | builtin | — | — | `git diff` (index <-> travail), optionnellement `--cached` et restreint Ã un chemin de la sandbox |
+| `git_log` | read_only | ✅ | — | ✅ | builtin | — | — | `git log --oneline` des N derniers commits (limit plafonnÃ© Ã 100) |
+| `git_status` | read_only | ✅ | — | ✅ | builtin | — | — | `git status --short --branch` sur le dÃ©pÃ´t de la racine sandbox |
+| `github_get_pr` | read_only | ✅ | — | ✅ | builtin | — | — | Récupère une pull request via le backend GitHub MCP optionnel. |
+| `github_get_workflow_run` | read_only | ✅ | — | ✅ | builtin | — | — | Récupère une exécution GitHub Actions via le backend GitHub MCP optionnel. |
+| `github_list_issues` | read_only | ✅ | — | ✅ | builtin | — | — | Liste les issues via le backend GitHub MCP optionnel. |
+| `github_list_prs` | read_only | ✅ | — | ✅ | builtin | — | — | Liste les pull requests via le backend GitHub MCP optionnel. |
+| `gpu_info` | read_only | ✅ | — | ✅ | builtin | — | — | Ã‰tat GPU complet : disponibilitÃ© CUDA, VRAM, utilisation |
+| `head_file` | read_only | ✅ | — | ✅ | builtin | — | — | PremiÃ¨res lignes d'un fichier texte (pendant symÃ©trique de tail_file) |
+| `http_get` | read_only | ✅ | — | ✅ | builtin | — | — | GET HTTP : renvoie {status, reason, url, content_type, body tronquÃ©} |
+| `http_post` | contributor | — | ✅ | — | builtin | — | — | POST HTTP : corps brut (`data`) ou JSON (`json_payload`), mutuellement exclusifs |
+| `job_get` | read_only | ✅ | — | ✅ | builtin | — | — | Charge le payload COMPLET d'un job (hyperparamÃ¨tres, erreur, chemin modÃ¨le) |
+| `job_list` | read_only | ✅ | — | ✅ | builtin | — | — | Liste les jobs d'entraÃ®nement les plus rÃ©cents (lecture seule) |
+| `list_dir` | read_only | ✅ | — | ✅ | builtin | — | — | Liste un rÃ©pertoire (dossiers d'abord, puis fichiers, ordre alphabÃ©tique) |
+| `make_dir` | contributor | — | ✅ | — | builtin | — | — | CrÃ©e un rÃ©pertoire (parents inclus, sans erreur s'il existe dÃ©jÃ ) |
+| `model_versions` | read_only | ✅ | — | ✅ | builtin | — | — | Liste les versions de modÃ¨les entraÃ®nÃ©s visibles dans la sandbox (mÃªmes conventions que core/model_versio… |
+| `move_path` | contributor | — | ✅ | — | builtin | — | — | DÃ©place/renomme fichier ou rÃ©pertoire dans la sandbox |
+| `now` | read_only | ✅ | — | ✅ | builtin | — | — | Horodatage courant ISO lisible ('2026-08-25 14:03:27+00:00') |
+| `postgres_query` | read_only | ✅ | — | ✅ | builtin | — | — | ExÃ©cute une requÃªte SQL sur PostgreSQL |
+| `predict_sentiment` | read_only | ✅ | — | ✅ | builtin | — | — | PrÃ©dit le sentiment (positive/neutral/negative) d'une liste de textes FR/EN avec le modÃ¨le courant |
+| `read_file` | read_only | ✅ | — | ✅ | builtin | — | — | Lit un fichier texte (UTF-8) ; tronque au-delÃ de max_bytes |
+| `read_json` | read_only | ✅ | — | ✅ | builtin | — | — | Lit et parse un fichier JSON ; message d'erreur prÃ©cis si invalide |
+| `remove_path` | contributor | — | ✅ | — | builtin | — | — | Supprime fichier ou rÃ©pertoire |
+| `run_command` | operator | — | ✅ | — | builtin | — | — | ExÃ©cute une commande en liste d'arguments, ex : ["git", "--version"] |
+| `run_python` | operator | — | ✅ | — | builtin | — | — | ExÃ©cute un extrait Python dans un sous-processus fraÃ®chement crÃ©Ã© |
+| `run_shell` | admin | — | ✅ | — | builtin | — | — | Exécute une commande SÛRE en liste d'arguments (allowlist AGENT_ALLOWED_BINARIES, jamais de shell, timeout pl… |
+| `search_in_files` | read_only | ✅ | — | ✅ | builtin | — | — | Cherche `pattern` (regex Python, insensible Ã la casse) dans le contenu des fichiers sous `path` |
+| `split_file` | contributor | — | ✅ | — | builtin | — | — | DÃ©coupe un gros fichier en morceaux numÃ©rotÃ©s (max_lines lignes chacun) |
+| `start_training` | operator | — | ✅ | — | builtin | — | — | Lance un entraÃ®nement en arriÃ¨re-plan (mÃªme mÃ©canique que POST /train) et retourne immÃ©diatement le job_… |
+| `stop_training` | operator | — | ✅ | — | builtin | — | — | Alias de cancel_training : demande l'arrÃªt propre d'un entraÃ®nement en cours (pending/running) via son job_… |
+| `tail_file` | read_only | ✅ | — | ✅ | builtin | — | — | DerniÃ¨res `lines` lignes d'un fichier texte (lecture arriÃ¨re bornÃ©e Ã 256 Ko : adaptÃ© aux logs qui grossi… |
+| `touch` | contributor | — | ✅ | — | builtin | — | — | CrÃ©e un fichier vide ou rafraÃ®chit sa date de modification (sans Ã©craser) |
+| `train_model` | admin | — | ✅ | — | builtin | — | — | Lance un entraÃ®nement et ATTEND sa fin (bloquant, timeout en secondes) ; retourne le statut final, le chemin… |
+| `unzip_file` | contributor | — | ✅ | — | builtin | — | — | Extrait une archive .zip de la sandbox vers un dossier de la sandbox |
+| `web_fetch` | read_only | ✅ | — | ✅ | builtin | — | — | RÃ©cupÃ¨re une page distante : {status, reason, url, content_type, title, body} |
+| `web_read` | read_only | ✅ | — | ✅ | builtin | — | — | Lit une page web et en extrait le TEXTE lisible (sans HTML) |
+| `web_search` | read_only | ✅ | — | ✅ | builtin | — | — | Recherche web : SearXNG auto-hébergée en primaire, repli DuckDuckGo Lite ; {query, engine, result_count, resu… |
+| `write_file` | contributor | — | ✅ | — | builtin | — | — | Ã‰crit `content` DANS la sandbox (rÃ©tro-compatible : chemins relatifs rÃ©solus depuis la racine autorisÃ©e,… |
+| `write_json` | contributor | — | ✅ | — | builtin | — | — | SÃ©rialise `data` (dict ou list) en JSON UTF-8 indentÃ© DANS la sandbox |
+| `zip_path` | contributor | — | ✅ | — | builtin | — | — | Compresse un fichier ou un dossier de la sandbox vers une archive .zip |
 
 ## Schémas d'entrée (`inputSchema`)
 

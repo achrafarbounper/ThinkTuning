@@ -73,6 +73,7 @@ from app.infrastructure.persistence.audit_store import (
     ACT_MCP_RESOURCE_READ,
     ACT_MCP_SAMPLING,
     ACT_MCP_TOOL_CALL,
+    ACT_MCP_TOOL_DEPRECATED,
 )
 
 logger = logging.getLogger("thinktuning.mcp.server")
@@ -368,6 +369,10 @@ class MCPServer:
         if method == MCPMethod.TOOLS_CALL:
             tool_name = params.get("name")
             action = ACT_MCP_ORCHESTRATE if tool_name == "orchestrate" else ACT_MCP_TOOL_CALL
+            # MCP 2.3.0 : métadonnées de retrait du tool appelé (s'il existe et
+            # est déprécié) — l'événement d'appel normal EST enrichi et un
+            # événement d'audit DÉDIÉ est émis (traçabilité de la migration).
+            deprecation = self._deprecation_of(tool_name)
             tool_detail: dict[str, Any] = {
                 "method": method,
                 "tool": tool_name if isinstance(tool_name, str) else None,
@@ -375,12 +380,20 @@ class MCPServer:
                 "is_error": self._response_is_error(response),
                 "scope": self.scope.value,
             }
+            tool_detail.update(deprecation)
             self._audit_event(
                 action,
                 subject=client_id,
                 detail=tool_detail,
                 run_id=request_id,
             )
+            if deprecation.get("deprecated"):
+                self._audit_event(
+                    ACT_MCP_TOOL_DEPRECATED,
+                    subject=client_id,
+                    detail=tool_detail,
+                    run_id=request_id,
+                )
             return
         audit_action = _AUDIT_ACTION_BY_METHOD.get(method)
         if audit_action is None:
@@ -419,6 +432,32 @@ class MCPServer:
         """Arguments MCP de l'appel (``None`` / non-objet → ``{}``) pour l'audit."""
         arguments = params.get("arguments")
         return dict(arguments) if isinstance(arguments, dict) else {}
+
+    def _deprecation_of(self, tool_name: Any) -> dict[str, Any]:
+        """Métadonnées de retrait (MCP 2.3.0) d'un tool appelé, pour l'audit.
+
+        Args:
+            tool_name: nom du tool (``params["name"]``, potentiellement non-str).
+
+        Returns:
+            ``{}`` si le tool est inconnu ou non déprécié (détail d'audit
+            INCHANGÉ — compatibilité stricte des consommateurs), sinon
+            ``{"deprecated": True, "deprecationMessage": ..., "sunsetAt": ...}``
+            (les champs absents du manifeste sont omis).
+        """
+        if not isinstance(tool_name, str):
+            return {}
+        for tool in self.tool_provider.list_tools():
+            if tool.name == tool_name:
+                if not tool.deprecated:
+                    return {}
+                detail: dict[str, Any] = {"deprecated": True}
+                if tool.deprecation_message:
+                    detail["deprecationMessage"] = tool.deprecation_message
+                if tool.sunset_at:
+                    detail["sunsetAt"] = tool.sunset_at
+                return detail
+        return {}
 
     @staticmethod
     def _response_is_error(response: dict[str, Any]) -> bool:
@@ -615,6 +654,17 @@ class MCPServer:
         if name not in {tool.name for tool in self._visible_tools()}:
             # Indiscernable d'un tool absent : aucun oracle de visibilité (scope).
             return error_result(request_id, ErrorCode.INVALID_PARAMS, f"Unknown tool: {name}")
+        # MCP 2.3.0 : tool déprécié → l'appel PROCEDE (compatibilité) mais est
+        # averti ; l'audit dédié est émis plus bas (tâche 12, _audit_method).
+        for tool in self._visible_tools():
+            if tool.name == name and tool.deprecated:
+                logger.warning(
+                    "MCP tool « %s » est DÉPRÉCIÉ (sunset : %s) — %s",
+                    name,
+                    tool.sunset_at or "date non fixée",
+                    tool.deprecation_message or "aucun message de migration",
+                )
+                break
         try:
             text = self.tool_provider.call_tool(name, dict(arguments or {}))
         except ToolError as exc:

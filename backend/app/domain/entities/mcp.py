@@ -213,7 +213,11 @@ class MCPTool:
         required_scope : rôle minimal pour VOIR et APPELER le tool
                          (``MCPScopeRole``, docs/mcp/MCP_SECURITY.md) ;
         handler :        exécution pure ``(arguments: dict) -> str`` ; lève
-                         ``ToolError`` pour une erreur métier (isError).
+                         ``ToolError`` pour une erreur métier (isError) ;
+        deprecated :     tool en fin de vie (MCP 2.3.0) — l'appel reste
+                         possible (compatibilité) mais est audité et averti ;
+        deprecation_message : message de migration annoncé aux clients ;
+        sunset_at :      date de retrait annoncée (ISO 8601).
     """
 
     name: str
@@ -222,6 +226,9 @@ class MCPTool:
     annotations: dict[str, bool]
     required_scope: MCPScopeRole
     handler: Callable[[dict[str, Any]], str]
+    deprecated: bool = False
+    deprecation_message: str = ""
+    sunset_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Projection MCP du tool (``tools/list``)."""
@@ -230,6 +237,9 @@ class MCPTool:
             "description": self.description,
             "inputSchema": self.input_schema,
             "annotations": self.annotations,
+            "deprecated": self.deprecated,
+            "deprecationMessage": self.deprecation_message,
+            "sunsetAt": self.sunset_at,
         }
 
 
