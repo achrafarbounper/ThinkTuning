@@ -344,9 +344,7 @@ def _sse_message(payload: dict[str, Any] | str | None) -> str:
     return f"event: message\ndata: {data}\n\n"
 
 
-def _sse_event(
-    event: str, payload: dict[str, Any], *, event_id: int | None = None
-) -> str:
+def _sse_event(event: str, payload: dict[str, Any], *, event_id: int | None = None) -> str:
     """Sérialise une progression MCP en événement SSE nommé.
 
     ``event_id`` (MCP 2.3.0 — SCRUM-163) : curseur natif SSE — la séquence du
@@ -673,9 +671,7 @@ async def _replay_durable_events(
         yield "data: [DONE]\n\n"
         return
     if not run_id:
-        yield _replay_error(
-            "", "run_id or resume_token is required", error_code="run_id_required"
-        )
+        yield _replay_error("", "run_id or resume_token is required", error_code="run_id_required")
         yield "data: [DONE]\n\n"
         return
     async for chunk in _replay_stream(run_id, after_sequence, bool(arguments.get("follow"))):
@@ -707,9 +703,7 @@ async def _replay_stream(
             yield "data: [DONE]\n\n"
             return
         if state is None:
-            yield _replay_error(
-                run_id, f"unknown MCP run {run_id!r}", error_code="run_not_found"
-            )
+            yield _replay_error(run_id, f"unknown MCP run {run_id!r}", error_code="run_not_found")
             yield "data: [DONE]\n\n"
             return
     try:

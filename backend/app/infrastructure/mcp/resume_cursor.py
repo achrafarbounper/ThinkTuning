@@ -258,4 +258,3 @@ __all__ = [
     "resume_follow_timeout_seconds",
     "token_ttl_seconds",
 ]
-
