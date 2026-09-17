@@ -305,9 +305,7 @@ def structured_from_domain_error(
     """
     if isinstance(exc, ValidationError):
         details = exc.details or {}
-        field_errors = {
-            str(key): [sanitize_message(str(value))] for key, value in details.items()
-        }
+        field_errors = {str(key): [sanitize_message(str(value))] for key, value in details.items()}
         return structured_validation(
             exc.message, field_errors=field_errors, correlation_id=correlation_id
         )
