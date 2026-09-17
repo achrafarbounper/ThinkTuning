@@ -217,6 +217,12 @@ def compile_tool(name: str, meta: Mapping[str, Any] | None) -> tuple[dict[str, A
         if isinstance(definition.get("safety"), Mapping)
         else "restricted"
     )
+    # Métadonnées de retrait (MCP 2.3.0) — pass-through design-time depuis le
+    # standard (clés libres de ``from_meta_format``). Uniquement exposées si
+    # présentes : un tool non déprécié garde une entrée inchangée (compat).
+    deprecated = bool(definition.get("deprecated", False))
+    deprecation_message = str(definition.get("deprecationMessage", "") or "")
+    sunset_at = str(definition.get("sunsetAt", "") or "")
     entry: dict[str, Any] = {
         "name": name,
         "description": str(definition.get("description", "") or ""),
@@ -231,7 +237,23 @@ def compile_tool(name: str, meta: Mapping[str, Any] | None) -> tuple[dict[str, A
         },
         "requiredScope": posture.required_scope.value,
     }
-    warnings = [f"{name}: {issue}" for issue in issues] if not valid else []
+    # Retrait (MCP 2.3.0) : ``deprecated`` est TOUJOURS présent (booléen
+    # explicite, projection tools/list déterministe) ; les métadonnées
+    # complémentaires ne sont émises que si renseignées.
+    entry["deprecated"] = deprecated
+    if deprecated and deprecation_message:
+        entry["deprecationMessage"] = deprecation_message
+    if deprecated and sunset_at:
+        entry["sunsetAt"] = sunset_at
+    warnings: list[str] = []
+    if deprecated:
+        warnings.append(
+            f"{name}: tool DÉPRÉCIÉ — retrait prévu "
+            f"{sunset_at or 'date non fixée'}"
+            + (f" — {deprecation_message}" if deprecation_message else "")
+        )
+    if not valid:
+        warnings.extend(f"{name}: {issue}" for issue in issues)
     return entry, warnings
 
 
@@ -295,6 +317,7 @@ def build_manifest(
         "generatedAt": generated_at or utc_now_iso(),
         "toolCount": len(compiled),
         "readOnlyCount": sum(1 for e in compiled if e["annotations"]["readOnlyHint"]),
+        "deprecatedCount": sum(1 for e in compiled if e.get("deprecated")),
         "tools": compiled,
         "warnings": warnings,
     }
@@ -333,6 +356,9 @@ def entry_to_mcp_tool(
         annotations=dict(entry.get("annotations") or READ_ONLY_ANNOTATIONS),
         required_scope=scope,
         handler=handler,
+        deprecated=bool(entry.get("deprecated", False)),
+        deprecation_message=str(entry.get("deprecationMessage", "") or ""),
+        sunset_at=str(entry.get("sunsetAt", "") or ""),
     )
 
 
@@ -457,6 +483,7 @@ def manifest_to_markdown(manifest: Mapping[str, Any]) -> str:
         f"| Version surface | {version} |",
         f"| Protocole MCP | {manifest.get('protocolVersion', MCP_PROTOCOL_VERSION)} |",
         f"| Tools | **{tool_count}** (read-only : **{read_only}** · mutation : **{mutating}**) |",
+        f"| Dépréciés | **{manifest.get('deprecatedCount', 0)}** |",
         f"| Généré le | {manifest.get('generatedAt', '—')} |",
         f"| Avertissements | {len(warnings)} |",
         "",
@@ -467,16 +494,23 @@ def manifest_to_markdown(manifest: Mapping[str, Any]) -> str:
         "`Scope requis` = rôle minimal pour VOIR le tool (`MCPScopeRole`,",
         "docs/mcp/MCP_SECURITY.md) — hint design-time ; la policy runtime",
         "(tâche 5) reste le garde-fou effectif à chaque appel.",
+        "`Deprecated` = tool en fin de vie (`deprecated` du manifeste) ;",
+        "`Sunset` = date de retrait annoncée (`sunsetAt`, ISO). Voir la",
+        "politique de retrait : docs/mcp/MCP_GOVERNANCE.md §5.",
         "",
-        "| Tool | Scope requis | readOnly | destructive | idempotent | Catégorie | Description |",
-        "|---|---|:-:|:-:|:-:|---|---|",
+        "| Tool | Scope requis | readOnly | destructive | idempotent "
+        "| Catégorie | Deprecated | Sunset | Description |",
+        "|---|---|:-:|:-:|:-:|---|:-:|---|---|",
     ]
     for entry in manifest.get("tools", []):
         annotations = entry.get("annotations", {})
+        deprecated = bool(entry.get("deprecated", False))
         lines.append(
             f"| `{entry['name']}` | {entry.get('requiredScope', 'admin')} "
             f"| {_flag(annotations, 'readOnlyHint')} | {_flag(annotations, 'destructiveHint')} "
             f"| {_flag(annotations, 'idempotentHint')} | {entry.get('category', 'builtin')} "
+            f"| {'🚫' if deprecated else '—'} "
+            f"| {_md_cell(entry.get('sunsetAt', '')) if deprecated else '—'} "
             f"| {_md_cell(entry.get('description', ''))} |"
         )
 

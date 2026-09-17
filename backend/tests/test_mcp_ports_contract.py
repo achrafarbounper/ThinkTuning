@@ -152,7 +152,7 @@ def test_mcp_tool_is_immutable() -> None:
 
 
 def test_mcp_tool_to_dict_keys_match_mcp() -> None:
-    """to_dict projette exactement les clés MCP (name, description, inputSchema, annotations)."""
+    """to_dict projette les clés MCP et les métadonnées de dépréciation ThinkTuning."""
     tool = MCPTool(
         name="my_tool",
         description="A tool",
@@ -162,7 +162,13 @@ def test_mcp_tool_to_dict_keys_match_mcp() -> None:
         handler=lambda _: "ok",
     )
     d = tool.to_dict()
-    assert set(d.keys()) == {"name", "description", "inputSchema", "annotations"}
+    assert set(d.keys()) == {
+        "name", "description", "inputSchema", "annotations",
+        "deprecated", "deprecationMessage", "sunsetAt",
+    }
+    assert d["deprecated"] is False
+    assert d["deprecationMessage"] == ""
+    assert d["sunsetAt"] == ""
     assert d["name"] == "my_tool"
     assert d["inputSchema"]["type"] == "object"
     assert d["annotations"]["readOnlyHint"] is True
@@ -423,7 +429,13 @@ def test_server_uses_domain_mcp_tool() -> None:
     names = {t["name"] for t in tools}
     assert {"mcp_version", "server_info"} <= names
     for t in tools:
-        assert set(t.keys()) == {"name", "description", "inputSchema", "annotations"}
+        assert set(t.keys()) == {
+            "name", "description", "inputSchema", "annotations",
+            "deprecated", "deprecationMessage", "sunsetAt",
+        }
+        assert t["deprecated"] is False
+        assert t["deprecationMessage"] == ""
+        assert t["sunsetAt"] == ""
 
 
 def test_scope_filters_tools_by_port() -> None:

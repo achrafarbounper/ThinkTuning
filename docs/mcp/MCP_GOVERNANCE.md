@@ -79,3 +79,67 @@ Exemple de RFC : `docs/mcp/rfc/0001-expose-predict-sentiment-tool.md`
 - [ ] Audit trail vérifié (pas de fuite de données)
 - [ ] Clients impactés notifiés (CHANGELOG + email)
 - [ ] Migration guides publiés (`docs/mcp/migration/`)
+
+---
+
+## 🗑️ §5 — Politique de retrait des tools (MCP 2.3.0)
+
+> Source de vérité du cycle de vie d'un tool : `tools_config.json`
+> (standard `thinktuning.tool/v1`). Le manifeste compilé
+> (`docs/mcp/MANIFEST.md`) et la surface `tools/list` la projettent.
+
+### 5.1 Cycle de vie
+
+```
+ACTIVE → DEPRECATED → SUNSET → RETIRÉ
+        (audité)      (retrait effectif)
+```
+
+| Étape | Où | Effet |
+|---|---|---|
+| **ACTIVE** | `tools_config.json` sans métadonnées de retrait | Usage normal (aucun champ de retrait dans le détail d'audit). |
+| **DEPRECATED** | `deprecated: true` (+ `deprecationMessage`, `sunsetAt`) | Le tool reste **appelable** (compatibilité clients) : `tools/list` expose `deprecated: true` / `deprecationMessage` / `sunsetAt`, un avertissement est loggé à chaque appel et un événement d'audit dédié `mcp_tool_deprecated` est émis (en plus de `mcp_tool_call` enrichi). |
+| **SUNSET** | `sunsetAt` dépassé | Le mainteneur retire le tool (RFC + changelog) ; `tools/call` répond alors `Unknown tool` (erreur indiscernable d'un tool absent — aucune fuite d'oracle). |
+| **RETIRÉ** | entrée supprimée de `tools_config.json` | Le catalogue est régénéré ; les clients ayant suivi le `deprecationMessage` ont migré. |
+
+### 5.2 Règles de dépréciation
+
+1. **Toujours annoncer avant de retirer** : un tool ne passe JAMAIS d'`ACTIVE`
+   à « retiré » en une release. Période de dépréciation minimale : **2 releases
+   mineures** ou **90 jours**, le plus long des deux.
+2. **Toujours fournir un chemin de migration** : `deprecationMessage` nomme le
+   remplacement (`"Utiliser <nouveau_tool>"`) et, si applicable, le guide de
+   migration (`docs/mcp/migration/`).
+3. **Toujours fixer une date** : `sunsetAt` (ISO 8601) rend le retrait
+   prévisible ; un tool déprécié sans date est rappelé au Council (warning de
+   compilation : « date non fixée »).
+4. **Compatibilité d'abord** : la dépréciation ne change NI le contrat
+   d'appel, NI la réponse (aucune erreur nouvelle pour les clients existants).
+5. **Auditabilité** : chaque usage d'un tool déprécié est tracé
+   (`mcp_tool_deprecated`) — la courbe d'usage décroissante confirme que les
+   clients ont migré avant le retrait.
+
+### 5.3 Checklist de retrait effectif
+
+- [ ] `sunsetAt` dépassé ET usage audité ≈ 0 sur les 30 derniers jours
+- [ ] RFC de retrait acceptée (breaking change)
+- [ ] Changelog (section `Removed`) + notification clients (email)
+- [ ] `tools_config.json` nettoyé → `MANIFEST.md` régénéré
+  (`python -m app.infrastructure.mcp.manifest_generator`, depuis `backend/`)
+- [ ] Guide de migration archivé dans `docs/mcp/migration/`
+
+### 5.4 Déclaration (exemple)
+
+```json
+{
+  "tools": {
+    "old_tool": {
+      "name": "old_tool",
+      "description": "Ancien tool",
+      "deprecated": true,
+      "deprecationMessage": "Utiliser new_tool (guide : docs/mcp/migration/old_tool.md)",
+      "sunsetAt": "2027-06-01"
+    }
+  }
+}
+```

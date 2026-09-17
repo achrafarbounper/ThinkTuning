@@ -48,6 +48,7 @@ ACT_CONNECT = "connectivity"  # sonde de connectivité provider
 # ``subject`` porte toujours le ``client_id`` MCP, ``detail`` la description
 # de l'appel (tool/URI/prompt, arguments anonymisés, is_error, scope).
 ACT_MCP_TOOL_CALL = "mcp_tool_call"  # outils/call (hors orchestrate)
+ACT_MCP_TOOL_DEPRECATED = "mcp_tool_deprecated"  # tools/call sur un tool déprécié
 ACT_MCP_RESOURCE_READ = "mcp_resource_read"  # resources/read
 ACT_MCP_PROMPT_GET = "mcp_prompt_get"  # prompts/get
 ACT_MCP_SAMPLING = "mcp_sampling"  # sampling/create
@@ -58,6 +59,7 @@ ACT_MCP_CLIENT_TOOL_CALL = "mcp_client_tool_call"  # outbound host call
 # et le tri du dashboard interne.
 MCP_ACTIONS = (
     ACT_MCP_TOOL_CALL,
+    ACT_MCP_TOOL_DEPRECATED,
     ACT_MCP_RESOURCE_READ,
     ACT_MCP_PROMPT_GET,
     ACT_MCP_SAMPLING,

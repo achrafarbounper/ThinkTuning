@@ -197,6 +197,10 @@ def test_compiled_entry_shape() -> None:
         "annotations",
         "safety",
         "requiredScope",
+        # MCP 2.3.0 : booléen de retrait TOUJOURS présent (les métadonnées
+        # complémentaires ``deprecationMessage`` / ``sunsetAt`` ne sont émises
+        # que si le tool est déprécié et renseignées).
+        "deprecated",
     }
     assert entry["category"] == "builtin"  # défaut standard v1 (meta legacy sans catégorie)
     assert entry["version"] == "1.0"
