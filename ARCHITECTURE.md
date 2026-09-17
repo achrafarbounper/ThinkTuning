@@ -16,6 +16,82 @@ les conventions à respecter pour toute évolution.
 
 ---
 
+## 0. Carte de navigation pour agents IA
+
+Cette section est l'index court à consulter avant toute recherche ou
+contribution. Les chemins sont relatifs à la racine du dépôt.
+
+### Entrées et responsabilités
+
+| Couche | Rôle | Entrée principale | Dépendances autorisées |
+| --- | --- | --- | --- |
+| Backend / API | Composition HTTP, middleware, routes `/api/v1` et cycle de vie | [`backend/app/api/main.py`](backend/app/api/main.py) — `app` | `app/api` peut assembler `domain`, `application`, `agent` et `infrastructure`; aucune logique métier nouvelle dans les routes |
+| Backend / domaine | Entités, erreurs et ports stables | [`backend/app/domain/`](backend/app/domain/) | Bibliothèque standard et types de domaine uniquement; jamais FastAPI, stockage, LLM ou framework d'infrastructure |
+| Backend / application | Cas d'usage, orchestration applicative et services | [`backend/app/application/`](backend/app/application/) | `app/domain`; les détails externes passent par des ports ou des adaptateurs injectés |
+| Backend / agent | Boucle Intent → Plan → Policy → Budget → Action | [`backend/app/agent/core.py`](backend/app/agent/core.py) — `AgentCore` | `app/domain` et les ports; la configuration et les adaptateurs sont fournis par la composition |
+| Backend / infrastructure | Adaptateurs ML, LLM, persistance, sécurité, outils et transports | [`backend/app/infrastructure/`](backend/app/infrastructure/) | Peut dépendre de `app/domain`, `app/application` et des bibliothèques externes; implémente les ports, sans faire remonter ses détails |
+| MCP / HTTP | Transport JSON-RPC streamable HTTP + SSE, discovery et orchestration | [`backend/app/infrastructure/mcp/mcp_server_sse.py`](backend/app/infrastructure/mcp/mcp_server_sse.py) — `POST /mcp/sse` | Réutilise `domain`, `agent` et les adaptateurs MCP; ne modifie pas le contrat OpenAPI REST |
+| MCP / stdio | Serveur MCP ligne par ligne pour clients locaux | [`backend/app/infrastructure/mcp/mcp_server_stdio.py`](backend/app/infrastructure/mcp/mcp_server_stdio.py) — `thinktuning-mcp` | Même serveur MCP et mêmes policies que le transport HTTP; stdout est réservé au JSON-RPC, les logs vont sur stderr |
+| Frontend | Composition UI, navigation hashée et état de session | [`frontend/src/main.tsx`](frontend/src/main.tsx) puis [`frontend/src/App.tsx`](frontend/src/App.tsx) | `api/` pour les appels réseau; composants, pages et hooks ne font pas d'appel `fetch` direct |
+| Contrats générés | Types TypeScript dérivés du contrat REST | [`frontend/src/api/generated/schema.d.ts`](frontend/src/api/generated/schema.d.ts) | Source unique [`backend/openapi.json`](backend/openapi.json); régénérer plutôt qu'éditer manuellement |
+
+### Parcours de recherche recommandé
+
+1. Identifier la surface appelée : route REST `/api/v1`, MCP `/mcp/sse` /
+   `thinktuning-mcp`, ou écran frontend.
+2. Partir de l'entrée ci-dessus, puis suivre le cas d'usage vers `domain`
+   (port/entité) et enfin l'adaptateur `infrastructure`.
+3. Pour un appel frontend, commencer par `frontend/src/api/`, puis remonter
+   vers la page ou le composant; pour un flux SSE, commencer par
+   `frontend/src/components/chat/streamSse.ts`.
+4. Chercher d'abord le symbole (`rg`, recherche de définition), puis ses tests
+   (`backend/tests/` ou `frontend/src/**/*.test.*`). Ne pas commencer par les
+   répertoires historiques `_migration/`, `experiments/` ou `outputs/`.
+
+### Convention de nommage et d'exports
+
+- Python : modules et fonctions en `snake_case`, classes et exceptions en
+  `PascalCase`, constantes en `UPPER_SNAKE_CASE`. Les ports portent le suffixe
+  `Port`; les implémentations/adaptateurs indiquent leur technologie
+  (`Mongo...Store`, `Http...Client`, `...Adapter`).
+- TypeScript/React : composants, pages et types en `PascalCase`; hooks en
+  `useX`; clients et helpers en `camelCase`; tests adjacents portent le suffixe
+  `.test.ts` ou `.test.tsx`.
+- Les façades publiques déclarent explicitement `__all__` côté Python et
+  réexportent depuis un `index.ts` côté frontend lorsque le dossier en possède
+  un. Ne pas contourner une façade pour importer un détail privé.
+- Les nouveaux exports doivent rester minimaux et nommés; ne pas ajouter
+  d'export global « pratique » ni d'import circulaire. Un changement de
+  contrat public exige la mise à jour conjointe de l'OpenAPI, des types générés,
+  des clients et des tests.
+
+### Commandes de validation par couche
+
+| Surface modifiée | Validation ciblée |
+| --- | --- |
+| Backend Python | `cd backend; ruff check app/; ruff format --check app/; mypy app/; pytest tests/ -q` |
+| Backend MCP | `cd backend; pytest tests/test_mcp_*.py -q` puis `pytest tests/test_mcp_sqlite_migration.py tests/test_mcp_mongo_run_store.py -q` |
+| Frontend | `cd frontend; npm run typecheck; npm run lint; npm test; npm run build` |
+| Types REST | `cd frontend; npm run generate:api-types`, puis la validation frontend |
+| Documentation seule | Vérifier les liens et la cohérence avec les chemins réels; aucun contrat ou build applicatif n'est requis |
+
+Les mêmes étapes sont exécutées par [`.github/workflows/ci.yml`](.github/workflows/ci.yml);
+la CI reste l'autorité pour les versions d'outils et le seuil de couverture.
+
+### Règles de contribution
+
+- Une modification reste dans sa couche; si elle doit franchir une frontière,
+  passer par un port, un cas d'usage ou un client dédié plutôt que par un
+  import direct.
+- Préserver les contrats REST v1, MCP et frontend. Toute évolution de contrat
+  doit être explicitement accompagnée de ses artefacts générés et de tests.
+- Ajouter ou déplacer un point d'entrée implique de mettre à jour cette carte,
+  les README concernés et la commande de validation associée.
+- Décrire les erreurs via les types et enveloppes existants; ne pas avaler une
+  exception ni fournir un fallback silencieux.
+
+---
+
 ## 1. Vue d'ensemble
 
 ```
