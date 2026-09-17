@@ -9,6 +9,48 @@
 ## Unreleased — pagination des catalogues (SCRUM-157)
 
 > **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (déjà bumpée en
+
+## Unreleased — cycle de vie des runs (MCP 2.3.0, SCRUM-163)
+
+> **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (inchangée).
+> Le cycle de vie est **additif** : le vocabulaire interne (`pending` /
+> `awaiting_approval`) reste accepté en entrée et exposé via `state` (dual
+> accept, Schema Evolution — aucun breaking pour les clients v2.2.x).
+
+### Added — statuts standardisés + `runs/retry`
+
+- **Cycle de vie exposé** (`runs/get`, `runs/list` → clé `status`) :
+  `queued | running | waiting_for_approval | completed | failed | cancelled |
+  expired` (+ `partial_success` conservé pour la dégradation gracieuse).
+- `normalize_mcp_run_state` / `canonical_mcp_run_status`
+  (`app/domain/ports/mcp_ports.py`) — dual-accept des aliases
+  (`queued → pending`, `waiting_for_approval → awaiting_approval`),
+  fail-closed sur état inconnu.
+- **`orchestrate_retry`** (équivalent `runs/retry`) — crée un NOUVEAU run
+  `pending` lié à un run source terminal (`failed` / `expired`) : même
+  `request_fingerprint`, `parent_run_id` (filiation d'audit), `retry_count + 1`.
+  Aucune exécution implicite ; scope CONTRIBUTOR requis (mutation).
+- **`expired`** : état terminal DÉDIÉ de péremption — le sweeper
+  (`run_sweeper`) récolte désormais tout run non abouti vers `expired`
+  (au lieu de `failed`/`cancelled`), réessayable via `runs/retry`.
+- Traçabilité bilatérale du retry : événements `run_retry` (sur la source)
+  et `run_retry_scheduled` (sur le nouveau run), rejouables via
+  `orchestrate_events` (`runs/events`).
+
+### Criteria (critères d'acceptation)
+- **Reprise après déconnexion** : replay incrémental `after_sequence`
+  (L1/SCRUM-152, inchangé et couvert par tests).
+- **Annulation propre** : `orchestrate_cancel` one-shot, terminal, FSM
+  fail-closed (deuxième annulation refusée).
+- **Autorisation vérifiée** : `orchestrate_get_run`/`orchestrate_events` en
+  READ_ONLY ; `orchestrate_cancel`/`orchestrate_retry` dès CONTRIBUTOR
+  (invisibles en READ_ONLY — fail-closed serveur).
+- **Tests de transition** : matrice FSM complète, aliases, projection
+  canonique, monotonie des checkpoints, péremption → retry
+  (`backend/tests/test_mcp_run_lifecycle.py`, 13 tests).
+
+---
+
 > SCRUM-156). La pagination est **additive** : aucun changement de forme pour
 > les clients qui ne paginent pas (SemVer : feature rétrocompatible → minor).
 

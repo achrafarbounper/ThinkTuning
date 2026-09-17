@@ -144,6 +144,13 @@ def _durable_run_tools(
         result = resolve().cancel(run_id, reason=arguments.get("reason"))
         return json.dumps(result.as_snapshot(), ensure_ascii=False, default=str)
 
+    def retry(arguments: dict[str, Any]) -> str:
+        run_id = str(arguments.get("run_id") or "").strip()
+        if not run_id:
+            raise ValueError("'run_id' is required")
+        result = resolve().retry(run_id, reason=arguments.get("reason"))
+        return json.dumps(result.as_snapshot(), ensure_ascii=False, default=str)
+
     def events(arguments: dict[str, Any]) -> str:
         run_id = str(arguments.get("run_id") or "").strip()
         if not run_id:
@@ -211,6 +218,22 @@ def _durable_run_tools(
             annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True},
             required_scope=MCPScopeRole.CONTRIBUTOR,
             handler=cancel,
+        ),
+        MCPTool(
+            name="orchestrate_retry",
+            description=(
+                "Create a fresh durable MCP run linked to a failed/expired source run "
+                "(MCP 2.3.0 runs/retry); execute the new run with orchestrate."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"run_id": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["run_id"],
+                "additionalProperties": False,
+            },
+            annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False},
+            required_scope=MCPScopeRole.CONTRIBUTOR,
+            handler=retry,
         ),
         MCPTool(
             name="orchestrate_events",

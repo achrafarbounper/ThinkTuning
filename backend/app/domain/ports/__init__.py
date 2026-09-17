@@ -22,10 +22,12 @@ from .mcp_ports import (  # noqa: F401
     MCPToolRegistryPort,
     SamplingPort,
     WorkerScopePolicy,
+    canonical_mcp_run_status,
     compute_mcp_failure_phase,
     compute_mcp_status,
     normalize_mcp_event,
     normalize_mcp_event_granularity,
+    normalize_mcp_run_state,
 )
 from .model_versioning_ports import (  # noqa: F401
     EvaluationPort,
@@ -101,4 +103,6 @@ __all__ = [
     "TrainingSchedulesPort",
     "MCPSecurityScope",
     "WorkerScopePolicy",
+    "canonical_mcp_run_status",
+    "normalize_mcp_run_state",
 ]

@@ -57,12 +57,13 @@ def test_production_mcp_surface_is_complete_and_scoped() -> None:
 
     tools = _rpc(server, 2, "tools/list")["result"]["tools"]
     names = {tool["name"] for tool in tools}
-    assert len(names) == 47
+    assert len(names) == 48
     assert {
         "orchestrate",
         "orchestrate_get_run",
         "orchestrate_list_runs",
         "orchestrate_cancel",
+        "orchestrate_retry",
         "orchestrate_events",
     } <= names
 
@@ -97,4 +98,7 @@ def test_read_only_cannot_see_durable_cancellation() -> None:
     }
     assert "orchestrate_get_run" in names
     assert "orchestrate_events" in names
+    # Autorisation vérifiée (MCP 2.3.0) : les tools de MUTATION du cycle de vie
+    # (annulation, retry) sont invisibles pour un scope READ_ONLY (fail-closed).
     assert "orchestrate_cancel" not in names
+    assert "orchestrate_retry" not in names

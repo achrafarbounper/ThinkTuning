@@ -321,6 +321,9 @@ _RUN_STATUS_BY_CORE_STATUS: dict[str, str] = {
     "error": RUN_STATUS_FAILED,
     "cancelled": RUN_STATUS_FAILED,
     "cancelling": RUN_STATUS_FAILED,
+    # MCP 2.3.0 : la péremption (récolte sweeper) est comptée comme échec —
+    # jamais « en cours » (la jauge des runs actifs ne doit pas dériver).
+    "expired": RUN_STATUS_FAILED,
     "interrupted": RUN_STATUS_FAILED,
     "budget_exhausted": RUN_STATUS_FAILED,
     "rejected_loop": RUN_STATUS_FAILED,

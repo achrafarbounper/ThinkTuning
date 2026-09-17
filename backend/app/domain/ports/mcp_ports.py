@@ -192,6 +192,10 @@ VALID_MCP_ORCHESTRATION_STATUSES = {
     # P0 (SCRUM-151) : un run interrompu par une validation humaine n'est ni
     # un succès ni un échec — le statut est additif et non terminal.
     "awaiting_approval",
+    # Dual-accept (Schema Evolution, MCP 2.3.0 — SCRUM-163) :
+    # « waiting_for_approval » est le libellé STANDARDISÉ de l'attente de
+    # validation humaine ; il est accepté en entrée et normalisé en interne.
+    "waiting_for_approval",
 }
 VALID_MCP_FAILURE_PHASES = {"lead", "worker", "synthesis"}
 VALID_MCP_EVENT_GRANULARITIES = {"minimal", "summary", "verbose"}
@@ -208,7 +212,55 @@ VALID_MCP_RUN_STATES = {
     "completed",
     "failed",
     "cancelled",
+    # MCP 2.3.0 (SCRUM-163) : état TERMINAL de péremption — un run non
+    # abouti récolté par le sweeper (``run_sweeper``) au-delà du seuil de
+    # fraîcheur. Réessayable via ``runs/retry`` (nouveau run lié).
+    "expired",
 }
+# MCP 2.3.0 (SCRUM-163) — aliases du vocabulaire STANDARDISÉ vers l'interne :
+#     queued               → pending
+#     waiting_for_approval → awaiting_approval
+# Les deux vocabulaires sont acceptés EN ENTRÉE (dual accept, Schema
+# Evolution) ; la projection canonique exposée au client (l'inverse :
+# interne → standardisé) est ``canonical_mcp_run_status``.
+_MCP_RUN_STATE_ALIASES: dict[str, str] = {
+    "queued": "pending",
+    "waiting_for_approval": "awaiting_approval",
+}
+
+
+def normalize_mcp_run_state(value: Any) -> str:
+    """Normalise un état de run (vocabulaire standardisé OU interne).
+
+    Fail-closed : un état inconnu (après aliasing) lève ``ValueError`` avec
+    la liste des états et aliases acceptés — jamais de biais silencieux.
+    """
+    normalized = str(value or "").strip().lower()
+    normalized = _MCP_RUN_STATE_ALIASES.get(normalized, normalized)
+    if normalized not in VALID_MCP_RUN_STATES:
+        raise ValueError(
+            f"unknown MCP run state {str(value)!r} "
+            f"(valid: {sorted(VALID_MCP_RUN_STATES)}; "
+            f"aliases: {sorted(_MCP_RUN_STATE_ALIASES)})"
+        )
+    return normalized
+
+
+def canonical_mcp_run_status(value: Any) -> str:
+    """Projette un état interne vers le vocabulaire STANDARDISÉ (MCP 2.3.0).
+
+    Cycle de vie exposé : ``queued | running | waiting_for_approval |
+    completed | failed | cancelled | expired`` (+ ``partial_success``,
+    aboutissement partiel conservé pour la dégradation gracieuse — resumable
+    à la demande). ``state`` reste la vérité interne brute (compat) ; la
+    projection canonique alimente ``runs/get`` / ``runs/list`` (clé ``status``).
+    """
+    normalized = str(value or "").strip().lower()
+    return {"pending": "queued", "awaiting_approval": "waiting_for_approval"}.get(
+        normalized, normalized
+    )
+
+
 VALID_MCP_RUN_CHECKPOINTS = {
     "initialized",
     "lead_planned",
@@ -228,7 +280,9 @@ _MCP_CHECKPOINT_RANK = {
     "completed": 4,
 }
 _MCP_RUN_TRANSITIONS = {
-    "pending": {"running", "cancelled"},
+    # ``expired`` : récolte du sweeper — un run jamais démarré peut périmer
+    # (il n'y a pas d'échec métier à déclarer, d'où pending → expired).
+    "pending": {"running", "cancelled", "expired"},
     "running": {
         "running",
         "awaiting_approval",
@@ -236,6 +290,7 @@ _MCP_RUN_TRANSITIONS = {
         "completed",
         "failed",
         "cancelled",
+        "expired",
     },
     # Resume ciblé : awaiting_approval -> running (même run_id, retry_count +1).
     "awaiting_approval": {
@@ -245,11 +300,13 @@ _MCP_RUN_TRANSITIONS = {
         "completed",
         "failed",
         "cancelled",
+        "expired",
     },
     "partial_success": {"running", "completed", "failed", "cancelled"},
     "completed": set(),
     "failed": set(),
     "cancelled": set(),
+    "expired": set(),
 }
 
 
@@ -264,6 +321,11 @@ class MCPDurableRunState:
 
     run_id: str = "default"
     request_fingerprint: str | None = None
+    # MCP 2.3.0 (SCRUM-163) : filiation d'audit — un run créé par
+    # ``runs/retry`` pointe vers le run SOURCE (terminal ``failed``/``expired``).
+    # La piste d'audit reste chaînée sans jamais ré-exécuter implicitement le
+    # run source (qui reste immuable).
+    parent_run_id: str | None = None
     lease_owner: str | None = None
     lease_expires_at: datetime | None = None
     state: str = "pending"
@@ -300,10 +362,13 @@ class MCPDurableRunState:
         réécrire ``synthesis_running`` en ``workers_running``). Le
         ``last_sequence`` suit la même règle (max des séquences observées) pour
         que le replay reprenne exactement après le dernier événement émis.
+
+        MCP 2.3.0 (SCRUM-163) : l'état entrant accepte le vocabulaire
+        STANDARDISÉ (``queued`` / ``waiting_for_approval``) — cf.
+        ``normalize_mcp_run_state``. La vérité interne reste le vocabulaire
+        historique (``pending`` / ``awaiting_approval``).
         """
-        normalized_state = str(new_state or "").strip().lower()
-        if normalized_state not in VALID_MCP_RUN_STATES:
-            raise ValueError(f"state must be one of {sorted(VALID_MCP_RUN_STATES)}")
+        normalized_state = normalize_mcp_run_state(new_state)
         if normalized_state not in _MCP_RUN_TRANSITIONS.get(self.state, set()):
             raise ValueError(
                 f"invalid lifecycle transition from {self.state!r} to {normalized_state!r}"
@@ -337,11 +402,12 @@ class MCPDurableRunState:
         next_last_error = last_error if last_error is not None else self.last_error
         # MONOTONIE du curseur de replay : la séquence ne recule jamais.
         next_last_sequence = max(int(self.last_sequence), int(last_sequence or 0))
-        if normalized_state in {"failed", "partial_success", "completed", "cancelled"}:
+        if normalized_state in {"failed", "partial_success", "completed", "cancelled", "expired"}:
             next_phase = next_phase or "lead"
         return MCPDurableRunState(
             run_id=self.run_id,
             request_fingerprint=self.request_fingerprint,
+            parent_run_id=self.parent_run_id,
             lease_owner=self.lease_owner,
             lease_expires_at=self.lease_expires_at,
             state=normalized_state,
@@ -368,21 +434,37 @@ class MCPDurableRunState:
             return "awaiting_approval"
         if self.state == "completed":
             return "success"
-        return "success" if self.state in {"pending", "running"} else "success"
+        # MCP 2.3.0 : ``expired`` est un aboutissement sans réponse finale
+        # (comme ``budget_exhausted``) — compté comme échec, jamais « en cours ».
+        if self.state == "expired":
+            return "failed"
+        # ``cancelled`` : aboutissement sans succès → échec (jamais « en cours »).
+        return "success" if self.state in {"pending", "running"} else "failed"
 
     @property
     def is_terminal(self) -> bool:
-        return self.state in {"completed", "failed", "cancelled"}
+        return self.state in {"completed", "failed", "cancelled", "expired"}
 
     @property
     def is_resumable(self) -> bool:
         """Un run suspendu à une validation humaine reste reprenable."""
         return self.state == "awaiting_approval"
 
+    @property
+    def is_retryable(self) -> bool:
+        """MCP 2.3.0 : un run périmé (ou échoué) est réessayable via ``runs/retry``.
+
+        Le retry crée un NOUVEAU run (le run source est terminal et reste
+        immuable) ; ``expired`` distingue ainsi la péremption de l'échec
+        métier sans jamais ré-exécuter implicitement.
+        """
+        return self.state in {"expired", "failed"}
+
     def as_snapshot(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
             "request_fingerprint": self.request_fingerprint,
+            "parent_run_id": self.parent_run_id,
             "lease_owner": self.lease_owner,
             "lease_expires_at": (
                 self.lease_expires_at.isoformat() if self.lease_expires_at else None
@@ -410,6 +492,10 @@ class MCPDurableRunStorePort(Protocol):
         run_id: str,
         *,
         request_fingerprint: str | None = None,
+        # MCP 2.3.0 (SCRUM-163) : création par ``runs/retry`` — le nouveau run
+        # hérite de la fingerprint SOURCE et porte sa filiation + son rang.
+        parent_run_id: str | None = None,
+        retry_count: int = 0,
     ) -> MCPDurableRunState: ...
 
     def get(self, run_id: str) -> MCPDurableRunState | None: ...
@@ -693,6 +779,21 @@ class MCPOrchestrationPort(Protocol):
         reason: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> MCPDurableRunState: ...
+
+    def retry(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> MCPDurableRunState:
+        """MCP 2.3.0 (``runs/retry``) : crée un NOUVEAU run lié au run source.
+
+        Le run SOURCE (terminal ``failed``/``expired``) reste immuable ; le
+        nouveau run hérite de son ``request_fingerprint``, porte
+        ``parent_run_id`` (filiation) et ``retry_count`` incrémenté. Aucune
+        exécution implicite : le client relance via ``orchestrate(run_id=…)``.
+        """
+        ...
 
     def get_run(self, run_id: str) -> dict[str, Any] | None: ...
 

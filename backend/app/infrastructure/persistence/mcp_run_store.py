@@ -63,6 +63,8 @@ class MCPDurableRunStore:
         run_id: str,
         *,
         request_fingerprint: str | None = None,
+        parent_run_id: str | None = None,
+        retry_count: int = 0,
     ) -> MCPDurableRunState:
         normalized_id = str(run_id or "").strip()
         if not normalized_id:
@@ -70,6 +72,8 @@ class MCPDurableRunStore:
         state = MCPDurableRunState(
             run_id=normalized_id,
             request_fingerprint=request_fingerprint,
+            parent_run_id=parent_run_id,
+            retry_count=int(retry_count),
         )
         with self._lock, self._connect() as connection:
             existing = connection.execute(
@@ -96,6 +100,7 @@ class MCPDurableRunStore:
         return MCPDurableRunState(
             run_id=payload["run_id"],
             request_fingerprint=payload.get("request_fingerprint"),
+            parent_run_id=payload.get("parent_run_id"),
             lease_owner=payload.get("lease_owner"),
             lease_expires_at=(
                 datetime.fromisoformat(payload["lease_expires_at"])
@@ -355,6 +360,7 @@ class MCPDurableRunStore:
         return MCPDurableRunState(
             run_id=payload["run_id"],
             request_fingerprint=payload.get("request_fingerprint"),
+            parent_run_id=payload.get("parent_run_id"),
             lease_owner=payload.get("lease_owner"),
             lease_expires_at=(
                 datetime.fromisoformat(payload["lease_expires_at"])

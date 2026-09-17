@@ -97,6 +97,8 @@ class MongoMCPDurableRunStore:
         run_id: str,
         *,
         request_fingerprint: str | None = None,
+        parent_run_id: str | None = None,
+        retry_count: int = 0,
     ) -> MCPDurableRunState:
         normalized_id = str(run_id or "").strip()
         if not normalized_id:
@@ -104,6 +106,8 @@ class MongoMCPDurableRunStore:
         state = MCPDurableRunState(
             run_id=normalized_id,
             request_fingerprint=request_fingerprint,
+            parent_run_id=parent_run_id,
+            retry_count=int(retry_count),
         )
         document = state.as_snapshot()
         document["_id"] = normalized_id

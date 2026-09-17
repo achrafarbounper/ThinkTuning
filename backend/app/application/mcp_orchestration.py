@@ -17,6 +17,7 @@ from app.domain.ports import (
     MCPOrchestrationRequest,
     MCPOrchestrationResult,
     MultiAgentOrchestratorPort,
+    canonical_mcp_run_status,
     compute_mcp_failure_phase,
     compute_mcp_status,
     normalize_mcp_event,
@@ -324,14 +325,83 @@ class MultiAgentMCPAdapter:
             on_event("run_cancelled", event)
         return state
 
+    def retry(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> MCPDurableRunState:
+        """MCP 2.3.0 (``runs/retry``) : duplique un run terminal réessayable.
+
+        Le run SOURCE (``failed``/``expired``) reste immuable ; un NOUVEAU run
+        ``pending`` est créé avec :
+
+          * le même ``request_fingerprint`` (le prompt/scope d'origine est
+            rejoué tel quel par un ``orchestrate`` ciblant le nouveau run) ;
+          * ``parent_run_id`` = run source (filiation d'audit chaînée) ;
+          * ``retry_count`` = ``source.retry_count + 1``.
+
+        Le nouveau run n'est JAMAIS exécuté implicitement : le client garde le
+        contrôle (appel ``orchestrate`` explicite ou reprise SSE).
+        """
+        if self._durable_store is None:
+            raise RuntimeError("durable run store is required to retry an MCP run")
+        source = self._durable_store.get(run_id)
+        if source is None:
+            raise KeyError(f"unknown MCP run {run_id!r}")
+        if not source.is_retryable:
+            raise ValueError(f"MCP run {run_id!r} is not retryable (state={source.state!r})")
+        new_state = self._durable_store.create(
+            uuid.uuid4().hex[:12],
+            request_fingerprint=source.request_fingerprint,
+            parent_run_id=source.run_id,
+            retry_count=source.retry_count + 1,
+        )
+        reason_text = str(reason or f"retry of {source.run_id} ({source.state})").strip()
+        # Traçabilité BILATÉRALE : le run source référence son successeur et le
+        # nouveau run porte sa filiation — rejouable via ``runs/events``.
+        self._durable_store.append_event(
+            source.run_id,
+            {
+                "event_id": f"retry-{new_state.run_id}",
+                "event": "run_retry",
+                "reason": reason_text,
+                "phase": source.phase,
+                "parent_run_id": source.run_id,
+                "new_run_id": new_state.run_id,
+            },
+        )
+        self._durable_store.append_event(
+            new_state.run_id,
+            {
+                "event_id": f"retry-scheduled-{new_state.run_id}",
+                "event": "run_retry_scheduled",
+                "reason": reason_text,
+                "phase": "lead",
+                "parent_run_id": source.run_id,
+            },
+        )
+        logger.info(
+            "MCP run retry créé : source=%s (%s) -> run_id=%s retry=%d",
+            source.run_id,
+            source.state,
+            new_state.run_id,
+            new_state.retry_count,
+        )
+        return new_state
+
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         if self._durable_store is None:
             raise RuntimeError("durable run store is required to read an MCP run")
         state = self._durable_store.get(run_id)
         if state is None:
             return None
+        # MCP 2.3.0 : ``status`` est la projection STANDARDISÉE du cycle de vie
+        # (``queued``/``waiting_for_approval``) — ``state`` reste la vérité
+        # interne brute (compat clients v2.2.x).
         return {
             **state.as_snapshot(),
+            "status": canonical_mcp_run_status(state.state),
             "events": self._durable_store.list_events(run_id),
         }
 
@@ -351,6 +421,7 @@ class MultiAgentMCPAdapter:
         return [
             {
                 **run.as_snapshot(),
+                "status": canonical_mcp_run_status(run.state),
                 "event_count": len(self._durable_store.list_events(run.run_id)),
             }
             for run in self._durable_store.list_runs(state=state, limit=limit)
