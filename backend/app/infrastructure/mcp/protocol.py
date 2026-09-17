@@ -74,12 +74,23 @@ def success_result(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": result}
 
 
-def error_result(request_id: Any, code: int, message: str) -> dict[str, Any]:
-    """Enveloppe d'erreur JSON-RPC ``{error: {code, message}}``."""
+def error_result(
+    request_id: Any, code: int, message: str, data: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Enveloppe d'erreur JSON-RPC ``{error: {code, message[, data]}}``.
+
+    ``data`` (MCP 2.3.0 — contrat d'erreurs structuré) porte ``errorType``,
+    ``retryable``, ``retryAfterSeconds``, ``correlationId`` et ``fieldErrors``
+    (cf. ``app/infrastructure/mcp/error_contract.py``). Optionnel : sans
+    ``data``, la réponse est IDENTIQUE aux versions 2.2.x (compatibilité).
+    """
+    error: dict[str, Any] = {"code": code, "message": message}
+    if data is not None:
+        error["data"] = data
     return {
         "jsonrpc": JSONRPC_VERSION,
         "id": request_id,
-        "error": {"code": code, "message": message},
+        "error": error,
     }
 
 

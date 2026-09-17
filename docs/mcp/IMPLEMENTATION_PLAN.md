@@ -614,6 +614,39 @@ les événements peuvent être archivés indépendamment des snapshots.
 
 ---
 
+## MCP 2.3.0 — Contrat d'erreurs structuré (SCRUM-160)
+
+> **Statut** : livré. Version de surface inchangée (`2.3.0`) — feature
+> additive transportée dans le champ JSON-RPC `error.data`.
+
+### Périmètre
+
+- [x] `app/infrastructure/mcp/error_contract.py` — `MCPErrorType`
+  (`validation_error` / `policy_error` / `timeout_error` / `rate_limited` /
+  `not_found` / `internal_error`), `MCPStructuredError` (frozen),
+  mappings `DomainError` / enforcer / code JSON-RPC → contrat ;
+- [x] Champs canoniques : `errorType`, `retryable`, `retryAfterSeconds`
+  (uniquement si délai connu), `correlationId` (unique par requête,
+  journalisé), `fieldErrors` (détail par champ) ;
+- [x] Sanitisation systématique — jamais de chemin local ni de secret dans
+  une réponse MCP (messages ET `fieldErrors`) ;
+- [x] Branchement serveur (`mcp_server.py` — sampling, resources, prompts,
+  net central dans `handle_text`) + backpressure SSE (`as_error_payload`) ;
+- [x] Test : `tests/test_mcp_error_contract.py` — 23 tests couvrant les
+  quatre familles exigées (validation, policy, timeout, interne) + contrats
+  transversaux (correlationId, compatibilité 2.2.x, immutabilité).
+
+### Garanties de compatibilité
+
+- `code` / `message` JSON-RPC et `isError` inchangés — `data` est purement
+  descriptif ; les clients 2.2.x ignorent `error.data` sans erreur ;
+- `retryable=false` par défaut pour validation / policy / internal /
+  not_found (fail-closed : jamais de rejeu borgne) ;
+- `retryAfterSeconds` n'apparaît QUE si un délai réel est porté
+  (backpressure, rate limit) — jamais inventé.
+
+---
+
 ## 🚨 Rollback Plan
 
 Si MCP cause un incident critique :

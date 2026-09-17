@@ -113,7 +113,21 @@ class CapacityRejection:
         return {"Retry-After": str(max(1, int(self.retry_after_seconds)))}
 
     def as_error_payload(self) -> dict[str, Any]:
-        """Corps d'erreur JSON (même forme que les autres erreurs MCP)."""
+        """Corps d'erreur JSON (même forme que les autres erreurs MCP).
+
+        MCP 2.3.0 — contrat d'erreurs structuré : le bloc ``data`` porte les
+        champs canoniques disponibles ici (``errorType=rate_limited``,
+        ``retryable=true``, ``retryAfterSeconds``) — le ``correlationId`` est
+        ajouté par la couche HTTP au moment de la réponse. Un refus de
+        capacité est TOUJOURS éphémère et rejouable après le délai annoncé.
+        """
+        from app.infrastructure.mcp.error_contract import (  # noqa: PLC0415
+            structured_rate_limited,
+        )
+
+        data = structured_rate_limited(
+            self.message, retry_after_seconds=max(1, int(self.retry_after_seconds))
+        ).to_data()
         return {
             "error": {
                 "code": self.code,
@@ -122,6 +136,7 @@ class CapacityRejection:
                 "retry_after": max(1, int(self.retry_after_seconds)),
                 "degraded": True,
                 "reason": self.reason,
+                "data": data,
             }
         }
 

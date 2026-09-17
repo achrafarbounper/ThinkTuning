@@ -6,6 +6,59 @@
 
 ---
 
+## Unreleased — contrat d'erreurs structuré (MCP 2.3.0, SCRUM-160)
+
+> **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (inchangée).
+> Le contrat est **additif** : il vit dans le champ JSON-RPC standard
+> `error.data` — aucune modification de `code`/`message` ni de `isError`,
+> zéro divergence pour les clients 2.2.x (les réponses sans erreur et les
+> erreurs de protocole restent identiques, `data` en plus).
+
+### Added — `error.data` canonique
+
+- **Nouveau module `app/infrastructure/mcp/error_contract.py`** (pur, sans
+  I/O ni transport) :
+  - `MCPErrorType` — familles stables fermées : `validation_error`,
+    `policy_error`, `timeout_error`, `rate_limited`, `not_found`,
+    `internal_error` ;
+  - `MCPStructuredError` (frozen) — projection `error.data` avec
+    `errorType`, `retryable` (défaut par famille), `retryAfterSeconds`
+    (uniquement si un délai est CONNU — backpressure / rate limit),
+    `correlationId`, `fieldErrors` (détail PAR CHAMP) ;
+  - mappings déterministes : `structured_from_domain_error` (hiérarchie
+    `DomainError` → famille), `structured_from_enforcer_error` (scope /
+    quota / débit — `MCPRateLimitExceededError.retry_after` porté en
+    `retryAfterSeconds`), `fallback_from_rpc_code` (filet : toute erreur
+    JSON-RPC non taguée reçoit un contrat cohérent).
+- **Sanitisation systématique** (`sanitize_message`) : aucun chemin local
+  (Windows / POSIX) ni secret (`api_key=`, `Authorization: Bearer`, token,
+  password) ne peut fuiter dans une réponse MCP — appliqué aux messages ET
+  aux `fieldErrors` à la construction.
+- **`correlationId` par requête** : généré dans `MCPServer.handle_text`,
+  injecté dans toute erreur émise pour cette requête et journalisé (un seul
+  identifiant relie logs + audit + réponse).
+- **Branchement serveur** (`mcp_server.py`) : validation `sampling/create`
+  avec `fieldErrors` par champ (`messages`…), `LLMClientError` →
+  `timeout_error` retryable, catch-alls → `internal_error` générique,
+  `resources/read` URI inconnue → `not_found`, `prompts/get` →
+  `validation_error`/`not_found` typés ; le net central tague toute erreur
+  restante (parse error, méthode inconnue…).
+- **Backpressure SSE** (`backpressure.py`) : `as_error_payload()` porte
+  désormais `data` (`errorType=rate_limited`, `retryable=true`,
+  `retryAfterSeconds`) en plus du `Retry-After` HTTP existant.
+
+### Tests — `backend/tests/test_mcp_error_contract.py` (23 tests)
+
+- Critères d'acceptation couverts : VALIDATION (fieldErrors par champ,
+  non retryable), POLICY (scope/quota/sandbox/budget → `policy_error`,
+  non retryable), TIMEOUT (`timeout_error` retryable, `retryAfterSeconds`
+  absent sans délai connu), INTERNE (message générique, aucune fuite de
+  stack) + transversal (correlationId unique, compatibilité 2.2.x,
+  immutabilité, sanitisation chemins + clés API).
+- Suite MCP : 904 passed (non-régression complète).
+
+---
+
 ## Unreleased — pagination des catalogues (SCRUM-157)
 
 > **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (déjà bumpée en

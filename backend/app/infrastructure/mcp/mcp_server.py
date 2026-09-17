@@ -46,6 +46,15 @@ from app.infrastructure.mcp.catalog_pagination import (
     encode_cursor,
     paginate,
 )
+from app.infrastructure.mcp.error_contract import (
+    fallback_from_rpc_code,
+    new_correlation_id,
+    sanitize_message,
+    structured_internal,
+    structured_not_found,
+    structured_timeout,
+    structured_validation,
+)
 from app.infrastructure.mcp.mcp_flow import (
     MCPCallContext,
     MCPFlowRecorder,
@@ -205,11 +214,41 @@ class MCPServer:
         try:
             payload = parse_jsonrpc(raw)
         except ProtocolError as exc:
-            return self._encode(error_result(None, exc.code, exc.message))
+            return self._encode(
+                error_result(
+                    None,
+                    exc.code,
+                    exc.message,
+                    data=fallback_from_rpc_code(exc.code, exc.message).to_data(),
+                )
+            )
+        # MCP 2.3.0 — contrat d'erreurs structuré : un correlation_id par
+        # requête, injecté dans TOUTE erreur émise pour cette requête (et
+        # journalisé) — un seul identifiant relie logs + audit + réponse.
+        correlation_id = new_correlation_id()
         try:
             response = self._dispatch(payload, client_id=client_id)
         except ProtocolError as exc:
-            response = error_result(None, exc.code, exc.message)
+            contract = fallback_from_rpc_code(exc.code, exc.message, correlation_id=correlation_id)
+            logger.warning(
+                "MCP erreur protocole correlation_id=%s method=%s code=%s : %s",
+                correlation_id,
+                payload.get("method") if isinstance(payload, dict) else "<batch>",
+                exc.code,
+                exc.message,
+            )
+            response = error_result(None, exc.code, exc.message, data=contract.to_data())
+        else:
+            error = response.get("error") if isinstance(response, dict) else None
+            if isinstance(error, dict) and "data" not in error:
+                # Filet central : toute erreur non taguée par un handler
+                # reçoit un contrat minimal dérivé du code JSON-RPC.
+                error["data"] = fallback_from_rpc_code(
+                    int(error.get("code", ErrorCode.INTERNAL_ERROR)),
+                    str(error.get("message", "")),
+                    correlation_id=correlation_id,
+                ).to_data()
+        logger.debug("MCP requête correlation_id=%s client=%s", correlation_id, client_id)
         return self._encode(response)
 
     # --- Dispatch -------------------------------------------------------------------
@@ -545,6 +584,10 @@ class MCPServer:
                 request_id,
                 ErrorCode.INVALID_PARAMS,
                 "Invalid params: 'messages' (array) is required",
+                data=structured_validation(
+                    "Invalid params: 'messages' (array) is required",
+                    field_errors={"messages": ["'messages' (array) is required"]},
+                ).to_data(),
             )
         raw_messages = params.get("messages")
         if not isinstance(raw_messages, list) or not raw_messages:
@@ -584,20 +627,27 @@ class MCPServer:
             )
         except ValidationError as exc:
             logger.info("MCP sampling/create params invalides : %s", exc)
+            # Contrat 2.3.0 : détail PAR CHAMP (client réparable, non retryable).
+            field_errors = {"messages": [str(exc)]}
             return error_result(
                 request_id,
                 ErrorCode.INVALID_PARAMS,
-                f"Invalid params: {exc}",
+                f"Invalid params: {sanitize_message(str(exc))}",
+                data=structured_validation(
+                    "Invalid sampling request", field_errors=field_errors
+                ).to_data(),
             )
         # --- Délégation au port (reverse LLM) -------------------------------------
         try:
             response = self.sampling_port.create_message(request)
         except LLMClientError as exc:
             logger.warning("MCP sampling LLM error : %s", exc)
+            # Contrat 2.3.0 : timeout/LLM transient → retryable.
             return error_result(
                 request_id,
                 ErrorCode.INTERNAL_ERROR,
-                f"Sampling LLM error: {exc.message}",
+                f"Sampling LLM error: {sanitize_message(exc.message)}",
+                data=structured_timeout("Sampling LLM dependency failed").to_data(),
             )
         except Exception:  # fail-closed : aucune fuite d'exception protocole
             logger.exception("MCP sampling/create a échoué (erreur interne)")
@@ -719,10 +769,20 @@ class MCPServer:
             # URI inconnue / cible introuvable → erreur de requête (MCP -32602),
             # message actionable préservé (fail-closed, jamais un crash).
             logger.info("MCP resources/read 404 : %s", exc)
-            return error_result(request_id, ErrorCode.INVALID_PARAMS, str(exc))
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                str(exc),
+                data=structured_not_found(str(exc)).to_data(),
+            )
         except Exception:  # fail-closed : aucune fuite d'exception protocole
             logger.exception("MCP resources/read a échoué (erreur interne)")
-            return error_result(request_id, ErrorCode.INTERNAL_ERROR, "Internal resource error")
+            return error_result(
+                request_id,
+                ErrorCode.INTERNAL_ERROR,
+                "Internal resource error",
+                data=structured_internal("Internal resource error").to_data(),
+            )
         return success_result(request_id, {"contents": [self._resource_content(uri, text)]})
 
     def _resource_content(self, uri: str, text: str) -> dict[str, Any]:
@@ -848,10 +908,26 @@ class MCPServer:
             # Prompt inconnu / arguments client-réparables → -32602 (MCP) ;
             # le message du domaine est préservé (actionnable).
             logger.info("MCP prompts/get rejeté : %s", exc)
-            return error_result(request_id, ErrorCode.INVALID_PARAMS, str(exc))
+            # Contrat 2.3.0 : prompt inconnu → not_found ; arguments invalides
+            # → validation avec détail PAR CHAMP (client réparable).
+            if isinstance(exc, NotFoundError):
+                contract = structured_not_found(str(exc))
+            else:
+                contract = structured_validation(str(exc), field_errors={"name": [str(exc)]})
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                str(exc),
+                data=contract.to_data(),
+            )
         except Exception:  # fail-closed : aucune fuite d'exception protocole
             logger.exception("MCP prompts/get a échoué (erreur interne)")
-            return error_result(request_id, ErrorCode.INTERNAL_ERROR, "Internal prompt error")
+            return error_result(
+                request_id,
+                ErrorCode.INTERNAL_ERROR,
+                "Internal prompt error",
+                data=structured_internal("Internal prompt error").to_data(),
+            )
         description = next(
             (
                 prompt.description
