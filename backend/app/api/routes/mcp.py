@@ -63,15 +63,30 @@ def mcp_metrics() -> dict:
           "clients": {"total": 5, "active": 4, "revoked": 1},
           "clients_detail": [
             {"client_id", "role", "revoked", "revoked_reason", "call_count",
-             "error_count", "error_rate", "scope_usage"}, ...
-          ]
+             "error_count", "error_rate", "scope_usage"}, ...],
+          "latency": {
+            "tools/call": {"count": 12, "p50_ms": 42.1, "p95_ms": 180.4,
+                           "p99_ms": 240.0, "max_ms": 250.7}, ...          # MCP 2.3.0
+          },
+          "runtime": {
+            "sessions_active": 2, "sse_streams_active": 1,
+            "runs_active": 3, "runs_awaiting_approval": 1                # HITL
+          }
         }
 
     ``clients_detail`` est trié par volume décroissant (les clients les plus
     actifs d'abord — lecture dashboard). Le taux d'erreur MCP agrège les
     entrées d'audit marquées ``is_error`` (échecs journalisés ET marqués par
     le serveur MCP — voir ``app/infrastructure/mcp/mcp_server.py``).
+
+    MCP 2.3.0 (SCRUM-161) — observabilité : ``latency`` expose les quantiles
+    p50/p95/p99 lus SANS PromQL (fenêtre glissante ``mcp_metrics``, par
+    méthode : ``tools/call``, ``orchestrate_events``…), et ``runtime`` les
+    jauges temps réel (sessions SSE actives, flux ouverts, runs actifs, runs en
+    attente d'approbation humaine). Les compteurs/jauges Prometheus
+    correspondants restent exposés par ``GET /metrics``.
     """
+    from app.infrastructure.mcp import mcp_metrics as mcp_metrics_module
     from app.infrastructure.persistence.audit_store import get_audit_store
 
     audit = get_audit_store().mcp_metrics()
@@ -92,6 +107,8 @@ def mcp_metrics() -> dict:
             "revoked": revoked,
         },
         "clients_detail": clients,
+        "latency": mcp_metrics_module.latency_quantiles(),
+        "runtime": mcp_metrics_module.gauge_snapshot(),
     }
 
 

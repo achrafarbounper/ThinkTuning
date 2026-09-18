@@ -59,6 +59,7 @@ from typing import Any
 
 from app.domain.entities.mcp import MCPScopeRole
 from app.domain.ports.mcp_ports import MCPSecurityScope
+from app.infrastructure.mcp import mcp_metrics
 from app.infrastructure.mcp.legacy_tool_provider import (
     V010_READ_ONLY_TOOLS,
     V100_READ_ONLY_TOOLS,
@@ -343,6 +344,14 @@ class MCPScopeEnforcer:
             self._buckets_seen[client_id] = self._clock()
             allowed, wait_seconds = bucket.consume(1.0)
             if not allowed:
+                # Observabilité MCP 2.3.0 : tout rejet per-client passe par ICI
+                # (transport SSE/stdio branché sur l'enforceur) — compteur
+                # dédié + vue sécurité consolidée. Défensif : une métrique
+                # indisponible ne doit pas masquer le refus de sécurité.
+                try:
+                    mcp_metrics.record_rate_limit_rejection()
+                except Exception:  # pragma: no cover - dépendance d'observabilité
+                    logger.debug("Compteur MCP indisponible", exc_info=True)
                 raise MCPRateLimitExceededError(
                     f"Rate limit dépassé pour {client_id!r} "
                     f"({scope.rate_limit_per_minute} appels/minute)",

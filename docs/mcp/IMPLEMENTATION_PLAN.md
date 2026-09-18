@@ -647,6 +647,54 @@ les événements peuvent être archivés indépendamment des snapshots.
 
 ---
 
+## MCP 2.3.0 — Observabilité et corrélation (SCRUM-161)
+
+> **Statut** : livré. Version de surface inchangée (`2.3.0`) — métriques
+> Prometheus + `correlationId` de bout en bout, 100 % additif.
+
+### Périmètre
+
+- [x] `app/infrastructure/mcp/mcp_metrics.py` — métriques : volume et erreurs
+  par tool (labels normalisés 64 max), `mcp_request_latency_seconds`
+  (Histogram, buckets 5 ms → 300 s) + `LatencyWindow` in-process pour les
+  p50/p95/p99 du dashboard (le `Summary` de `prometheus_client` ne calcule
+  plus de quantiles), sessions actives (`SessionTracker` TTL + horloge
+  injectable), `mcp_runs_awaiting_approval` (HITL via `RunSweeper`),
+  reconnexions SSE par mode (`resume_token` / `after_sequence` /
+  `last_event_id`), rejets de rate limit ; `gauge_snapshot()` ;
+- [x] Corrélation : `MCPServer.resolve_correlation_id()` (priorité
+  `params._meta.correlationId` > `X-Correlation-Id` > généré 12 hex ;
+  nettoyage `[A-Za-z0-9._-]`, 64 max), `handle_text(correlation_id=...)`,
+  écho `_meta.correlationId` dans le résultat `initialize`
+  (`build_meta(correlation_id=...)`), `detail["correlationId"]` dans l'audit
+  (`ACT_MCP_*`), `error.data.correlationId` sur toute erreur ;
+- [x] Transport SSE : écho `X-Correlation-Id` dans les réponses,
+  `transport_correlation_id()` partagé, sessions trackées via
+  `_session_guard` (release garanti sur les 3 chemins de réponse),
+  reconnexions comptées sur curseur valide, quota SSE incrémenté ;
+- [x] Rate limit : `mcp_rate_limit_rejections_total` branché aux 3 sites
+  (quota SSE, `scope_enforcer` par client, middleware groupe `/mcp`) ;
+- [x] Notifications : `notify_all_clients(correlation_id=...)` — normalisation,
+  logs, rendu dans les messages (texte / HTML / block `context` Slack) ;
+  script `--correlation-id` ; `/api/v1/mcp/metrics` expose `latency` +
+  `runtime` ;
+- [x] Test : `tests/test_mcp_observability.py` — 34 tests (7 sections :
+  volume/erreurs, latence, sessions/HITL, reconnexions, rejets de débit,
+  corrélation initialize → audit → erreurs → HTTP → notifications).
+
+### Garanties de compatibilité
+
+- Aucun breaking change : métriques nouvelles, `_meta` et détails d'audit
+  additifs, `X-Correlation-Id` en plus — les clients 2.2.x ignorent le tout ;
+- La résolution du cid est DÉTERMINISTE (message > en-tête > généré) : le
+  transport, le serveur, l'audit et les notifications convergent sur la même
+  valeur pour une requête donnée ;
+- Latence : les quantiles dashboard restent disponibles SANS PromQL (fenêtre
+  glissante in-process) et `histogram_quantile()` reste côté Prometheus.
+
+---
+
+
 ## 🚨 Rollback Plan
 
 Si MCP cause un incident critique :

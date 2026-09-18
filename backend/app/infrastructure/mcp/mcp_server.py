@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import time
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -55,6 +57,7 @@ from app.infrastructure.mcp.error_contract import (
     structured_timeout,
     structured_validation,
 )
+from app.infrastructure.mcp.mcp_events import build_meta
 from app.infrastructure.mcp.mcp_flow import (
     MCPCallContext,
     MCPFlowRecorder,
@@ -63,6 +66,10 @@ from app.infrastructure.mcp.mcp_flow import (
     close_orchestrate_flow,
     set_call_context,
     trace_action_flow,
+)
+from app.infrastructure.mcp.mcp_metrics import (
+    record_request_latency,
+    record_tool_call,
 )
 from app.infrastructure.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
@@ -116,6 +123,47 @@ def _request_run_id(request_id: Any) -> str | None:
     if request_id is None:
         return None
     return str(request_id)
+
+
+def resolve_correlation_id(payload: dict[str, Any] | None, *, provided: str | None = None) -> str:
+    """Résout le ``correlation_id`` d'une requête MCP (MCP 2.3.0 — observabilité).
+
+    Priorité : ``params._meta.correlationId`` (le client fournit SON
+    identifiant — chaîne de corrélation de bout en bout) > ``provided``
+    (en-tête transport ``X-Correlation-Id``) > généré localement
+    (``new_correlation_id`` — 12 hex, identique au contrat d'erreurs).
+
+    Un identifiant fourni est SANITISÉ : borné à 64 caractères alphanumériques
+    (``-``, ``_``, ``.``) — jamais de valeur arbitraire dans les logs/audit.
+
+    Publique (préfixe sans ``_``) : les TRANSPORTS l'appellent AVANT de
+    déléguer à ``MCPServer.handle_text`` pour échoir le MÊME identifiant dans
+    la réponse HTTP (``X-Correlation-Id``) et dans ses propres logs. La
+    résolution étant déterministe, transport et serveur convergent sur la
+    même valeur pour un même message.
+
+    Args:
+        payload: message JSON-RPC parsé (``None`` pour un corps illisible) ;
+        provided: identifiant porté par le transport (en-tête), prioritaire
+            seulement en l'absence de ``params._meta.correlationId``.
+
+    Returns:
+        Identifiant de corrélation non vide (jamais ``None``).
+    """
+    params = payload.get("params") if isinstance(payload, dict) else None
+    meta_cid = ""
+    if isinstance(params, dict):
+        meta = params.get("_meta")
+        if isinstance(meta, dict):
+            raw = str(meta.get("correlationId") or "").strip()
+            if raw:
+                meta_cid = raw
+    candidate = meta_cid or str(provided or "").strip()
+    if not candidate:
+        return new_correlation_id()
+    # Sanitisation : 64 caractères max, alphanumériques + ``-_.`` — sinon régénéré.
+    candidate = re.sub(r"[^A-Za-z0-9._-]", "", candidate)[:64]
+    return candidate or new_correlation_id()
 
 
 class ToolError(RuntimeError):
@@ -198,14 +246,25 @@ class MCPServer:
 
     # --- Surface publique --------------------------------------------------------
 
-    def handle_text(self, raw: str, *, client_id: str = "anonymous") -> str | None:
+    def handle_text(
+        self,
+        raw: str,
+        *,
+        client_id: str = "anonymous",
+        correlation_id: str | None = None,
+    ) -> str | None:
         """Parse un message JSON-RPC (texte brut) et retourne la réponse encodée.
 
         Args :
             raw : corps JSON-RPC (texte) ;
             client_id : identité du client MCP appelant — portée en
                 ``subject`` de chaque entrée d'audit produite par cet appel
-                (le transport la résout depuis son en-tête / sa session).
+                (le transport la résout depuis son en-tête / sa session) ;
+            correlation_id : identifiant de corrélation porté par le TRANSPORT
+                (en-tête ``X-Correlation-Id``). Priorité au champ
+                ``params._meta.correlationId`` fourni par le client ; en
+                l'absence des deux, un identifiant est généré (MCP 2.3.0 —
+                observabilité : logs + audit + réponse partagent le même id).
 
         Returns:
             La réponse JSON-RPC sérialisée à émettre, ou ``None`` pour une
@@ -225,9 +284,17 @@ class MCPServer:
         # MCP 2.3.0 — contrat d'erreurs structuré : un correlation_id par
         # requête, injecté dans TOUTE erreur émise pour cette requête (et
         # journalisé) — un seul identifiant relie logs + audit + réponse.
-        correlation_id = new_correlation_id()
+        # MCP 2.3.0 — observabilité : le client peut FOURNIR son identifiant
+        # (``params._meta.correlationId``) ou le transport le sien
+        # (``X-Correlation-Id``, paramètre ``correlation_id``) — corrélation de
+        # bout en bout logs ↔ audit ↔ réponse.
+        correlation_id = resolve_correlation_id(
+            payload if isinstance(payload, dict) else None,
+            provided=correlation_id,
+        )
+        latency_start = time.perf_counter()
         try:
-            response = self._dispatch(payload, client_id=client_id)
+            response = self._dispatch(payload, client_id=client_id, correlation_id=correlation_id)
         except ProtocolError as exc:
             contract = fallback_from_rpc_code(exc.code, exc.message, correlation_id=correlation_id)
             logger.warning(
@@ -248,13 +315,34 @@ class MCPServer:
                     str(error.get("message", "")),
                     correlation_id=correlation_id,
                 ).to_data()
+        # Observabilité MCP 2.3.0 : latence + volume par méthode (défensif —
+        # les métriques ne doivent JAMAIS altérer la réponse).
+        try:
+            raw_method: Any = payload.get("method") if isinstance(payload, dict) else None
+            method_label: str = raw_method if isinstance(raw_method, str) else "unknown"
+            record_request_latency(method_label, time.perf_counter() - latency_start)
+            if method_label == MCPMethod.TOOLS_CALL:
+                params_mc = payload.get("params") if isinstance(payload, dict) else None
+                tool_name = str(params_mc.get("name") or "") if isinstance(params_mc, dict) else ""
+                record_tool_call(
+                    tool_name,
+                    is_error=self._response_is_error(response)
+                    if isinstance(response, dict)
+                    else False,
+                )
+        except Exception:  # pragma: no cover - observabilité jamais bloquante
+            logger.debug("MCP métriques indisponibles", exc_info=True)
         logger.debug("MCP requête correlation_id=%s client=%s", correlation_id, client_id)
         return self._encode(response)
 
     # --- Dispatch -------------------------------------------------------------------
 
     def _dispatch(
-        self, payload: dict[str, Any] | list[Any], *, client_id: str
+        self,
+        payload: dict[str, Any] | list[Any],
+        *,
+        client_id: str,
+        correlation_id: str = "",
     ) -> dict[str, Any] | None:
         """Dispatch d'un message déjà parsé → enveloppe JSON-RPC (ou None)."""
         if not isinstance(payload, dict):
@@ -271,7 +359,7 @@ class MCPServer:
                 ErrorCode.INVALID_REQUEST, "Invalid Request: 'method' must be a string"
             )
         if is_notification:
-            self._handle_notification(method)
+            self._handle_notification(method, correlation_id=correlation_id)
             return None
         params = payload.get("params", {})
         request_id = payload.get("id")
@@ -280,7 +368,9 @@ class MCPServer:
                 ErrorCode.INVALID_PARAMS,
                 "Invalid params: 'params' must be an object",
             )
-        return self._handle_method(method, request_id, params, client_id)
+        return self._handle_method(
+            method, request_id, params, client_id, correlation_id=correlation_id
+        )
 
     def _handle_method(
         self,
@@ -288,6 +378,8 @@ class MCPServer:
         request_id: Any,
         params: dict[str, Any],
         client_id: str,
+        *,
+        correlation_id: str = "",
     ) -> dict[str, Any]:
         """Dispatch d'une méthode de REQUÊTE (id présent) → réponse JSON-RPC.
 
@@ -317,8 +409,12 @@ class MCPServer:
                     scope=str(args.get("scope") or "default"),
                 )
         try:
-            response = self._dispatch_method(method, request_id, params)
-            self._audit_method(method, params, response, client_id, request_id)
+            response = self._dispatch_method(
+                method, request_id, params, correlation_id=correlation_id
+            )
+            self._audit_method(
+                method, params, response, client_id, request_id, correlation_id=correlation_id
+            )
             self._flow_method(method, params, response, client_id, request_id, recorder=recorder)
             return response
         finally:
@@ -357,11 +453,24 @@ class MCPServer:
         trace_action_flow(method, params, response, client_id, request_id)
 
     def _dispatch_method(
-        self, method: str, request_id: Any, params: dict[str, Any]
+        self,
+        method: str,
+        request_id: Any,
+        params: dict[str, Any],
+        *,
+        correlation_id: str = "",
     ) -> dict[str, Any]:
-        """Associe une méthode de requête à son handler (sans audit)."""
+        """Associe une méthode de requête à son handler (sans audit).
+
+        MCP 2.3.0 — observabilité : ``initialize`` embarque le
+        ``correlation_id`` de la requête dans le bloc ``_meta`` du résultat
+        (le client relie le handshake à ses logs et à l'audit serveur).
+        """
         if method == MCPMethod.INITIALIZE:
-            return success_result(request_id, self._initialize_result())
+            result = self._initialize_result()
+            if correlation_id:
+                result["_meta"] = build_meta(correlation_id=correlation_id)
+            return success_result(request_id, result)
         if method == MCPMethod.PING:
             return success_result(request_id, {})
         if method == MCPMethod.TOOLS_LIST:
@@ -380,12 +489,23 @@ class MCPServer:
             return self._handle_sampling_create(request_id, params)
         raise ProtocolError(ErrorCode.METHOD_NOT_FOUND, f"Method not found: {method}")
 
-    def _handle_notification(self, method: str) -> None:
-        """Notifications JSON-RPC : AUCUN acquittement (faible coût, tracé log)."""
+    def _handle_notification(self, method: str, *, correlation_id: str = "") -> None:
+        """Notifications JSON-RPC : AUCUN acquittement (faible coût, tracé log).
+
+        MCP 2.3.0 — observabilité : le log du ``notifications/initialized``
+        porte le ``correlation_id`` de la requête qui l'a déclenchée
+        (corrélation logs ↔ handshake ↔ audit).
+        """
         if method == MCPMethod.NOTIFICATIONS_INITIALIZED:
-            logger.info("MCP client initialized (scope=%s)", self.scope.value)
+            logger.info(
+                "MCP client initialized (scope=%s correlation_id=%s)",
+                self.scope.value,
+                correlation_id or "-",
+            )
             return
-        logger.info("Notification MCP ignorée : %s", method)
+        logger.info(
+            "Notification MCP ignorée : %s (correlation_id=%s)", method, correlation_id or "-"
+        )
 
     # --- Audit MCP (S4, tâche 12) ----------------------------------------------------
 
@@ -396,6 +516,8 @@ class MCPServer:
         response: dict[str, Any],
         client_id: str,
         request_id: Any,
+        *,
+        correlation_id: str = "",
     ) -> None:
         """Journalise un appel MCP d'action via le hook d'audit injecté.
 
@@ -404,6 +526,9 @@ class MCPServer:
         store, ``is_error``, ``scope``) ; ``run_id`` = id JSON-RPC de la
         requête (``mcp_request_id``). L'écriture est NON BLOQUANTE : le hook
         ne doit JAMAIS altérer la réponse MCP.
+
+        MCP 2.3.0 — observabilité : ``detail["correlationId"]`` relie chaque
+        entrée d'audit à la requête (logs serveur + réponse client).
         """
         if method == MCPMethod.TOOLS_CALL:
             tool_name = params.get("name")
@@ -420,6 +545,8 @@ class MCPServer:
                 "scope": self.scope.value,
             }
             tool_detail.update(deprecation)
+            if correlation_id:
+                tool_detail["correlationId"] = correlation_id
             self._audit_event(
                 action,
                 subject=client_id,
@@ -464,6 +591,11 @@ class MCPServer:
             }
         else:
             return
+        if correlation_id:
+            # MCP 2.3.0 — observabilité : MÊME traitement que ``tools/call``
+            # (resources/read, prompts/get, sampling/create) — toute entrée
+            # d'audit d'action porte l'identifiant de corrélation.
+            detail["correlationId"] = correlation_id
         self._audit_event(audit_action, subject=client_id, detail=detail, run_id=request_id)
 
     @staticmethod

@@ -8,9 +8,15 @@ un échec de canal est loggé, jamais propagé.
 
 Usage :
     venv\\Scripts\\python.exe scripts\\notify_mcp_v2_breaking_change.py [--dry-run]
+        [--correlation-id CID]
 
 Options :
-    --dry-run   Affiche les clients ciblés et le message composé SANS envoi.
+    --dry-run          Affiche les clients ciblés et le message composé SANS envoi.
+    --correlation-id   Identifiant de corrélation MCP (MCP 2.3.0) propagé du
+                       ``initialize`` (ou de l'en-tête ``X-Correlation-Id``)
+                       jusqu'aux notifications : journalisé et injecté dans le
+                       contexte des messages (``correlationId``). Normalisé
+                       (``[A-Za-z0-9._-]``, 64 max) avant tout envoi.
 
 Configuration (variables d'environnement) :
     MCP_NOTIFICATION_SMTP_HOST / _PORT / _USER / _PASSWORD
@@ -69,10 +75,21 @@ def main() -> int:
         action="store_true",
         help="Affiche les clients ciblés et le message composé sans envoi.",
     )
+    parser.add_argument(
+        "--correlation-id",
+        default="",
+        metavar="CID",
+        help=(
+            "Identifiant de corrélation MCP (MCP 2.3.0) — propagé du handshake "
+            "``initialize`` jusqu'aux notifications (journalisé + injecté dans "
+            "``extra_context['correlationId']``). Normalisé [A-Za-z0-9._-], 64 max."
+        ),
+    )
     args = parser.parse_args()
+    correlation_id = args.correlation_id.strip() or None
 
     if args.dry_run:
-        return _dry_run()
+        return _dry_run(correlation_id=correlation_id)
 
     service = build_notification_service()
     if service.email_notifier is None and service.slack_notifier is None:
@@ -87,6 +104,7 @@ def main() -> int:
         subject=_SUBJECT,
         breaking_changes=_BREAKING_CHANGES,
         migration_guide=_MIGRATION_GUIDE,
+        correlation_id=correlation_id,
     )
     print(
         f"Notifications v2.0.0 envoyées : {results['email']} email(s), "
@@ -95,8 +113,13 @@ def main() -> int:
     return 0
 
 
-def _dry_run() -> int:
-    """Prévisualise la notification : clients ciblés + message composé."""
+def _dry_run(*, correlation_id: str | None = None) -> int:
+    """Prévisualise la notification : clients ciblés + message composé.
+
+    MCP 2.3.0 : ``correlation_id`` (optionnel) est injecté dans le contexte des
+    messages prévisualisés — la prévisualisation reflète EXACTEMENT ce qui
+    serait envoyé (mêmes helpers de composition que ``notify_all_clients``).
+    """
     from app.infrastructure.persistence.mcp_client_store import get_mcp_client_store
 
     clients = get_mcp_client_store().list()
@@ -108,18 +131,20 @@ def _dry_run() -> int:
         print(f"  - {client['client_id']} (révoqué: {client.get('revoked', False)})")
     print(f"Destinataires email (client_id = adresse) : {email_targets or 'aucun'}")
     print(f"Canal Slack : {'configuré' if slack_configured else 'non configuré'}")
+    print(f"Correlation ID : {correlation_id or 'aucun'}")
     print()
+    extra_context = {"correlationId": correlation_id} if correlation_id else {}
     print(_compose_text_message(
         breaking_changes=_BREAKING_CHANGES,
         migration_guide=_MIGRATION_GUIDE,
-        extra_context={},
+        extra_context=extra_context,
     ))
     print()
     print("Blocks Slack :")
     for block in _compose_slack_blocks(
         breaking_changes=_BREAKING_CHANGES,
         migration_guide=_MIGRATION_GUIDE,
-        extra_context={},
+        extra_context=extra_context,
     ):
         print(f"  - {block['type']}")
     return 0

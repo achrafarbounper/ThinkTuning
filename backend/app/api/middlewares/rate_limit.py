@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 # global) et MCP (clé client_id + rate_limit_per_minute du scope client). Le
 # middleware importe le paquet MCP ; l'enforceur n'importe JAMAIS `api` (import
 # lourd : le package api charge le stack HTTP + ML — la suite MCP reste légère).
+from app.infrastructure.mcp import mcp_metrics
 from app.infrastructure.mcp.security.rate_limit_bucket import TokenBucket
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,10 @@ COSTLY_ROUTE_LIMITS: tuple[tuple[str, str, int, int], ...] = (
     # Transport MCP (POST /mcp/sse : tools/call, orchestrate…) — 30/min.
     ("/mcp", "mcp_orchestrate", 30, 60),
 )
+
+#: Groupe de quota du transport MCP : ses rejets ``429`` alimentent le compteur
+#: dédié ``mcp_rate_limit_rejections_total`` (observabilité MCP 2.3.0).
+MCP_ORCHESTRATE_GROUP = "mcp_orchestrate"
 
 # Stockage optionnel partagé (multi-réplicas) : REDIS_URL active un seau Redis
 # (import paresseux — redis n'est PAS une dépendance dure du projet).
@@ -196,6 +201,18 @@ def _client_identifier(request: Request) -> str:
     return "unknown"
 
 
+def _record_mcp_rate_limit_rejection() -> None:
+    """Comptabilise un rejet ``429`` du transport MCP (observabilité 2.3.0).
+
+    Défensif par contrat : la métrique ne doit JAMAIS transformer un refus
+    propre (``429`` + ``Retry-After``) en erreur 500.
+    """
+    try:
+        mcp_metrics.record_rate_limit_rejection()
+    except Exception:  # pragma: no cover - dépendance d'observabilité
+        logger.debug("Compteur MCP indisponible", exc_info=True)
+
+
 def _enforce_rate_limit(request: Request):
     if request.method.upper() != "POST":
         return None
@@ -216,6 +233,11 @@ def _enforce_rate_limit(request: Request):
                 path,
                 wait,
             )
+            # Observabilité MCP 2.3.0 : les refus du transport MCP sont comptés
+            # dans le compteur dédié (critère « rejets rate limit ») — les
+            # autres groupes (train, pipeline, ask…) gardent leur propre vue.
+            if group == MCP_ORCHESTRATE_GROUP:
+                _record_mcp_rate_limit_rejection()
             return wait
         return None
 

@@ -198,7 +198,7 @@ def test_non_streaming_path_ends_with_done(monkeypatch) -> None:
 
     class _S:
         @staticmethod
-        def handle_text(raw, client_id=None):
+        def handle_text(raw, client_id=None, correlation_id=None):
             return '{"jsonrpc": "2.0", "id": 1, "result": {}}'
 
     monkeypatch.setattr(sse, "_server", _S(), raising=False)

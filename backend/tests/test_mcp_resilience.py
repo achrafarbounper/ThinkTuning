@@ -560,6 +560,7 @@ def test_sweeper_report_is_serializable_and_status_is_exposed(tmp_path) -> None:
         "stale_reaped",
         "leases_released",
         "active",
+        "awaiting_approval",
         "skipped",
         "errors",
         "error_details",
