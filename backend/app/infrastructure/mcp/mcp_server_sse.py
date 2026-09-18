@@ -76,6 +76,7 @@ from app.infrastructure.mcp.mcp_flow import (
     clear_call_context,
     set_call_context,
 )
+from app.infrastructure.mcp.mcp_server import resolve_correlation_id
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
 from app.infrastructure.mcp.resume_cursor import (
     ResumeTokenError,
@@ -368,9 +369,15 @@ def _rejection_response(rejection: CapacityRejection, *, session_id: str) -> JSO
     Le refus est un contrat EXPLICITE (``503``/``429`` + en-têtes) plutôt qu'une
     file d'attente silencieuse : le client sait qu'il doit réessayer, et la
     surface reste disponible pour les autres clients.
+
+    MCP 2.3.0 (SCRUM-161) — observabilité : un refus par QUOTA d'ouverture est
+    un rejet de DÉBIT (``429``) — comptabilisé aussi dans le compteur dédié
+    ``mcp_rate_limit_rejections_total`` (critère d'acceptation « rejets rate
+    limit »), en plus de la vue ``mcp_sse_quota_rejections_total{reason}``.
     """
     if rejection.scope == "quota":
         mcp_metrics.record_sse_quota_rejection("rate")
+        mcp_metrics.record_rate_limit_rejection()
     else:
         mcp_metrics.record_backpressure(rejection.scope)
     logger.warning(
@@ -418,6 +425,74 @@ def _admission_guard(
                 get_idempotency_store().release(idempotency[0], idempotency[1])
 
     return _wrapped()
+
+
+# ---------------------------------------------------------------------------
+# MCP 2.3.0 (SCRUM-161) — observabilité : sessions actives + corrélation
+# ---------------------------------------------------------------------------
+
+#: En-tête de corrélation accepté/écho par le transport (même identifiant que
+#: ``params._meta.correlationId`` côté JSON-RPC — priorité au message).
+CORRELATION_ID_HEADER = "X-Correlation-Id"
+
+
+def transport_correlation_id(request: Request, payload: object) -> str:
+    """Identifiant de corrélation du transport SSE (MCP 2.3.0 — observabilité).
+
+    Applique EXACTEMENT la résolution du serveur
+    (``mcp_server.resolve_correlation_id`` : ``params._meta.correlationId`` >
+    ``X-Correlation-Id`` > généré) afin que l'en-tête écho au client porte
+    l'identifiant réellement journalisé côté audit — et non celui de l'en-tête
+    quand le message en fournit un autre.
+
+    Args:
+        request: requête HTTP entrante (source de l'en-tête) ;
+        payload: corps JSON-RPC parsé (``None`` si illisible).
+
+    Returns:
+        Identifiant normalisé (jamais vide).
+    """
+    provided = (request.headers.get(CORRELATION_ID_HEADER) or "").strip() or None
+    return resolve_correlation_id(
+        payload if isinstance(payload, dict) else None, provided=provided
+    )
+
+
+def _session_guard(generator: AsyncIterator[str], *, session_id: str) -> AsyncIterator[str]:
+    """Libère la session à la fermeture du flux (jauge ``mcp_sessions_active``).
+
+    Même logique que ``_admission_guard`` : la ``StreamingResponse`` ferme le
+    générateur dès la déconnexion du client, donc le ``finally`` garantit
+    qu'aucune session ne reste comptée. Le TTL du ``SessionTracker`` reste le
+    filet de sécurité (process interrompu avant fermeture du générateur).
+    """
+
+    async def _wrapped() -> AsyncIterator[str]:
+        try:
+            async for chunk in generator:
+                yield chunk
+        finally:
+            mcp_metrics.SESSION_TRACKER.release(session_id)
+
+    return _wrapped()
+
+
+def _guarded_body(chunks: list[str], *, session_id: str) -> AsyncIterator[str]:
+    """Corps SSE à événement unique, libérant la session à la fin d'émission."""
+
+    async def _wrapped() -> AsyncIterator[str]:
+        try:
+            for chunk in chunks:
+                yield chunk
+        finally:
+            mcp_metrics.SESSION_TRACKER.release(session_id)
+
+    return _wrapped()
+
+
+# ---------------------------------------------------------------------------
+# L2 (SCRUM-153) — idempotence (reprise)
+# ---------------------------------------------------------------------------
 
 
 def _reserve_idempotency(
@@ -631,6 +706,11 @@ async def _replay_durable_events(
     arguments = dict((payload.get("params") or {}).get("arguments") or {})
     run_id_arg = str(arguments.get("run_id") or "").strip()
     token_value = str(arguments.get("resume_token") or "").strip()
+    # MCP 2.3.0 (SCRUM-161) — observabilité : mode de reprise effectivement
+    # utilisé (« resume_token » | « after_sequence » | « last_event_id »).
+    # ``None`` = PREMIÈRE lecture du run (aucun curseur fourni) : ce n'est pas
+    # une reconnexion et aucun compteur n'est alimenté.
+    reconnection_mode: str | None = None
 
     # 1. Résolution du curseur : resume_token > after_sequence > Last-Event-ID
     if token_value:
@@ -640,6 +720,7 @@ async def _replay_durable_events(
             run_id, after_sequence = decode_resume_token(
                 token_value, expected_run_id=run_id_arg or None
             )
+            reconnection_mode = "resume_token"
         except ResumeTokenError as exc:
             yield _replay_error(
                 run_id_arg,
@@ -654,6 +735,9 @@ async def _replay_durable_events(
         raw_after = arguments.get("after_sequence")
         if raw_after is None and last_event_id:
             raw_after = last_event_id.strip()
+            reconnection_mode = "last_event_id"
+        elif raw_after is not None:
+            reconnection_mode = "after_sequence"
         try:
             after_sequence = int(raw_after or 0)
         except (TypeError, ValueError):
@@ -674,6 +758,11 @@ async def _replay_durable_events(
         yield _replay_error("", "run_id or resume_token is required", error_code="run_id_required")
         yield "data: [DONE]\n\n"
         return
+    # Curseur VALIDÉ : la reprise est honorée — comptabilisée par mode
+    # (observabilité MCP 2.3.0 : volume de reconnexions SSE par source de
+    # curseur). Les curseurs invalides sortent plus haut (aucun comptage).
+    if reconnection_mode is not None:
+        mcp_metrics.record_reconnection(reconnection_mode)
     async for chunk in _replay_stream(run_id, after_sequence, bool(arguments.get("follow"))):
         yield chunk
 
@@ -1271,11 +1360,6 @@ async def mcp_sse(
             },
         )
     raw = (await request.body()).decode("utf-8", errors="replace")
-    headers = {
-        "Mcp-Session-Id": session_id,
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-    }
     # Mode stream : `orchestrate` avec `stream`/`enable_thinking` diffuse la
     # réflexion et la progression (`thinking_delta`, `core_tool`) en SSE à
     # événements nommés, puis le JSON-RPC final (`orchestrate.done`).
@@ -1283,10 +1367,34 @@ async def mcp_sse(
         request_payload = json.loads(raw) if raw.strip() else None
     except (ValueError, TypeError):
         request_payload = None
+    # Observabilité MCP 2.3.0 (SCRUM-161) : un identifiant de corrélation par
+    # requête, résolu EXACTEMENT comme le fait ``MCPServer.handle_text``
+    # (``params._meta.correlationId`` > en-tête ``X-Correlation-Id`` > généré).
+    # Il est écho au client dans la réponse ET journalisé par le transport : le
+    # même identifiant relie logs HTTP, logs serveur, audit et réponse.
+    correlation_id = transport_correlation_id(request, request_payload)
+    headers = {
+        "Mcp-Session-Id": session_id,
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        CORRELATION_ID_HEADER: correlation_id,
+    }
+    # Jauge ``mcp_sessions_active`` : session acquise à l'admission, libérée à
+    # la fermeture du flux (``_session_guard`` / ``_guarded_body``).
+    mcp_metrics.SESSION_TRACKER.acquire(session_id)
+    logger.info(
+        "Requête MCP correlation_id=%s client_id=%s session=%s",
+        correlation_id,
+        client_id,
+        session_id,
+    )
     if _is_streaming_orchestrate(request_payload):
         assert isinstance(request_payload, dict)
         return StreamingResponse(
-            _stream_orchestrate(request_payload, client_id=client_id, request=request),
+            _session_guard(
+                _stream_orchestrate(request_payload, client_id=client_id, request=request),
+                session_id=session_id,
+            ),
             media_type="text/event-stream",
             headers=headers,
         )
@@ -1295,11 +1403,15 @@ async def mcp_sse(
         # Reprise SSE native (MCP 2.3.0) : l'en-tête ``Last-Event-ID`` d'un
         # client reconnecté porte la dernière séquence reçue — utilisé comme
         # curseur de repli quand ``after_sequence`` est absent (le
-        # ``resume_token`` explicite reste prioritaire).
+        # ``resume_token`` explicite reste prioritaire). Le mode de curseur
+        # effectivement utilisé alimente ``mcp_sse_reconnections_total``.
         return StreamingResponse(
-            _replay_durable_events(
-                request_payload,
-                last_event_id=(request.headers.get("Last-Event-ID") or "").strip() or None,
+            _session_guard(
+                _replay_durable_events(
+                    request_payload,
+                    last_event_id=(request.headers.get("Last-Event-ID") or "").strip() or None,
+                ),
+                session_id=session_id,
             ),
             media_type="text/event-stream",
             headers=headers,
@@ -1311,18 +1423,22 @@ async def mcp_sse(
         _server.handle_text,
         raw,
         client_id=client_id,
+        correlation_id=correlation_id,
     )
     # Contrat SSE uniforme : même le chemin non-stream termine par [DONE]
     # (les lecteurs stricts front s'arrêtent sur la sentinelle, pas sur la
     # fermeture TCP — sinon « sans réponse finale » sur proxy lent).
     return StreamingResponse(
-        iter([_sse_message(response_payload), "data: [DONE]\n\n"]),
+        _guarded_body(
+            [_sse_message(response_payload), "data: [DONE]\n\n"], session_id=session_id
+        ),
         media_type="text/event-stream",
         headers=headers,
     )
 
 
 __all__ = [
+    "CORRELATION_ID_HEADER",
     "configure_mcp_durable_run_store",
     "configure_mcp_orchestration_port",
     "get_mcp_durable_run_store",
@@ -1330,4 +1446,5 @@ __all__ = [
     "mcp_auth_required",
     "mcp_server_enabled",
     "router",
+    "transport_correlation_id",
 ]

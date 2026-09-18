@@ -246,6 +246,7 @@ def build_meta(
     degraded: bool = False,
     reason: str | None = None,
     failure_phase: str | None = None,
+    correlation_id: str | None = None,
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Construit le bloc ``_meta`` D'UN résultat MCP (dégradation explicite).
@@ -255,12 +256,18 @@ def build_meta(
     accompagné de ``run_id`` (traçabilité/reprise) et ``failure_phase``
     (``lead`` | ``worker`` | ``synthesis`` | ``None``).
 
+    MCP 2.3.0 — observabilité : ``correlation_id`` (optionnel) est injecté
+    TEL QUEL quand fourni (champ ADDITIF : absent du bloc sinon — zéro
+    régression pour les consommateurs du contrat L2). Il relie le résultat
+    aux logs serveur et aux entrées d'audit de la même requête.
+
     Args:
-        run_id:        identifiant du run durable (``None`` en mono-agent) ;
-        degraded:      ``True`` dès qu'une garantie a été relâchée ;
-        reason:        cause canonique (``multi_agent_fallback``, …) ;
-        failure_phase: phase fautive normalisée (``None`` si succès) ;
-        extra:         champs additionnels (jamais prioritaires sur le contrat).
+        run_id:         identifiant du run durable (``None`` en mono-agent) ;
+        degraded:       ``True`` dès qu'une garantie a été relâchée ;
+        reason:         cause canonique (``multi_agent_fallback``, …) ;
+        failure_phase:  phase fautive normalisée (``None`` si succès) ;
+        correlation_id: identifiant de corrélation de la requête (optionnel) ;
+        extra:          champs additionnels (jamais prioritaires sur le contrat).
 
     Returns:
         Bloc ``_meta`` sérialisable JSON, champs de contrat garantis présents.
@@ -275,6 +282,9 @@ def build_meta(
         "failure_phase": normalized_phase,
         "reason": normalized_reason,
     }
+    normalized_cid = str(correlation_id or "").strip()
+    if normalized_cid:
+        meta["correlationId"] = normalized_cid
     if extra:
         for key, value in extra.items():
             meta.setdefault(str(key), value)

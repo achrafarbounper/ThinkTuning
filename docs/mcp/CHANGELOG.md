@@ -5,6 +5,80 @@
 > garanties de migration (SemVer : breaking changes → major bump).
 
 ---
+## Unreleased — observabilité et corrélation (MCP 2.3.0, SCRUM-161)
+
+> **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (inchangée).
+> Tout est **additif** : métriques Prometheus, champ `_meta.correlationId` du
+> handshake, détail d'audit enrichi et en-têtes HTTP supplémentaires — aucun
+> changement de contrat 2.2.x.
+
+### Added — métriques Prometheus (`app/infrastructure/mcp/mcp_metrics.py`)
+
+- `mcp_tool_calls_total{tool}` — volume par tool (labels normalisés
+  `[a-z0-9_.:-]`, 64 max, caractères invalides → `_`) ;
+- `mcp_tool_errors_total{tool}` — erreurs par tool (`isError=true`) ;
+- `mcp_request_latency_seconds{method}` — Histogram (buckets explicites
+  5 ms → 300 s). Le `Summary` de `prometheus_client` ne calcule plus de
+  quantiles côté projet : les p50/p95/p99 du dashboard sont calculés
+  en-process par `LatencyWindow` (`latency_quantiles()`, fenêtre glissante),
+  sans exiger PromQL ; `histogram_quantile()` reste disponible côté
+  Prometheus ;
+- `mcp_sessions_active` — sessions SSE actives (`SessionTracker` thread-safe,
+  purge TTL des sessions fantômes avec intervalle anti-rafale, horloge
+  `monotonic` injectable pour les tests) ;
+- `mcp_runs_awaiting_approval` — file d'approbation humaine (HITL), alimentée
+  par le `RunSweeper` (`SweepReport.awaiting_approval` ; la transition machine
+  d'état `pending → running → awaiting_approval` reste la seule valide) ;
+- `mcp_sse_reconnections_total{mode}` — reprises SSE : `resume_token` /
+  `after_sequence` / `last_event_id` (comptées UNIQUEMENT sur curseur valide
+  — un replay en erreur n'est pas une reconnexion) ;
+- `mcp_rate_limit_rejections_total` — rejets de débit, câblés aux trois sites
+  d'émission : quota SSE (`_rejection_response`), enforcer par client
+  (`scope_enforcer`), groupe de routes `/mcp` (middleware rate limit) —
+  `record_security_rejection` est désormais réellement branché ;
+- `gauge_snapshot()` — lecture agrégée des jauges pour le dashboard.
+
+### Added — corrélation de bout en bout
+
+- **Résolution** (`MCPServer.resolve_correlation_id`, public) — priorité
+  `params._meta.correlationId` > en-tête transport `X-Correlation-Id` >
+  identifiant généré (12 hex, même contrat que `error.data.correlationId`) ;
+  nettoyage `[A-Za-z0-9._-]`, 64 max ;
+- **Handshake** : le résultat `initialize` écho le `correlationId` dans
+  `_meta` (`build_meta(correlation_id=...)` — champ additif de `mcp_events`) ;
+- **Audit** : `detail["correlationId"]` sur les entrées `ACT_MCP_*`
+  (tools/call, resources/read, prompts/get, sampling/create) — l'identifiant
+  tagué côté client au handshake se retrouve sur l'appel audité qui suit ;
+- **Erreurs** : tout `error.data.correlationId` émis pour une requête porte
+  le MÊME identifiant (un seul id relie logs ↔ audit ↔ réponse) ;
+- **Transport SSE** : la réponse écho `X-Correlation-Id` (valeur résolue —
+  le message prime sur l'en-tête) ; `transport_correlation_id()` partage la
+  résolution entre transport et serveur ;
+- **Notifications** : `NotificationService.notify_all_clients(correlation_id=…)`
+  normalise l'identifiant (`_normalize_correlation_id`), le journalise
+  (`correlation_id=…`) et le REND dans les messages (texte, HTML, block
+  `context` Slack) — le destinataire peut rattacher la notification à la
+  requête MCP émettrice ; le paramètre écrase un cid préexistant du contexte ;
+- **Script** : `backend/scripts/notify_mcp_v2_breaking_change.py
+  --correlation-id` (propagé à l'envoi + au dry-run) ;
+- **Dashboard** : `/api/v1/mcp/metrics` expose `latency` (quantiles) et
+  `runtime` (jauges sessions actives / HITL).
+
+### Tests — `backend/tests/test_mcp_observability.py` (34 tests)
+
+- Sections 1–6 : volume/erreurs par tool, latence (quantiles + buckets),
+  sessions actives (guard + endpoint HTTP), HITL (machine d'état respectée),
+  reconnexions par mode, rejets de débit (3 sites) ;
+- Section 7 (corrélation) : priorités de résolution (message > en-tête >
+  généré), nettoyage/longueur, écho `initialize` (`_meta`) + convergence
+  transport/serveur, chaîne initialize → audit (`detail["correlationId"]`),
+  erreurs (`error.data.correlationId`), écho HTTP `X-Correlation-Id`
+  (en-tête seul, puis message prioritaire), notifications (rendu texte/HTML/
+  Slack + logs, absence de marqueur sans cid, paramètre > contexte).
+
+---
+
+
 
 ## Unreleased — contrat d'erreurs structuré (MCP 2.3.0, SCRUM-160)
 

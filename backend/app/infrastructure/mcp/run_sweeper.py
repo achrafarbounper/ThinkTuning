@@ -72,6 +72,10 @@ SETTLED_RUN_STATES: frozenset[str] = frozenset(
 #: États candidats à la récolte s'ils sont périmés.
 REAPABLE_RUN_STATES: frozenset[str] = frozenset({"pending", "running", "awaiting_approval"})
 
+#: État d'attente d'approbation HUMAINE (HITL) — alimente la jauge dédiée
+#: ``mcp_runs_awaiting_approval`` (MCP 2.3.0 — observabilité, SCRUM-161).
+RUN_STATE_AWAITING_APPROVAL = "awaiting_approval"
+
 DEFAULT_INTERVAL_SECONDS = 60
 DEFAULT_STALE_AFTER_SECONDS = 900
 DEFAULT_AWAITING_APPROVAL_GRACE_SECONDS = 3600
@@ -107,6 +111,9 @@ class SweepReport:
     stale_reaped: int = 0
     leases_released: int = 0
     active: int = 0
+    #: Runs actifs en attente d'approbation HUMAINE (HITL) — sous-ensemble de
+    #: ``active`` ; exposé par ``mcp_runs_awaiting_approval`` (MCP 2.3.0).
+    awaiting_approval: int = 0
     skipped: int = 0
     errors: int = 0
     error_details: tuple[str, ...] = ()
@@ -118,6 +125,7 @@ class SweepReport:
             "stale_reaped": self.stale_reaped,
             "leases_released": self.leases_released,
             "active": self.active,
+            "awaiting_approval": self.awaiting_approval,
             "skipped": self.skipped,
             "errors": self.errors,
             "error_details": list(self.error_details),
@@ -193,11 +201,18 @@ class RunSweeper:
             return report
 
         active = 0
+        # HITL (MCP 2.3.0 — observabilité) : les runs ``awaiting_approval`` sont
+        # des runs actifs dont l'attente est HUMAINE — comptés séparément pour
+        # la jauge ``mcp_runs_awaiting_approval`` (supervision de la file
+        # d'approbation : un pic signale un goulot humain, pas une panne).
+        awaiting_approval = 0
         for state in runs:
             report.scanned += 1
             state_name = str(state.state or "").strip().lower()
             if state_name not in SETTLED_RUN_STATES:
                 active += 1
+            if state_name == RUN_STATE_AWAITING_APPROVAL:
+                awaiting_approval += 1
             try:
                 if self._release_expired_lease(state, current):
                     report.leases_released += 1
@@ -221,6 +236,7 @@ class RunSweeper:
                     exc,
                 )
         report.active = active
+        report.awaiting_approval = awaiting_approval
         self._publish(report)
         if report.stale_reaped or report.leases_released or report.errors:
             logger.info(
@@ -320,10 +336,16 @@ class RunSweeper:
             )
 
     def _publish(self, report: SweepReport) -> None:
-        """Publie le bilan (métriques + dernier rapport) — jamais bloquant."""
+        """Publie le bilan (métriques + dernier rapport) — jamais bloquant.
+
+        Deux jauges, même source de vérité que le rapport :
+        ``mcp_runs_active`` (runs non terminaux) et
+        ``mcp_runs_awaiting_approval`` (HITL — sous-ensemble) ; MCP 2.3.0.
+        """
         with self._lock:
             self._last_report = report
         mcp_metrics.set_active_runs(report.active)
+        mcp_metrics.set_awaiting_approval(report.awaiting_approval)
 
     # -- cycle de vie thread ------------------------------------------------
     def start(self) -> bool:
@@ -474,6 +496,7 @@ __all__ = [
     "DEFAULT_LIST_LIMIT",
     "DEFAULT_STALE_AFTER_SECONDS",
     "REAPABLE_RUN_STATES",
+    "RUN_STATE_AWAITING_APPROVAL",
     "SETTLED_RUN_STATES",
     "TERMINAL_RUN_STATES",
     "RunSweeper",
