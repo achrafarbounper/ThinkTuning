@@ -76,6 +76,7 @@ from typing import Any
 
 from app.domain.entities.mcp import MCPScopeRole, MCPTool, MCPVersion
 from app.domain.ports.mcp_ports import (
+    MCPIdentity,
     MCPOrchestrationPort,
     MCPPromptRegistryPort,
     MCPResourceRegistryPort,
@@ -84,6 +85,7 @@ from app.domain.ports.mcp_ports import (
 )
 from app.infrastructure.mcp.admin_tool_provider import build_v220_admin_provider
 from app.infrastructure.mcp.legacy_tool_provider import build_v100_read_only_provider
+from app.infrastructure.mcp.mcp_flow import current_call_context
 from app.infrastructure.mcp.mcp_server import (
     InMemoryToolProvider,
     MCPServer,
@@ -111,7 +113,14 @@ logger = logging.getLogger("thinktuning.mcp.factory")
 def _durable_run_tools(
     orchestration_port: MCPOrchestrationPort | None,
 ) -> list[MCPTool]:
-    """Expose durable-run lifecycle operations without leaking the application port."""
+    """Expose durable-run lifecycle operations without leaking the application port.
+
+    MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : chaque handler transmet
+    l'identité DÉCLARÉE du contexte d'appel courant (``ContextVar`` posé par le
+    serveur / le transport) aux opérations de run — lecture, liste,
+    annulation et reprise sont ainsi gardées par l'estampille du créateur
+    (cross-tenant → indiscernable d'un run inconnu).
+    """
 
     def resolve() -> MCPOrchestrationPort:
         if orchestration_port is not None:
@@ -122,11 +131,32 @@ def _durable_run_tools(
 
         return build_mcp_orchestration_adapter()
 
+    def caller_identity() -> MCPIdentity | None:
+        """Identité déclarée de l'appelant courant (``None`` si non déclaré)."""
+        context = current_call_context()
+        if context is None:
+            return None
+        identity = MCPIdentity(
+            tenant_id=context.tenant_id,
+            client_id=context.client_id,
+            subject_id=context.subject_id,
+        )
+        return identity if identity.declared else None
+
+    def identity_kwargs() -> dict[str, Any]:
+        """Kwargs d'identité pour l'appel du port (compatibilité 2.2.x).
+
+        ``None`` ≡ non passé : les implémentations du port antérieures à 2.3.0
+        (fakes de tests, adaptateurs tiers) restent appelables telles quelles.
+        """
+        identity = caller_identity()
+        return {"identity": identity} if identity is not None else {}
+
     def get_run(arguments: dict[str, Any]) -> str:
         run_id = str(arguments.get("run_id") or "").strip()
         if not run_id:
             raise ValueError("'run_id' is required")
-        result = resolve().get_run(run_id)
+        result = resolve().get_run(run_id, **identity_kwargs())
         if result is None:
             raise ValueError(f"unknown MCP run {run_id!r}")
         return json.dumps(result, ensure_ascii=False, default=str)
@@ -137,7 +167,13 @@ def _durable_run_tools(
         if limit < 1 or limit > 200:
             raise ValueError("'limit' must be between 1 and 200")
         return json.dumps(
-            {"runs": resolve().list_runs(state=str(state) if state else None, limit=limit)},
+            {
+                "runs": resolve().list_runs(
+                    state=str(state) if state else None,
+                    limit=limit,
+                    **identity_kwargs(),
+                )
+            },
             ensure_ascii=False,
             default=str,
         )
@@ -146,14 +182,22 @@ def _durable_run_tools(
         run_id = str(arguments.get("run_id") or "").strip()
         if not run_id:
             raise ValueError("'run_id' is required")
-        result = resolve().cancel(run_id, reason=arguments.get("reason"))
+        result = resolve().cancel(
+            run_id,
+            reason=arguments.get("reason"),
+            **identity_kwargs(),
+        )
         return json.dumps(result.as_snapshot(), ensure_ascii=False, default=str)
 
     def retry(arguments: dict[str, Any]) -> str:
         run_id = str(arguments.get("run_id") or "").strip()
         if not run_id:
             raise ValueError("'run_id' is required")
-        result = resolve().retry(run_id, reason=arguments.get("reason"))
+        result = resolve().retry(
+            run_id,
+            reason=arguments.get("reason"),
+            **identity_kwargs(),
+        )
         return json.dumps(result.as_snapshot(), ensure_ascii=False, default=str)
 
     def events(arguments: dict[str, Any]) -> str:
@@ -178,10 +222,11 @@ def _durable_run_tools(
             if after_sequence < 0:
                 raise ValueError("'after_sequence' must be >= 0")
         port = resolve()
-        result = port.get_run(run_id)
+        extra = identity_kwargs()
+        result = port.get_run(run_id, **extra)
         if result is None:
             raise ValueError(f"unknown MCP run {run_id!r}")
-        events = port.get_events(run_id, after_sequence=after_sequence)
+        events = port.get_events(run_id, after_sequence=after_sequence, **extra)
         last_sequence = after_sequence
         for event in events:
             sequence = int(event.get("sequence") or 0)

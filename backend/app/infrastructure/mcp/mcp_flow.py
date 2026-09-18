@@ -116,11 +116,18 @@ class MCPCallContext:
     Posé par ``MCPServer._handle_method`` (transport stdio / SSE non-streaming)
     et par le worker du transport SSE streaming — consommé par
     ``begin_orchestrate_flow`` pour la session riche du run.
+
+    MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : le contexte porte aussi
+    l'identité déclarée du transport (``tenant_id`` / ``subject_id`` —
+    ``client_id`` existant) ; l'adapter d'orchestration et les tools de runs
+    la lisent pour estampiller les runs et appliquer les gardes de propriété.
     """
 
     client_id: str = "anonymous"
     request_id: str | None = None
     session_id: str | None = None
+    tenant_id: str = "default"
+    subject_id: str = ""
 
 
 _CALL_CONTEXT: ContextVar[MCPCallContext | None] = ContextVar("mcp_call_context", default=None)

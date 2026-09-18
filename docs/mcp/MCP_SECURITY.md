@@ -125,4 +125,26 @@ class MCPClientStore:
 | MCP call volume | `audit_store` | spike 5x → alert |
 | Revoked clients | `mcp_client_store` | auto → email Security Officer |
 | Scope violations | `sandbox_policy` | REJECT → log + alert |
+
+---
+
+## 🧵 Isolation multi-tenant (MCP 2.3.0, SCRUM-161)
+
+L'isolation repose sur trois identifiants portés par `MCPIdentity`
+(transports SSE/stdio, normalisation fail-closed `[A-Za-z0-9._-]`, 64 max) :
+
+- `tenant_id` — partition DUR (cross-tenant jamais lisible) ;
+- `client_id` — client déclaré dans le client store (whitelists, quotas) ;
+- `subject_id` — sujet humain de bout en bout (audit + estampille du run).
+
+| Mécanisme | Règle | Rollback |
+|---|---|---|
+| Gate `MCP_TENANT_ISOLATION` | Défaut **actif** (fail-closed) ; client inconnu → deny | `MCP_TENANT_ISOLATION=0` → comportement 2.2.x |
+| Runs durables | Estampille créateur ; garde lecture/cancel/retry/replay/list ; legacy → tenant `default` seul | — |
+| `resources/read` | Whitelist `visible_resources` appliquée si identité déclarée | Appels non déclarés : aucun filtrage |
+| Alias (`stop_training` → `cancel_training`) | Scope + quotas jugés sur le nom CANONIQUE | — |
+| Limites JSON `orchestrate` | `MCP_MAX_JSON_BYTES` (256 Ko) + `MCP_MAX_JSON_DEPTH` (32) → `validation_error` | — |
+| Quota de coût | 1 unité / appel `orchestrate`, fenêtre glissante par `tenant:client` (`cost_quota_per_hour`) | — |
+| Quota de durée | `MCP_RUN_MAX_SECONDS` (900 s) → run `expired` (`duration_quota_exceeded`) | — |
+
 | Sampling abuse | `AuditSampling` | > 100 samplings/h → quota réduit |
