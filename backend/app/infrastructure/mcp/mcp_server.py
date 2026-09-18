@@ -294,9 +294,7 @@ class MCPServer:
         )
         latency_start = time.perf_counter()
         try:
-            response = self._dispatch(
-                payload, client_id=client_id, correlation_id=correlation_id
-            )
+            response = self._dispatch(payload, client_id=client_id, correlation_id=correlation_id)
         except ProtocolError as exc:
             contract = fallback_from_rpc_code(exc.code, exc.message, correlation_id=correlation_id)
             logger.warning(
@@ -328,9 +326,7 @@ class MCPServer:
             record_request_latency(method_label, time.perf_counter() - latency_start)
             if method_label == MCPMethod.TOOLS_CALL:
                 params_mc = payload.get("params") if isinstance(payload, dict) else None
-                tool_name = (
-                    str(params_mc.get("name") or "") if isinstance(params_mc, dict) else ""
-                )
+                tool_name = str(params_mc.get("name") or "") if isinstance(params_mc, dict) else ""
                 record_tool_call(
                     tool_name,
                     is_error=self._response_is_error(response)

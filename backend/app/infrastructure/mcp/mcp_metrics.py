@@ -359,6 +359,7 @@ def gauge_snapshot() -> dict[str, float]:
         "runs_awaiting_approval": float(MCP_RUNS_AWAITING_APPROVAL._value.get()),
     }
 
+
 # ---------------------------------------------------------------------------
 # Tracker de sessions (thread-safe) — alimente la jauge ``mcp_sessions_active``
 # ---------------------------------------------------------------------------
@@ -438,9 +439,9 @@ def record_tool_call(tool: str, *, is_error: bool = False) -> None:
     (« Unknown tool »), le nombre de séries suit celui du registre de tools —
     le préfixe tronqué ne peut donc fusionner que des noms pathologiques.
     """
-    normalized = _TOOL_LABEL_INVALID_CHARS.sub(
-        "_", str(tool or "").strip().lower()
-    )[:_TOOL_LABEL_MAX_LENGTH].strip("_")
+    normalized = _TOOL_LABEL_INVALID_CHARS.sub("_", str(tool or "").strip().lower())[
+        :_TOOL_LABEL_MAX_LENGTH
+    ].strip("_")
     label = normalized or "unknown"
     MCP_TOOL_CALLS_TOTAL.labels(tool=label).inc()
     if is_error:

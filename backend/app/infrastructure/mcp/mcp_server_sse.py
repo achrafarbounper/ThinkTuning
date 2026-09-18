@@ -453,9 +453,7 @@ def transport_correlation_id(request: Request, payload: object) -> str:
         Identifiant normalisé (jamais vide).
     """
     provided = (request.headers.get(CORRELATION_ID_HEADER) or "").strip() or None
-    return resolve_correlation_id(
-        payload if isinstance(payload, dict) else None, provided=provided
-    )
+    return resolve_correlation_id(payload if isinstance(payload, dict) else None, provided=provided)
 
 
 def _session_guard(generator: AsyncIterator[str], *, session_id: str) -> AsyncIterator[str]:
@@ -1429,9 +1427,7 @@ async def mcp_sse(
     # (les lecteurs stricts front s'arrêtent sur la sentinelle, pas sur la
     # fermeture TCP — sinon « sans réponse finale » sur proxy lent).
     return StreamingResponse(
-        _guarded_body(
-            [_sse_message(response_payload), "data: [DONE]\n\n"], session_id=session_id
-        ),
+        _guarded_body([_sse_message(response_payload), "data: [DONE]\n\n"], session_id=session_id),
         media_type="text/event-stream",
         headers=headers,
     )

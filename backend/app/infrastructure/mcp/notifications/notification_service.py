@@ -242,9 +242,7 @@ def _compose_html_message(
     changes_html = "".join(f"<li>{c}</li>" for c in breaking_changes)
     correlation_id = str(extra_context.get("correlationId") or "").strip()
     correlation_html = (
-        f"<p><em>Correlation ID : {html.escape(correlation_id)}</em></p>"
-        if correlation_id
-        else ""
+        f"<p><em>Correlation ID : {html.escape(correlation_id)}</em></p>" if correlation_id else ""
     )
     return f"""
     <html>
