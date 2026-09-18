@@ -318,11 +318,8 @@ class MCPServer:
         # Observabilité MCP 2.3.0 : latence + volume par méthode (défensif —
         # les métriques ne doivent JAMAIS altérer la réponse).
         try:
-            method_label = (
-                payload.get("method")
-                if isinstance(payload, dict) and isinstance(payload.get("method"), str)
-                else "unknown"
-            )
+            raw_method: Any = payload.get("method") if isinstance(payload, dict) else None
+            method_label: str = raw_method if isinstance(raw_method, str) else "unknown"
             record_request_latency(method_label, time.perf_counter() - latency_start)
             if method_label == MCPMethod.TOOLS_CALL:
                 params_mc = payload.get("params") if isinstance(payload, dict) else None
