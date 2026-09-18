@@ -48,6 +48,7 @@ __all__ = [
     "ExecutionContext",
     "MCPDurableRunState",
     "MCPDurableRunStorePort",
+    "MCPIdentity",
     "MCPOrchestrationPort",
     "MCPOrchestrationRequest",
     "MCPOrchestrationResult",
@@ -140,6 +141,107 @@ class ExecutionContext:
         )
 
 
+#: Tenant par défaut (MCP 2.3.0 — isolation multi-tenant) : les appels sans
+#: identité déclarée et les runs legacy (non estampillés) appartiennent à
+#: cette partition. SOURCE UNIQUE — réexportée par l'infrastructure.
+MCP_DEFAULT_TENANT_ID = "default"
+
+
+@dataclass(frozen=True)
+class MCPIdentity:
+    """Identité d'un appelant MCP (MCP 2.3.0 — isolation multi-tenant).
+
+    Trois identifiants portent l'isolation (tâche SCRUM-161) :
+
+        - ``tenant_id`` : partition DUR entre environnements — un appelant du
+          tenant A ne peut ni voir ni agir sur les runs du tenant B ;
+        - ``client_id`` : client MCP déclaré dans le client store (whitelists
+          de visibilité, quotas, rate limit) ;
+        - ``subject_id`` : sujet humain de bout en bout (audit, estampille du
+          run) — optionnel.
+
+    Un appelant sans en-tête d'identité explicite conserve le comportement
+    historique (``tenant_id="default"``, client non déclaré) : l'isolation
+    s'active quand le transport construit une identité DÉCLARÉE
+    (``MCPIdentity.declared``). L'instanciation passe par ``normalize`` —
+    tout identifiant est nettoyé (charset ``[A-Za-z0-9._-]``, 64 max).
+    """
+
+    tenant_id: str = MCP_DEFAULT_TENANT_ID
+    client_id: str = "anonymous"
+    subject_id: str = ""
+
+    @classmethod
+    def normalize(
+        cls,
+        *,
+        tenant_id: str = "",
+        client_id: str = "",
+        subject_id: str = "",
+    ) -> MCPIdentity:
+        """Construit une identité normalisée (nettoyage fail-closed).
+
+        La sanitisation détaillée est portée par l'infrastructure
+        (``security.tenant_isolation.sanitize_identity_value``) ; le domaine
+        n'applique ici que la borne minimale : trim + longueur, et repli sur
+        les valeurs par défaut si vide.
+        """
+        clean = lambda value: str(value or "").strip()[:64]  # noqa: E731
+        return cls(
+            tenant_id=clean(tenant_id) or "default",
+            client_id=clean(client_id) or "anonymous",
+            subject_id=clean(subject_id),
+        )
+
+    @property
+    def declared(self) -> bool:
+        """L'appelant s'est-il EXPLICITEMENT identifié (client ou sujet) ?
+
+        Un client déduit du repli de session (``"anonymous"``) n'est PAS
+        déclaré : la vérification de scope multi-tenant reste inactive pour
+        lui (comportement 2.2.x préservé — les clients déclarés passent par
+        le client store, fail-closed).
+        """
+        return bool(self.subject_id) or self.client_id not in ("", "anonymous")
+
+    def as_owner_dict(self) -> dict[str, str]:
+        """Estampille de propriété d'un run durable (trois identifiants)."""
+        return {
+            "tenant_id": self.tenant_id,
+            "client_id": self.client_id,
+            "subject_id": self.subject_id,
+        }
+
+    def can_access(self, owner: MCPIdentity | None) -> bool:
+        """L'appelant peut-il accéder à une ressource estampillée ``owner`` ?
+
+        Garde de propriété PURE (domaine — consommée par l'application pour
+        l'isolation des runs durables, SCRUM-161). Sémantique fail-closed :
+
+            - ressource SANS propriétaire (estampille vide, legacy antérieur à
+              2.3.0) → accessible UNIQUEMENT depuis le tenant par défaut ;
+            - sinon : ``tenant_id`` doit correspondre (partition dur), puis
+              ``client_id`` (le propriétaire d'une reprise est le créateur),
+              puis ``subject_id`` UNIQUEMENT quand les DEUX sont renseignés
+              (un client sans sujet déclaré n'est pas bloqué par l'estampille
+              subject d'un run qui en porte un).
+
+        L'appelant non identifié (``None``) est géré par les appelants — la
+        décision « garde active ou non » appartient au use case.
+        """
+        resolved = owner or MCPIdentity()
+        if not (resolved.tenant_id or resolved.client_id or resolved.subject_id):
+            # Ressource legacy sans estampille : cloisonnée au tenant défaut.
+            return self.tenant_id == MCP_DEFAULT_TENANT_ID
+        if self.tenant_id != resolved.tenant_id:
+            return False
+        if self.client_id != resolved.client_id:
+            return False
+        if resolved.subject_id and self.subject_id and self.subject_id != resolved.subject_id:
+            return False
+        return True
+
+
 class MCPOrchestrationRequest(BaseModel):
     """Validated MCP request passed to the orchestration application port."""
 
@@ -165,12 +267,34 @@ class MCPOrchestrationRequest(BaseModel):
     # déclaratif côté MCP (l'orchestrateur re-dispatch déjà le seul worker
     # dont le ``request_id`` est repris) — tracé pour l'audit et le Flow Map.
     task_id: str | None = None
+    # MCP 2.3.0 (SCRUM-161) — identité de l'appelant : portée par le transport
+    # (en-têtes ``X-Tenant-Id`` / ``X-Client-Id`` / ``X-Subject-Id``), propagée
+    # dans la requête pour estampiller le run durable et appliquer l'isolation
+    # multi-tenant (jamais saisie par le client dans les arguments du tool).
+    tenant_id: str = "default"
+    client_id: str = "anonymous"
+    subject_id: str = ""
+
+    def identity(self) -> MCPIdentity:
+        """Identité de l'appelant (estampille + garde de propriété des runs)."""
+        return MCPIdentity(
+            tenant_id=self.tenant_id,
+            client_id=self.client_id,
+            subject_id=self.subject_id,
+        )
 
     @classmethod
     def from_values(cls, **values: Any) -> MCPOrchestrationRequest:
         values["prompt"] = str(values.get("prompt") or "").strip()
         values["session_id"] = str(values.get("session_id") or "default").strip() or "default"
         values["scope"] = str(values.get("scope") or "default").strip() or "default"
+        # MCP 2.3.0 (SCRUM-161) : identité normalisée (trim + 64 max, repli
+        # défaut) — les trois identifiants portent l'isolation multi-tenant.
+        values["tenant_id"] = str(values.get("tenant_id") or "default").strip()[:64] or "default"
+        values["client_id"] = (
+            str(values.get("client_id") or "anonymous").strip()[:64] or "anonymous"
+        )
+        values["subject_id"] = str(values.get("subject_id") or "").strip()[:64]
         event_granularity = str(values.get("event_granularity") or "summary").strip().lower()
         values["event_granularity"] = event_granularity
         allowed = {"minimal", "summary", "verbose"}
@@ -326,6 +450,14 @@ class MCPDurableRunState:
     # La piste d'audit reste chaînée sans jamais ré-exécuter implicitement le
     # run source (qui reste immuable).
     parent_run_id: str | None = None
+    # MCP 2.3.0 (SCRUM-161) — isolation multi-tenant : estampille du CRÉATEUR
+    # du run (trois identifiants). Tout accès (lecture, événements, annulation,
+    # reprise, replay) est gardé par cette estampille — cross-tenant/cross-client
+    # est indiscernable d'un run inconnu (aucun oracle). Une estampille VIDE
+    # (runs antérieurs à 2.3.0) n'est accessible que depuis le tenant défaut.
+    tenant_id: str = ""
+    client_id: str = ""
+    subject_id: str = ""
     lease_owner: str | None = None
     lease_expires_at: datetime | None = None
     state: str = "pending"
@@ -408,6 +540,9 @@ class MCPDurableRunState:
             run_id=self.run_id,
             request_fingerprint=self.request_fingerprint,
             parent_run_id=self.parent_run_id,
+            tenant_id=self.tenant_id,
+            client_id=self.client_id,
+            subject_id=self.subject_id,
             lease_owner=self.lease_owner,
             lease_expires_at=self.lease_expires_at,
             state=normalized_state,
@@ -465,6 +600,11 @@ class MCPDurableRunState:
             "run_id": self.run_id,
             "request_fingerprint": self.request_fingerprint,
             "parent_run_id": self.parent_run_id,
+            # MCP 2.3.0 (SCRUM-161) : estampille de propriété persistée avec le
+            # run (les stores relisent toléramment — champ absent = legacy).
+            "tenant_id": self.tenant_id,
+            "client_id": self.client_id,
+            "subject_id": self.subject_id,
             "lease_owner": self.lease_owner,
             "lease_expires_at": (
                 self.lease_expires_at.isoformat() if self.lease_expires_at else None
@@ -496,6 +636,9 @@ class MCPDurableRunStorePort(Protocol):
         # hérite de la fingerprint SOURCE et porte sa filiation + son rang.
         parent_run_id: str | None = None,
         retry_count: int = 0,
+        # MCP 2.3.0 (SCRUM-161) : estampille de propriété du créateur
+        # (isolation multi-tenant) — ``None`` → run non estampillé (legacy).
+        owner: MCPIdentity | None = None,
     ) -> MCPDurableRunState: ...
 
     def get(self, run_id: str) -> MCPDurableRunState | None: ...
@@ -778,6 +921,9 @@ class MCPOrchestrationPort(Protocol):
         *,
         reason: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
+        # MCP 2.3.0 (SCRUM-161) : garde de propriété — fournie, l'annulation
+        # est refusée pour un run hors périmètre (indiscernable d'inconnu).
+        identity: MCPIdentity | None = None,
     ) -> MCPDurableRunState: ...
 
     def retry(
@@ -785,6 +931,7 @@ class MCPOrchestrationPort(Protocol):
         run_id: str,
         *,
         reason: str | None = None,
+        identity: MCPIdentity | None = None,
     ) -> MCPDurableRunState:
         """MCP 2.3.0 (``runs/retry``) : crée un NOUVEAU run lié au run source.
 
@@ -795,9 +942,17 @@ class MCPOrchestrationPort(Protocol):
         """
         ...
 
-    def get_run(self, run_id: str) -> dict[str, Any] | None: ...
+    def get_run(
+        self, run_id: str, *, identity: MCPIdentity | None = None
+    ) -> dict[str, Any] | None: ...
 
-    def get_events(self, run_id: str, *, after_sequence: int = 0) -> list[dict[str, Any]]: ...
+    def get_events(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        identity: MCPIdentity | None = None,
+    ) -> list[dict[str, Any]]: ...
 
     def list_runs(self, *, state: str | None = None, limit: int = 50) -> list[dict[str, Any]]: ...
 
@@ -1079,6 +1234,15 @@ class MCPSecurityScope(BaseModel):
         ge=0,
         le=1000,
         description="Quota max d'outils 'manual approval' / heure (5 default).",
+    )
+    cost_quota_per_hour: int = Field(
+        default=60,
+        ge=0,
+        le=100_000,
+        description=(
+            "Quota de COÛT horaire (unités) — consommé par appel 'orchestrate' "
+            "(MCP 2.3.0, isolation multi-tenant) ; 0 = aucun orchestrate autorisé."
+        ),
     )
     revoked: bool = Field(
         default=False,

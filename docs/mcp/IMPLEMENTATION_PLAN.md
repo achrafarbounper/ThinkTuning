@@ -693,6 +693,47 @@ les événements peuvent être archivés indépendamment des snapshots.
   glissante in-process) et `histogram_quantile()` reste côté Prometheus.
 
 ---
+## MCP 2.3.0 — Isolation multi-tenant (SCRUM-161)
+
+> **Statut** : livré. Version de surface inchangée (`2.3.0`) — identité
+> déclarée, isolation des runs/resources/tools, quotas de durée et de coût,
+> limites JSON. 100 % additif (défauts rétro-compatibles, gate avec rollback).
+
+### Périmètre
+
+- [x] `app/infrastructure/mcp/tenant_isolation.py` — module PUR : `MCPIdentity`
+  normalisée, alias canoniques, limites JSON (taille + profondeur itérative),
+  garde de propriété (source de décision : `MCPIdentity.can_access`, domaine) ;
+- [x] Domaine (`mcp_ports.py`) : `MCPIdentity` + `can_access()` +
+  `MCP_DEFAULT_TENANT_ID` (source unique), `MCPSecurityScope` +
+  `max_run_seconds` / `cost_quota_per_hour`, `MCPOrchestrationRequest` +
+  identité, `MCPDurableRunState` + estampille (relecture tolérante) ;
+- [x] Application (`mcp_orchestration.py`) : estampille à la création
+  (`run`/`prepare_run`/`retry`), garde `get_run`/`get_events`/`cancel`/`retry`
+  /`prepare_run`/`list_runs` (cross-tenant → « run inconnu »), quota de durée
+  → `expired` (`duration_quota_exceeded`, réessayable) ;
+- [x] Enforceur (`scope_enforcer.py`) : alias résolu AVANT tout check,
+  cohérence tenant (`scope_for` inclus), `check_cost_quota()` par
+  `tenant:client`, `enforce()` = scope → quota → coût → rate limit ;
+- [x] Serveur + transports : `handle_text(identity=...)`, limites JSON →
+  `validation_error`, `enforce()` sur `tools/call`, filtre `visible_resources`
+  sur `resources/read`, en-têtes `X-Tenant-Id`/`X-Subject-Id` (SSE), identité
+  stdio, audit enrichi ; gate `MCP_TENANT_ISOLATION` (défaut actif) ;
+- [x] Test : `tests/test_mcp_tenant_isolation.py` — 27 tests (5 critères
+  d'acceptation : isolation inter-tenant, scope, alias, limites JSON,
+  rate limit + quotas).
+
+### Garanties de compatibilité
+
+- `identity=None` ≡ non passé partout : les fakes/ports 2.2.x restent
+  appelables (`identity_kwargs()`, kwargs conditionnels SSE) ;
+- Appels non déclarés : AUCUNE garde (comportement 2.2.x byte-identique) ;
+- Rollback explicite : `MCP_TENANT_ISOLATION=0` (même convention que
+  `MCP_AUTH_REQUIRED`) ; limites JSON configurables par env avec planchers.
+
+---
+
+
 
 
 ## 🚨 Rollback Plan

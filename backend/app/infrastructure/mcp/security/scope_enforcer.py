@@ -66,6 +66,7 @@ from app.infrastructure.mcp.legacy_tool_provider import (
 )
 from app.infrastructure.mcp.manifest_generator import compile_tool
 from app.infrastructure.mcp.security.rate_limit_bucket import TokenBucket
+from app.infrastructure.mcp.tenant_isolation import canonical_tool_name
 
 logger = logging.getLogger("thinktuning.mcp.security")
 
@@ -204,11 +205,17 @@ def resolve_scope(
     client_id: str,
     *,
     resolver: Callable[[str], MCPSecurityScope | None] | None = None,
+    tenant_id: str | None = None,
 ) -> MCPSecurityScope:
     """Résout et VALIDE le scope d'un client (fail-closed).
 
-    Lève ``MCPAccessDeniedError`` si le client est inconnu, révoqué, ou porte
+    Lève ``MCPAccessDeniedError`` si le client est inconnu, révoqué, porte
     un rôle hors catalogue — avant toute vérification de tool.
+
+    MCP 2.3.0 (isolation multi-tenant) : ``tenant_id`` fourni (en-tête
+    ``X-Tenant-Id``), la cohérence avec ``scope.tenant_id`` est EXIGÉE — un
+    client du tenant ``staging`` qui se déclare sur le tenant ``production``
+    est refusé (cloisonnement déclaratif, indiscernable d'un accès refusé).
     """
     client_id = client_id.strip()
     scope = (resolver or default_scope_resolver)(client_id)
@@ -218,6 +225,11 @@ def resolve_scope(
         raise MCPAccessDeniedError(f"Client MCP révoqué : {client_id!r}")
     if scope.role not in ROLE_TOOLS:
         raise MCPAccessDeniedError(f"Rôle MCP inconnu : {scope.role!r}")
+    if tenant_id is not None and scope.tenant_id != tenant_id:
+        raise MCPAccessDeniedError(
+            f"Client MCP {client_id!r} hors du tenant déclaré : "
+            f"{scope.tenant_id!r} ≠ {tenant_id!r}"
+        )
     return scope
 
 
@@ -283,6 +295,9 @@ class MCPScopeEnforcer:
         self._clock = clock
         self._lock = threading.RLock()
         self._quota_usage: dict[str, deque[float]] = {}
+        # MCP 2.3.0 (SCRUM-161) : quota de COÛT — fenêtre glissante par
+        # ``tenant:client`` (une unité consommée par appel ``orchestrate``).
+        self._cost_usage: dict[str, deque[float]] = {}
         self._buckets: dict[str, TokenBucket] = {}
         self._buckets_seen: dict[str, float] = {}
 
@@ -291,26 +306,60 @@ class MCPScopeEnforcer:
         scope = resolve_scope(client_id, resolver=self._scope_resolver)
         return effective_tools(scope)
 
-    def check_scope(self, client_id: str, tool_name: str) -> None:
-        """Tâche 11 : vérifie que ``tool_name`` est dans la portée effective du client."""
-        scope = resolve_scope(client_id, resolver=self._scope_resolver)
-        if tool_name not in effective_tools(scope):
+    def scope_for(
+        self,
+        client_id: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> MCPSecurityScope:
+        """Scope validé d'un client (cohérence tenant exigée si fournie).
+
+        Consommé par le serveur pour filtrer ``resources/read`` sur la
+        whitelist ``visible_resources`` du client (isolation multi-tenant) —
+        lève ``MCPAccessDeniedError`` sur client inconnu/révoqué/hors tenant.
+        """
+        return resolve_scope(client_id, resolver=self._scope_resolver, tenant_id=tenant_id)
+
+    def check_scope(
+        self,
+        client_id: str,
+        tool_name: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> None:
+        """Tâche 11 : vérifie que ``tool_name`` est dans la portée effective du client.
+
+        MCP 2.3.0 (tâche alias) : l'ALIAS est résolu en nom CANONIQUE AVANT la
+        vérification — un alias ne contourne jamais le scope (et la portée
+        s'apprécie sur le tool réel porteur de la sémantique).
+        """
+        canonical = canonical_tool_name(tool_name)
+        scope = resolve_scope(client_id, resolver=self._scope_resolver, tenant_id=tenant_id)
+        if canonical not in effective_tools(scope):
             raise MCPAccessDeniedError(
                 f"Tool {tool_name!r} non autorisé pour le client {client_id!r} "
                 f"(rôle {scope.role!r})"
             )
 
-    def check_quota(self, client_id: str, tool_name: str) -> None:
+    def check_quota(
+        self,
+        client_id: str,
+        tool_name: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> None:
         """Tâche 11 : réserve un slot du quota destructif horaire (« manual approval »).
 
         Fail-closed : client inconnu/révoqué → erreur même pour un tool de
         lecture ; quota épuisé → ``MCPQuotaExceededError``. Les tools de
         lecture pure ne consomment JAMAIS de quota. Le slot est réservé au
         moment du check (gate) : deux requêtes concurrentes ne peuvent pas
-        dépasser le quota ensemble.
+        dépasser le quota ensemble. L'ALIAS est résolu AVANT la classification
+        (le quota s'apprécie sur le tool canonique).
         """
-        scope = resolve_scope(client_id, resolver=self._scope_resolver)
-        if not self._is_destructive(tool_name):
+        canonical = canonical_tool_name(tool_name)
+        scope = resolve_scope(client_id, resolver=self._scope_resolver, tenant_id=tenant_id)
+        if not self._is_destructive(canonical):
             return
         now = self._clock()
         with self._lock:
@@ -325,6 +374,42 @@ class MCPScopeEnforcer:
                     f"sur {tool_name!r}"
                 )
             usage.append(now)
+
+    def check_cost_quota(
+        self,
+        client_id: str,
+        tool_name: str,
+        *,
+        tenant_id: str | None = None,
+        amount: int = 1,
+    ) -> None:
+        """Quota de COÛT horaire (MCP 2.3.0, isolation multi-tenant).
+
+        Une unité de coût est consommée par appel ``orchestrate`` (le moteur
+        LLM est le driver de coût). La fenêtre glissante est indexée par
+        ``tenant_id:client_id`` : deux clients du même tenant consomment des
+        enveloppes SÉPARÉES (isolation par client conservée). Le plafond vient
+        du scope (``cost_quota_per_hour``) ; ``0`` = aucun orchestrate.
+        """
+        canonical = canonical_tool_name(tool_name)
+        if canonical != "orchestrate":
+            return  # seul le run agentique consomme du coût
+        scope = resolve_scope(client_id, resolver=self._scope_resolver, tenant_id=tenant_id)
+        key = f"{scope.tenant_id}:{client_id}"
+        now = self._clock()
+        with self._lock:
+            usage = self._cost_usage.setdefault(key, deque())
+            while usage and now - usage[0] >= self._quota_window:
+                usage.popleft()
+            if len(usage) + max(1, int(amount)) > scope.cost_quota_per_hour:
+                raise MCPQuotaExceededError(
+                    f"Quota de coût épuisé pour {client_id!r} (tenant "
+                    f"{scope.tenant_id!r}) : {len(usage)} / "
+                    f"{scope.cost_quota_per_hour} unités / "
+                    f"{int(self._quota_window // 60)} min sur {tool_name!r}"
+                )
+            for _ in range(max(1, int(amount))):
+                usage.append(now)
 
     def check_rate_limit(self, client_id: str) -> None:
         """Tâche 11 : vérifie le débit per-client (``rate_limit_per_minute``).
@@ -358,19 +443,36 @@ class MCPScopeEnforcer:
                     retry_after=wait_seconds,
                 )
 
-    def enforce(self, client_id: str, tool_name: str) -> None:
-        """Portail sécurité complet : scope → quota → rate limit (ordre plan tâche 11).
+    def enforce(
+        self,
+        client_id: str,
+        tool_name: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> None:
+        """Portail sécurité complet : scope → quota → coût → rate limit.
 
         Une seule ligne à appeler au transport MCP (SSE/stdio) avant un
-        ``tools/call`` — lève la première garde franchie.
+        ``tools/call`` — lève la première garde franchie. MCP 2.3.0
+        (isolation multi-tenant) : l'ALIAS est résolu avant TOUTE vérification
+        (scope, quota destructif, coût) — jamais de bypass par alias — et la
+        cohérence tenant du scope est exigée quand ``tenant_id`` est fourni.
         """
-        self.check_scope(client_id, tool_name)
-        self.check_quota(client_id, tool_name)
+        self.check_scope(client_id, tool_name, tenant_id=tenant_id)
+        self.check_quota(client_id, tool_name, tenant_id=tenant_id)
+        self.check_cost_quota(client_id, tool_name, tenant_id=tenant_id)
         self.check_rate_limit(client_id)
 
     def _evict_idle_buckets_locked(self) -> None:
         """Purge les buckets inactifs (à appeler avec ``_lock`` posé)."""
         now = self._clock()
+        # Hygiène mémoire (MCP 2.3.0) : purge des fenêtres de quota destructif
+        # et de coût tombées hors fenêtre (aucun coût d'exécution amorti ici).
+        for usage in (self._quota_usage, self._cost_usage):
+            for key in list(usage.keys()):
+                window = usage[key]
+                if window and now - window[-1] >= self._quota_window:
+                    usage.pop(key, None)
         if len(self._buckets) < _MAX_CLIENT_BUCKETS:
             return
         stale = [
@@ -425,14 +527,16 @@ def check_scope(
     tool_name: str,
     *,
     enforcer: MCPScopeEnforcer | None = None,
+    tenant_id: str | None = None,
 ) -> None:
     """Tâche 11 : vérifie la visibilité d'un tool (whitelist ``visible_tools``/rôle).
 
     Portage d'état : passez un ``enforcer`` explicite (ou utilisez l'enforceur
     partagé ``get_default_enforcer()``) — le quota et le rate limit sont
-    STATEFUL, jamais recréés par appel.
+    STATEFUL, jamais recréés par appel. MCP 2.3.0 : ``tenant_id`` exigé quand
+    le transport porte une identité de tenant (cohérence scope, fail-closed).
     """
-    (enforcer or get_default_enforcer()).check_scope(client_id, tool_name)
+    (enforcer or get_default_enforcer()).check_scope(client_id, tool_name, tenant_id=tenant_id)
 
 
 def check_quota(
@@ -440,9 +544,21 @@ def check_quota(
     tool_name: str,
     *,
     enforcer: MCPScopeEnforcer | None = None,
+    tenant_id: str | None = None,
 ) -> None:
     """Tâche 11 : vérifie le quota destructif horaire (« manual approval »)."""
-    (enforcer or get_default_enforcer()).check_quota(client_id, tool_name)
+    (enforcer or get_default_enforcer()).check_quota(client_id, tool_name, tenant_id=tenant_id)
+
+
+def check_cost_quota(
+    client_id: str,
+    tool_name: str,
+    *,
+    enforcer: MCPScopeEnforcer | None = None,
+    tenant_id: str | None = None,
+) -> None:
+    """MCP 2.3.0 : quota de coût horaire (une unité par appel ``orchestrate``)."""
+    (enforcer or get_default_enforcer()).check_cost_quota(client_id, tool_name, tenant_id=tenant_id)
 
 
 def check_rate_limit(
@@ -463,9 +579,10 @@ def enforce(
     tool_name: str,
     *,
     enforcer: MCPScopeEnforcer | None = None,
+    tenant_id: str | None = None,
 ) -> None:
-    """Tâche 11 : portail complet scope → quota → rate limit pour un ``tools/call``."""
-    (enforcer or get_default_enforcer()).enforce(client_id, tool_name)
+    """Tâche 11 : portail complet scope → quota → coût → rate limit pour ``tools/call``."""
+    (enforcer or get_default_enforcer()).enforce(client_id, tool_name, tenant_id=tenant_id)
 
 
 __all__ = [
@@ -480,6 +597,7 @@ __all__ = [
     "OPERATOR_ROLE_TOOLS",
     "READ_ONLY_ROLE_TOOLS",
     "ROLE_TOOLS",
+    "check_cost_quota",
     "check_quota",
     "check_rate_limit",
     "check_scope",

@@ -53,6 +53,7 @@ from app.domain.entities.plan import Intent
 from app.domain.entities.run import RunStatus
 from app.domain.ports import (
     ExecutionContext,
+    MCPIdentity,
     MCPOrchestrationPort,
     MCPOrchestrationRequest,
     WorkerScopePolicy,
@@ -62,6 +63,7 @@ from app.infrastructure.mcp.manifest_generator import MUTATING_ANNOTATIONS
 from app.infrastructure.mcp.mcp_events import (
     event_allowed_for_tool as _event_allowed_by_granularity,
 )
+from app.infrastructure.mcp.mcp_flow import current_call_context
 from app.infrastructure.mcp.mcp_server import ToolError
 
 # Politique d'événements : SOURCE UNIQUE ``app.infrastructure.mcp.mcp_events``
@@ -149,19 +151,44 @@ def _mcp_parallel_default() -> bool:
     return _as_bool(os.getenv("AGENT_MULTI_PARALLEL"), default=False)
 
 
+def _declared_identity() -> MCPIdentity | None:
+    """Identité DÉCLARÉE du contexte d'appel courant (MCP 2.3.0 — SCRUM-161).
+
+    ``None`` quand l'appel n'a pas d'identité explicite (client ``anonymous``
+    ou appel interne hors transport) : l'isolation multi-tenant est alors
+    INACTIVE et le comportement 2.2.x est strictement préservé (runs non
+    estampillés, ``tenant_id`` d'exécution par défaut).
+    """
+    context = current_call_context()
+    if context is None:
+        return None
+    identity = MCPIdentity(
+        tenant_id=context.tenant_id,
+        client_id=context.client_id,
+        subject_id=context.subject_id,
+    )
+    return identity if identity.declared else None
+
+
 def _build_execution_context(
     *,
     session_id: str,
     scope: str,
     allowed_tools: list[str] | tuple[str, ...] | None = None,
+    tenant_id: str | None = None,
 ) -> ExecutionContext:
-    """Creates a shared execution context for MCP/HTTP surfaces."""
+    """Creates a shared execution context for MCP/HTTP surfaces.
+
+    MCP 2.3.0 (SCRUM-161) : ``tenant_id`` provient de l'identité déclarée du
+    transport (jamais de l'argument client) — défaut ``"default"`` pour les
+    appelants non identifiés (comportement 2.2.x).
+    """
     budget_policy = BudgetPolicy.from_config()
     allowed = tuple(allowed_tools or ("orchestrate", "read", "write"))
     scopes = (str(scope or _DEFAULT_SCOPE),)
     return ExecutionContext(
         user_id=str(session_id or _DEFAULT_SESSION_ID),
-        tenant_id="default",
+        tenant_id=str(tenant_id or "default"),
         allowed_tools=allowed,
         allowed_resources=("session://default",),
         allowed_scopes=scopes,
@@ -177,6 +204,7 @@ def _validate_worker_scope(
     worker_id: str,
     allowed_tools: list[str] | tuple[str, ...],
     allowed_resources: list[str] | tuple[str, ...] | None = None,
+    tenant_id: str | None = None,
 ) -> ExecutionContext:
     """Valide (et retourne) le contexte RÉEL du worker.
 
@@ -191,6 +219,7 @@ def _validate_worker_scope(
         session_id=session_id,
         scope=scope,
         allowed_tools=("orchestrate", "read", "write"),
+        tenant_id=tenant_id,
     )
     scope_policy = WorkerScopePolicy(
         parent_scope=(str(scope or _DEFAULT_SCOPE),),
@@ -370,11 +399,15 @@ def resolve_orchestration(
             )
         else:
             try:
+                # MCP 2.3.0 (SCRUM-161) : le tenant du contexte d'exécution est
+                # celui de l'identité DÉCLARÉE (jamais un argument client).
+                declared = _declared_identity()
                 _validate_worker_scope(
                     session_id=session_id,
                     scope=scope,
                     worker_id="planner",
                     allowed_tools=("orchestrate",),
+                    tenant_id=declared.tenant_id if declared is not None else None,
                 )
             except ValueError as exc:
                 fallback = _fallback_payload(
@@ -695,6 +728,8 @@ def orchestrate_stream(
 def build_orchestration_request(
     resolution: OrchestrationResolution,
     prompt: str,
+    *,
+    identity: MCPIdentity | None = None,
 ) -> MCPOrchestrationRequest:
     """Construit la requête d'orchestration depuis une décision PARTAGÉE.
 
@@ -702,7 +737,20 @@ def build_orchestration_request(
     transport SSE produisent exactement la même requête pour une même
     résolution — indispensable pour que la préparation durable du run
     (``prepare_run``, empreinte de requête) corresponde à l'exécution.
+
+    MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : ``identity`` estampille
+    le run durable (tenant / client / sujet). Absente, l'identité DÉCLARÉE du
+    contexte d'appel courant est utilisée ; à défaut (client anonyme, appel
+    interne) la requête reste dans le comportement 2.2.x (aucun estampillage).
     """
+    resolved_identity = identity or _declared_identity()
+    identity_fields: dict[str, str] = {}
+    if resolved_identity is not None:
+        identity_fields = {
+            "tenant_id": resolved_identity.tenant_id,
+            "client_id": resolved_identity.client_id,
+            "subject_id": resolved_identity.subject_id,
+        }
     return MCPOrchestrationRequest.from_values(
         prompt=prompt,
         session_id=resolution.session_id or _DEFAULT_SESSION_ID,
@@ -714,6 +762,7 @@ def build_orchestration_request(
         run_id=resolution.run_id,
         resume_request_id=resolution.resume_request_id,
         task_id=resolution.task_id,
+        **identity_fields,
     )
 
 

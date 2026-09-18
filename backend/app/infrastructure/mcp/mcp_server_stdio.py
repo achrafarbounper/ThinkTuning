@@ -18,13 +18,53 @@ choisira le rôle par client.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from typing import TextIO
 
+from app.domain.ports.mcp_ports import MCPIdentity
 from app.infrastructure.mcp.mcp_audit import audit_mcp_call
 from app.infrastructure.mcp.mcp_server_factory import build_mcp_server
+from app.infrastructure.mcp.tenant_isolation import (
+    DEFAULT_TENANT_ID,
+    sanitize_identity_value,
+)
 
 logger = logging.getLogger("thinktuning.mcp.stdio")
+
+# Variables d'environnement portant l'identité du client stdio (MCP 2.3.0 —
+# isolation multi-tenant) : le protocole stdio n'a pas d'en-têtes, l'identité
+# est donc fournie par l'ENVIRONNEMENT du process lancé par le client MCP.
+ENV_CLIENT_ID = "MCP_CLIENT_ID"
+ENV_TENANT_ID = "MCP_TENANT_ID"
+ENV_SUBJECT_ID = "MCP_SUBJECT_ID"
+
+
+def resolve_stdio_identity() -> MCPIdentity | None:
+    """Identité DÉCLARÉE du client stdio (``None`` si non configurée).
+
+    Le protocole stdio ne transporte pas d'en-têtes : l'identité est portée
+    par l'environnement du process (``MCP_CLIENT_ID`` / ``MCP_TENANT_ID`` /
+    ``MCP_SUBJECT_ID``), sanitisée selon la même convention que le transport
+    SSE. Sans configuration, ``None`` est retourné — comportement 2.2.x
+    strictement préservé (aucune garde par client, runs non estampillés).
+    """
+    raw_client = (os.getenv(ENV_CLIENT_ID) or "").strip()
+    raw_subject = (os.getenv(ENV_SUBJECT_ID) or "").strip()
+    if not raw_client and not raw_subject:
+        return None
+    raw_tenant = (os.getenv(ENV_TENANT_ID) or "").strip()
+    return MCPIdentity(
+        tenant_id=sanitize_identity_value(
+            raw_tenant, field="tenant_id", default=DEFAULT_TENANT_ID
+        ),
+        client_id=sanitize_identity_value(raw_client, field="client_id", default="anonymous"),
+        subject_id=(
+            sanitize_identity_value(raw_subject, field="subject_id", default="-")
+            if raw_subject
+            else ""
+        ),
+    )
 
 
 def _read_message(stream: TextIO) -> str | None:
@@ -55,12 +95,25 @@ def serve_stdio(
     # Tâche 12 : le transport stdio audite aussi (client_id anonyme — le
     # protocole stdio ne porte pas d'identité client).
     server = build_mcp_server(audit=audit_mcp_call)
+    # MCP 2.3.0 (SCRUM-161) : identité déclarée par l'ENVIRONNEMENT (le
+    # protocole stdio n'a pas d'en-têtes) — ``None`` → comportement 2.2.x.
+    identity = resolve_stdio_identity()
+    if identity is not None:
+        logger.info(
+            "MCP stdio identifié : tenant=%s client=%s",
+            identity.tenant_id,
+            identity.client_id,
+        )
     try:
         while True:
             raw = _read_message(reader)
             if raw is None:  # EOF : fin du transport
                 return 0
-            response = server.handle_text(raw)
+            response = server.handle_text(
+                raw,
+                client_id=identity.client_id if identity is not None else "anonymous",
+                identity=identity,
+            )
             if response is not None:
                 writer.write(response + "\n")
                 writer.flush()
@@ -79,4 +132,4 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-__all__ = ["main", "serve_stdio"]
+__all__ = ["main", "resolve_stdio_identity", "serve_stdio"]
