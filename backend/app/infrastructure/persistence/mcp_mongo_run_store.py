@@ -9,7 +9,7 @@ from typing import Any
 
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
-from app.domain.ports.mcp_ports import MCPDurableRunState
+from app.domain.ports.mcp_ports import MCPDurableRunState, MCPIdentity
 from app.infrastructure.persistence.mongodb import MongoClientProvider, get_mongo_provider
 
 
@@ -99,6 +99,9 @@ class MongoMCPDurableRunStore:
         request_fingerprint: str | None = None,
         parent_run_id: str | None = None,
         retry_count: int = 0,
+        # MCP 2.3.0 (SCRUM-161) : estampille de propriété du créateur
+        # (isolation multi-tenant) — ``None`` → run non estampillé (legacy).
+        owner: MCPIdentity | None = None,
     ) -> MCPDurableRunState:
         normalized_id = str(run_id or "").strip()
         if not normalized_id:
@@ -108,6 +111,10 @@ class MongoMCPDurableRunStore:
             request_fingerprint=request_fingerprint,
             parent_run_id=parent_run_id,
             retry_count=int(retry_count),
+            # Estampille de propriété (tenant / client / sujet du créateur).
+            tenant_id=owner.tenant_id if owner is not None else "",
+            client_id=owner.client_id if owner is not None else "",
+            subject_id=owner.subject_id if owner is not None else "",
         )
         document = state.as_snapshot()
         document["_id"] = normalized_id

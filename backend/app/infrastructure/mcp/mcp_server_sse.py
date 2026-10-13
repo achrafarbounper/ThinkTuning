@@ -47,7 +47,11 @@ from starlette.responses import Response
 
 from app.agent.settings import get_agent_config
 from app.domain.entities.mcp import MCPScopeRole
-from app.domain.ports.mcp_ports import MCPDurableRunStorePort, MCPOrchestrationPort
+from app.domain.ports.mcp_ports import (
+    MCPDurableRunStorePort,
+    MCPIdentity,
+    MCPOrchestrationPort,
+)
 from app.infrastructure.mcp import mcp_metrics
 from app.infrastructure.mcp.backpressure import (
     CapacityRejection,
@@ -86,6 +90,7 @@ from app.infrastructure.mcp.resume_cursor import (
     resume_follow_timeout_seconds,
 )
 from app.infrastructure.mcp.run_sweeper import SETTLED_RUN_STATES
+from app.infrastructure.mcp.tenant_isolation import assert_run_owner, tenant_isolation_enabled
 from app.infrastructure.mcp.tools.orchestrate_tool import (
     MonoAgentOutcome,
     _result_to_text,
@@ -456,6 +461,49 @@ def transport_correlation_id(request: Request, payload: object) -> str:
     return resolve_correlation_id(payload if isinstance(payload, dict) else None, provided=provided)
 
 
+def resolve_transport_identity(
+    *,
+    client_id: str | None,
+    tenant_id: str | None,
+    subject_id: str | None,
+) -> MCPIdentity | None:
+    """Résout l'identité DÉCLARÉE d'une requête SSE (MCP 2.3.0 — SCRUM-161).
+
+    Les entêtes ``X-Client-Id`` / ``X-Tenant-Id`` / ``X-Subject-Id`` sont
+    SANITISÉS (charset ``[A-Za-z0-9._-]``, 64 max) : aucune valeur arbitraire
+    ne circule dans l'audit, les clés de quota ou les estampilles de run.
+
+    Returns:
+        Une ``MCPIdentity`` si l'appelant s'est DÉCLARÉ (client explicite ou
+        sujet fourni), sinon ``None`` — l'isolation multi-tenant reste alors
+        inactive et le comportement 2.2.x est strictement préservé (repli de
+        session historiquement utilisé comme ``client_id`` d'audit).
+    """
+    from app.infrastructure.mcp.tenant_isolation import (  # noqa: PLC0415
+        DEFAULT_TENANT_ID,
+        sanitize_identity_value,
+    )
+
+    raw_client = (client_id or "").strip()
+    raw_subject = (subject_id or "").strip()
+    if not raw_client and not raw_subject:
+        return None  # appel anonyme : aucun estampillage, aucune garde
+    raw_tenant = (tenant_id or "").strip()
+    return MCPIdentity(
+        tenant_id=sanitize_identity_value(
+            raw_tenant, field="tenant_id", default=DEFAULT_TENANT_ID
+        ),
+        client_id=sanitize_identity_value(
+            raw_client, field="client_id", default="anonymous"
+        ),
+        subject_id=(
+            sanitize_identity_value(raw_subject, field="subject_id", default="-")
+            if raw_subject
+            else ""
+        ),
+    )
+
+
 def _session_guard(generator: AsyncIterator[str], *, session_id: str) -> AsyncIterator[str]:
     """Libère la session à la fermeture du flux (jauge ``mcp_sessions_active``).
 
@@ -689,7 +737,10 @@ def token_ttl_seconds_value() -> int:
 
 
 async def _replay_durable_events(
-    payload: dict[str, Any], *, last_event_id: str | None = None
+    payload: dict[str, Any],
+    *,
+    last_event_id: str | None = None,
+    identity: MCPIdentity | None = None,
 ) -> AsyncIterator[str]:
     """Reprise des événements d'un run durable (MCP 2.3.0 — SCRUM-163).
 
@@ -700,6 +751,10 @@ async def _replay_durable_events(
     expiré/invalide puis ``[DONE]``, et ``follow=true`` pour drainer un run
     encore en cours jusqu'à son état abouti (ou timeout borné).
     Tout chemin se termine par ``data: [DONE]`` (invariant §11-3).
+
+    MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : ``identity`` garde la
+    reprise — le run d'un autre tenant/client produit ``run_not_found``
+    (aucun oracle de propriété).
     """
     arguments = dict((payload.get("params") or {}).get("arguments") or {})
     run_id_arg = str(arguments.get("run_id") or "").strip()
@@ -761,12 +816,21 @@ async def _replay_durable_events(
     # curseur). Les curseurs invalides sortent plus haut (aucun comptage).
     if reconnection_mode is not None:
         mcp_metrics.record_reconnection(reconnection_mode)
-    async for chunk in _replay_stream(run_id, after_sequence, bool(arguments.get("follow"))):
+    async for chunk in _replay_stream(
+        run_id,
+        after_sequence,
+        bool(arguments.get("follow")),
+        identity=identity,
+    ):
         yield chunk
 
 
 async def _replay_stream(
-    run_id: str, after_sequence: int, follow_requested: bool
+    run_id: str,
+    after_sequence: int,
+    follow_requested: bool,
+    *,
+    identity: MCPIdentity | None = None,
 ) -> AsyncIterator[str]:
     """Émet le replay (historique + follow éventuel) du run ``run_id``.
 
@@ -775,6 +839,10 @@ async def _replay_stream(
     ``<=`` au curseur n'est JAMAIS émis, même si le store renvoie un bord
     large. Chaque évolution du curseur est retournée au client
     (``resume_token`` signé) pour la prochaine reconnexion.
+
+    MCP 2.3.0 (SCRUM-161) : quand l'appelant est identifié
+    (``identity.declared``), la reprise est gardée par l'estampille du run —
+    un run hors périmètre est traité comme INEXISTANT (``run_not_found``).
     """
     store = get_mcp_durable_run_store()
     # ``get`` peut manquer sur un store legacy minimal (fakes de transport) :
@@ -793,6 +861,31 @@ async def _replay_stream(
             yield _replay_error(run_id, f"unknown MCP run {run_id!r}", error_code="run_not_found")
             yield "data: [DONE]\n\n"
             return
+        # Isolation multi-tenant : hors périmètre → même sortie « introuvable »
+        # (aucun oracle sur l'existence/la propriété du run).
+        if identity is not None and tenant_isolation_enabled() and identity.declared:
+            try:
+                assert_run_owner(
+                    identity,
+                    MCPIdentity(
+                        tenant_id=getattr(state, "tenant_id", ""),
+                        client_id=getattr(state, "client_id", ""),
+                        subject_id=getattr(state, "subject_id", ""),
+                    ),
+                    run_id=run_id,
+                )
+            except PermissionError:
+                logger.warning(
+                    "MCP replay refusé (isolation tenant=%s client=%s run=%s)",
+                    identity.tenant_id,
+                    identity.client_id,
+                    run_id,
+                )
+                yield _replay_error(
+                    run_id, f"unknown MCP run {run_id!r}", error_code="run_not_found"
+                )
+                yield "data: [DONE]\n\n"
+                return
     try:
         events = store.list_events_after(run_id, after_sequence)
     except Exception as exc:  # store indisponible : erreur explicite, jamais silencieuse
@@ -891,6 +984,7 @@ async def _stream_orchestrate(
     *,
     client_id: str,
     request: Request | None = None,
+    identity: MCPIdentity | None = None,
 ) -> AsyncIterator[str]:
     """Relaye la réflexion et la progression du tool MCP en temps réel.
 
@@ -899,6 +993,11 @@ async def _stream_orchestrate(
     conservés pour la compatibilité avec les clients MCP existants. Un appel
     qui active explicitement `enable_thinking` est automatiquement streamé,
     même si `stream` n'est pas fourni.
+
+    MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : ``identity`` (identité
+    déclarée du transport) estampille le run durable préparé ici et alimente
+    le contexte d'appel du thread worker — un run repris depuis un autre
+    tenant est refusé AVANT le premier octet (``prepare_run``).
     """
     request_id = payload.get("id")
     params = payload.get("params") or {}
@@ -936,7 +1035,7 @@ async def _stream_orchestrate(
             prepared = get_mcp_orchestration_port()
             if prepared is not None:
                 prepared_snapshot = prepared.prepare_run(
-                    build_orchestration_request(resolution, prompt)
+                    build_orchestration_request(resolution, prompt, identity=identity)
                 )
                 if prepared_snapshot:
                     durable_run_id = str(prepared_snapshot.get("run_id") or "") or durable_run_id
@@ -985,6 +1084,8 @@ async def _stream_orchestrate(
                 MCPCallContext(
                     client_id=client_id,
                     request_id=str(request_id) if request_id is not None else None,
+                    tenant_id=identity.tenant_id if identity is not None else "default",
+                    subject_id=identity.subject_id if identity is not None else "",
                 )
             )
             recorder = begin_orchestrate_flow(
@@ -1310,6 +1411,8 @@ async def mcp_sse(
     request: Request,
     mcp_session_id: str | None = Header(default=None, alias="Mcp-Session-Id"),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-Id"),
+    x_subject_id: str | None = Header(default=None, alias="X-Subject-Id"),
 ) -> Response:
     """Endpoint MCP SSE : JSON-RPC request → flux SSE avec la réponse.
 
@@ -1325,6 +1428,13 @@ async def mcp_sse(
     défaut (``MCP_AUTH_REQUIRED=0`` pour un rollback explicite) — vérifiée
     AVANT toute lecture du corps (fail-closed) ; le secret client store
     (révocation par client) reste un durcissement S4+.
+
+    MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : les entêtes optionnelles
+    ``X-Tenant-Id`` et ``X-Subject-Id`` complètent l'identité déclarée
+    (``X-Client-Id``). Cette identité est propagée au serveur MCP, au run
+    durable (estampille de propriété) et à la reprise SSE (garde de
+    propriété) — un client ne peut jamais lire/annuler/reprendre le run d'un
+    autre tenant.
     """
     if not mcp_server_enabled():
         return JSONResponse(
@@ -1338,6 +1448,14 @@ async def mcp_sse(
         )
     session_id = mcp_session_id or f"tt-{uuid.uuid4().hex[:16]}"
     client_id = (x_client_id or session_id).strip() or "anonymous"
+    # Identité DÉCLARÉE (isolation multi-tenant) : normalisée (charset borné,
+    # 64 max) et laissée à ``None`` quand l'appel est anonyme — le
+    # comportement 2.2.x est alors strictement préservé.
+    identity = resolve_transport_identity(
+        client_id=x_client_id,
+        tenant_id=x_tenant_id,
+        subject_id=x_subject_id,
+    )
     # Auth transport (P5) : même mécanisme que la surface REST (X-API-Key,
     # repli dev, comparaison à temps constant — module partagé
     # app/infrastructure/security/api_key.py). Vérifié AVANT la lecture du
@@ -1390,7 +1508,12 @@ async def mcp_sse(
         assert isinstance(request_payload, dict)
         return StreamingResponse(
             _session_guard(
-                _stream_orchestrate(request_payload, client_id=client_id, request=request),
+                _stream_orchestrate(
+                    request_payload,
+                    client_id=client_id,
+                    request=request,
+                    identity=identity,
+                ),
                 session_id=session_id,
             ),
             media_type="text/event-stream",
@@ -1403,11 +1526,14 @@ async def mcp_sse(
         # curseur de repli quand ``after_sequence`` est absent (le
         # ``resume_token`` explicite reste prioritaire). Le mode de curseur
         # effectivement utilisé alimente ``mcp_sse_reconnections_total``.
+        # MCP 2.3.0 (SCRUM-161) : la reprise est GARDÉE par l'identité du
+        # demandeur — un run d'un autre tenant est « introuvable ».
         return StreamingResponse(
             _session_guard(
                 _replay_durable_events(
                     request_payload,
                     last_event_id=(request.headers.get("Last-Event-ID") or "").strip() or None,
+                    identity=identity,
                 ),
                 session_id=session_id,
             ),
@@ -1417,12 +1543,15 @@ async def mcp_sse(
     # MCP tools may execute synchronous LLM/tool work for several seconds.
     # Keep that work off FastAPI's event loop so independent requests remain
     # responsive while a run is in progress.
-    response_payload = await asyncio.to_thread(
-        _server.handle_text,
-        raw,
-        client_id=client_id,
-        correlation_id=correlation_id,
-    )
+    # ``identity`` n'est passée QUE si déclarée (``None`` ≡ non passé) : les
+    # implémentations ``handle_text`` antérieures à 2.3.0 restent appelables.
+    handle_kwargs: dict[str, Any] = {
+        "client_id": client_id,
+        "correlation_id": correlation_id,
+    }
+    if identity is not None:
+        handle_kwargs["identity"] = identity
+    response_payload = await asyncio.to_thread(_server.handle_text, raw, **handle_kwargs)
     # Contrat SSE uniforme : même le chemin non-stream termine par [DONE]
     # (les lecteurs stricts front s'arrêtent sur la sentinelle, pas sur la
     # fermeture TCP — sinon « sans réponse finale » sur proxy lent).

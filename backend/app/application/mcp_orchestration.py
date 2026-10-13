@@ -9,11 +9,13 @@ import traceback
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from app.domain.ports import (
     MCPDurableRunState,
     MCPDurableRunStorePort,
+    MCPIdentity,
     MCPOrchestrationRequest,
     MCPOrchestrationResult,
     MultiAgentOrchestratorPort,
@@ -24,6 +26,10 @@ from app.domain.ports import (
 )
 
 logger = logging.getLogger("thinktuning.mcp.multi_agent")
+
+#: Raison portée sur un run expiré par le quota de DURÉE (MCP 2.3.0,
+#: isolation multi-tenant) — ``last_error`` du snapshot + log.
+DURATION_QUOTA_EXCEEDED = "duration_quota_exceeded"
 
 
 @dataclass(frozen=True)
@@ -83,15 +89,73 @@ _TRACEBACK_TRUNCATE = 400
 
 
 class MultiAgentMCPAdapter:
-    """Maps MCP request semantics to the transport-agnostic multi-agent port."""
+    """Maps MCP request semantics to the transport-agnostic multi-agent port.
+
+    MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) :
+
+        - chaque run créé est estampillé avec l'identité de l'appelant
+          (``tenant_id`` / ``client_id`` / ``subject_id`` de la requête) ;
+        - toute reprise d'un run existant est gardée par cette estampille
+          (cross-tenant/cross-client → indiscernable d'un run inconnu) ;
+        - le quota de DURÉE (``max_run_seconds``, configuration d'exploitation
+          ``MCP_RUN_MAX_SECONDS`` par défaut 900) expire un run non terminal
+          dépassé — état ``expired`` + ``last_error=duration_quota_exceeded``.
+    """
 
     def __init__(
         self,
         orchestrator: MultiAgentOrchestratorPort,
         durable_store: MCPDurableRunStorePort | None = None,
+        *,
+        max_run_seconds: int | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._durable_store = durable_store
+        self._max_run_seconds = max_run_seconds
+
+    # ------------------------------------------------------------- isolation --
+
+    @staticmethod
+    def _guard_owner(
+        identity: MCPIdentity | None,
+        state: MCPDurableRunState,
+        *,
+        run_id: str,
+    ) -> None:
+        """Garde de propriété — hors périmètre → ``KeyError`` « run inconnu ».
+
+        AUCUN oracle : un run d'un autre tenant/client produit EXACTEMENT la
+        même erreur qu'un ``run_id`` inexistant (masquage de l'échec de garde).
+        ``identity=None`` (appel historique sans identité) ne garde pas —
+        compatibilité des appelants internes. La décision est PUREMENT
+        DOMAINE (``MCPIdentity.can_access``) : la couche application ne dépend
+        d'aucune infrastructure ici.
+        """
+        if identity is None:
+            return
+        owner = MCPIdentity(
+            tenant_id=state.tenant_id,
+            client_id=state.client_id,
+            subject_id=state.subject_id,
+        )
+        if identity.can_access(owner):
+            return
+        logger.info(
+            "MCP run accès refusé (isolation multi-tenant) : tenant=%s client=%s run=%s",
+            identity.tenant_id,
+            identity.client_id,
+            run_id,
+        )
+        raise KeyError(f"unknown MCP run {run_id!r}") from None
+
+    def _duration_quota_exceeded(self, state: MCPDurableRunState) -> bool:
+        """Le run non terminal dépasse-t-il le quota de durée configuré ?"""
+        if not self._max_run_seconds or self._max_run_seconds <= 0:
+            return False
+        if state.is_terminal:
+            return False
+        age_seconds = (datetime.now(UTC) - state.created_at).total_seconds()
+        return age_seconds > self._max_run_seconds
 
     def run(
         self,
@@ -307,9 +371,16 @@ class MultiAgentMCPAdapter:
         *,
         reason: str | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
+        identity: MCPIdentity | None = None,
     ) -> MCPDurableRunState:
         if self._durable_store is None:
             raise RuntimeError("durable run store is required to cancel an MCP run")
+        # Isolation multi-tenant : garde AVANT toute mutation (cross-tenant →
+        # indiscernable d'un run inconnu).
+        current = self._durable_store.get(run_id)
+        if current is None:
+            raise KeyError(f"unknown MCP run {run_id!r}")
+        self._guard_owner(identity, current, run_id=run_id)
         state = self._durable_store.cancel(run_id, reason=reason)
         event = normalize_mcp_event(
             {
@@ -330,6 +401,7 @@ class MultiAgentMCPAdapter:
         run_id: str,
         *,
         reason: str | None = None,
+        identity: MCPIdentity | None = None,
     ) -> MCPDurableRunState:
         """MCP 2.3.0 (``runs/retry``) : duplique un run terminal réessayable.
 
@@ -339,7 +411,10 @@ class MultiAgentMCPAdapter:
           * le même ``request_fingerprint`` (le prompt/scope d'origine est
             rejoué tel quel par un ``orchestrate`` ciblant le nouveau run) ;
           * ``parent_run_id`` = run source (filiation d'audit chaînée) ;
-          * ``retry_count`` = ``source.retry_count + 1``.
+          * ``retry_count`` = ``source.retry_count + 1`` ;
+          * l'ESTAMPILLE du nouvel appelant (isolation multi-tenant — la
+            reprise d'un autre tenant/client est indiscernable d'un run
+            inconnu, jamais exécutée).
 
         Le nouveau run n'est JAMAIS exécuté implicitement : le client garde le
         contrôle (appel ``orchestrate`` explicite ou reprise SSE).
@@ -349,13 +424,16 @@ class MultiAgentMCPAdapter:
         source = self._durable_store.get(run_id)
         if source is None:
             raise KeyError(f"unknown MCP run {run_id!r}")
+        self._guard_owner(identity, source, run_id=run_id)
         if not source.is_retryable:
             raise ValueError(f"MCP run {run_id!r} is not retryable (state={source.state!r})")
+        owner = identity if identity is not None else MCPIdentity()
         new_state = self._durable_store.create(
             uuid.uuid4().hex[:12],
             request_fingerprint=source.request_fingerprint,
             parent_run_id=source.run_id,
             retry_count=source.retry_count + 1,
+            owner=owner,
         )
         reason_text = str(reason or f"retry of {source.run_id} ({source.state})").strip()
         # Traçabilité BILATÉRALE : le run source référence son successeur et le
@@ -390,12 +468,20 @@ class MultiAgentMCPAdapter:
         )
         return new_state
 
-    def get_run(self, run_id: str) -> dict[str, Any] | None:
+    def get_run(
+        self,
+        run_id: str,
+        *,
+        identity: MCPIdentity | None = None,
+    ) -> dict[str, Any] | None:
         if self._durable_store is None:
             raise RuntimeError("durable run store is required to read an MCP run")
         state = self._durable_store.get(run_id)
         if state is None:
             return None
+        # Isolation multi-tenant : hors périmètre → ``None`` (indiscernable
+        # d'un run inconnu — aucun oracle de propriété).
+        self._guard_owner(identity, state, run_id=run_id)
         # MCP 2.3.0 : ``status`` est la projection STANDARDISÉE du cycle de vie
         # (``queued``/``waiting_for_approval``) — ``state`` reste la vérité
         # interne brute (compat clients v2.2.x).
@@ -405,9 +491,19 @@ class MultiAgentMCPAdapter:
             "events": self._durable_store.list_events(run_id),
         }
 
-    def get_events(self, run_id: str, *, after_sequence: int = 0) -> list[dict[str, Any]]:
+    def get_events(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        identity: MCPIdentity | None = None,
+    ) -> list[dict[str, Any]]:
         if self._durable_store is None:
             raise RuntimeError("durable run store is required to read MCP events")
+        state = self._durable_store.get(run_id)
+        if state is None:
+            raise KeyError(f"unknown MCP run {run_id!r}")
+        self._guard_owner(identity, state, run_id=run_id)
         return self._durable_store.list_events_after(run_id, after_sequence)
 
     def list_runs(
@@ -415,16 +511,34 @@ class MultiAgentMCPAdapter:
         *,
         state: str | None = None,
         limit: int = 50,
+        identity: MCPIdentity | None = None,
     ) -> list[dict[str, Any]]:
         if self._durable_store is None:
             raise RuntimeError("durable run store is required to list MCP runs")
+        runs = self._durable_store.list_runs(state=state, limit=limit)
+        if identity is not None:
+            # Isolation multi-tenant : la liste ne contient QUE les runs du
+            # périmètre de l'appelant (tenant partition dur + client, runs
+            # legacy accessibles depuis le tenant défaut) — décision PUREMENT
+            # DOMAINE (``MCPIdentity.can_access``).
+            runs = [
+                run
+                for run in runs
+                if identity.can_access(
+                    MCPIdentity(
+                        tenant_id=run.tenant_id,
+                        client_id=run.client_id,
+                        subject_id=run.subject_id,
+                    )
+                )
+            ]
         return [
             {
                 **run.as_snapshot(),
                 "status": canonical_mcp_run_status(run.state),
                 "event_count": len(self._durable_store.list_events(run.run_id)),
             }
-            for run in self._durable_store.list_runs(state=state, limit=limit)
+            for run in runs
         ]
 
     def prepare_run(
@@ -447,10 +561,17 @@ class MultiAgentMCPAdapter:
             existing = self._durable_store.get(request.run_id)
             if existing is None:
                 raise ValueError(f"unknown durable MCP run {request.run_id!r}")
+            # Isolation multi-tenant : la préparation d'une REPRISE est gardée
+            # par l'estampille du créateur — le refus arrive AVANT le premier
+            # octet du flux SSE (cross-tenant/cross-client → « run inconnu »).
+            self._guard_owner(request.identity(), existing, run_id=request.run_id)
             return existing.as_snapshot()
         state = self._durable_store.create(
             uuid.uuid4().hex[:12],
             request_fingerprint=fingerprint,
+            # Isolation multi-tenant : estampille du CRÉATEUR dès la préparation
+            # (le run est traçable et gardé même si l'exécution n'a jamais lieu).
+            owner=request.identity(),
         )
         return state.as_snapshot()
 
@@ -487,6 +608,29 @@ class MultiAgentMCPAdapter:
             existing = self._durable_store.get(request.run_id)
             if existing is None:
                 raise ValueError(f"unknown durable MCP run {request.run_id!r}")
+            # Isolation multi-tenant : la reprise est gardée par l'estampille
+            # du CRÉATEUR (cross-tenant/cross-client → indiscernable d'un run
+            # inconnu — l'erreur est la même).
+            self._guard_owner(request.identity(), existing, run_id=request.run_id)
+            # Quota de DURÉE (MCP 2.3.0) : un run non terminal au-delà de
+            # ``max_run_seconds`` est expiré (état ``expired`` réessayable via
+            # ``runs/retry``) — la reprise est refusée avec une raison dédiée.
+            if self._duration_quota_exceeded(existing):
+                expired = self._durable_store.transition(
+                    existing.run_id,
+                    "expired",
+                    last_error=DURATION_QUOTA_EXCEEDED,
+                )
+                logger.warning(
+                    "MCP run expiré (quota de durée) : run_id=%s age=%ss max=%ss",
+                    expired.run_id,
+                    int((datetime.now(UTC) - existing.created_at).total_seconds()),
+                    self._max_run_seconds,
+                )
+                raise ValueError(
+                    f"durable MCP run {request.run_id!r} exceeded its duration "
+                    "quota (expired)"
+                )
             if existing.is_terminal:
                 raise ValueError(f"durable MCP run {request.run_id!r} is terminal")
             if (
@@ -508,6 +652,9 @@ class MultiAgentMCPAdapter:
         state = self._durable_store.create(
             uuid.uuid4().hex[:12],
             request_fingerprint=fingerprint,
+            # Isolation multi-tenant : estampille du CRÉATEUR portée par la
+            # requête (trois identifiants) — tout accès futur est gardé.
+            owner=request.identity(),
         )
         return PreparedDurableRun(
             state=self._durable_store.transition(

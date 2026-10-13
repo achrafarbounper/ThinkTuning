@@ -18,6 +18,7 @@ L'asynchronicité des futurs tools (sampling / orchestrate, S6) s'ajoutera par
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 import re
@@ -33,6 +34,7 @@ from app.domain.entities.mcp import (
 )
 from app.domain.errors import LLMClientError, NotFoundError, ValidationError
 from app.domain.ports.mcp_ports import (
+    MCPIdentity,
     MCPPromptRegistryPort,
     MCPResourceRegistryPort,
     MCPToolRegistryPort,
@@ -52,6 +54,7 @@ from app.infrastructure.mcp.error_contract import (
     fallback_from_rpc_code,
     new_correlation_id,
     sanitize_message,
+    structured_from_enforcer_error,
     structured_internal,
     structured_not_found,
     structured_timeout,
@@ -80,6 +83,12 @@ from app.infrastructure.mcp.protocol import (
     error_result,
     parse_jsonrpc,
     success_result,
+)
+from app.infrastructure.mcp.tenant_isolation import (
+    MCPArgumentLimitError,
+    canonical_tool_name,
+    check_json_arguments,
+    tenant_isolation_enabled,
 )
 
 # S4, tâche 12 : actions d'audit normalisées MCP
@@ -252,6 +261,7 @@ class MCPServer:
         *,
         client_id: str = "anonymous",
         correlation_id: str | None = None,
+        identity: MCPIdentity | None = None,
     ) -> str | None:
         """Parse un message JSON-RPC (texte brut) et retourne la réponse encodée.
 
@@ -264,7 +274,13 @@ class MCPServer:
                 (en-tête ``X-Correlation-Id``). Priorité au champ
                 ``params._meta.correlationId`` fourni par le client ; en
                 l'absence des deux, un identifiant est généré (MCP 2.3.0 —
-                observabilité : logs + audit + réponse partagent le même id).
+                observabilité : logs + audit + réponse partagent le même id) ;
+            identity : identité DÉCLARÉE de l'appelant (MCP 2.3.0 — isolation
+                multi-tenant : ``tenant_id`` / ``client_id`` / ``subject_id``).
+                Fournie, le serveur applique les gardes de sécurité par client
+                (scope, quotas, rate limit), les limites d'arguments JSON et
+                le filtrage des resources ; ``None`` → comportement 2.2.x
+                (appelants historiques et tests — aucun garde par client).
 
         Returns:
             La réponse JSON-RPC sérialisée à émettre, ou ``None`` pour une
@@ -294,7 +310,12 @@ class MCPServer:
         )
         latency_start = time.perf_counter()
         try:
-            response = self._dispatch(payload, client_id=client_id, correlation_id=correlation_id)
+            response = self._dispatch(
+                payload,
+                client_id=client_id,
+                correlation_id=correlation_id,
+                identity=identity,
+            )
         except ProtocolError as exc:
             contract = fallback_from_rpc_code(exc.code, exc.message, correlation_id=correlation_id)
             logger.warning(
@@ -343,6 +364,7 @@ class MCPServer:
         *,
         client_id: str,
         correlation_id: str = "",
+        identity: MCPIdentity | None = None,
     ) -> dict[str, Any] | None:
         """Dispatch d'un message déjà parsé → enveloppe JSON-RPC (ou None)."""
         if not isinstance(payload, dict):
@@ -369,7 +391,12 @@ class MCPServer:
                 "Invalid params: 'params' must be an object",
             )
         return self._handle_method(
-            method, request_id, params, client_id, correlation_id=correlation_id
+            method,
+            request_id,
+            params,
+            client_id,
+            correlation_id=correlation_id,
+            identity=identity,
         )
 
     def _handle_method(
@@ -380,6 +407,7 @@ class MCPServer:
         client_id: str,
         *,
         correlation_id: str = "",
+        identity: MCPIdentity | None = None,
     ) -> dict[str, Any]:
         """Dispatch d'une méthode de REQUÊTE (id présent) → réponse JSON-RPC.
 
@@ -391,6 +419,12 @@ class MCPServer:
         RICHE pour ``tools/call orchestrate`` — ouverte AVANT le dispatch pour
         capturer les événements du run (``_CURRENT_RECORDER``), clôturée après
         — et MINI-sessions pour les autres actions (``trace_action_flow``).
+
+        MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : une ``identity``
+        déclarée par le transport est propagée au contexte d'appel (Flow Map)
+        puis au dispatch (tools/runs/resources) — c'est elle qui porte le
+        ``tenant_id`` / ``subject_id`` estampillés sur les runs et les gardes
+        de sécurité par client.
         """
         flow_token: object | None = None
         recorder: MCPFlowRecorder | None = None  # session orchestrate riche
@@ -399,7 +433,12 @@ class MCPServer:
             # ``begin_orchestrate_flow`` (session riche) et par les hooks du
             # run (host sortant → ``current_recorder``). Nettoyé en ``finally``.
             flow_token = set_call_context(
-                MCPCallContext(client_id=client_id, request_id=_request_run_id(request_id))
+                MCPCallContext(
+                    client_id=client_id,
+                    request_id=_request_run_id(request_id),
+                    tenant_id=identity.tenant_id if identity is not None else "default",
+                    subject_id=identity.subject_id if identity is not None else "",
+                )
             )
             if method == MCPMethod.TOOLS_CALL and params.get("name") == "orchestrate":
                 args = self._arguments_or_empty(params)
@@ -410,10 +449,20 @@ class MCPServer:
                 )
         try:
             response = self._dispatch_method(
-                method, request_id, params, correlation_id=correlation_id
+                method,
+                request_id,
+                params,
+                correlation_id=correlation_id,
+                identity=identity,
             )
             self._audit_method(
-                method, params, response, client_id, request_id, correlation_id=correlation_id
+                method,
+                params,
+                response,
+                client_id,
+                request_id,
+                correlation_id=correlation_id,
+                identity=identity,
             )
             self._flow_method(method, params, response, client_id, request_id, recorder=recorder)
             return response
@@ -459,12 +508,17 @@ class MCPServer:
         params: dict[str, Any],
         *,
         correlation_id: str = "",
+        identity: MCPIdentity | None = None,
     ) -> dict[str, Any]:
         """Associe une méthode de requête à son handler (sans audit).
 
         MCP 2.3.0 — observabilité : ``initialize`` embarque le
         ``correlation_id`` de la requête dans le bloc ``_meta`` du résultat
         (le client relie le handshake à ses logs et à l'audit serveur).
+
+        MCP 2.3.0 (SCRUM-161) : ``identity`` est transmise aux handlers qui
+        portent des gardes d'isolation (``tools/call`` → scope/quotas/limites,
+        ``resources/read`` → whitelist ``visible_resources``).
         """
         if method == MCPMethod.INITIALIZE:
             result = self._initialize_result()
@@ -476,11 +530,11 @@ class MCPServer:
         if method == MCPMethod.TOOLS_LIST:
             return self._handle_tools_list(request_id, params)
         if method == MCPMethod.TOOLS_CALL:
-            return self._handle_tools_call(request_id, params)
+            return self._handle_tools_call(request_id, params, identity=identity)
         if method == MCPMethod.RESOURCES_LIST:
-            return self._handle_resources_list(request_id, params)
+            return self._handle_resources_list(request_id, params, identity=identity)
         if method == MCPMethod.RESOURCES_READ:
-            return self._handle_resources_read(request_id, params)
+            return self._handle_resources_read(request_id, params, identity=identity)
         if method == MCPMethod.PROMPTS_LIST:
             return self._handle_prompts_list(request_id, params)
         if method == MCPMethod.PROMPTS_GET:
@@ -518,6 +572,7 @@ class MCPServer:
         request_id: Any,
         *,
         correlation_id: str = "",
+        identity: MCPIdentity | None = None,
     ) -> None:
         """Journalise un appel MCP d'action via le hook d'audit injecté.
 
@@ -529,6 +584,10 @@ class MCPServer:
 
         MCP 2.3.0 — observabilité : ``detail["correlationId"]`` relie chaque
         entrée d'audit à la requête (logs serveur + réponse client).
+
+        MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : l'identité déclarée
+        est recopiée dans ``detail`` (``tenantId`` / ``subjectId``) — la piste
+        d'audit permet de rejouer QUI a appelé QUOI depuis QUEL tenant.
         """
         if method == MCPMethod.TOOLS_CALL:
             tool_name = params.get("name")
@@ -540,11 +599,18 @@ class MCPServer:
             tool_detail: dict[str, Any] = {
                 "method": method,
                 "tool": tool_name if isinstance(tool_name, str) else None,
+                # MCP 2.3.0 (SCRUM-161) : alias résolu → le nom CANONIQUE est
+                # tracé à côté du nom appelé (les quotas/de la sécurité
+                # s'apprécient sur le canonique).
+                "canonicalTool": (
+                    canonical_tool_name(tool_name) if isinstance(tool_name, str) else None
+                ),
                 "arguments": self._arguments_or_empty(params),
                 "is_error": self._response_is_error(response),
                 "scope": self.scope.value,
             }
             tool_detail.update(deprecation)
+            tool_detail.update(self._identity_detail(identity))
             if correlation_id:
                 tool_detail["correlationId"] = correlation_id
             self._audit_event(
@@ -596,7 +662,25 @@ class MCPServer:
             # (resources/read, prompts/get, sampling/create) — toute entrée
             # d'audit d'action porte l'identifiant de corrélation.
             detail["correlationId"] = correlation_id
+        # MCP 2.3.0 (SCRUM-161) : identité déclarée recopiée pour les mêmes
+        # raisons que ``tools/call`` (traçabilité multi-tenant de l'audit).
+        detail.update(self._identity_detail(identity))
         self._audit_event(audit_action, subject=client_id, detail=detail, run_id=request_id)
+
+    @staticmethod
+    def _identity_detail(identity: MCPIdentity | None) -> dict[str, str]:
+        """Identité déclarée projetée dans le détail d'audit (ou ``{}``).
+
+        Rien n'est ajouté pour un appelant non déclaré (``identity=None``) :
+        les consommateurs d'audit existants voient un ``detail`` STRICTEMENT
+        inchangé (compatibilité 2.2.x, aucun champ vide parasite).
+        """
+        if identity is None:
+            return {}
+        detail = {"tenantId": identity.tenant_id}
+        if identity.subject_id:
+            detail["subjectId"] = identity.subject_id
+        return detail
 
     @staticmethod
     def _arguments_or_empty(params: dict[str, Any]) -> dict[str, Any]:
@@ -817,8 +901,124 @@ class MCPServer:
             return error_result(request_id, ErrorCode.INVALID_PARAMS, error)
         return success_result(request_id, {"tools": result[0], **result[1]})
 
-    def _handle_tools_call(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
-        """Exécution d'un tool : validation paramètres → dispatch → isError."""
+    # --- Isolation multi-tenant (MCP 2.3.0, SCRUM-161) --------------------------------
+
+    @staticmethod
+    def _enforcer() -> Any:
+        """Enforceur de sécurité partagé (import PARESSEUX — anti-cycle).
+
+        ``scope_enforcer`` importe ``legacy_tool_provider`` qui importe ce
+        module (``ToolError``) : l'import est donc différé à l'exécution d'un
+        appel nécessitant réellement une garde (même pattern que
+        ``error_contract.structured_from_enforcer_error``). Les appelants
+        non identifiés ne paient jamais ce coût.
+        """
+        from app.infrastructure.mcp.security.scope_enforcer import (  # noqa: PLC0415
+            get_default_enforcer,
+        )
+
+        return get_default_enforcer()
+
+    @staticmethod
+    def _enforcer_error_type() -> type[Exception]:
+        """Classe de base des refus de l'enforceur (import paresseux)."""
+        from app.infrastructure.mcp.security.scope_enforcer import (  # noqa: PLC0415
+            MCPEnforcerError,
+        )
+
+        return MCPEnforcerError
+
+    @staticmethod
+    def _tool_argument_error(request_id: Any, exc: Exception) -> dict[str, Any]:
+        """Erreur ``validation_error`` réparable pour des arguments hors limites.
+
+        Même contrat que les autres refus de validation 2.3.0 : ``fieldErrors``
+        par champ + message sanitisé (le client sait quoi réduire).
+        """
+        message = sanitize_message(str(exc))
+        return error_result(
+            request_id,
+            ErrorCode.INVALID_PARAMS,
+            f"Invalid params: {message}",
+            data=structured_validation(
+                "Invalid tool arguments",
+                field_errors={"arguments": [message]},
+            ).to_data(),
+        )
+
+    def _security_gate(
+        self,
+        identity: MCPIdentity | None,
+        tool_name: str,
+        request_id: Any,
+    ) -> dict[str, Any] | None:
+        """Portail sécurité par client (scope → quota destructif → coût → débit).
+
+        S'applique UNIQUEMENT aux appelants DÉCLARÉS (identité portée par le
+        transport SSE/stdio) et quand l'isolation est active — un appelant
+        historique (``identity=None`` ou client ``anonymous``) conserve
+        strictement le comportement 2.2.x.
+
+        L'ALIAS est résolu par l'enforceur AVANT toute vérification : un alias
+        ne contourne jamais le scope, le quota ni le débit. Client inconnu du
+        store → refus (fail-closed, indiscernable d'un accès non autorisé).
+
+        Returns:
+            ``None`` si l'appel est autorisé, sinon la réponse d'erreur
+            JSON-RPC à émettre (aucune exception ne remonte au transport).
+        """
+        if identity is None or not tenant_isolation_enabled() or not identity.declared:
+            return None
+        enforcer_error = self._enforcer_error_type()
+        try:
+            self._enforcer().enforce(
+                identity.client_id,
+                tool_name,
+                tenant_id=identity.tenant_id,
+            )
+        except enforcer_error as exc:
+            logger.warning(
+                "MCP tools/call refusé (isolation tenant=%s client=%s tool=%s) : %s",
+                identity.tenant_id,
+                identity.client_id,
+                tool_name,
+                exc,
+            )
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                sanitize_message(str(exc)),
+                data=structured_from_enforcer_error(exc).to_data(),
+            )
+        except Exception:  # fail-closed : un enforceur indisponible refuse l'appel
+            logger.exception("MCP enforceur de sécurité indisponible (refus fail-closed)")
+            return error_result(
+                request_id,
+                ErrorCode.INTERNAL_ERROR,
+                "Internal security error",
+                data=structured_internal("Internal security error").to_data(),
+            )
+        return None
+
+    def _handle_tools_call(
+        self,
+        request_id: Any,
+        params: dict[str, Any],
+        *,
+        identity: MCPIdentity | None = None,
+    ) -> dict[str, Any]:
+        """Exécution d'un tool : validation paramètres → dispatch → isError.
+
+        MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) :
+
+            1. **Limites d'arguments JSON** (taille sérialisée + profondeur) —
+               parage amont d'un payload ad-versarial (``validation_error``) ;
+            2. **Alias** — le nom CANONIQUE est résolu pour les vérifications de
+               sécurité (scope, quotas) : ``stop_training`` est jugé comme
+               ``cancel_training``, jamais autrement ;
+            3. **Portail sécurité** — scope, quota destructif, quota de coût et
+               débit par client (uniquement pour une identité DÉCLARÉE).
+        """
         name = params.get("name")
         if not isinstance(name, str) or not name:
             return error_result(
@@ -833,9 +1033,25 @@ class MCPServer:
                 ErrorCode.INVALID_PARAMS,
                 "Invalid params: 'arguments' must be an object",
             )
+        # 1. Limites de PAYLOAD (taille + profondeur) — avant toute résolution.
+        try:
+            check_json_arguments(dict(arguments or {}))
+        except MCPArgumentLimitError as exc:
+            logger.info("MCP tool %s → arguments hors limites : %s", name, exc)
+            return self._tool_argument_error(request_id, exc)
         if name not in {tool.name for tool in self._visible_tools()}:
             # Indiscernable d'un tool absent : aucun oracle de visibilité (scope).
             return error_result(request_id, ErrorCode.INVALID_PARAMS, f"Unknown tool: {name}")
+        # 2. + 3. Alias résolu puis portail sécurité par client (no-op pour un
+        # appelant non déclaré → compatibilité 2.2.x intégrale).
+        canonical = canonical_tool_name(name)
+        known = {tool.name for tool in self._visible_tools()}
+        if canonical != name and canonical not in known:
+            # Alias pointant vers un tool NON déclaré : refus (aucun contournement).
+            return error_result(request_id, ErrorCode.INVALID_PARAMS, f"Unknown tool: {name}")
+        denied = self._security_gate(identity, canonical, request_id)
+        if denied is not None:
+            return denied
         # MCP 2.3.0 : tool déprécié → l'appel PROCEDE (compatibilité) mais est
         # averti ; l'audit dédié est émis plus bas (tâche 12, _audit_method).
         for tool in self._visible_tools():
@@ -859,27 +1075,90 @@ class MCPServer:
 
     # --- resources/list & resources/read (tâche 8) -------------------------------------
 
-    def _handle_resources_list(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    def _handle_resources_list(
+        self,
+        request_id: Any,
+        params: dict[str, Any],
+        *,
+        identity: MCPIdentity | None = None,
+    ) -> dict[str, Any]:
         """``resources/list`` : catalogue des resources exposées (pagination v2.3.0).
 
         La liste est rendue par le port (vérité non filtrée) ; le filtrage par
         scope s'ajoutera avec le client store (S4, tâche 11) — toutes les
         resources v1.0.0 sont read-only (visibles de tout rôle).
+
+        MCP 2.3.0 (SCRUM-161) : pour un appelant DÉCLARÉ, la liste est d'abord
+        restreinte à sa whitelist ``visible_resources`` — un client ne voit
+        jamais, même dans le catalogue, une resource qu'il n'a pas le droit de
+        lire (aucun oracle de surface).
         """
         if self.resource_provider is None:
             # Aucun registre branché (constructions sur mesure) : surface vide.
             return success_result(request_id, {"resources": []})
-        result, error = self._paginated_catalog(
-            KIND_RESOURCES,
-            params,
-            [resource.to_dict() for resource in self.resource_provider.list_resources()],
-        )
+        visible_patterns = self._visible_resource_patterns(identity)
+        resources = [
+            resource.to_dict()
+            for resource in self.resource_provider.list_resources()
+            if self._resource_allowed(visible_patterns, resource.uri)
+        ]
+        result, error = self._paginated_catalog(KIND_RESOURCES, params, resources)
         if error is not None:
             return error_result(request_id, ErrorCode.INVALID_PARAMS, error)
         return success_result(request_id, {"resources": result[0], **result[1]})
 
-    def _handle_resources_read(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
-        """``resources/read`` : résolution d'une URI → contenu du tool interne."""
+    def _visible_resource_patterns(self, identity: MCPIdentity | None) -> list[str] | None:
+        """Whitelist de resources du client (``None`` = pas de filtrage).
+
+        ``None`` est retourné pour tout appelant non déclaré (comportement
+        2.2.x intégral) ou si l'isolation est désactivée. Pour un client
+        déclaré, la résolution fail-closed de son scope s'applique : client
+        inconnu/révoqué → liste VIDE (aucune resource exposée).
+        """
+        if identity is None or not tenant_isolation_enabled() or not identity.declared:
+            return None
+        try:
+            scope = self._enforcer().scope_for(
+                identity.client_id,
+                tenant_id=identity.tenant_id,
+            )
+        except Exception:  # client inconnu/révoqué/hors tenant → surface vide
+            logger.info(
+                "MCP resources : scope indisponible (isolation tenant=%s client=%s)",
+                identity.tenant_id,
+                identity.client_id,
+            )
+            return []
+        return list(scope.visible_resources)
+
+    @staticmethod
+    def _resource_allowed(patterns: list[str] | None, uri: str) -> bool:
+        """L'URI est-elle dans la whitelist (``None`` → non filtré) ?
+
+        Une whitelist VIDE n'est PAS un refus global : elle signifie « toutes
+        les resources visibles du rôle » (même sémantique que ``visible_tools``,
+        cf. ``effective_tools``). Les patterns acceptent ``*`` (glob shell).
+        """
+        if patterns is None or not patterns:
+            return True
+        return any(
+            pattern == uri or fnmatch.fnmatchcase(uri, pattern) for pattern in patterns
+        )
+
+    def _handle_resources_read(
+        self,
+        request_id: Any,
+        params: dict[str, Any],
+        *,
+        identity: MCPIdentity | None = None,
+    ) -> dict[str, Any]:
+        """``resources/read`` : résolution d'une URI → contenu du tool interne.
+
+        MCP 2.3.0 (SCRUM-161 — isolation multi-tenant) : pour un appelant
+        DÉCLARÉ, l'URI doit appartenir à la whitelist ``visible_resources`` du
+        client — sinon la réponse est INDISCERNABLE d'une URI inconnue
+        (``not_found``), sans révéler l'existence de la resource.
+        """
         if self.resource_provider is None:
             # Symétrique de « unknown tool » : une surface sans resources est
             # indiscernable d'une URI inconnue (aucun oracle d'implémentation).
@@ -894,6 +1173,21 @@ class MCPServer:
                 request_id,
                 ErrorCode.INVALID_PARAMS,
                 "Invalid params: 'uri' (str) is required",
+            )
+        patterns = self._visible_resource_patterns(identity)
+        if patterns is not None and not self._resource_allowed(patterns, uri):
+            logger.warning(
+                "MCP resources/read refusé (isolation tenant=%s client=%s uri=%s)",
+                identity.tenant_id if identity else "-",
+                identity.client_id if identity else "-",
+                uri,
+            )
+            message = f"Unknown resource: {uri}"
+            return error_result(
+                request_id,
+                ErrorCode.INVALID_PARAMS,
+                message,
+                data=structured_not_found(message).to_data(),
             )
         try:
             text = self.resource_provider.read_resource(uri)

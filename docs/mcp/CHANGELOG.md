@@ -5,6 +5,91 @@
 > garanties de migration (SemVer : breaking changes → major bump).
 
 ---
+## Unreleased — isolation multi-tenant (MCP 2.3.0, SCRUM-161)
+
+> **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (inchangée).
+> Tout est **additif** : identité normalisée optionnelle, champs de scope et
+> d'état avec défauts rétro-compatibles, gate d'activation par défaut avec
+> rollback explicite — les clients 2.2.x (sans en-têtes d'identité) gardent
+> le comportement exact d'avant.
+
+### Added — identité déclarée (`MCPIdentity`, `tenant_isolation.py`)
+
+- **Nouveau module pur `app/infrastructure/mcp/tenant_isolation.py`** (aucune
+  I/O, aucun transport) : identité normalisée (`tenant_id` / `client_id` /
+  `subject_id` — charset `[A-Za-z0-9._-]`, 64 max, fail-closed),
+  `TOOL_ALIASES` + `canonical_tool_name()` (`stop_training` →
+  `cancel_training`), `check_json_arguments()` (taille sérialisée +
+  profondeur itérative — jamais de `RecursionError`), `assert_run_owner()` /
+  `owner_matches()` (garde fail-closed, cross-tenant indiscernable d'un run
+  inconnu) ;
+- **Transports** : le SSE résout `X-Tenant-Id` / `X-Client-Id` /
+  `X-Subject-Id` (`resolve_transport_identity`) et propage l'identité à
+  `handle_text` / `_stream_orchestrate` / `_replay_durable_events` ; le stdio
+  dérive une identité fixe de son environnement ; l'audit est enrichi
+  (`detail["tenant"]`, `detail["subject"]`) ;
+- **Gate d'activation** : `MCP_TENANT_ISOLATION` (défaut actif, fail-closed —
+  même convention que `MCP_AUTH_REQUIRED`) ; rollback explicite
+  `MCP_TENANT_ISOLATION=0` (comportement 2.2.x restauré pour les appels
+  déclarés) ; client inconnu du store → **deny** (fail-closed).
+
+### Added — isolation des runs durables
+
+- `MCPDurableRunState` + champs propriétaire (`tenant_id` / `client_id` /
+  `subject_id`, défaut `""` = run legacy) ; relecture tolérante des snapshots
+  antérieurs à 2.3.0 (strangler pattern) ; `MCPOrchestrationRequest` porte
+  l'identité du transport (jamais saisie dans les arguments du tool) ;
+- L'adapter estampille le créateur à la création (`run`, `prepare_run`,
+  `retry`) et garde `get_run` / `get_events` / `cancel` / `retry` /
+  `prepare_run` / replay SSE / `list_runs` (cross-tenant → indiscernable d'un
+  run inconnu — aucun oracle) ; runs legacy lisibles uniquement depuis le
+  tenant `default` ;
+- **Quota de DURÉE** : `MultiAgentMCPAdapter(max_run_seconds=...)`
+  (config d'exploitation `MCP_RUN_MAX_SECONDS`, défaut 900) — un run non
+  terminal dépassé est expiré (état `expired` +
+  `last_error="duration_quota_exceeded"`, réessayable via `runs/retry`).
+
+### Added — enforceur : alias, cohérence tenant, quota de coût
+
+- `scope_enforcer.py` : `check_scope` / `check_quota` / `check_cost_quota`
+  canonisent l'**alias d'abord** (scope et quotas s'apprécient sur le nom
+  canonique — un alias ne contourne ni ne double-compte) ; `resolve_scope`
+  valide la **cohérence tenant** (en-tête ≠ `scope.tenant_id` → denied) ;
+  nouveau `check_cost_quota()` (1 unité par appel `orchestrate`, fenêtre
+  glissante par `tenant_id:client_id`, plafond `cost_quota_per_hour`) ;
+  `enforce()` = scope → quota destructif → coût → rate limit ;
+- `mcp_server.py` : `handle_text(..., identity=None)` ; `_handle_tools_call`
+  applique les limites JSON (`validation_error` + `fieldErrors`, contrat
+  2.3.0) puis `enforce()` ; `_handle_resources_read` applique la whitelist
+  `visible_resources` du scope (fail-closed si déclarée, comportement
+  historique sinon) ;
+- Compatibilité 2.2.x : `identity=None` ≡ non passé partout (fabrique
+  `identity_kwargs()`, kwargs conditionnels côté SSE) — les ports/fakes
+  antérieurs restent appelables ; les appels non déclarés ne déclenchent
+  **aucune** garde.
+
+### Added — limites JSON configurables
+
+- `MCP_MAX_JSON_BYTES` (défaut 256 Ko, plancher 1024) /
+  `MCP_MAX_JSON_DEPTH` (défaut 32, plancher 4) — lues à l'appel (même pattern
+  que `mcp_auth_required()` / `run_sweeper._env_int`) ; ordre invariant :
+  profondeur AVANT taille (la mesure de taille est récursive).
+
+### Tests — `backend/tests/test_mcp_tenant_isolation.py` (27 tests)
+
+- Sections 1–5 : estampille + isolation inter-tenant (lecture/événements/
+  cancel/retry/list/legacy/prepare), scope (inconnu/tenant incohérent/
+  révoqué), alias (résolution, non-bypass, comptage canonique), limites JSON
+  (taille, profondeur sans `RecursionError`, env), quotas (burst + refill,
+  isolation par client, coût par `tenant:client`, fenêtre glissante, durée →
+  `expired` + raison dédiée) ;
+- Section 6 (intégration `handle_text`) : gate `tools/call` (inconnu refusé,
+  connu autorisé, mismatch tenant refusé), filtrage `resources/read`
+  (whitelist + message « Unknown resource » + témoin legacy), rejet des
+  arguments surdimensionnés (`validation_error`).
+
+---
+
 ## Unreleased — observabilité et corrélation (MCP 2.3.0, SCRUM-161)
 
 > **Version de surface** : `[tool.mcp].version` = **`2.3.0`** (inchangée).

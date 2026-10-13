@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from app.domain.ports.mcp_ports import MCPDurableRunState
+from app.domain.ports.mcp_ports import MCPDurableRunState, MCPIdentity
 
 
 class MCPDurableRunStore:
@@ -65,6 +65,9 @@ class MCPDurableRunStore:
         request_fingerprint: str | None = None,
         parent_run_id: str | None = None,
         retry_count: int = 0,
+        # MCP 2.3.0 (SCRUM-161) : estampille de propriété du créateur
+        # (isolation multi-tenant) — ``None`` → run non estampillé (legacy).
+        owner: MCPIdentity | None = None,
     ) -> MCPDurableRunState:
         normalized_id = str(run_id or "").strip()
         if not normalized_id:
@@ -74,6 +77,10 @@ class MCPDurableRunStore:
             request_fingerprint=request_fingerprint,
             parent_run_id=parent_run_id,
             retry_count=int(retry_count),
+            # Estampille de propriété (tenant / client / sujet du créateur).
+            tenant_id=owner.tenant_id if owner is not None else "",
+            client_id=owner.client_id if owner is not None else "",
+            subject_id=owner.subject_id if owner is not None else "",
         )
         with self._lock, self._connect() as connection:
             existing = connection.execute(
@@ -101,6 +108,11 @@ class MCPDurableRunStore:
             run_id=payload["run_id"],
             request_fingerprint=payload.get("request_fingerprint"),
             parent_run_id=payload.get("parent_run_id"),
+            # MCP 2.3.0 (SCRUM-161) : estampille de propriété — relecture
+            # tolérante (snapshot antérieur à 2.3.0 → champs absents = legacy).
+            tenant_id=payload.get("tenant_id", ""),
+            client_id=payload.get("client_id", ""),
+            subject_id=payload.get("subject_id", ""),
             lease_owner=payload.get("lease_owner"),
             lease_expires_at=(
                 datetime.fromisoformat(payload["lease_expires_at"])
@@ -361,6 +373,11 @@ class MCPDurableRunStore:
             run_id=payload["run_id"],
             request_fingerprint=payload.get("request_fingerprint"),
             parent_run_id=payload.get("parent_run_id"),
+            # MCP 2.3.0 (SCRUM-161) : estampille de propriété — relecture
+            # tolérante (snapshot antérieur à 2.3.0 → champs absents = legacy).
+            tenant_id=payload.get("tenant_id", ""),
+            client_id=payload.get("client_id", ""),
+            subject_id=payload.get("subject_id", ""),
             lease_owner=payload.get("lease_owner"),
             lease_expires_at=(
                 datetime.fromisoformat(payload["lease_expires_at"])
